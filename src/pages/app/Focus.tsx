@@ -2,18 +2,29 @@ import { useEffect, useRef, useState } from "react";
 import { useNavigate, useParams } from "react-router-dom";
 import { supabase } from "@/integrations/supabase/client";
 import { Block } from "@/lib/daydraft";
-import { Check, ChevronRight, Minus } from "lucide-react";
+import { Check, ChevronRight, Minus, Sparkles, MapPin, ExternalLink, Loader2, Lightbulb } from "lucide-react";
 import { useAuth } from "@/hooks/useAuth";
+import { mapsUrl } from "@/lib/maps";
+
+type AIHelp = {
+  substeps: string[];
+  links: { label: string; url: string }[];
+  tip: string;
+};
 
 export default function Focus() {
   const { blockId } = useParams();
   const nav = useNavigate();
   const { user } = useAuth();
-  const [block, setBlock] = useState<Block | null>(null);
+  const [block, setBlock] = useState<any | null>(null);
   const [next, setNext] = useState<Block | null>(null);
   const [remaining, setRemaining] = useState<number>(0); // seconds
   const [total, setTotal] = useState<number>(1);
   const [showCheck, setShowCheck] = useState(false);
+  const [help, setHelp] = useState<AIHelp | null>(null);
+  const [helpLoading, setHelpLoading] = useState(false);
+  const [helpError, setHelpError] = useState<string | null>(null);
+  const [helpOpen, setHelpOpen] = useState(false);
   const tickRef = useRef<number | null>(null);
 
   useEffect(() => {
@@ -49,6 +60,31 @@ export default function Focus() {
   }, [block?.id]);
 
   useEffect(() => { if (block && remaining <= 0) complete(); /* eslint-disable-line */ }, [remaining]);
+
+  const loadHelp = async () => {
+    if (!block || helpLoading) return;
+    setHelpOpen(true);
+    if (help) return;
+    setHelpLoading(true);
+    setHelpError(null);
+    try {
+      const { data, error } = await supabase.functions.invoke("task-assistant", {
+        body: {
+          title: block.title,
+          type: block.type,
+          location: block.location,
+          duration_min: block.duration_min,
+        },
+      });
+      if (error) throw error;
+      setHelp(data as AIHelp);
+    } catch (e: any) {
+      console.error(e);
+      setHelpError(e?.message || "Couldn't load assistant");
+    } finally {
+      setHelpLoading(false);
+    }
+  };
 
   const complete = async () => {
     if (!block) return;
@@ -120,6 +156,87 @@ export default function Focus() {
 
         <div className="mt-auto pt-10 text-secondary-fg text-[13px]">
           {next ? <>Next up: <span className="text-foreground">{next.title}</span></> : "Last block — finish strong."}
+        </div>
+
+        {/* AI Assistant panel */}
+        <div className="w-full mt-6">
+          {!helpOpen ? (
+            <button
+              onClick={loadHelp}
+              className="w-full h-11 rounded-xl bg-surface border border-border text-sm font-medium pressable inline-flex items-center justify-center gap-2 text-foreground"
+            >
+              <Sparkles className="h-4 w-4 text-primary" />
+              Ask AI to help with this task
+            </button>
+          ) : (
+            <div className="rounded-2xl border border-border bg-surface p-4 space-y-3 text-left">
+              <div className="flex items-center gap-2 text-xs font-medium text-primary uppercase tracking-wider">
+                <Sparkles className="h-3.5 w-3.5" /> AI Assistant
+              </div>
+              {block.location && (
+                <a
+                  href={mapsUrl(block.location, block.location_lat, block.location_lng)}
+                  target="_blank"
+                  rel="noreferrer"
+                  className="flex items-center gap-2 text-sm text-foreground bg-background rounded-xl px-3 py-2 border border-border pressable"
+                >
+                  <MapPin className="h-4 w-4 text-primary shrink-0" />
+                  <span className="truncate flex-1">{block.location}</span>
+                  <ExternalLink className="h-3.5 w-3.5 text-secondary-fg" />
+                </a>
+              )}
+              {helpLoading && (
+                <div className="flex items-center gap-2 text-sm text-secondary-fg py-3 justify-center">
+                  <Loader2 className="h-4 w-4 animate-spin" /> Thinking…
+                </div>
+              )}
+              {helpError && (
+                <div className="text-sm text-destructive">{helpError}</div>
+              )}
+              {help && (
+                <>
+                  {help.substeps?.length > 0 && (
+                    <div>
+                      <div className="text-[11px] uppercase tracking-wider text-secondary-fg mb-1.5">Steps</div>
+                      <ol className="space-y-1.5">
+                        {help.substeps.map((s, i) => (
+                          <li key={i} className="flex items-start gap-2 text-sm">
+                            <span className="h-5 w-5 rounded-full bg-primary/10 text-primary text-[11px] font-semibold flex items-center justify-center shrink-0 mt-0.5">{i + 1}</span>
+                            <span className="text-foreground">{s}</span>
+                          </li>
+                        ))}
+                      </ol>
+                    </div>
+                  )}
+                  {help.links?.length > 0 && (
+                    <div>
+                      <div className="text-[11px] uppercase tracking-wider text-secondary-fg mb-1.5">Useful links</div>
+                      <div className="space-y-1">
+                        {help.links.map((l, i) => (
+                          <a
+                            key={i}
+                            href={l.url}
+                            target="_blank"
+                            rel="noreferrer"
+                            className="flex items-center gap-2 text-sm text-primary hover:underline"
+                          >
+                            <ExternalLink className="h-3.5 w-3.5 shrink-0" />
+                            <span className="truncate">{l.label}</span>
+                          </a>
+                        ))}
+                      </div>
+                    </div>
+                  )}
+                  {help.tip && (
+                    <div className="flex items-start gap-2 bg-primary/5 border border-primary/20 rounded-xl px-3 py-2 text-sm text-foreground">
+                      <Lightbulb className="h-4 w-4 text-primary shrink-0 mt-0.5" />
+                      <span>{help.tip}</span>
+                    </div>
+                  )}
+                </>
+              )}
+            </div>
+          )}
         </div>
       </div>
     </div>
