@@ -16,6 +16,7 @@ export interface Profile {
   energy_zones?: { peak?: [number, number]; dip?: [number, number]; recovery?: [number, number] } | null;
   morning_nudge_local_time?: string;
   evening_nudge_local_time?: string;
+  tour_seen?: Record<string, boolean>;
 }
 
 type ProfileCtx = {
