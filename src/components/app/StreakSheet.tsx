@@ -3,16 +3,18 @@ import { Sheet, SheetContent, SheetHeader, SheetTitle } from "@/components/ui/sh
 import { useStreak } from "@/hooks/useStreak";
 import { useAuth } from "@/hooks/useAuth";
 import { supabase } from "@/integrations/supabase/client";
-import { Flame, Snowflake, Trophy, Share2 } from "lucide-react";
+import { Flame, Snowflake, Trophy, Share2, RotateCcw } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { toast } from "sonner";
+import { todayDateStr } from "@/lib/daydraft";
+import { haptics } from "@/lib/haptics";
 
 const WEEKS = 12;
 
 const dateKey = (d: Date) => d.toISOString().slice(0, 10);
 
 export const StreakSheet = ({ open, onOpenChange }: { open: boolean; onOpenChange: (v: boolean) => void }) => {
-  const { streak } = useStreak();
+  const { streak, restoreWithFreeze } = useStreak();
   const { user } = useAuth();
   const [planned, setPlanned] = useState<Set<string>>(new Set());
   const [sharing, setSharing] = useState(false);
@@ -47,6 +49,21 @@ export const StreakSheet = ({ open, onOpenChange }: { open: boolean; onOpenChang
   const current = streak?.current_streak ?? 0;
   const longest = streak?.longest_streak ?? 0;
   const freezes = streak?.freezes_remaining ?? 0;
+
+  // Recovery is offered when the user planned exactly two days ago (yesterday was missed)
+  // and they still have a freeze available.
+  const canRestore = (() => {
+    if (!streak?.last_planned_date || freezes < 1) return false;
+    const t = new Date(todayDateStr() + "T00:00:00").getTime();
+    const lp = new Date(streak.last_planned_date + "T00:00:00").getTime();
+    return Math.round((t - lp) / 86400000) === 2;
+  })();
+
+  const restore = async () => {
+    const ok = await restoreWithFreeze();
+    if (ok) { haptics.notify("success"); toast.success("Streak restored 🔥"); }
+    else toast.error("Couldn't restore");
+  };
 
   const share = async () => {
     setSharing(true);
@@ -135,6 +152,20 @@ export const StreakSheet = ({ open, onOpenChange }: { open: boolean; onOpenChang
           <Snowflake className="h-3.5 w-3.5" />
           <span>One freeze auto-saves your streak if you miss a single day. Refills weekly.</span>
         </div>
+
+        {canRestore && (
+          <button onClick={restore}
+            className="w-full mt-4 flex items-center gap-3 px-4 py-3 rounded-2xl border border-primary/30 bg-primary/5 text-left pressable">
+            <div className="h-9 w-9 rounded-full bg-primary/10 flex items-center justify-center shrink-0">
+              <RotateCcw className="h-4 w-4 text-primary" />
+            </div>
+            <div className="flex-1 min-w-0">
+              <div className="text-sm font-medium text-foreground">Missed yesterday?</div>
+              <div className="text-xs text-secondary-fg">Use a freeze to keep your {current}-day streak alive.</div>
+            </div>
+            <span className="text-xs font-semibold text-primary shrink-0">Restore →</span>
+          </button>
+        )}
 
         <Button onClick={share} disabled={sharing || current === 0} className="w-full mt-6 h-12 rounded-xl text-primary-foreground font-medium pressable shadow-glow"
           style={{ background: "var(--gradient-primary)" }}>

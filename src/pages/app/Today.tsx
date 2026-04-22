@@ -18,6 +18,7 @@ import { Bookmark } from "lucide-react";
 import { ClarifySheet, ClarifiedTask } from "@/components/app/ClarifySheet";
 import { QuickCaptureButton } from "@/components/app/QuickCapture";
 import { useTour, TOUR_TODAY } from "@/components/app/Tour";
+import { haptics } from "@/lib/haptics";
 
 const placeholder = `Drop your tasks here...
 
@@ -120,6 +121,7 @@ export default function Today() {
 
   const plan = async (clarified: ClarifiedTask[]) => {
     if (!user || !profile) return;
+    haptics.impact("medium");
     setClarifyOpen(false);
     setBusy(true);
     sessionStorage.setItem("dd_planning_input", input);

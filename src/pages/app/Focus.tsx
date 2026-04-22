@@ -7,6 +7,7 @@ import { useAuth } from "@/hooks/useAuth";
 import { mapsUrl } from "@/lib/maps";
 import { toast } from "sonner";
 import { useTimeTracker, fmtHMS } from "@/hooks/useTimeTracker";
+import { haptics } from "@/lib/haptics";
 
 type AIHelp = {
   substeps: string[];
@@ -111,6 +112,7 @@ export default function Focus() {
 
   const complete = async () => {
     if (!block) return;
+    haptics.notify("success");
     setShowCheck(true);
     await supabase.from("blocks").update({ completed: true }).eq("id", block.id);
     setTimeout(() => {
@@ -121,6 +123,7 @@ export default function Focus() {
 
   const skip = async () => {
     if (!block) return;
+    haptics.impact("light");
     await supabase.from("blocks").update({ completed: true }).eq("id", block.id);
     if (next) nav(`/focus/${next.id}`); else nav("/recap");
   };

@@ -53,7 +53,7 @@ export const TabBar = () => {
         <div className="mx-4 mb-4 rounded-2xl bg-surface-elevated/90 backdrop-blur border border-border shadow-card flex items-center justify-around py-3">
           {items.slice(0, 2).map(({ to, icon: Icon }) => (
             <NavLink key={to} to={to} className={({ isActive }) =>
-              `relative flex flex-col items-center justify-center w-12 h-10 pressable ${isActive ? "text-primary" : "text-secondary-fg"}`}>
+              `relative flex flex-col items-center justify-center min-w-[44px] min-h-[44px] pressable ${isActive ? "text-primary" : "text-secondary-fg"}`}>
               {({ isActive }) => (
                 <>
                   <Icon className="h-5 w-5" strokeWidth={2.2} />
@@ -66,7 +66,7 @@ export const TabBar = () => {
           <button
             onClick={() => setTrackerOpen(true)}
             data-tour="tracker"
-            className={`relative flex flex-col items-center justify-center w-12 h-10 pressable ${active ? "text-primary" : "text-secondary-fg"}`}
+            className={`relative flex flex-col items-center justify-center min-w-[44px] min-h-[44px] pressable ${active ? "text-primary" : "text-secondary-fg"}`}
             aria-label="Time tracker"
           >
             <Timer className="h-5 w-5" strokeWidth={2.2} />
@@ -75,7 +75,7 @@ export const TabBar = () => {
 
           {items.slice(2).map(({ to, icon: Icon }) => (
             <NavLink key={to} to={to} className={({ isActive }) =>
-              `relative flex flex-col items-center justify-center w-12 h-10 pressable ${isActive ? "text-primary" : "text-secondary-fg"}`}>
+              `relative flex flex-col items-center justify-center min-w-[44px] min-h-[44px] pressable ${isActive ? "text-primary" : "text-secondary-fg"}`}>
               {({ isActive }) => (
                 <>
                   <Icon className="h-5 w-5" strokeWidth={2.2} />
