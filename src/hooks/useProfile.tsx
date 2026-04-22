@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { createContext, useContext, useEffect, useState, ReactNode } from "react";
 import { supabase } from "@/integrations/supabase/client";
 import { useAuth } from "./useAuth";
 
@@ -18,13 +18,23 @@ export interface Profile {
   evening_nudge_local_time?: string;
 }
 
-export const useProfile = () => {
+type ProfileCtx = {
+  profile: Profile | null;
+  loading: boolean;
+  refresh: () => Promise<void>;
+  update: (patch: Partial<Profile>) => Promise<void>;
+};
+
+const Ctx = createContext<ProfileCtx | null>(null);
+
+export function ProfileProvider({ children }: { children: ReactNode }) {
   const { user } = useAuth();
   const [profile, setProfile] = useState<Profile | null>(null);
   const [loading, setLoading] = useState(true);
 
   const refresh = async () => {
     if (!user) { setProfile(null); setLoading(false); return; }
+    setLoading(true);
     const { data } = await supabase.from("profiles").select("*").eq("id", user.id).maybeSingle();
     setProfile(data as Profile | null);
     setLoading(false);
@@ -37,5 +47,11 @@ export const useProfile = () => {
     if (data) setProfile(data as Profile);
   };
 
-  return { profile, loading, refresh, update };
+  return <Ctx.Provider value={{ profile, loading, refresh, update }}>{children}</Ctx.Provider>;
+}
+
+export const useProfile = (): ProfileCtx => {
+  const ctx = useContext(Ctx);
+  if (!ctx) throw new Error("useProfile must be used inside ProfileProvider");
+  return ctx;
 };
