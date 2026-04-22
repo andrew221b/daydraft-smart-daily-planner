@@ -206,6 +206,15 @@ export function TrackerSheet({ open, onOpenChange }: { open: boolean; onOpenChan
 
   const monthLabel = monthCursor.toLocaleDateString(undefined, { month: "long", year: "numeric" });
 
+  // Smart stop: if running session is < 60s, confirm (likely accidental tap).
+  const handleStop = async () => {
+    if (active && elapsedSec < 60) {
+      const ok = window.confirm("Stop after less than a minute? This session will still be saved.");
+      if (!ok) return;
+    }
+    await stop();
+  };
+
   // ----- PDF export -----
   const exportPDF = () => {
     if (!isPro) { setUpgradeOpen(true); return; }
