@@ -22,6 +22,10 @@ Return:
 - 3-5 concrete sub-steps (verb-led, max 8 words each) that break the task down.
 - 2-4 useful resource links (real, well-known URLs only — docs, official sites, common tools). If you're not certain a URL is correct, omit it. Do not invent links.
 - One pro tip (1 sentence) tailored to the task type.
+- If the task looks like writing an email, slack/sms message, or short note (verbs: "email", "write to", "reply", "message", "DM", "text", "send to"), produce a "draft" object:
+  • subject (omit/empty for chat messages)
+  • body: 3-8 lines, ready to send, friendly-professional, fill placeholders like [Name] / [Date]
+  • If the task is NOT a writing task, omit the draft field entirely (do not include empty strings).
 Be terse. No fluff. No greetings.`;
 
     const tools = [{
@@ -46,6 +50,15 @@ Be terse. No fluff. No greetings.`;
               },
             },
             tip: { type: "string" },
+            draft: {
+              type: "object",
+              properties: {
+                subject: { type: "string" },
+                body: { type: "string" },
+              },
+              required: ["body"],
+              additionalProperties: false,
+            },
           },
           required: ["substeps", "links", "tip"],
           additionalProperties: false,
