@@ -14,7 +14,116 @@ export type Database = {
   }
   public: {
     Tables: {
-      [_ in never]: never
+      blocks: {
+        Row: {
+          completed: boolean
+          created_at: string
+          duration_min: number
+          id: string
+          kind: string
+          plan_id: string
+          position: number
+          start_time: string
+          title: string
+          type: string
+          user_id: string
+        }
+        Insert: {
+          completed?: boolean
+          created_at?: string
+          duration_min: number
+          id?: string
+          kind?: string
+          plan_id: string
+          position?: number
+          start_time: string
+          title: string
+          type: string
+          user_id: string
+        }
+        Update: {
+          completed?: boolean
+          created_at?: string
+          duration_min?: number
+          id?: string
+          kind?: string
+          plan_id?: string
+          position?: number
+          start_time?: string
+          title?: string
+          type?: string
+          user_id?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "blocks_plan_id_fkey"
+            columns: ["plan_id"]
+            isOneToOne: false
+            referencedRelation: "plans"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      plans: {
+        Row: {
+          ai_subtext: string | null
+          ai_summary: string | null
+          created_at: string
+          date: string
+          id: string
+          raw_input: string
+          user_id: string
+        }
+        Insert: {
+          ai_subtext?: string | null
+          ai_summary?: string | null
+          created_at?: string
+          date?: string
+          id?: string
+          raw_input: string
+          user_id: string
+        }
+        Update: {
+          ai_subtext?: string | null
+          ai_summary?: string | null
+          created_at?: string
+          date?: string
+          id?: string
+          raw_input?: string
+          user_id?: string
+        }
+        Relationships: []
+      }
+      profiles: {
+        Row: {
+          created_at: string
+          display_name: string | null
+          energy_preference: string
+          id: string
+          notifications_enabled: boolean
+          onboarded: boolean
+          updated_at: string
+        }
+        Insert: {
+          created_at?: string
+          display_name?: string | null
+          energy_preference?: string
+          id: string
+          notifications_enabled?: boolean
+          onboarded?: boolean
+          updated_at?: string
+        }
+        Update: {
+          created_at?: string
+          display_name?: string | null
+          energy_preference?: string
+          id?: string
+          notifications_enabled?: boolean
+          onboarded?: boolean
+          updated_at?: string
+        }
+        Relationships: []
+      }
     }
     Views: {
       [_ in never]: never
