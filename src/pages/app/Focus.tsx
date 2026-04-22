@@ -165,6 +165,13 @@ export default function Focus() {
     <div className="min-h-screen w-full bg-background flex justify-center">
       <div className="relative w-full max-w-[390px] min-h-screen flex flex-col items-center px-6 pt-14 pb-10 page-enter">
         <div className="px-3 py-1 rounded-full bg-primary/10 border border-primary/30 text-[11px] tracking-[0.2em] text-primary font-medium uppercase">Focus Mode</div>
+        {tracking && trackingCat && (
+          <div className="mt-2 inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full bg-surface border border-border text-[11px] text-secondary-fg">
+            <span className="h-1.5 w-1.5 rounded-full animate-pulse" style={{ background: trackingCat.color }} />
+            Tracking · <span className="text-foreground font-medium">{trackingCat.name}</span>
+            <span className="font-mono tabular-nums">{fmtHMS(elapsedSec)}</span>
+          </div>
+        )}
 
         <h1 className="mt-12 text-[28px] font-semibold text-center leading-tight max-w-[300px] line-clamp-2">{block.title}</h1>
 
