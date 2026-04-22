@@ -16,6 +16,7 @@ import { useEntitlement } from "@/hooks/useEntitlement";
 import { UpgradeSheet } from "@/components/app/UpgradeSheet";
 import { Bookmark } from "lucide-react";
 import { ClarifySheet, ClarifiedTask } from "@/components/app/ClarifySheet";
+import { QuickCaptureButton } from "@/components/app/QuickCapture";
 
 const placeholder = `Drop your tasks here...
 
@@ -46,7 +47,7 @@ export default function Today() {
     (async () => {
       const { data: caps } = await supabase.from("quick_captures").select("*").eq("user_id", user.id).eq("consumed", false);
       if (caps && caps.length) {
-        const block = caps.map((c: any) => c.content).join("\n");
+        const block = caps.map((c: any) => (c.content || "").replace(/^\[today\]\s*/, "")).join("\n");
         setInput(prev => prev ? block + "\n" + prev : block);
         await supabase.from("quick_captures").update({ consumed: true } as any).eq("user_id", user.id).eq("consumed", false);
         toast(`📥 Added ${caps.length} from quick capture`);
@@ -170,6 +171,7 @@ export default function Today() {
           </div>
           <div className="flex items-center gap-2">
             <StreakBadge />
+            <QuickCaptureButton />
             <div className="h-10 w-10 rounded-full bg-surface-elevated border border-border flex items-center justify-center text-sm font-medium text-secondary-fg">
               {(profile?.display_name || "·").slice(0,1).toUpperCase()}
             </div>

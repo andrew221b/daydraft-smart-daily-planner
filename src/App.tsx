@@ -22,7 +22,6 @@ import ResetPassword from "./pages/app/ResetPassword";
 import Privacy from "./pages/legal/Privacy";
 import Terms from "./pages/legal/Terms";
 import DeleteAccount from "./pages/legal/DeleteAccount";
-import { QuickCapture } from "./components/app/QuickCapture";
 import { TimeTrackerProvider } from "@/hooks/useTimeTracker";
 
 const queryClient = new QueryClient();
@@ -76,7 +75,6 @@ const App = () => (
             <Route path="/settings/delete-account" element={<RequireAuth><DeleteAccount /></RequireAuth>} />
             <Route path="*" element={<NotFound />} />
           </Routes>
-          <QuickCapture />
         </TimeTrackerProvider>
         </ProfileProvider>
         </AuthProvider>
