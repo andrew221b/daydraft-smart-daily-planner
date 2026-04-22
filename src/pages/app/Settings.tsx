@@ -6,6 +6,10 @@ import { Input } from "@/components/ui/input";
 import { Button } from "@/components/ui/button";
 import { useEffect, useState } from "react";
 import { peakWindow } from "@/lib/daydraft";
+import { ThemeToggle } from "@/components/app/ThemeToggle";
+import { Fingerprint } from "lucide-react";
+import { clearStoredPasskey, enrollPasskey, getStoredPasskey, passkeySupported } from "@/lib/passkeys";
+import { toast } from "sonner";
 
 const energies = [
   { key: "morning" as const, label: "Morning person" },
@@ -15,9 +19,34 @@ const energies = [
 
 export default function Settings() {
   const { profile, update } = useProfile();
-  const { signOut } = useAuth();
+  const { signOut, user } = useAuth();
   const [name, setName] = useState("");
+  const [hasPasskey, setHasPasskey] = useState(!!getStoredPasskey());
   useEffect(() => { if (profile) setName(profile.display_name || ""); }, [profile?.id]);
+
+  const togglePasskey = async () => {
+    if (hasPasskey) {
+      clearStoredPasskey();
+      setHasPasskey(false);
+      update({ passkey_enabled: false } as any);
+      toast.success("Face ID / fingerprint disabled");
+      return;
+    }
+    if (!user) return;
+    if (!passkeySupported()) { toast.error("Not supported on this device"); return; }
+    try {
+      await enrollPasskey({
+        userId: user.id,
+        userEmail: user.email || "user@daydraft.app",
+        userName: profile?.display_name || user.email || "DayDraft user",
+      });
+      setHasPasskey(true);
+      update({ passkey_enabled: true } as any);
+      toast.success("Face ID / fingerprint enabled");
+    } catch (e: any) {
+      toast.error(e?.message || "Couldn't enroll");
+    }
+  };
 
   return (
     <Shell>
@@ -28,6 +57,10 @@ export default function Settings() {
           <Section title="Name">
             <Input value={name} onChange={e => setName(e.target.value)} onBlur={() => update({ display_name: name })}
               className="h-12 bg-surface border-border rounded-xl" />
+          </Section>
+
+          <Section title="Appearance">
+            <ThemeToggle />
           </Section>
 
           <Section title="Energy preference">
@@ -43,6 +76,22 @@ export default function Settings() {
                 );
               })}
             </div>
+          </Section>
+
+          <Section title="Sign-in shortcut">
+            <button onClick={togglePasskey}
+              className="w-full flex items-center justify-between px-4 py-3 rounded-xl border-2 border-border bg-surface pressable hover:border-primary/30">
+              <div className="flex items-center gap-3">
+                <Fingerprint className="h-5 w-5 text-primary" />
+                <div className="text-left">
+                  <div className="text-sm">Face ID / fingerprint</div>
+                  <div className="text-xs text-secondary-fg">{hasPasskey ? "Enabled on this device" : "Skip the password next time"}</div>
+                </div>
+              </div>
+              <span className={`text-xs font-medium ${hasPasskey ? "text-success" : "text-secondary-fg"}`}>
+                {hasPasskey ? "On" : "Off"}
+              </span>
+            </button>
           </Section>
 
           <Section title="Notifications">
