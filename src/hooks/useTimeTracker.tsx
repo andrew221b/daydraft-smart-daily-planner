@@ -24,6 +24,7 @@ type Ctx = {
   switchCategory: (categoryId: string) => Promise<void>;
   addCategory: (name: string, color?: string) => Promise<TimeCategory | null>;
   deleteCategory: (id: string) => Promise<void>;
+  renameCategory: (id: string, name: string) => Promise<void>;
   todayTotalSec: number;
   weekTotalSec: number;
   refresh: () => Promise<void>;
@@ -162,9 +163,17 @@ export function TimeTrackerProvider({ children }: { children: ReactNode }) {
     setCategories(c => c.filter(x => x.id !== id));
   };
 
+  const renameCategory: Ctx["renameCategory"] = async (id, name) => {
+    const trimmed = name.trim();
+    if (!trimmed) { toast.error("Name can't be empty"); return; }
+    const { error } = await supabase.from("time_categories").update({ name: trimmed }).eq("id", id);
+    if (error) { toast.error(error.message); return; }
+    setCategories(cs => cs.map(c => c.id === id ? { ...c, name: trimmed } : c));
+  };
+
   const value: Ctx = useMemo(() => ({
     categories, active, elapsedSec, loading,
-    start, stop, switchCategory, addCategory, deleteCategory,
+    start, stop, switchCategory, addCategory, deleteCategory, renameCategory,
     todayTotalSec, weekTotalSec, refresh,
   }), [categories, active, elapsedSec, loading, todayTotalSec, weekTotalSec, refresh]);
 
