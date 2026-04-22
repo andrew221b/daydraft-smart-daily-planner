@@ -95,8 +95,7 @@ Rules:
 - Extract location hints from raw text (e.g. "gym at 2pm", "lunch at Blue Bottle Mission") and include a short location string.
 - For EVERY task, include a one-sentence "reasoning" explaining placement (e.g. "Deep work first — your peak").
 - Summary: short, e.g. "5 tasks · 3 focus blocks · Done by 5pm".
-- Subtext: one short sentence.${patternHints}${calHints}`;
- - Subtext: one short sentence.${clarifiedHints}${patternHints}${calHints}`;
+- Subtext: one short sentence.${clarifiedHints}${patternHints}${calHints}`;
 
     const tools = [{
       type: "function",
