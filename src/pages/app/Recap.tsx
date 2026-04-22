@@ -5,10 +5,11 @@ import { useAuth } from "@/hooks/useAuth";
 import { useProfile } from "@/hooks/useProfile";
 import { supabase } from "@/integrations/supabase/client";
 import { Block, todayDateStr } from "@/lib/daydraft";
-import { Sparkles, Clock } from "lucide-react";
+import { Sparkles, Clock, RotateCcw } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { useTimeTracker, fmtHM } from "@/hooks/useTimeTracker";
 import { toast } from "sonner";
+import { haptics } from "@/lib/haptics";
 
 export default function Recap() {
   const { user } = useAuth();
@@ -18,6 +19,7 @@ export default function Recap() {
   const [insight, setInsight] = useState<string | null>(null);
   const { todayTotalSec, categories, refresh: refreshTracker } = useTimeTracker();
   const [backfilled, setBackfilled] = useState(false);
+  const [carriedOver, setCarriedOver] = useState(false);
 
   useEffect(() => {
     if (!user) return;
@@ -78,6 +80,23 @@ export default function Recap() {
     toast.success("Tracked time recorded");
   };
 
+  // Carry unfinished tasks to tomorrow's quick_captures inbox so they're
+  // pre-loaded into the next plan. One-tap shortcut for the 80% case.
+  const unfinished = tasks.filter(b => !b.completed);
+  const carryOver = async () => {
+    if (!user || unfinished.length === 0) return;
+    const rows = unfinished.map(b => ({
+      user_id: user.id,
+      content: b.title,
+      consumed: false,
+    }));
+    const { error } = await supabase.from("quick_captures").insert(rows as any);
+    if (error) { toast.error(error.message); return; }
+    haptics.notify("success");
+    setCarriedOver(true);
+    toast.success(`Moved ${unfinished.length} to tomorrow's inbox`);
+  };
+
   return (
     <Shell>
       <div className="relative">
@@ -105,6 +124,22 @@ export default function Recap() {
                 <div className="text-xs text-secondary-fg">You only tracked {fmtHM(todayTotalSec)} but completed {fh}h {fm}m of focus. Tap to credit it.</div>
               </div>
               <span className="text-xs font-semibold text-primary shrink-0">Credit →</span>
+            </button>
+          )}
+
+          {unfinished.length > 0 && !carriedOver && (
+            <button
+              onClick={carryOver}
+              className="mt-3 w-full flex items-center gap-3 px-4 py-3 rounded-2xl border border-border bg-surface text-left pressable hover:border-primary/30"
+            >
+              <div className="h-9 w-9 rounded-full bg-primary/10 flex items-center justify-center shrink-0">
+                <RotateCcw className="h-4 w-4 text-primary" />
+              </div>
+              <div className="flex-1 min-w-0">
+                <div className="text-sm font-medium text-foreground">Carry {unfinished.length} unfinished to tomorrow</div>
+                <div className="text-xs text-secondary-fg truncate">{unfinished.map(b => b.title).join(", ")}</div>
+              </div>
+              <span className="text-xs font-semibold text-primary shrink-0">Move →</span>
             </button>
           )}
 

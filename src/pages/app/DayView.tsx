@@ -9,10 +9,12 @@ import { Button } from "@/components/ui/button";
 import { DndContext, closestCenter, PointerSensor, TouchSensor, useSensor, useSensors, DragEndEvent } from "@dnd-kit/core";
 import { SortableContext, arrayMove, verticalListSortingStrategy } from "@dnd-kit/sortable";
 import { SortableBlock } from "@/components/app/SortableBlock";
+import { SwipeableBlock } from "@/components/app/SwipeableBlock";
 import { Sheet, SheetContent, SheetHeader, SheetTitle } from "@/components/ui/sheet";
 import { useProfile } from "@/hooks/useProfile";
 import { toast } from "sonner";
 import { useTour, TOUR_DAYVIEW } from "@/components/app/Tour";
+import { haptics } from "@/lib/haptics";
 
 type ExBlock = Block & {
   ai_reasoning?: string | null;
@@ -80,6 +82,11 @@ export default function DayView() {
     setBlocks(next);
     await supabase.from("blocks").delete().eq("id", id);
     await persistOrder(next);
+  };
+
+  const completeBlock = async (id: string) => {
+    setBlocks(bs => bs.map(b => b.id === id ? { ...b, completed: true } : b));
+    await supabase.from("blocks").update({ completed: true }).eq("id", id);
   };
 
   const persistOrder = async (list: ExBlock[]) => {
@@ -205,7 +212,15 @@ export default function DayView() {
                 return (
                   <div key={b.id}>
                     {showNowLine && <NowLine label={nowLabel} />}
-                    <SortableBlock block={b} editing={editing} onRemove={removeBlock} onInfo={setReasoningBlock} />
+                    <SwipeableBlock
+                      disabled={editing || b.is_calendar_event}
+                      showComplete={!b.completed}
+                      showDelete={!b.is_calendar_event}
+                      onComplete={() => completeBlock(b.id)}
+                      onDelete={() => removeBlock(b.id)}
+                    >
+                      <SortableBlock block={b} editing={editing} onRemove={removeBlock} onInfo={setReasoningBlock} />
+                    </SwipeableBlock>
                   </div>
                 );
               })}
