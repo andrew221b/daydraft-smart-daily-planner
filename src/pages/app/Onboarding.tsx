@@ -4,6 +4,9 @@ import { Button } from "@/components/ui/button";
 import { Blobs } from "@/components/app/Blobs";
 import { useProfile } from "@/hooks/useProfile";
 import { Check, Bell } from "lucide-react";
+import { enablePush, pushSupported } from "@/lib/push";
+import { supabase } from "@/integrations/supabase/client";
+import { toast } from "sonner";
 
 const energies = [
   { key: "morning" as const, emoji: "🌅", title: "Morning person", sub: "Peak 8am – 12pm" },
@@ -18,7 +21,20 @@ export default function Onboarding() {
   const nav = useNavigate();
 
   const finish = async (notif: boolean) => {
-    await update({ energy_preference: pick, notifications_enabled: notif, onboarded: true });
+    let enabled = false;
+    if (notif && pushSupported()) {
+      try {
+        const { data: { session } } = await supabase.auth.getSession();
+        if (session?.user) {
+          await enablePush(session.user.id);
+          enabled = true;
+        }
+      } catch (e: any) {
+        // Push isn't configured yet (no VAPID) or user denied — keep onboarding moving.
+        if (e?.message && !/VAPID|configured/i.test(e.message)) toast(e.message);
+      }
+    }
+    await update({ energy_preference: pick, notifications_enabled: enabled, onboarded: true });
     nav("/today");
   };
 

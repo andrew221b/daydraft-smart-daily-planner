@@ -128,6 +128,10 @@ export default function Today() {
         plan_id: planRow.id, user_id: user.id,
         start_time: b.start_time, duration_min: b.duration_min, title: b.title,
         type: b.type, kind: b.kind, position: i,
+        ai_reasoning: b.reasoning ?? null,
+        location: b.location ?? null,
+        location_lat: b.location_lat ?? null,
+        location_lng: b.location_lng ?? null,
       }));
       if (blocks.length) await supabase.from("blocks").insert(blocks);
       try {
