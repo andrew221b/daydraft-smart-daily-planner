@@ -1,12 +1,15 @@
 import { useEffect, useState } from "react";
 import { supabase } from "@/integrations/supabase/client";
+import { lovable } from "@/integrations/lovable";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Blobs } from "@/components/app/Blobs";
 import { toast } from "sonner";
-import { useNavigate } from "react-router-dom";
+import { Link, useNavigate } from "react-router-dom";
 import { useAuth } from "@/hooks/useAuth";
 import { useProfile } from "@/hooks/useProfile";
+import { Fingerprint } from "lucide-react";
+import { getStoredPasskey, passkeySupported, verifyPasskey } from "@/lib/passkeys";
 
 export default function Auth() {
   const { user, loading } = useAuth();
@@ -19,6 +22,8 @@ export default function Auth() {
   const [awaitingConfirmation, setAwaitingConfirmation] = useState(false);
   const [resending, setResending] = useState(false);
   const nav = useNavigate();
+  const stored = typeof window !== "undefined" ? getStoredPasskey() : null;
+  const canUsePasskey = passkeySupported() && !!stored;
 
   useEffect(() => {
     if (loading || (user && profileLoading)) return;
@@ -78,6 +83,33 @@ export default function Auth() {
     }
   };
 
+  const oauth = async (provider: "google" | "apple") => {
+    setBusy(true);
+    try {
+      const result = await lovable.auth.signInWithOAuth(provider, { redirect_uri: window.location.origin });
+      if (result.error) throw result.error;
+      // result.redirected handled by browser; otherwise tokens set, useEffect navigates
+    } catch (err: any) {
+      toast.error(err.message || `Couldn't sign in with ${provider}`);
+      setBusy(false);
+    }
+  };
+
+  const passkeyLogin = async () => {
+    setBusy(true);
+    try {
+      const { ok, userEmail } = await verifyPasskey();
+      if (!ok || !userEmail) throw new Error("Couldn't verify");
+      // Passkey verifies device identity; for now, prefill email and ask for password.
+      // (Full passwordless requires server-side challenge — out of scope here.)
+      setEmail(userEmail);
+      setMode("signin");
+      toast.success("Identity verified — enter your password to continue");
+    } catch (e: any) {
+      toast.error("Face ID / fingerprint failed");
+    } finally { setBusy(false); }
+  };
+
   if (loading || (user && profileLoading)) {
     return <div className="min-h-screen w-full bg-background" />;
   }
@@ -101,7 +133,29 @@ export default function Auth() {
 
           {!awaitingConfirmation ? (
             <>
-              <form onSubmit={submit} className="mt-10 space-y-3">
+              <div className="mt-8 space-y-2">
+                <button onClick={() => oauth("google")} disabled={busy}
+                  className="w-full h-12 rounded-xl bg-surface-elevated border border-border text-foreground hover:bg-surface pressable text-sm font-medium inline-flex items-center justify-center gap-2">
+                  <GoogleIcon /> Continue with Google
+                </button>
+                <button onClick={() => oauth("apple")} disabled={busy}
+                  className="w-full h-12 rounded-xl bg-foreground text-background hover:opacity-90 pressable text-sm font-medium inline-flex items-center justify-center gap-2">
+                  <AppleIcon /> Continue with Apple
+                </button>
+                {canUsePasskey && (
+                  <button onClick={passkeyLogin} disabled={busy}
+                    className="w-full h-12 rounded-xl bg-surface border border-primary/30 text-primary hover:bg-surface-elevated pressable text-sm font-medium inline-flex items-center justify-center gap-2">
+                    <Fingerprint className="h-4 w-4" /> Use Face ID / fingerprint
+                  </button>
+                )}
+              </div>
+              <div className="my-5 flex items-center gap-3 text-[11px] uppercase tracking-wider text-secondary-fg">
+                <div className="flex-1 h-px bg-border" />
+                <span>or continue with email</span>
+                <div className="flex-1 h-px bg-border" />
+              </div>
+
+              <form onSubmit={submit} className="space-y-3">
                 {mode === "signup" && (
                   <Input value={name} onChange={e => setName(e.target.value)} placeholder="Your name" className="h-12 bg-surface border-border rounded-xl" />
                 )}
@@ -112,15 +166,22 @@ export default function Auth() {
                 </Button>
               </form>
 
-              <button
-                onClick={() => {
-                  setAwaitingConfirmation(false);
-                  setMode(mode === "signup" ? "signin" : "signup");
-                }}
-                className="mt-6 text-secondary-fg text-sm hover:text-foreground transition-colors"
-              >
-                {mode === "signup" ? "I already have an account" : "Create a new account"}
-              </button>
+              <div className="mt-6 flex items-center justify-between">
+                <button
+                  onClick={() => {
+                    setAwaitingConfirmation(false);
+                    setMode(mode === "signup" ? "signin" : "signup");
+                  }}
+                  className="text-secondary-fg text-sm hover:text-foreground transition-colors"
+                >
+                  {mode === "signup" ? "I already have an account" : "Create a new account"}
+                </button>
+                {mode === "signin" && (
+                  <Link to="/forgot-password" className="text-secondary-fg text-sm hover:text-foreground transition-colors">
+                    Forgot password?
+                  </Link>
+                )}
+              </div>
             </>
           ) : (
             <div className="mt-10 space-y-3">
@@ -156,3 +217,18 @@ export default function Auth() {
     </div>
   );
 }
+
+const GoogleIcon = () => (
+  <svg width="16" height="16" viewBox="0 0 48 48" aria-hidden="true">
+    <path fill="#FFC107" d="M43.6 20.5H42V20H24v8h11.3C33.7 32.4 29.3 35.5 24 35.5c-6.4 0-11.5-5.1-11.5-11.5S17.6 12.5 24 12.5c2.9 0 5.6 1.1 7.7 2.9l5.7-5.7C33.9 6.5 29.2 4.5 24 4.5 13.2 4.5 4.5 13.2 4.5 24S13.2 43.5 24 43.5c10.7 0 19.5-8.7 19.5-19.5 0-1.2-.1-2.3-.4-3.5z"/>
+    <path fill="#FF3D00" d="M6.3 14.7l6.6 4.8C14.7 15.7 19 12.5 24 12.5c2.9 0 5.6 1.1 7.7 2.9l5.7-5.7C33.9 6.5 29.2 4.5 24 4.5 16.3 4.5 9.7 8.7 6.3 14.7z"/>
+    <path fill="#4CAF50" d="M24 43.5c5.1 0 9.8-1.9 13.3-5.1l-6.1-5.2C29.2 34.7 26.7 35.5 24 35.5c-5.3 0-9.7-3.1-11.3-7.5l-6.5 5C9.5 39.3 16.2 43.5 24 43.5z"/>
+    <path fill="#1976D2" d="M43.6 20.5H42V20H24v8h11.3c-.8 2.2-2.2 4.1-4 5.5l6.1 5.2C41.5 34.5 43.5 29.6 43.5 24c0-1.2-.1-2.3-.4-3.5z"/>
+  </svg>
+);
+
+const AppleIcon = () => (
+  <svg width="16" height="16" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true">
+    <path d="M16.365 1.43c0 1.14-.42 2.21-1.13 3-.74.83-1.95 1.47-3.13 1.38-.13-1.14.42-2.31 1.12-3.04.78-.81 2.06-1.43 3.14-1.34zM20.5 17.34c-.55 1.27-.81 1.84-1.52 2.97-.99 1.58-2.39 3.55-4.13 3.57-1.55.02-1.95-1.01-4.05-1-2.1.01-2.54 1.02-4.09 1-1.74-.02-3.07-1.79-4.06-3.37C-.05 16.5-.34 11.27 1.41 8.5c1.25-1.97 3.22-3.13 5.07-3.13 1.88 0 3.07 1.04 4.62 1.04 1.51 0 2.42-1.04 4.6-1.04 1.65 0 3.4.9 4.65 2.45-4.08 2.24-3.42 8.06.15 9.52z"/>
+  </svg>
+);

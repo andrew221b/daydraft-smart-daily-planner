@@ -15,6 +15,8 @@ import Recap from "./pages/app/Recap";
 import History from "./pages/app/History";
 import Stats from "./pages/app/Stats";
 import Settings from "./pages/app/Settings";
+import ForgotPassword from "./pages/app/ForgotPassword";
+import ResetPassword from "./pages/app/ResetPassword";
 
 const queryClient = new QueryClient();
 
@@ -43,6 +45,8 @@ const App = () => (
           <Routes>
             <Route path="/" element={<RootRedirect />} />
             <Route path="/auth" element={<Auth />} />
+            <Route path="/forgot-password" element={<ForgotPassword />} />
+            <Route path="/reset-password" element={<ResetPassword />} />
             <Route path="/onboarding" element={<RequireAuth><Onboarding /></RequireAuth>} />
             <Route path="/today" element={<RequireAuth><Today /></RequireAuth>} />
             <Route path="/today/planning" element={<RequireAuth><Planning /></RequireAuth>} />

@@ -9,6 +9,7 @@ import { greeting, friendlyDate, peakWindow, todayDateStr } from "@/lib/daydraft
 import { supabase } from "@/integrations/supabase/client";
 import { ClipboardPaste, Mic, Sparkles, Zap, ArrowRight } from "lucide-react";
 import { toast } from "sonner";
+import { SpilloverChips } from "@/components/app/SpilloverChips";
 
 const placeholder = `Drop your tasks here...
 
@@ -106,6 +107,11 @@ export default function Today() {
         </div>
 
         <div className="mt-6 relative">
+          <SpilloverChips onCarryOver={(titles) => {
+            const block = titles.join("\n");
+            setInput(prev => prev ? block + "\n" + prev : block);
+            toast.success(titles.length === 1 ? "Carried over" : `Carried over ${titles.length} tasks`);
+          }} />
           <Textarea
             value={input} onChange={e => setInput(e.target.value)} placeholder={placeholder}
             className="min-h-[200px] bg-surface border-border rounded-[20px] p-4 text-base leading-relaxed resize-none focus-visible:ring-primary/40 focus-visible:ring-offset-0 focus-visible:border-primary/40 transition-all" />

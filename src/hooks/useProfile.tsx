@@ -8,6 +8,11 @@ export interface Profile {
   energy_preference: "morning" | "midday" | "night";
   notifications_enabled: boolean;
   onboarded: boolean;
+  theme?: "system" | "light" | "dark";
+  passkey_enabled?: boolean;
+  install_prompted_at?: string | null;
+  digest_opt_in?: boolean;
+  timezone?: string;
 }
 
 export const useProfile = () => {

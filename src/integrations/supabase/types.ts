@@ -134,6 +134,8 @@ export type Database = {
           install_prompted_at: string | null
           notifications_enabled: boolean
           onboarded: boolean
+          passkey_enabled: boolean
+          theme: string
           timezone: string
           updated_at: string
         }
@@ -146,6 +148,8 @@ export type Database = {
           install_prompted_at?: string | null
           notifications_enabled?: boolean
           onboarded?: boolean
+          passkey_enabled?: boolean
+          theme?: string
           timezone?: string
           updated_at?: string
         }
@@ -158,6 +162,8 @@ export type Database = {
           install_prompted_at?: string | null
           notifications_enabled?: boolean
           onboarded?: boolean
+          passkey_enabled?: boolean
+          theme?: string
           timezone?: string
           updated_at?: string
         }
