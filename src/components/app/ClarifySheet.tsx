@@ -2,9 +2,12 @@ import { useEffect, useMemo, useState } from "react";
 import { Sheet, SheetContent, SheetHeader, SheetTitle, SheetDescription } from "@/components/ui/sheet";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
-import { Sparkles, Clock, Flag, CalendarClock, X, Check, Loader2, Wand2, ExternalLink, Mail, MessageSquare, Phone, MapPin, BookOpen, Link2, Split } from "lucide-react";
+import { Sparkles, Clock, Flag, CalendarClock, X, Check, Loader2, Wand2, ExternalLink, Mail, MessageSquare, Phone, MapPin, BookOpen, Link2, Split, GripVertical, Zap } from "lucide-react";
 import { supabase } from "@/integrations/supabase/client";
 import { toast } from "sonner";
+import { DndContext, closestCenter, PointerSensor, TouchSensor, useSensor, useSensors, DragEndEvent } from "@dnd-kit/core";
+import { SortableContext, arrayMove, verticalListSortingStrategy, useSortable } from "@dnd-kit/sortable";
+import { CSS } from "@dnd-kit/utilities";
 
 export type ClarifiedTask = {
   title: string;
@@ -73,6 +76,10 @@ export function ClarifySheet({ open, onOpenChange, rawInput, onConfirm }: Props)
   );
   const [tasks, setTasks] = useState<Row[]>(initial);
   const [loadingAI, setLoadingAI] = useState(false);
+  const sensors = useSensors(
+    useSensor(PointerSensor, { activationConstraint: { distance: 6 } }),
+    useSensor(TouchSensor, { activationConstraint: { delay: 200, tolerance: 8 } }),
+  );
 
   useEffect(() => {
     if (!open) return;
@@ -128,6 +135,37 @@ export function ClarifySheet({ open, onOpenChange, rawInput, onConfirm }: Props)
     update(i, { estimate_min: next, accepted: tasks[i].ai_estimate_min === next });
   };
 
+  // Drag-reorder = priority. Top item = highest priority.
+  // We rewrite priorities based on position (top third = high, middle = medium, bottom = low).
+  const onReorder = (e: DragEndEvent) => {
+    const { active, over } = e;
+    if (!over || active.id === over.id) return;
+    const oldIdx = parseInt(String(active.id), 10);
+    const newIdx = parseInt(String(over.id), 10);
+    if (Number.isNaN(oldIdx) || Number.isNaN(newIdx)) return;
+    setTasks(prev => {
+      const moved = arrayMove(prev, oldIdx, newIdx);
+      const total = moved.length;
+      return moved.map((t, idx) => ({
+        ...t,
+        priority: idx < Math.max(1, Math.ceil(total / 3))
+          ? "high"
+          : idx < Math.ceil((2 * total) / 3)
+            ? "medium"
+            : "low",
+      }));
+    });
+  };
+
+  const skipReview = () => {
+    // Power-user fast path: accept all AI suggestions and immediately confirm.
+    const finalTasks = tasks.map(({ ai_estimate_min, ai_type, ai_reason, accepted, ...rest }) => ({
+      ...rest,
+      estimate_min: ai_estimate_min || rest.estimate_min,
+    }));
+    onConfirm(finalTasks);
+  };
+
   const applySplit = (i: number) => {
     const r = tasks[i];
     if (!r.ai_split_into?.length) return;
@@ -176,37 +214,117 @@ export function ClarifySheet({ open, onOpenChange, rawInput, onConfirm }: Props)
               Quick clarify
             </SheetTitle>
             <SheetDescription className="text-xs flex items-center gap-2 flex-wrap">
-              <span>AI suggests realistic times. Accept or tweak each one.</span>
+              <span>Drag to reorder by priority. AI suggests times.</span>
               <span className="text-primary font-medium">
                 ~{hours > 0 ? `${hours}h ` : ""}{mins}m total
               </span>
               {loadingAI && <Loader2 className="h-3 w-3 animate-spin text-primary" />}
             </SheetDescription>
           </SheetHeader>
-          {suggestionsReady && !allAccepted && (
-            <button
-              onClick={acceptAll}
-              className="mt-3 text-xs text-primary font-medium pressable inline-flex items-center gap-1"
-            >
-              <Wand2 className="h-3 w-3" /> Accept all AI suggestions
-            </button>
-          )}
+          <div className="mt-3 flex items-center gap-2 flex-wrap">
+            {suggestionsReady && !allAccepted && (
+              <button
+                onClick={acceptAll}
+                className="text-xs text-primary font-medium pressable inline-flex items-center gap-1 px-2.5 py-1 rounded-full bg-primary/10 border border-primary/30"
+              >
+                <Wand2 className="h-3 w-3" /> Accept all
+              </button>
+            )}
+            {suggestionsReady && (
+              <button
+                onClick={skipReview}
+                className="text-xs text-foreground font-medium pressable inline-flex items-center gap-1 px-2.5 py-1 rounded-full bg-surface border border-border hover:border-primary/30"
+              >
+                <Zap className="h-3 w-3 text-primary" /> Skip review · plan now
+              </button>
+            )}
+          </div>
         </div>
 
         <div className="px-3 py-3 space-y-2">
           {tasks.length === 0 && (
             <p className="text-sm text-secondary-fg text-center py-8">No tasks detected. Add some first.</p>
           )}
-          {tasks.map((t, i) => {
+          <DndContext sensors={sensors} collisionDetection={closestCenter} onDragEnd={onReorder}>
+            <SortableContext items={tasks.map((_, i) => String(i))} strategy={verticalListSortingStrategy}>
+              {tasks.map((t, i) => (
+                <SortableTaskCard
+                  key={i}
+                  id={String(i)}
+                  index={i}
+                  task={t}
+                  loadingAI={loadingAI}
+                  onUpdate={update}
+                  onRemove={remove}
+                  onAccept={accept}
+                  onBump={bump}
+                  onSplit={applySplit}
+                  prioStyle={prioStyle}
+                  actionMeta={actionMeta}
+                />
+              ))}
+            </SortableContext>
+          </DndContext>
+        </div>
+
+        <div className="px-5 pb-6 pt-3 sticky bottom-0 bg-background border-t border-border">
+          <Button
+            onClick={() => onConfirm(tasks.map(({ ai_estimate_min, ai_type, ai_reason, accepted, ...rest }) => rest))}
+            disabled={tasks.length === 0}
+            className="w-full h-12 rounded-xl text-primary-foreground text-base font-medium pressable shadow-glow"
+            style={{ background: "var(--gradient-primary)" }}
+          >
+            Plan with these <Sparkles className="h-4 w-4 ml-1" />
+          </Button>
+          <p className="text-[11px] text-secondary-fg text-center mt-2">
+            AI will respect your final estimates and any fixed times.
+          </p>
+        </div>
+      </SheetContent>
+    </Sheet>
+  );
+}
+
+// --- Sortable card (extracted so we can use useSortable hook) ---
+type CardProps = {
+  id: string;
+  index: number;
+  task: Row;
+  loadingAI: boolean;
+  onUpdate: (i: number, patch: Partial<Row>) => void;
+  onRemove: (i: number) => void;
+  onAccept: (i: number) => void;
+  onBump: (i: number, delta: number) => void;
+  onSplit: (i: number) => void;
+  prioStyle: (p: ClarifiedTask["priority"]) => string;
+  actionMeta: (k?: Row["ai_action_kind"]) => { Icon: any; label: string } | null;
+};
+
+function SortableTaskCard({ id, index: i, task: t, loadingAI, onUpdate, onRemove, onAccept, onBump, onSplit, prioStyle, actionMeta }: CardProps) {
+  const { attributes, listeners, setNodeRef, transform, transition, isDragging } = useSortable({ id });
+  const style = {
+    transform: CSS.Transform.toString(transform),
+    transition,
+    opacity: isDragging ? 0.6 : 1,
+  };
             const aiMatches = t.ai_estimate_min && t.ai_estimate_min === t.estimate_min;
             const showAccept = t.ai_estimate_min && !aiMatches;
+  const hasAISection = t.ai_links?.length || t.ai_should_split;
             return (
-              <div key={i} className="rounded-2xl border border-border bg-surface p-3 space-y-2.5">
+    <div ref={setNodeRef} style={style} className="rounded-2xl border border-border bg-surface p-3 space-y-2.5">
                 {/* Title row */}
                 <div className="flex items-start gap-2">
+                  <button
+                    {...attributes}
+                    {...listeners}
+                    className="text-secondary-fg p-1 cursor-grab active:cursor-grabbing touch-none mt-1"
+                    aria-label="Drag to reorder"
+                  >
+                    <GripVertical className="h-4 w-4" />
+                  </button>
                   <Input
                     value={t.title}
-                    onChange={e => update(i, { title: e.target.value })}
+                    onChange={e => onUpdate(i, { title: e.target.value })}
                     className="flex-1 h-8 bg-transparent border-0 px-0 text-[15px] font-medium focus-visible:ring-0 shadow-none"
                     placeholder="Task title"
                   />
@@ -220,7 +338,7 @@ export function ClarifySheet({ open, onOpenChange, rawInput, onConfirm }: Props)
                     );
                   })()}
                   <button
-                    onClick={() => remove(i)}
+                    onClick={() => onRemove(i)}
                     className="text-secondary-fg hover:text-destructive p-1 pressable"
                     aria-label="Remove task"
                   >
@@ -228,11 +346,12 @@ export function ClarifySheet({ open, onOpenChange, rawInput, onConfirm }: Props)
                   </button>
                 </div>
 
-                {/* AI suggestion row */}
-                <div className="flex items-center gap-2 text-xs">
+      {/* AI Time suggestion (grouped under one heading) */}
+      <div className="rounded-xl bg-background/40 border border-border/60 p-2 space-y-2">
+        <div className="flex items-center gap-2 text-xs">
                   <div className="flex items-center gap-1.5 text-secondary-fg shrink-0">
                     <Sparkles className="h-3 w-3 text-primary" />
-                    <span>AI:</span>
+            <span className="uppercase tracking-wider text-[10px] font-medium">AI Time</span>
                   </div>
                   {t.ai_estimate_min ? (
                     <>
@@ -244,7 +363,7 @@ export function ClarifySheet({ open, onOpenChange, rawInput, onConfirm }: Props)
                       )}
                       {showAccept && (
                         <button
-                          onClick={() => accept(i)}
+                onClick={() => onAccept(i)}
                           className="ml-auto h-6 px-2 rounded-full bg-primary text-primary-foreground text-[10px] font-medium pressable inline-flex items-center gap-1 shrink-0"
                         >
                           <Check className="h-3 w-3" /> Accept
@@ -262,10 +381,35 @@ export function ClarifySheet({ open, onOpenChange, rawInput, onConfirm }: Props)
                     <span className="text-secondary-fg italic">—</span>
                   )}
                 </div>
+        {/* Estimate stepper inside same group for cohesion */}
+        <div className="flex items-center justify-between gap-2">
+          <div className="flex items-center gap-1.5 text-[11px] text-secondary-fg">
+            <Clock className="h-3 w-3" /> Your estimate
+          </div>
+          <div className="flex items-center gap-1">
+            <button
+              onClick={() => onBump(i, -STEP)}
+              className="h-7 w-7 rounded-lg bg-surface border border-border text-foreground pressable text-sm font-medium"
+              aria-label="Decrease"
+            >−</button>
+            <span className="min-w-[54px] text-center text-sm font-semibold tabular-nums">
+              {fmt(t.estimate_min)}
+            </span>
+            <button
+              onClick={() => onBump(i, STEP)}
+              className="h-7 w-7 rounded-lg bg-surface border border-border text-foreground pressable text-sm font-medium"
+              aria-label="Increase"
+            >+</button>
+          </div>
+        </div>
+      </div>
 
-                {/* Links + split suggestions */}
-                {(t.ai_links?.length || t.ai_should_split) && (
-                  <div className="space-y-1.5">
+      {/* AI Actions (grouped — links / split) */}
+      {hasAISection && (
+        <div className="rounded-xl bg-background/40 border border-border/60 p-2 space-y-1.5">
+          <div className="text-[10px] uppercase tracking-wider text-secondary-fg flex items-center gap-1">
+            <Wand2 className="h-3 w-3 text-primary" /> AI Actions
+          </div>
                     {t.ai_links && t.ai_links.length > 0 && (
                       <div className="flex flex-wrap gap-1.5">
                         {t.ai_links.slice(0, 2).map((l, li) => (
@@ -285,7 +429,7 @@ export function ClarifySheet({ open, onOpenChange, rawInput, onConfirm }: Props)
                     )}
                     {t.ai_should_split && t.ai_split_into && t.ai_split_into.length > 1 && (
                       <button
-                        onClick={() => applySplit(i)}
+              onClick={() => onSplit(i)}
                         className="w-full inline-flex items-center justify-center gap-1.5 px-2 py-1.5 rounded-lg bg-primary/10 border border-primary/30 text-[11px] font-medium text-primary pressable"
                       >
                         <Split className="h-3 w-3" />
@@ -298,28 +442,6 @@ export function ClarifySheet({ open, onOpenChange, rawInput, onConfirm }: Props)
                   </div>
                 )}
 
-                {/* Estimate stepper */}
-                <div className="flex items-center justify-between gap-2 bg-background/60 rounded-xl border border-border px-2 py-1.5">
-                  <div className="flex items-center gap-1.5 text-[11px] text-secondary-fg">
-                    <Clock className="h-3 w-3" /> Your estimate
-                  </div>
-                  <div className="flex items-center gap-1">
-                    <button
-                      onClick={() => bump(i, -STEP)}
-                      className="h-7 w-7 rounded-lg bg-surface border border-border text-foreground pressable text-sm font-medium"
-                      aria-label="Decrease"
-                    >−</button>
-                    <span className="min-w-[54px] text-center text-sm font-semibold tabular-nums">
-                      {fmt(t.estimate_min)}
-                    </span>
-                    <button
-                      onClick={() => bump(i, STEP)}
-                      className="h-7 w-7 rounded-lg bg-surface border border-border text-foreground pressable text-sm font-medium"
-                      aria-label="Increase"
-                    >+</button>
-                  </div>
-                </div>
-
                 {/* Priority + fixed time */}
                 <div className="flex items-center gap-2 flex-wrap">
                   <div className="flex items-center gap-1.5">
@@ -328,7 +450,7 @@ export function ClarifySheet({ open, onOpenChange, rawInput, onConfirm }: Props)
                       {(["high", "medium", "low"] as const).map(p => (
                         <button
                           key={p}
-                          onClick={() => update(i, { priority: p })}
+                onClick={() => onUpdate(i, { priority: p })}
                           className={`px-2.5 py-1 rounded-full text-[11px] font-medium border pressable ${
                             t.priority === p ? prioStyle(p) : "bg-background text-secondary-fg border-border"
                           }`}
@@ -344,30 +466,11 @@ export function ClarifySheet({ open, onOpenChange, rawInput, onConfirm }: Props)
                     <input
                       type="time"
                       value={t.fixed_time || ""}
-                      onChange={e => update(i, { fixed_time: e.target.value || undefined })}
+              onChange={e => onUpdate(i, { fixed_time: e.target.value || undefined })}
                       className="bg-background border border-border rounded-md px-2 py-1 text-xs text-foreground"
                     />
                   </label>
                 </div>
-              </div>
-            );
-          })}
-        </div>
-
-        <div className="px-5 pb-6 pt-3 sticky bottom-0 bg-background border-t border-border">
-          <Button
-            onClick={() => onConfirm(tasks.map(({ ai_estimate_min, ai_type, ai_reason, accepted, ...rest }) => rest))}
-            disabled={tasks.length === 0}
-            className="w-full h-12 rounded-xl text-primary-foreground text-base font-medium pressable shadow-glow"
-            style={{ background: "var(--gradient-primary)" }}
-          >
-            Plan with these <Sparkles className="h-4 w-4 ml-1" />
-          </Button>
-          <p className="text-[11px] text-secondary-fg text-center mt-2">
-            AI will respect your final estimates and any fixed times.
-          </p>
-        </div>
-      </SheetContent>
-    </Sheet>
+    </div>
   );
 }
