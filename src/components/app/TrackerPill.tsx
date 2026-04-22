@@ -646,3 +646,151 @@ function DayDetail({ detail, catMap }: { detail: NonNullable<ReturnType<() => an
     </div>
   );
 }
+
+// 24h horizontal timeline. Segments expressed as offsets from start-of-day in ms.
+function DayTimeline24h({ segments }: { segments: Array<{ id: string; start: number; end: number; color: string; name: string }> }) {
+  const total = DAY_MS;
+  return (
+    <div>
+      <div className="relative h-7 rounded-lg bg-muted overflow-hidden">
+        {/* hour grid */}
+        {Array.from({ length: 23 }, (_, i) => i + 1).map(h => (
+          <div
+            key={h}
+            className={`absolute top-0 bottom-0 ${h % 6 === 0 ? "bg-border" : "bg-border/40"}`}
+            style={{ left: `${(h / 24) * 100}%`, width: 1 }}
+          />
+        ))}
+        {segments.map(s => {
+          const left = (s.start / total) * 100;
+          const width = Math.max(0.4, ((s.end - s.start) / total) * 100);
+          return (
+            <div
+              key={s.id}
+              title={`${s.name} · ${new Date(s.start).toUTCString().slice(17, 22)}–${new Date(s.end).toUTCString().slice(17, 22)}`}
+              className="absolute top-1 bottom-1 rounded-sm"
+              style={{ left: `${left}%`, width: `${width}%`, background: s.color }}
+            />
+          );
+        })}
+        {/* "now" indicator only if it's today (caller controls by passing today segments) */}
+      </div>
+      <div className="mt-1 flex justify-between text-[9px] font-mono tabular-nums text-secondary-fg/70">
+        <span>0</span><span>6</span><span>12</span><span>18</span><span>24</span>
+      </div>
+    </div>
+  );
+}
+
+// Inline category drill-in: shown beneath a clicked category row.
+function CategoryDetail({
+  cat,
+  stat,
+  period,
+}: {
+  cat: TimeCategory;
+  stat: { sec: number; sessions: Array<{ id: string; start: number; end: number; note: string | null }>; perDay: Map<string, number> } | undefined;
+  period: { start: number; end: number; label: string; days: number };
+}) {
+  const sec = stat?.sec || 0;
+  const sessions = stat?.sessions || [];
+  const perDay = stat?.perDay || new Map<string, number>();
+  const activeDays = perDay.size;
+  const avgPerActiveDay = activeDays > 0 ? sec / activeDays : 0;
+  const avgPerDay = period.days > 0 ? sec / period.days : 0;
+
+  // last 5 sessions (most recent first)
+  const recent = [...sessions].sort((a, b) => b.start - a.start).slice(0, 5);
+
+  // hour-of-day histogram: when does this category usually run?
+  const hourBuckets = new Array(24).fill(0);
+  sessions.forEach(s => {
+    let cursor = s.start;
+    while (cursor < s.end) {
+      const d = new Date(cursor);
+      const hourStart = new Date(d.getFullYear(), d.getMonth(), d.getDate(), d.getHours()).getTime();
+      const hourEnd = hourStart + 3_600_000;
+      const slice = Math.min(s.end, hourEnd) - cursor;
+      hourBuckets[d.getHours()] += slice / 1000;
+      cursor = hourEnd;
+    }
+  });
+  const maxHour = Math.max(1, ...hourBuckets);
+
+  if (sec === 0) {
+    return (
+      <div className="px-3 pb-3 pt-1 border-t border-border bg-background/50">
+        <div className="py-3 text-center text-[12px] text-secondary-fg">
+          No activity in <span className="text-foreground">{period.label.toLowerCase()}</span> yet
+        </div>
+      </div>
+    );
+  }
+
+  return (
+    <div className="px-3 pb-3 pt-2 border-t border-border bg-background/40 space-y-3 animate-in fade-in slide-in-from-top-1 duration-150">
+      {/* Stats row */}
+      <div className="grid grid-cols-3 gap-2">
+        <Stat label={period.label} value={fmtHM(sec)} />
+        <Stat label="Avg / active day" value={fmtHM(avgPerActiveDay)} />
+        <Stat label="Active days" value={`${activeDays}/${period.days}`} />
+      </div>
+
+      {/* Hour histogram */}
+      <div>
+        <div className="text-[10px] font-medium uppercase tracking-wide text-secondary-fg mb-1.5">Typical hours</div>
+        <div className="flex items-end gap-[2px] h-12">
+          {hourBuckets.map((v, h) => (
+            <div
+              key={h}
+              className="flex-1 rounded-sm"
+              style={{
+                height: `${v > 0 ? Math.max(8, (v / maxHour) * 100) : 4}%`,
+                background: v > 0 ? cat.color : "hsl(var(--muted))",
+                opacity: v > 0 ? 0.4 + (v / maxHour) * 0.6 : 1,
+              }}
+              title={`${String(h).padStart(2, "0")}:00 · ${fmtHM(v)}`}
+            />
+          ))}
+        </div>
+        <div className="mt-1 flex justify-between text-[9px] font-mono tabular-nums text-secondary-fg/70">
+          <span>0</span><span>6</span><span>12</span><span>18</span><span>24</span>
+        </div>
+      </div>
+
+      {/* Recent sessions */}
+      <div>
+        <div className="text-[10px] font-medium uppercase tracking-wide text-secondary-fg mb-1.5">Recent sessions</div>
+        <div className="space-y-1">
+          {recent.map(s => {
+            const dateStr = new Date(s.start).toLocaleDateString(undefined, { month: "short", day: "numeric" });
+            const startStr = new Date(s.start).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" });
+            const endStr = new Date(s.end).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" });
+            return (
+              <div key={s.id} className="flex items-center gap-2 text-[12px]">
+                <span className="font-mono tabular-nums text-secondary-fg w-[54px] shrink-0">{dateStr}</span>
+                <span className="font-mono tabular-nums text-secondary-fg w-[88px] shrink-0">{startStr}–{endStr}</span>
+                <span className="truncate flex-1 text-secondary-fg">{s.note || "—"}</span>
+                <span className="font-mono tabular-nums text-foreground">{fmtHM((s.end - s.start) / 1000)}</span>
+              </div>
+            );
+          })}
+        </div>
+        {sessions.length > recent.length && (
+          <div className="mt-1.5 text-[10px] text-secondary-fg/70">
+            + {sessions.length - recent.length} more in this period
+          </div>
+        )}
+      </div>
+    </div>
+  );
+}
+
+function Stat({ label, value }: { label: string; value: string }) {
+  return (
+    <div className="rounded-lg bg-muted/60 px-2 py-1.5">
+      <div className="text-[9px] font-medium uppercase tracking-wide text-secondary-fg truncate">{label}</div>
+      <div className="text-[13px] font-mono tabular-nums font-semibold mt-0.5">{value}</div>
+    </div>
+  );
+}
