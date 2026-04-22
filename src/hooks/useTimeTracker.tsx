@@ -25,6 +25,8 @@ type Ctx = {
   addCategory: (name: string, color?: string) => Promise<TimeCategory | null>;
   deleteCategory: (id: string) => Promise<void>;
   renameCategory: (id: string, name: string) => Promise<void>;
+  addManualEntry: (categoryId: string, durationSec: number, opts?: { startedAt?: Date; note?: string }) => Promise<void>;
+  deleteEntry: (id: string) => Promise<void>;
   todayTotalSec: number;
   weekTotalSec: number;
   refresh: () => Promise<void>;
@@ -171,9 +173,34 @@ export function TimeTrackerProvider({ children }: { children: ReactNode }) {
     setCategories(cs => cs.map(c => c.id === id ? { ...c, name: trimmed } : c));
   };
 
+  const addManualEntry: Ctx["addManualEntry"] = async (categoryId, durationSec, opts) => {
+    if (!user) return;
+    const end = opts?.startedAt ? new Date(opts.startedAt.getTime() + durationSec * 1000) : new Date();
+    const start = opts?.startedAt || new Date(Date.now() - durationSec * 1000);
+    const { error } = await supabase.from("time_entries").insert({
+      user_id: user.id,
+      category_id: categoryId,
+      started_at: start.toISOString(),
+      ended_at: end.toISOString(),
+      source: "manual_add",
+      note: opts?.note || null,
+    });
+    if (error) { toast.error(error.message); return; }
+    const m = Math.round(durationSec / 60);
+    toast.success(`Logged ${m < 60 ? `${m}m` : `${Math.floor(m/60)}h ${m%60}m`}`);
+    await refresh();
+  };
+
+  const deleteEntry: Ctx["deleteEntry"] = async (id) => {
+    const { error } = await supabase.from("time_entries").delete().eq("id", id);
+    if (error) { toast.error(error.message); return; }
+    await refresh();
+  };
+
   const value: Ctx = useMemo(() => ({
     categories, active, elapsedSec, loading,
     start, stop, switchCategory, addCategory, deleteCategory, renameCategory,
+    addManualEntry, deleteEntry,
     todayTotalSec, weekTotalSec, refresh,
   }), [categories, active, elapsedSec, loading, todayTotalSec, weekTotalSec, refresh]);
 
