@@ -600,6 +600,16 @@ function DayDetail({ detail, catMap }: { detail: NonNullable<ReturnType<() => an
         <>
           <StackedBar segments={byCat.map(x => ({ value: x.sec, color: x.cat!.color, label: x.cat!.name }))} totalSec={detail.total} />
 
+          <DayTimeline24h
+            segments={detail.items.map((it: any) => ({
+              id: it.id,
+              start: it.start - detail.date.getTime(),
+              end: it.end - detail.date.getTime(),
+              color: it.cat?.color || "hsl(var(--muted-foreground))",
+              name: it.cat?.name || "Untracked",
+            }))}
+          />
+
           <div className="space-y-1.5">
             {byCat.map(x => (
               <div key={x.cat!.id} className="flex items-center justify-between text-[13px]">
