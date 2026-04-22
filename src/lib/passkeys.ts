@@ -11,8 +11,9 @@ function b64ToBuf(b64: string): ArrayBuffer {
   for (let i = 0; i < s.length; i++) bytes[i] = s.charCodeAt(i);
   return bytes.buffer;
 }
-function randomChallenge(): Uint8Array {
-  const a = new Uint8Array(32); crypto.getRandomValues(a); return a;
+function randomChallenge(): ArrayBuffer {
+  const a = new Uint8Array(32); crypto.getRandomValues(a);
+  return a.buffer.slice(0) as ArrayBuffer;
 }
 
 export const passkeySupported = () =>
@@ -36,7 +37,7 @@ export async function enrollPasskey(opts: { userId: string; userEmail: string; u
       challenge,
       rp: { name: "DayDraft", id: window.location.hostname },
       user: {
-        id: new TextEncoder().encode(opts.userId),
+        id: new TextEncoder().encode(opts.userId).buffer.slice(0) as ArrayBuffer,
         name: opts.userEmail,
         displayName: opts.userName || opts.userEmail,
       },
