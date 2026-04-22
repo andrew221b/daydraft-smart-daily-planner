@@ -347,9 +347,9 @@ export function TrackerSheet({ open, onOpenChange }: { open: boolean; onOpenChan
               disabled={exporting || headerTotalSec === 0}
               className="shrink-0 inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg border border-border bg-surface text-xs font-medium text-foreground pressable disabled:opacity-40 disabled:pointer-events-none"
               aria-label="Export PDF"
-              title={`Export ${headerLabel} as PDF`}
+              title={isPro ? `Export ${headerLabel} as PDF` : "PDF export is a Pro feature"}
             >
-              <Download className="h-3.5 w-3.5" />
+              {isPro ? <Download className="h-3.5 w-3.5" /> : <Lock className="h-3.5 w-3.5" />}
               PDF
             </button>
           </div>
