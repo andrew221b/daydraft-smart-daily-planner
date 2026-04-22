@@ -98,6 +98,10 @@ export function ClarifySheet({ open, onOpenChange, rawInput, onConfirm }: Props)
           ai_estimate_min: e.estimate_min,
           ai_type: e.type as Row["ai_type"],
           ai_reason: e.reason,
+          ai_action_kind: (e as any).action_kind,
+          ai_links: (e as any).links || [],
+          ai_should_split: (e as any).should_split,
+          ai_split_into: (e as any).split_into || [],
         };
       }));
     } catch (e: any) {
@@ -122,6 +126,20 @@ export function ClarifySheet({ open, onOpenChange, rawInput, onConfirm }: Props)
   const bump = (i: number, delta: number) => {
     const next = Math.max(MIN, Math.min(MAX, Math.round((tasks[i].estimate_min + delta) / STEP) * STEP));
     update(i, { estimate_min: next, accepted: tasks[i].ai_estimate_min === next });
+  };
+
+  const applySplit = (i: number) => {
+    const r = tasks[i];
+    if (!r.ai_split_into?.length) return;
+    const newRows: Row[] = r.ai_split_into.map((s, idx) => ({
+      title: s.title,
+      estimate_min: s.estimate_min,
+      priority: r.priority,
+      fixed_time: idx === 0 ? r.fixed_time : undefined,
+      accepted: true,
+    }));
+    setTasks(t => [...t.slice(0, i), ...newRows, ...t.slice(i + 1)]);
+    toast.success(`Split into ${newRows.length} blocks`);
   };
 
   const totalMin = tasks.reduce((a, t) => a + (t.estimate_min || 0), 0);
