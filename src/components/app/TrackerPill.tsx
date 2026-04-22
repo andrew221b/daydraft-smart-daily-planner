@@ -384,23 +384,106 @@ export function TrackerSheet({ open, onOpenChange }: { open: boolean; onOpenChan
         {/* TODAY TAB — categories + start/stop + today summary */}
         {tab === "today" && (
           <>
+            {/* Hero stopwatch — big, scannable */}
+            <div className="px-5 pt-5">
+              <div
+                className={`rounded-2xl border p-5 transition-colors ${
+                  active
+                    ? "border-primary/50 bg-gradient-to-br from-primary/10 via-primary/5 to-transparent"
+                    : "border-border bg-surface"
+                }`}
+              >
+                {active && activeCat ? (
+                  <div className="flex items-center gap-4">
+                    <div className="relative shrink-0">
+                      <span
+                        className="absolute inset-0 rounded-full animate-ping opacity-40"
+                        style={{ background: activeCat.color }}
+                      />
+                      <span
+                        className="relative block h-3.5 w-3.5 rounded-full"
+                        style={{ background: activeCat.color }}
+                      />
+                    </div>
+                    <div className="flex-1 min-w-0">
+                      <div className="text-[10px] font-semibold uppercase tracking-wider text-secondary-fg">Now tracking</div>
+                      <div className="text-base font-semibold truncate">{activeCat.name}</div>
+                    </div>
+                    <div className="font-mono tabular-nums text-3xl font-bold leading-none">
+                      {fmtHMS(elapsedSec)}
+                    </div>
+                    <button
+                      onClick={handleStop}
+                      className="shrink-0 inline-flex items-center justify-center h-11 w-11 rounded-full bg-primary text-primary-foreground pressable shadow-glow"
+                      aria-label="Stop"
+                    >
+                      <Pause className="h-4 w-4" fill="currentColor" />
+                    </button>
+                  </div>
+                ) : (
+                  <div className="flex items-center gap-3">
+                    <div className="h-10 w-10 rounded-full bg-muted flex items-center justify-center shrink-0">
+                      <Hourglass className="h-4 w-4 text-secondary-fg" />
+                    </div>
+                    <div className="flex-1 min-w-0">
+                      <div className="text-[10px] font-semibold uppercase tracking-wider text-secondary-fg">Today</div>
+                      <div className="font-mono tabular-nums text-2xl font-bold leading-tight">
+                        {fmtHM(todayTotalSec)}
+                      </div>
+                    </div>
+                    <div className="text-right text-[11px] text-secondary-fg max-w-[110px] leading-tight">
+                      {todayTotalSec === 0 ? "Pick a category below to start" : "Idle — ready to track"}
+                    </div>
+                  </div>
+                )}
+              </div>
+            </div>
+
+            {/* Today proportional breakdown (only if any time) */}
             {todayByCat.length > 0 && (
               <div className="px-5 pt-4">
-                <div className="text-[11px] font-medium uppercase tracking-wide text-secondary-fg mb-2">Today by category</div>
-                <StackedBar segments={todayByCat.map(x => ({ value: x.sec, color: x.cat!.color, label: x.cat!.name }))} totalSec={todayTotalSec} />
-                <div className="mt-2 flex flex-wrap gap-x-3 gap-y-1">
-                  {todayByCat.map(x => (
-                    <div key={x.cat!.id} className="flex items-center gap-1.5 text-[11px] text-secondary-fg">
-                      <span className="h-2 w-2 rounded-full" style={{ background: x.cat!.color }} />
-                      <span>{x.cat!.name}</span>
-                      <span className="font-mono tabular-nums text-foreground">{fmtHM(x.sec)}</span>
-                    </div>
-                  ))}
+                <div className="text-[10px] font-semibold uppercase tracking-wider text-secondary-fg mb-2">Where today went</div>
+                <div className="space-y-1.5">
+                  {todayByCat.map(x => {
+                    const pct = (x.sec / Math.max(1, todayTotalSec)) * 100;
+                    return (
+                      <div key={x.cat!.id} className="flex items-center gap-2 text-[12px]">
+                        <span className="h-2 w-2 rounded-full shrink-0" style={{ background: x.cat!.color }} />
+                        <span className="w-20 truncate text-foreground">{x.cat!.name}</span>
+                        <div className="flex-1 h-1.5 rounded-full bg-muted overflow-hidden">
+                          <div className="h-full rounded-full transition-all" style={{ width: `${pct}%`, background: x.cat!.color }} />
+                        </div>
+                        <span className="font-mono tabular-nums text-secondary-fg w-12 text-right">{fmtHM(x.sec)}</span>
+                      </div>
+                    );
+                  })}
                 </div>
-
-                <div className="mt-4">
-                  <div className="text-[11px] font-medium uppercase tracking-wide text-secondary-fg mb-2">When you tracked (24h)</div>
+                <div className="mt-3">
+                  <div className="text-[10px] font-semibold uppercase tracking-wider text-secondary-fg mb-1.5">When (24h)</div>
                   <DayTimeline24h segments={todayTimeline} />
+                </div>
+              </div>
+            )}
+
+            {/* Active hint */}
+            {active && (
+              <div className="px-5 pt-3">
+                <div className="text-[11px] text-secondary-fg flex items-center gap-1.5">
+                  <span className="inline-block h-1 w-1 rounded-full bg-secondary-fg/60" />
+                  Tap another category to switch instantly
+                </div>
+              </div>
+            )}
+
+            {/* Empty state when no entries today and no active */}
+            {!active && todayByCat.length === 0 && categories.length > 0 && (
+              <div className="px-5 pt-4">
+                <div className="rounded-2xl border border-dashed border-border bg-surface/50 px-4 py-5 text-center">
+                  <div className="mx-auto h-10 w-10 rounded-full bg-muted flex items-center justify-center mb-2">
+                    <Clock className="h-4 w-4 text-secondary-fg" />
+                  </div>
+                  <div className="text-[13px] font-medium">No time tracked today</div>
+                  <div className="text-[11px] text-secondary-fg mt-0.5">Tap a category below to start, or log past time with +Add.</div>
                 </div>
               </div>
             )}
@@ -412,7 +495,8 @@ export function TrackerSheet({ open, onOpenChange }: { open: boolean; onOpenChan
                 const stat = periodCatStats.get(c.id);
                 const periodSec = stat?.sec || 0;
                 return (
-                  <div key={c.id} className={`rounded-2xl border ${isActive ? "border-primary/50 bg-primary/5" : "border-border bg-surface"} overflow-hidden`}>
+                  <SwipeRow key={c.id} disabled={c.is_default || isActive || editingCat === c.id} onDelete={() => deleteCategory(c.id)}>
+                  <div className={`rounded-2xl border transition-colors ${isActive ? "border-primary/60 bg-primary/5 shadow-[0_0_0_3px_hsl(var(--primary)/0.08)]" : "border-border bg-surface"} overflow-hidden`}>
                     <div className="flex items-center gap-2 px-3 py-2.5">
                       {editingCat === c.id ? (
                         <form
@@ -442,46 +526,61 @@ export function TrackerSheet({ open, onOpenChange }: { open: boolean; onOpenChan
                           </button>
                         </form>
                       ) : (
-                        <button
+                        <LongPressButton
                           onClick={() => setSelectedCat(isOpen ? null : c.id)}
+                          onLongPress={() => { setEditingName(c.name); setEditingCat(c.id); }}
                           className="flex-1 flex items-center gap-2 min-w-0 text-left pressable"
-                          aria-expanded={isOpen}
-                          aria-label={`${c.name} details`}
+                          ariaLabel={`${c.name} details — long press to rename`}
                         >
-                          <span className="h-3 w-3 rounded-full shrink-0" style={{ background: c.color }} />
+                          <span className="relative h-3 w-3 shrink-0">
+                            {isActive && (
+                              <span
+                                className="absolute inset-0 rounded-full animate-ping opacity-50"
+                                style={{ background: c.color }}
+                              />
+                            )}
+                            <span className="relative block h-3 w-3 rounded-full" style={{ background: c.color }} />
+                          </span>
                           <span className="flex-1 text-[15px] font-medium truncate">{c.name}</span>
                           <span className="font-mono tabular-nums text-[11px] text-secondary-fg shrink-0">{fmtHM(periodSec)}</span>
                           <ChevronDown className={`h-3.5 w-3.5 text-secondary-fg shrink-0 transition-transform ${isOpen ? "rotate-180" : ""}`} />
-                        </button>
+                        </LongPressButton>
                       )}
                       {editingCat === c.id ? null : isActive ? (
-                        <button onClick={stop} className="inline-flex items-center gap-1 px-3 py-1.5 rounded-lg bg-primary text-primary-foreground text-xs font-medium pressable">
+                        <button onClick={handleStop} className="inline-flex items-center gap-1 px-3 py-1.5 rounded-lg bg-primary text-primary-foreground text-xs font-medium pressable">
                           <Pause className="h-3 w-3" fill="currentColor" /> Stop
                         </button>
                       ) : (
                         <>
                           <button
-                            onClick={() => { setEditingName(c.name); setEditingCat(c.id); }}
+                            onClick={() => setManualForCat(manualForCat === c.id ? null : c.id)}
                             className="p-1.5 text-secondary-fg hover:text-foreground pressable"
-                            aria-label="Rename"
+                            aria-label="Add past time"
+                            title="Log past time"
                           >
-                            <Pencil className="h-3.5 w-3.5" />
+                            <Plus className="h-3.5 w-3.5" />
                           </button>
                           <button onClick={() => active ? switchCategory(c.id) : start(c.id)} className="inline-flex items-center gap-1 px-3 py-1.5 rounded-lg bg-foreground text-background text-xs font-medium pressable">
                             <Play className="h-3 w-3" fill="currentColor" /> {active ? "Switch" : "Start"}
                           </button>
-                          {!c.is_default && (
-                            <button onClick={() => deleteCategory(c.id)} className="p-1.5 text-secondary-fg hover:text-destructive pressable" aria-label="Delete">
-                              <Trash2 className="h-3.5 w-3.5" />
-                            </button>
-                          )}
                         </>
                       )}
                     </div>
+                    {manualForCat === c.id && (
+                      <ManualEntryRow
+                        color={c.color}
+                        onSubmit={async (mins, note) => {
+                          await addManualEntry(c.id, mins * 60, { note });
+                          setManualForCat(null);
+                        }}
+                        onCancel={() => setManualForCat(null)}
+                      />
+                    )}
                     {isOpen && (
                       <CategoryDetail cat={c} stat={stat} period={period} />
                     )}
                   </div>
+                  </SwipeRow>
                 );
               })}
 
