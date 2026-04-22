@@ -1,1 +1,9 @@
 project_id = "bavuqskjcehfvdkoreso"
+
+# Apple IAP webhook — must accept unsigned requests from Apple servers
+[functions.apple-iap-webhook]
+verify_jwt = false
+
+# Apple IAP verification — called from the native iOS client with a Supabase JWT
+[functions.verify-apple-iap]
+verify_jwt = true
