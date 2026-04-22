@@ -12,6 +12,7 @@ import { SortableBlock } from "@/components/app/SortableBlock";
 import { Sheet, SheetContent, SheetHeader, SheetTitle } from "@/components/ui/sheet";
 import { useProfile } from "@/hooks/useProfile";
 import { toast } from "sonner";
+import { useTour, TOUR_DAYVIEW } from "@/components/app/Tour";
 
 type ExBlock = Block & {
   ai_reasoning?: string | null;
@@ -37,6 +38,7 @@ export default function DayView() {
   const { user } = useAuth();
   const { profile } = useProfile();
   const nav = useNavigate();
+  const tour = useTour();
   const [plan, setPlan] = useState<{ id: string; ai_summary: string | null; ai_subtext: string | null } | null>(null);
   const [blocks, setBlocks] = useState<ExBlock[]>([]);
   const [editing, setEditing] = useState(false);
@@ -48,6 +50,13 @@ export default function DayView() {
     useSensor(PointerSensor, { activationConstraint: { distance: 6 } }),
     useSensor(TouchSensor, { activationConstraint: { delay: 200, tolerance: 8 } })
   );
+
+  // First-time tour for DayView
+  useEffect(() => {
+    if (blocks.length === 0) return;
+    const t = setTimeout(() => tour.start(TOUR_DAYVIEW), 500);
+    return () => clearTimeout(t);
+  }, [blocks.length > 0]);
 
   useEffect(() => {
     const t = setInterval(() => setNow(new Date()), 60000);

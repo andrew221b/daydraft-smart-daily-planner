@@ -7,13 +7,15 @@ import { Button } from "@/components/ui/button";
 import { useEffect, useState } from "react";
 import { peakWindow } from "@/lib/daydraft";
 import { ThemeToggle } from "@/components/app/ThemeToggle";
-import { Fingerprint, Sparkles, Bell, Calendar, FileText, Shield, Trash2 } from "lucide-react";
+import { Fingerprint, Sparkles, Bell, Calendar, FileText, Shield, Trash2, HelpCircle } from "lucide-react";
 import { Link } from "react-router-dom";
 import { clearStoredPasskey, enrollPasskey, getStoredPasskey, passkeySupported } from "@/lib/passkeys";
 import { toast } from "sonner";
 import { useEntitlement } from "@/hooks/useEntitlement";
 import { UpgradeSheet } from "@/components/app/UpgradeSheet";
 import { enablePush, disablePush, pushSupported } from "@/lib/push";
+import { useTour, TOUR_TODAY } from "@/components/app/Tour";
+import { useNavigate } from "react-router-dom";
 
 const energies = [
   { key: "morning" as const, label: "Morning person" },
@@ -24,6 +26,8 @@ const energies = [
 export default function Settings() {
   const { profile, update } = useProfile();
   const { signOut, user } = useAuth();
+  const tour = useTour();
+  const nav = useNavigate();
   const [name, setName] = useState("");
   const [hasPasskey, setHasPasskey] = useState(!!getStoredPasskey());
   const { entitlement, isPro, planQuotaUsed, planQuotaLimit } = useEntitlement();
@@ -174,6 +178,24 @@ export default function Settings() {
           <Button onClick={signOut} variant="outline" className="w-full h-12 rounded-xl border-border bg-surface hover:bg-surface-elevated pressable">
             Sign out
           </Button>
+
+          <Section title="Help">
+            <button
+              onClick={async () => {
+                await tour.resetAll();
+                nav("/today");
+                setTimeout(() => tour.start(TOUR_TODAY, { force: true }), 400);
+              }}
+              className="w-full flex items-center gap-3 px-4 py-3 rounded-xl border border-border bg-surface pressable hover:border-primary/30"
+            >
+              <HelpCircle className="h-5 w-5 text-primary" />
+              <div className="text-left flex-1">
+                <div className="text-sm">Replay tutorial</div>
+                <div className="text-xs text-secondary-fg">See the in-app walkthrough again</div>
+              </div>
+              <span className="text-secondary-fg">›</span>
+            </button>
+          </Section>
 
           <Section title="Legal & privacy">
             <div className="rounded-xl border border-border bg-surface divide-y divide-border overflow-hidden">

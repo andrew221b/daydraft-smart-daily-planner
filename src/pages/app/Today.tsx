@@ -17,6 +17,7 @@ import { UpgradeSheet } from "@/components/app/UpgradeSheet";
 import { Bookmark } from "lucide-react";
 import { ClarifySheet, ClarifiedTask } from "@/components/app/ClarifySheet";
 import { QuickCaptureButton } from "@/components/app/QuickCapture";
+import { useTour, TOUR_TODAY } from "@/components/app/Tour";
 
 const placeholder = `Drop your tasks here...
 
@@ -28,6 +29,7 @@ export default function Today() {
   const nav = useNavigate();
   const { recordPlanToday } = useStreak();
   const { isPro, planQuotaUsed, planQuotaRemaining, entitlement } = useEntitlement();
+  const tour = useTour();
   const [upgradeOpen, setUpgradeOpen] = useState(false);
   const [upgradeReason, setUpgradeReason] = useState<"quota" | "feature" | "trial-banner">("feature");
   const [input, setInput] = useState("");
@@ -54,6 +56,13 @@ export default function Today() {
       }
     })();
   }, [user?.id]);
+
+  // Auto-start tour on first visit (after profile is loaded).
+  useEffect(() => {
+    if (!profile?.onboarded) return;
+    const t = setTimeout(() => tour.start(TOUR_TODAY), 600);
+    return () => clearTimeout(t);
+  }, [profile?.onboarded]);
 
   const paste = async () => {
     try { const t = await navigator.clipboard.readText(); setInput(prev => prev ? prev + "\n" + t : t); }
@@ -208,12 +217,13 @@ export default function Today() {
             toast.success(titles.length === 1 ? "Carried over" : `Carried over ${titles.length} tasks`);
           }} />
           <Textarea
+            data-tour="today-input"
             value={input} onChange={e => setInput(e.target.value)} placeholder={placeholder}
             className="min-h-[200px] bg-surface border-border rounded-[20px] p-4 text-base leading-relaxed resize-none focus-visible:ring-primary/40 focus-visible:ring-offset-0 focus-visible:border-primary/40 transition-all" />
         </div>
 
         <div className="flex gap-2 mt-3 overflow-x-auto pb-1">
-          <QuickCaptureButton variant="chip" />
+          <QuickCaptureButton variant="chip" className="" />
           <button onClick={paste} className="shrink-0 inline-flex items-center gap-1.5 px-3 py-2 rounded-full bg-surface border border-border text-xs text-secondary-fg pressable hover:text-foreground">
             <ClipboardPaste className="h-3.5 w-3.5" /> Paste
           </button>
@@ -240,7 +250,7 @@ export default function Today() {
         )}
 
         <div className="mt-8">
-          <Button onClick={openClarify} disabled={busy} className="w-full h-13 py-3.5 rounded-xl text-primary-foreground text-base font-medium pressable shadow-glow"
+          <Button data-tour="today-plan" onClick={openClarify} disabled={busy} className="w-full h-13 py-3.5 rounded-xl text-primary-foreground text-base font-medium pressable shadow-glow"
             style={{ background: "var(--gradient-primary)" }}>
             Plan My Day <ArrowRight className="h-4 w-4" />
           </Button>

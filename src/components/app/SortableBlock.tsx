@@ -20,7 +20,7 @@ export const SortableBlock = ({
   };
   const isCal = block.is_calendar_event;
   return (
-    <div ref={setNodeRef} style={style} className="flex gap-3">
+    <div ref={setNodeRef} style={style} className="flex gap-3" data-tour="dayview-block">
       <div className="w-12 pt-3 text-right text-secondary-fg text-[13px] font-mono-sf">{fmtTime(block.start_time)}</div>
       <div className="w-[3px] rounded-full" style={{ background: isCal ? "hsl(var(--muted-foreground))" : typeColor(block.type) }} />
       <div className={`flex-1 rounded-2xl border shadow-card p-4 ${block.completed ? "opacity-50" : ""} ${isCal ? "bg-surface-elevated/60 border-border/60" : "bg-surface border-border"}`}>
@@ -64,10 +64,12 @@ export const SortableBlock = ({
               )}
             </div>
           ) : block.completed ? (
-            <div className="h-6 w-6 rounded-full bg-success flex items-center justify-center">
+            <div data-tour="dayview-complete" className="h-6 w-6 rounded-full bg-success flex items-center justify-center">
               <Check className="h-3.5 w-3.5 text-success-foreground" strokeWidth={3} />
             </div>
-          ) : null}
+          ) : (
+            <div data-tour="dayview-complete" className="h-6 w-6 rounded-full border-2 border-border" />
+          )}
         </div>
       </div>
     </div>

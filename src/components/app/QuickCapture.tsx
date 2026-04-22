@@ -71,6 +71,7 @@ export function QuickCaptureButton({ className = "", variant = "icon" }: { class
     <>
       <button
         onClick={() => setOpen(true)}
+        data-tour="today-inbox"
         aria-label={`Inbox · ${pendingCount} pending`}
         className={variant === "chip"
           ? `shrink-0 inline-flex items-center gap-1.5 px-3 py-2 rounded-full bg-surface border border-border text-xs text-secondary-fg pressable hover:text-foreground ${className}`

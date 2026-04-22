@@ -6,6 +6,7 @@ import NotFound from "./pages/NotFound";
 import { AuthProvider, useAuth } from "@/hooks/useAuth";
 import { ProfileProvider, useProfile } from "@/hooks/useProfile";
 import { useTheme } from "@/lib/theme";
+import { TourProvider } from "@/components/app/Tour";
 import Auth from "./pages/app/Auth";
 import Onboarding from "./pages/app/Onboarding";
 import Today from "./pages/app/Today";
@@ -54,6 +55,7 @@ const App = () => (
       <BrowserRouter>
         <AuthProvider>
         <ProfileProvider>
+        <TourProvider>
         <TimeTrackerProvider>
           <Routes>
             <Route path="/" element={<RootRedirect />} />
@@ -76,6 +78,7 @@ const App = () => (
             <Route path="*" element={<NotFound />} />
           </Routes>
         </TimeTrackerProvider>
+        </TourProvider>
         </ProfileProvider>
         </AuthProvider>
       </BrowserRouter>
