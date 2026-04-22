@@ -171,7 +171,6 @@ export default function Today() {
           </div>
           <div className="flex items-center gap-2">
             <StreakBadge />
-            <QuickCaptureButton />
             <div className="h-10 w-10 rounded-full bg-surface-elevated border border-border flex items-center justify-center text-sm font-medium text-secondary-fg">
               {(profile?.display_name || "·").slice(0,1).toUpperCase()}
             </div>
@@ -214,6 +213,7 @@ export default function Today() {
         </div>
 
         <div className="flex gap-2 mt-3 overflow-x-auto pb-1">
+          <QuickCaptureButton variant="chip" />
           <button onClick={paste} className="shrink-0 inline-flex items-center gap-1.5 px-3 py-2 rounded-full bg-surface border border-border text-xs text-secondary-fg pressable hover:text-foreground">
             <ClipboardPaste className="h-3.5 w-3.5" /> Paste
           </button>
