@@ -1,5 +1,5 @@
-import { useEffect, useMemo, useState } from "react";
-import { Play, Pause, Plus, Check, Trash2, ChevronLeft, ChevronRight, Download, ChevronDown, Lock, Pencil, X } from "lucide-react";
+import { useEffect, useMemo, useRef, useState } from "react";
+import { Play, Pause, Plus, Check, Trash2, ChevronLeft, ChevronRight, Download, ChevronDown, Lock, Pencil, X, Hourglass, Clock } from "lucide-react";
 import { useTimeTracker, fmtHMS, fmtHM, TimeCategory } from "@/hooks/useTimeTracker";
 import { Sheet, SheetContent, SheetHeader, SheetTitle, SheetDescription } from "@/components/ui/sheet";
 import { Input } from "@/components/ui/input";
@@ -35,7 +35,7 @@ function clipDuration(e: Entry, dayStart: number, dayEnd: number, now: number) {
 
 export function TrackerSheet({ open, onOpenChange }: { open: boolean; onOpenChange: (v: boolean) => void }) {
   const { user } = useAuth();
-  const { active, elapsedSec, categories, start, stop, switchCategory, addCategory, deleteCategory, renameCategory, todayTotalSec } = useTimeTracker();
+  const { active, elapsedSec, categories, start, stop, switchCategory, addCategory, deleteCategory, renameCategory, addManualEntry, todayTotalSec } = useTimeTracker();
   const { isPro } = useEntitlement();
   const [upgradeOpen, setUpgradeOpen] = useState(false);
   const [newName, setNewName] = useState("");
@@ -47,6 +47,7 @@ export function TrackerSheet({ open, onOpenChange }: { open: boolean; onOpenChan
   const [selectedDay, setSelectedDay] = useState<string | null>(null);
   const [selectedCat, setSelectedCat] = useState<string | null>(null);
   const [exporting, setExporting] = useState(false);
+  const [manualForCat, setManualForCat] = useState<string | null>(null);
 
   const activeCat = categories.find(c => c.id === active?.category_id);
   const catMap = useMemo(() => new Map(categories.map(c => [c.id, c])), [categories]);
@@ -204,6 +205,15 @@ export function TrackerSheet({ open, onOpenChange }: { open: boolean; onOpenChan
   const headerLabel = tab === "today" ? "Today" : tab === "week" ? "This week" : monthCursor.toLocaleDateString(undefined, { month: "long", year: "numeric" });
 
   const monthLabel = monthCursor.toLocaleDateString(undefined, { month: "long", year: "numeric" });
+
+  // Smart stop: if running session is < 60s, confirm (likely accidental tap).
+  const handleStop = async () => {
+    if (active && elapsedSec < 60) {
+      const ok = window.confirm("Stop after less than a minute? This session will still be saved.");
+      if (!ok) return;
+    }
+    await stop();
+  };
 
   // ----- PDF export -----
   const exportPDF = () => {
@@ -374,23 +384,106 @@ export function TrackerSheet({ open, onOpenChange }: { open: boolean; onOpenChan
         {/* TODAY TAB — categories + start/stop + today summary */}
         {tab === "today" && (
           <>
+            {/* Hero stopwatch — big, scannable */}
+            <div className="px-5 pt-5">
+              <div
+                className={`rounded-2xl border p-5 transition-colors ${
+                  active
+                    ? "border-primary/50 bg-gradient-to-br from-primary/10 via-primary/5 to-transparent"
+                    : "border-border bg-surface"
+                }`}
+              >
+                {active && activeCat ? (
+                  <div className="flex items-center gap-4">
+                    <div className="relative shrink-0">
+                      <span
+                        className="absolute inset-0 rounded-full animate-ping opacity-40"
+                        style={{ background: activeCat.color }}
+                      />
+                      <span
+                        className="relative block h-3.5 w-3.5 rounded-full"
+                        style={{ background: activeCat.color }}
+                      />
+                    </div>
+                    <div className="flex-1 min-w-0">
+                      <div className="text-[10px] font-semibold uppercase tracking-wider text-secondary-fg">Now tracking</div>
+                      <div className="text-base font-semibold truncate">{activeCat.name}</div>
+                    </div>
+                    <div className="font-mono tabular-nums text-3xl font-bold leading-none">
+                      {fmtHMS(elapsedSec)}
+                    </div>
+                    <button
+                      onClick={handleStop}
+                      className="shrink-0 inline-flex items-center justify-center h-11 w-11 rounded-full bg-primary text-primary-foreground pressable shadow-glow"
+                      aria-label="Stop"
+                    >
+                      <Pause className="h-4 w-4" fill="currentColor" />
+                    </button>
+                  </div>
+                ) : (
+                  <div className="flex items-center gap-3">
+                    <div className="h-10 w-10 rounded-full bg-muted flex items-center justify-center shrink-0">
+                      <Hourglass className="h-4 w-4 text-secondary-fg" />
+                    </div>
+                    <div className="flex-1 min-w-0">
+                      <div className="text-[10px] font-semibold uppercase tracking-wider text-secondary-fg">Today</div>
+                      <div className="font-mono tabular-nums text-2xl font-bold leading-tight">
+                        {fmtHM(todayTotalSec)}
+                      </div>
+                    </div>
+                    <div className="text-right text-[11px] text-secondary-fg max-w-[110px] leading-tight">
+                      {todayTotalSec === 0 ? "Pick a category below to start" : "Idle — ready to track"}
+                    </div>
+                  </div>
+                )}
+              </div>
+            </div>
+
+            {/* Today proportional breakdown (only if any time) */}
             {todayByCat.length > 0 && (
               <div className="px-5 pt-4">
-                <div className="text-[11px] font-medium uppercase tracking-wide text-secondary-fg mb-2">Today by category</div>
-                <StackedBar segments={todayByCat.map(x => ({ value: x.sec, color: x.cat!.color, label: x.cat!.name }))} totalSec={todayTotalSec} />
-                <div className="mt-2 flex flex-wrap gap-x-3 gap-y-1">
-                  {todayByCat.map(x => (
-                    <div key={x.cat!.id} className="flex items-center gap-1.5 text-[11px] text-secondary-fg">
-                      <span className="h-2 w-2 rounded-full" style={{ background: x.cat!.color }} />
-                      <span>{x.cat!.name}</span>
-                      <span className="font-mono tabular-nums text-foreground">{fmtHM(x.sec)}</span>
-                    </div>
-                  ))}
+                <div className="text-[10px] font-semibold uppercase tracking-wider text-secondary-fg mb-2">Where today went</div>
+                <div className="space-y-1.5">
+                  {todayByCat.map(x => {
+                    const pct = (x.sec / Math.max(1, todayTotalSec)) * 100;
+                    return (
+                      <div key={x.cat!.id} className="flex items-center gap-2 text-[12px]">
+                        <span className="h-2 w-2 rounded-full shrink-0" style={{ background: x.cat!.color }} />
+                        <span className="w-20 truncate text-foreground">{x.cat!.name}</span>
+                        <div className="flex-1 h-1.5 rounded-full bg-muted overflow-hidden">
+                          <div className="h-full rounded-full transition-all" style={{ width: `${pct}%`, background: x.cat!.color }} />
+                        </div>
+                        <span className="font-mono tabular-nums text-secondary-fg w-12 text-right">{fmtHM(x.sec)}</span>
+                      </div>
+                    );
+                  })}
                 </div>
-
-                <div className="mt-4">
-                  <div className="text-[11px] font-medium uppercase tracking-wide text-secondary-fg mb-2">When you tracked (24h)</div>
+                <div className="mt-3">
+                  <div className="text-[10px] font-semibold uppercase tracking-wider text-secondary-fg mb-1.5">When (24h)</div>
                   <DayTimeline24h segments={todayTimeline} />
+                </div>
+              </div>
+            )}
+
+            {/* Active hint */}
+            {active && (
+              <div className="px-5 pt-3">
+                <div className="text-[11px] text-secondary-fg flex items-center gap-1.5">
+                  <span className="inline-block h-1 w-1 rounded-full bg-secondary-fg/60" />
+                  Tap another category to switch instantly
+                </div>
+              </div>
+            )}
+
+            {/* Empty state when no entries today and no active */}
+            {!active && todayByCat.length === 0 && categories.length > 0 && (
+              <div className="px-5 pt-4">
+                <div className="rounded-2xl border border-dashed border-border bg-surface/50 px-4 py-5 text-center">
+                  <div className="mx-auto h-10 w-10 rounded-full bg-muted flex items-center justify-center mb-2">
+                    <Clock className="h-4 w-4 text-secondary-fg" />
+                  </div>
+                  <div className="text-[13px] font-medium">No time tracked today</div>
+                  <div className="text-[11px] text-secondary-fg mt-0.5">Tap a category below to start, or log past time with +Add.</div>
                 </div>
               </div>
             )}
@@ -402,7 +495,8 @@ export function TrackerSheet({ open, onOpenChange }: { open: boolean; onOpenChan
                 const stat = periodCatStats.get(c.id);
                 const periodSec = stat?.sec || 0;
                 return (
-                  <div key={c.id} className={`rounded-2xl border ${isActive ? "border-primary/50 bg-primary/5" : "border-border bg-surface"} overflow-hidden`}>
+                  <SwipeRow key={c.id} disabled={c.is_default || isActive || editingCat === c.id} onDelete={() => deleteCategory(c.id)}>
+                  <div className={`rounded-2xl border transition-colors ${isActive ? "border-primary/60 bg-primary/5 shadow-[0_0_0_3px_hsl(var(--primary)/0.08)]" : "border-border bg-surface"} overflow-hidden`}>
                     <div className="flex items-center gap-2 px-3 py-2.5">
                       {editingCat === c.id ? (
                         <form
@@ -432,46 +526,61 @@ export function TrackerSheet({ open, onOpenChange }: { open: boolean; onOpenChan
                           </button>
                         </form>
                       ) : (
-                        <button
+                        <LongPressButton
                           onClick={() => setSelectedCat(isOpen ? null : c.id)}
+                          onLongPress={() => { setEditingName(c.name); setEditingCat(c.id); }}
                           className="flex-1 flex items-center gap-2 min-w-0 text-left pressable"
-                          aria-expanded={isOpen}
-                          aria-label={`${c.name} details`}
+                          ariaLabel={`${c.name} details — long press to rename`}
                         >
-                          <span className="h-3 w-3 rounded-full shrink-0" style={{ background: c.color }} />
+                          <span className="relative h-3 w-3 shrink-0">
+                            {isActive && (
+                              <span
+                                className="absolute inset-0 rounded-full animate-ping opacity-50"
+                                style={{ background: c.color }}
+                              />
+                            )}
+                            <span className="relative block h-3 w-3 rounded-full" style={{ background: c.color }} />
+                          </span>
                           <span className="flex-1 text-[15px] font-medium truncate">{c.name}</span>
                           <span className="font-mono tabular-nums text-[11px] text-secondary-fg shrink-0">{fmtHM(periodSec)}</span>
                           <ChevronDown className={`h-3.5 w-3.5 text-secondary-fg shrink-0 transition-transform ${isOpen ? "rotate-180" : ""}`} />
-                        </button>
+                        </LongPressButton>
                       )}
                       {editingCat === c.id ? null : isActive ? (
-                        <button onClick={stop} className="inline-flex items-center gap-1 px-3 py-1.5 rounded-lg bg-primary text-primary-foreground text-xs font-medium pressable">
+                        <button onClick={handleStop} className="inline-flex items-center gap-1 px-3 py-1.5 rounded-lg bg-primary text-primary-foreground text-xs font-medium pressable">
                           <Pause className="h-3 w-3" fill="currentColor" /> Stop
                         </button>
                       ) : (
                         <>
                           <button
-                            onClick={() => { setEditingName(c.name); setEditingCat(c.id); }}
+                            onClick={() => setManualForCat(manualForCat === c.id ? null : c.id)}
                             className="p-1.5 text-secondary-fg hover:text-foreground pressable"
-                            aria-label="Rename"
+                            aria-label="Add past time"
+                            title="Log past time"
                           >
-                            <Pencil className="h-3.5 w-3.5" />
+                            <Plus className="h-3.5 w-3.5" />
                           </button>
                           <button onClick={() => active ? switchCategory(c.id) : start(c.id)} className="inline-flex items-center gap-1 px-3 py-1.5 rounded-lg bg-foreground text-background text-xs font-medium pressable">
                             <Play className="h-3 w-3" fill="currentColor" /> {active ? "Switch" : "Start"}
                           </button>
-                          {!c.is_default && (
-                            <button onClick={() => deleteCategory(c.id)} className="p-1.5 text-secondary-fg hover:text-destructive pressable" aria-label="Delete">
-                              <Trash2 className="h-3.5 w-3.5" />
-                            </button>
-                          )}
                         </>
                       )}
                     </div>
+                    {manualForCat === c.id && (
+                      <ManualEntryRow
+                        color={c.color}
+                        onSubmit={async (mins, note) => {
+                          await addManualEntry(c.id, mins * 60, { note });
+                          setManualForCat(null);
+                        }}
+                        onCancel={() => setManualForCat(null)}
+                      />
+                    )}
                     {isOpen && (
                       <CategoryDetail cat={c} stat={stat} period={period} />
                     )}
                   </div>
+                  </SwipeRow>
                 );
               })}
 
@@ -837,6 +946,168 @@ function Stat({ label, value }: { label: string; value: string }) {
     <div className="rounded-lg bg-muted/60 px-2 py-1.5">
       <div className="text-[9px] font-medium uppercase tracking-wide text-secondary-fg truncate">{label}</div>
       <div className="text-[13px] font-mono tabular-nums font-semibold mt-0.5">{value}</div>
+    </div>
+  );
+}
+
+// Long-press detection: fires onLongPress after 500ms hold without movement.
+function LongPressButton({
+  children, onClick, onLongPress, className, ariaLabel,
+}: {
+  children: React.ReactNode;
+  onClick: () => void;
+  onLongPress: () => void;
+  className?: string;
+  ariaLabel?: string;
+}) {
+  const timer = useRef<number | null>(null);
+  const fired = useRef(false);
+  const start = () => {
+    fired.current = false;
+    timer.current = window.setTimeout(() => {
+      fired.current = true;
+      try { (navigator as any).vibrate?.(15); } catch {}
+      onLongPress();
+    }, 500);
+  };
+  const cancel = () => {
+    if (timer.current) { clearTimeout(timer.current); timer.current = null; }
+  };
+  return (
+    <button
+      type="button"
+      className={className}
+      aria-label={ariaLabel}
+      onPointerDown={start}
+      onPointerUp={(e) => { cancel(); if (!fired.current) { e.preventDefault(); onClick(); } }}
+      onPointerLeave={cancel}
+      onPointerCancel={cancel}
+      onContextMenu={(e) => e.preventDefault()}
+    >
+      {children}
+    </button>
+  );
+}
+
+// Swipe-to-delete row. Drag left to reveal a delete action; release past threshold to confirm.
+function SwipeRow({
+  children, onDelete, disabled,
+}: {
+  children: React.ReactNode;
+  onDelete: () => void;
+  disabled?: boolean;
+}) {
+  const [dx, setDx] = useState(0);
+  const [dragging, setDragging] = useState(false);
+  const startX = useRef<number | null>(null);
+  const THRESHOLD = 88;
+  const MAX = 120;
+
+  if (disabled) return <>{children}</>;
+
+  const onPointerDown = (e: React.PointerEvent) => {
+    startX.current = e.clientX;
+    setDragging(true);
+    (e.target as HTMLElement).setPointerCapture?.(e.pointerId);
+  };
+  const onPointerMove = (e: React.PointerEvent) => {
+    if (startX.current === null) return;
+    const delta = e.clientX - startX.current;
+    if (delta < 0) setDx(Math.max(-MAX, delta));
+    else if (dx < 0) setDx(Math.min(0, delta + dx));
+  };
+  const onPointerUp = () => {
+    setDragging(false);
+    if (dx <= -THRESHOLD) {
+      setDx(-MAX);
+      // brief delay to show "Delete" before action
+      setTimeout(() => { onDelete(); setDx(0); }, 120);
+    } else {
+      setDx(0);
+    }
+    startX.current = null;
+  };
+
+  return (
+    <div className="relative">
+      <div className="absolute inset-0 flex items-center justify-end pr-5 rounded-2xl bg-destructive/90 text-destructive-foreground">
+        <div className="flex items-center gap-1.5 text-[12px] font-semibold">
+          <Trash2 className="h-3.5 w-3.5" /> Delete
+        </div>
+      </div>
+      <div
+        className={`relative ${dragging ? "" : "transition-transform duration-200"}`}
+        style={{ transform: `translateX(${dx}px)`, touchAction: "pan-y" }}
+        onPointerDown={onPointerDown}
+        onPointerMove={onPointerMove}
+        onPointerUp={onPointerUp}
+        onPointerCancel={onPointerUp}
+      >
+        {children}
+      </div>
+    </div>
+  );
+}
+
+// Inline manual entry: pick a duration (or type minutes) + optional note.
+function ManualEntryRow({
+  color, onSubmit, onCancel,
+}: {
+  color: string;
+  onSubmit: (minutes: number, note?: string) => void | Promise<void>;
+  onCancel: () => void;
+}) {
+  const [mins, setMins] = useState<number>(15);
+  const [custom, setCustom] = useState("");
+  const [note, setNote] = useState("");
+  const QUICK = [15, 30, 45, 60, 90];
+  const submit = async () => {
+    const m = custom ? parseInt(custom, 10) : mins;
+    if (!m || m <= 0 || m > 24 * 60) { toast.error("Enter 1–1440 minutes"); return; }
+    await onSubmit(m, note.trim() || undefined);
+    setCustom(""); setNote("");
+  };
+  return (
+    <div className="px-3 pb-3 pt-1 border-t border-border bg-background/50 space-y-2 animate-in fade-in slide-in-from-top-1 duration-150">
+      <div className="flex items-center gap-1.5 pt-2">
+        <span className="text-[10px] font-semibold uppercase tracking-wider text-secondary-fg mr-1">Log past</span>
+        {QUICK.map(q => (
+          <button
+            key={q}
+            onClick={() => { setMins(q); setCustom(""); }}
+            className={`px-2 py-1 rounded-md text-[11px] font-mono tabular-nums pressable ${
+              !custom && mins === q ? "text-primary-foreground" : "bg-muted text-secondary-fg"
+            }`}
+            style={!custom && mins === q ? { background: color } : undefined}
+          >
+            +{q}m
+          </button>
+        ))}
+      </div>
+      <div className="flex items-center gap-2">
+        <Input
+          inputMode="numeric"
+          placeholder="min"
+          value={custom}
+          onChange={(e) => setCustom(e.target.value.replace(/\D/g, ""))}
+          className="h-8 w-16 text-[12px] tabular-nums"
+        />
+        <Input
+          placeholder="Note (optional)"
+          value={note}
+          onChange={(e) => setNote(e.target.value)}
+          className="h-8 flex-1 text-[12px]"
+        />
+        <button onClick={onCancel} className="p-1.5 text-secondary-fg pressable" aria-label="Cancel">
+          <X className="h-3.5 w-3.5" />
+        </button>
+        <button
+          onClick={submit}
+          className="inline-flex items-center gap-1 px-2.5 py-1.5 rounded-lg bg-primary text-primary-foreground text-[11px] font-medium pressable"
+        >
+          <Check className="h-3 w-3" /> Log
+        </button>
+      </div>
     </div>
   );
 }
