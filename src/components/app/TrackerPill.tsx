@@ -949,3 +949,165 @@ function Stat({ label, value }: { label: string; value: string }) {
     </div>
   );
 }
+
+// Long-press detection: fires onLongPress after 500ms hold without movement.
+function LongPressButton({
+  children, onClick, onLongPress, className, ariaLabel,
+}: {
+  children: React.ReactNode;
+  onClick: () => void;
+  onLongPress: () => void;
+  className?: string;
+  ariaLabel?: string;
+}) {
+  const timer = useRef<number | null>(null);
+  const fired = useRef(false);
+  const start = () => {
+    fired.current = false;
+    timer.current = window.setTimeout(() => {
+      fired.current = true;
+      try { (navigator as any).vibrate?.(15); } catch {}
+      onLongPress();
+    }, 500);
+  };
+  const cancel = () => {
+    if (timer.current) { clearTimeout(timer.current); timer.current = null; }
+  };
+  return (
+    <button
+      type="button"
+      className={className}
+      aria-label={ariaLabel}
+      onPointerDown={start}
+      onPointerUp={(e) => { cancel(); if (!fired.current) { e.preventDefault(); onClick(); } }}
+      onPointerLeave={cancel}
+      onPointerCancel={cancel}
+      onContextMenu={(e) => e.preventDefault()}
+    >
+      {children}
+    </button>
+  );
+}
+
+// Swipe-to-delete row. Drag left to reveal a delete action; release past threshold to confirm.
+function SwipeRow({
+  children, onDelete, disabled,
+}: {
+  children: React.ReactNode;
+  onDelete: () => void;
+  disabled?: boolean;
+}) {
+  const [dx, setDx] = useState(0);
+  const [dragging, setDragging] = useState(false);
+  const startX = useRef<number | null>(null);
+  const THRESHOLD = 88;
+  const MAX = 120;
+
+  if (disabled) return <>{children}</>;
+
+  const onPointerDown = (e: React.PointerEvent) => {
+    startX.current = e.clientX;
+    setDragging(true);
+    (e.target as HTMLElement).setPointerCapture?.(e.pointerId);
+  };
+  const onPointerMove = (e: React.PointerEvent) => {
+    if (startX.current === null) return;
+    const delta = e.clientX - startX.current;
+    if (delta < 0) setDx(Math.max(-MAX, delta));
+    else if (dx < 0) setDx(Math.min(0, delta + dx));
+  };
+  const onPointerUp = () => {
+    setDragging(false);
+    if (dx <= -THRESHOLD) {
+      setDx(-MAX);
+      // brief delay to show "Delete" before action
+      setTimeout(() => { onDelete(); setDx(0); }, 120);
+    } else {
+      setDx(0);
+    }
+    startX.current = null;
+  };
+
+  return (
+    <div className="relative">
+      <div className="absolute inset-0 flex items-center justify-end pr-5 rounded-2xl bg-destructive/90 text-destructive-foreground">
+        <div className="flex items-center gap-1.5 text-[12px] font-semibold">
+          <Trash2 className="h-3.5 w-3.5" /> Delete
+        </div>
+      </div>
+      <div
+        className={`relative ${dragging ? "" : "transition-transform duration-200"}`}
+        style={{ transform: `translateX(${dx}px)`, touchAction: "pan-y" }}
+        onPointerDown={onPointerDown}
+        onPointerMove={onPointerMove}
+        onPointerUp={onPointerUp}
+        onPointerCancel={onPointerUp}
+      >
+        {children}
+      </div>
+    </div>
+  );
+}
+
+// Inline manual entry: pick a duration (or type minutes) + optional note.
+function ManualEntryRow({
+  color, onSubmit, onCancel,
+}: {
+  color: string;
+  onSubmit: (minutes: number, note?: string) => void | Promise<void>;
+  onCancel: () => void;
+}) {
+  const [mins, setMins] = useState<number>(15);
+  const [custom, setCustom] = useState("");
+  const [note, setNote] = useState("");
+  const QUICK = [15, 30, 45, 60, 90];
+  const submit = async () => {
+    const m = custom ? parseInt(custom, 10) : mins;
+    if (!m || m <= 0 || m > 24 * 60) { toast.error("Enter 1–1440 minutes"); return; }
+    await onSubmit(m, note.trim() || undefined);
+    setCustom(""); setNote("");
+  };
+  return (
+    <div className="px-3 pb-3 pt-1 border-t border-border bg-background/50 space-y-2 animate-in fade-in slide-in-from-top-1 duration-150">
+      <div className="flex items-center gap-1.5 pt-2">
+        <span className="text-[10px] font-semibold uppercase tracking-wider text-secondary-fg mr-1">Log past</span>
+        {QUICK.map(q => (
+          <button
+            key={q}
+            onClick={() => { setMins(q); setCustom(""); }}
+            className={`px-2 py-1 rounded-md text-[11px] font-mono tabular-nums pressable ${
+              !custom && mins === q ? "text-primary-foreground" : "bg-muted text-secondary-fg"
+            }`}
+            style={!custom && mins === q ? { background: color } : undefined}
+          >
+            +{q}m
+          </button>
+        ))}
+      </div>
+      <div className="flex items-center gap-2">
+        <Input
+          inputMode="numeric"
+          placeholder="min"
+          value={custom}
+          onChange={(e) => setCustom(e.target.value.replace(/\D/g, ""))}
+          className="h-8 w-16 text-[12px] tabular-nums"
+        />
+        <Input
+          placeholder="Note (optional)"
+          value={note}
+          onChange={(e) => setNote(e.target.value)}
+          className="h-8 flex-1 text-[12px]"
+        />
+        <button onClick={onCancel} className="p-1.5 text-secondary-fg pressable" aria-label="Cancel">
+          <X className="h-3.5 w-3.5" />
+        </button>
+        <button
+          onClick={submit}
+          className="inline-flex items-center gap-1 px-2.5 py-1.5 rounded-lg bg-primary text-primary-foreground text-[11px] font-medium pressable"
+        >
+          <Check className="h-3 w-3" /> Log
+        </button>
+      </div>
+    </div>
+  );
+}
