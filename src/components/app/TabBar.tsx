@@ -5,10 +5,10 @@ import { useState } from "react";
 import { TrackerSheet } from "./TrackerPill";
 
 const items = [
-  { to: "/today", icon: Sun },
-  { to: "/history", icon: CalendarDays },
-  { to: "/stats", icon: BarChart3 },
-  { to: "/settings", icon: Settings },
+  { to: "/today", icon: Sun, tour: "tab-today" },
+  { to: "/history", icon: CalendarDays, tour: "tab-history" },
+  { to: "/stats", icon: BarChart3, tour: "tab-stats" },
+  { to: "/settings", icon: Settings, tour: "tab-settings" },
 ];
 
 export const TabBar = () => {
@@ -51,8 +51,8 @@ export const TabBar = () => {
         style={{ paddingBottom: "env(safe-area-inset-bottom)" }}
       >
         <div className="mx-4 mb-4 rounded-2xl bg-surface-elevated/90 backdrop-blur border border-border shadow-card flex items-center justify-around py-3">
-          {items.slice(0, 2).map(({ to, icon: Icon }) => (
-            <NavLink key={to} to={to} className={({ isActive }) =>
+          {items.slice(0, 2).map(({ to, icon: Icon, tour }) => (
+            <NavLink key={to} to={to} data-tour={tour} className={({ isActive }) =>
               `relative flex flex-col items-center justify-center min-w-[44px] min-h-[44px] pressable ${isActive ? "text-primary" : "text-secondary-fg"}`}>
               {({ isActive }) => (
                 <>
@@ -73,8 +73,8 @@ export const TabBar = () => {
             {active && <span className="absolute top-0 right-1 h-1.5 w-1.5 rounded-full bg-primary animate-pulse" />}
           </button>
 
-          {items.slice(2).map(({ to, icon: Icon }) => (
-            <NavLink key={to} to={to} className={({ isActive }) =>
+          {items.slice(2).map(({ to, icon: Icon, tour }) => (
+            <NavLink key={to} to={to} data-tour={tour} className={({ isActive }) =>
               `relative flex flex-col items-center justify-center min-w-[44px] min-h-[44px] pressable ${isActive ? "text-primary" : "text-secondary-fg"}`}>
               {({ isActive }) => (
                 <>

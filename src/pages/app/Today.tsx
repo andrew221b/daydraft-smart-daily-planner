@@ -7,7 +7,7 @@ import { useProfile } from "@/hooks/useProfile";
 import { useAuth } from "@/hooks/useAuth";
 import { greeting, friendlyDate, peakWindow, todayDateStr } from "@/lib/daydraft";
 import { supabase } from "@/integrations/supabase/client";
-import { ClipboardPaste, Mic, Sparkles, Zap, ArrowRight } from "lucide-react";
+import { Mic, Sparkles, Zap, ArrowRight } from "lucide-react";
 import { toast } from "sonner";
 import { SpilloverChips } from "@/components/app/SpilloverChips";
 import { StreakBadge } from "@/components/app/StreakBadge";
@@ -64,11 +64,6 @@ export default function Today() {
     const t = setTimeout(() => tour.start(TOUR_TODAY), 600);
     return () => clearTimeout(t);
   }, [profile?.onboarded]);
-
-  const paste = async () => {
-    try { const t = await navigator.clipboard.readText(); setInput(prev => prev ? prev + "\n" + t : t); }
-    catch { toast.error("Clipboard unavailable"); }
-  };
 
   const useYesterday = async () => {
     if (!user) return;
@@ -226,9 +221,6 @@ export default function Today() {
 
         <div className="flex gap-2 mt-3 overflow-x-auto pb-1">
           <QuickCaptureButton variant="chip" className="" />
-          <button onClick={paste} className="shrink-0 inline-flex items-center gap-1.5 px-3 py-2 rounded-full bg-surface border border-border text-xs text-secondary-fg pressable hover:text-foreground">
-            <ClipboardPaste className="h-3.5 w-3.5" /> Paste
-          </button>
           <button data-tour="today-voice" onClick={voice} className="shrink-0 inline-flex items-center gap-1.5 px-3 py-2 rounded-full bg-surface border border-border text-xs text-secondary-fg pressable hover:text-foreground">
             <Mic className="h-3.5 w-3.5" /> Voice
           </button>
