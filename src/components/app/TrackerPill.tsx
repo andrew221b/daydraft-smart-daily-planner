@@ -205,6 +205,7 @@ export function TrackerSheet({ open, onOpenChange }: { open: boolean; onOpenChan
 
   // ----- PDF export -----
   const exportPDF = () => {
+    if (!isPro) { setUpgradeOpen(true); return; }
     setExporting(true);
     try {
       const doc = new jsPDF({ unit: "pt", format: "a4" });
