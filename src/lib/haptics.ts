@@ -19,8 +19,11 @@ async function getNative() {
   if (nativeChecked) return cachedNative;
   nativeChecked = true;
   try {
-    // @ts-ignore — optional dependency, only present in native builds
-    const mod = await import("@capacitor/haptics");
+    // Optional dependency — only present in native (Capacitor) builds.
+    // The specifier is built at runtime so Rollup/Vite don't try to resolve it at build time.
+    const pkg = ["@capacitor", "haptics"].join("/");
+    // @ts-ignore
+    const mod = await import(/* @vite-ignore */ pkg);
     cachedNative = mod;
   } catch {
     cachedNative = null;
