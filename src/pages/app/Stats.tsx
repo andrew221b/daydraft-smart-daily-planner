@@ -41,12 +41,12 @@ export default function Stats() {
       setBreakdown(counts);
 
       // Tracked time over last 7 days
-      const since = new Date(); since.setDate(since.getDate() - 6); since.setHours(0,0,0,0);
+      const sinceTracked = new Date(); sinceTracked.setDate(sinceTracked.getDate() - 6); sinceTracked.setHours(0,0,0,0);
       const { data: ents } = await supabase
         .from("time_entries")
         .select("category_id,started_at,ended_at")
         .eq("user_id", user.id)
-        .gte("started_at", since.toISOString());
+        .gte("started_at", sinceTracked.toISOString());
       const dayMap: Record<string, number> = {};
       const catMap: Record<string, number> = {};
       const now = Date.now();
@@ -72,12 +72,12 @@ export default function Stats() {
     // recompute category breakdown when entries-derived weekTotalSec changes or categories load
     if (!user || !categories.length) return;
     (async () => {
-      const since = new Date(); since.setDate(since.getDate() - 6); since.setHours(0,0,0,0);
+      const sinceCat = new Date(); sinceCat.setDate(sinceCat.getDate() - 6); sinceCat.setHours(0,0,0,0);
       const { data: ents } = await supabase
         .from("time_entries")
         .select("category_id,started_at,ended_at")
         .eq("user_id", user.id)
-        .gte("started_at", since.toISOString());
+        .gte("started_at", sinceCat.toISOString());
       const catMap: Record<string, number> = {};
       const now = Date.now();
       (ents || []).forEach((e: any) => {
