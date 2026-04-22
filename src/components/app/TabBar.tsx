@@ -1,9 +1,8 @@
-import { NavLink, useNavigate } from "react-router-dom";
+import { NavLink } from "react-router-dom";
 import { Sun, Clock, BarChart3, Settings, Timer } from "lucide-react";
 import { useTimeTracker, fmtHMS } from "@/hooks/useTimeTracker";
 import { useState } from "react";
 import { TrackerSheet } from "./TrackerPill";
-import { haptics } from "@/lib/haptics";
 
 const items = [
   { to: "/today", icon: Sun },
