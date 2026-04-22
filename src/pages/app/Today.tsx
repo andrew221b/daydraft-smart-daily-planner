@@ -242,7 +242,9 @@ export default function Today() {
             style={{ background: "var(--gradient-primary)" }}>
             Plan My Day <ArrowRight className="h-4 w-4" />
           </Button>
-          <p className="text-xs text-secondary-fg text-center mt-2">Usually takes 3 seconds</p>
+          <p className="text-xs text-secondary-fg text-center mt-2">
+            Next: confirm AI time estimates · pin meetings · then auto-schedule
+          </p>
         </div>
       </div>
       <UpgradeSheet open={upgradeOpen} onOpenChange={setUpgradeOpen} reason={upgradeReason} />
