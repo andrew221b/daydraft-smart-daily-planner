@@ -153,6 +153,19 @@ export function ClarifySheet({ open, onOpenChange, rawInput, onConfirm }: Props)
       : p === "low" ? "bg-muted text-muted-foreground border-border"
       : "bg-primary/10 text-primary border-primary/30";
 
+  const actionMeta = (k?: Row["ai_action_kind"]) => {
+    switch (k) {
+      case "url": return { Icon: Link2, label: "Web" };
+      case "email": return { Icon: Mail, label: "Email" };
+      case "message": return { Icon: MessageSquare, label: "Message" };
+      case "call": return { Icon: Phone, label: "Call" };
+      case "calendar": return { Icon: CalendarClock, label: "Meeting" };
+      case "maps": return { Icon: MapPin, label: "Go to" };
+      case "research": return { Icon: BookOpen, label: "Research" };
+      default: return null;
+    }
+  };
+
   return (
     <Sheet open={open} onOpenChange={onOpenChange}>
       <SheetContent side="bottom" className="rounded-t-3xl max-h-[94vh] overflow-y-auto p-0 border-border">
@@ -197,6 +210,15 @@ export function ClarifySheet({ open, onOpenChange, rawInput, onConfirm }: Props)
                     className="flex-1 h-8 bg-transparent border-0 px-0 text-[15px] font-medium focus-visible:ring-0 shadow-none"
                     placeholder="Task title"
                   />
+                  {(() => {
+                    const am = actionMeta(t.ai_action_kind);
+                    if (!am) return null;
+                    return (
+                      <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full bg-primary/10 text-primary text-[10px] font-medium border border-primary/20 shrink-0 mt-1">
+                        <am.Icon className="h-3 w-3" /> {am.label}
+                      </span>
+                    );
+                  })()}
                   <button
                     onClick={() => remove(i)}
                     className="text-secondary-fg hover:text-destructive p-1 pressable"
