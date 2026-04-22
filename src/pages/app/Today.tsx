@@ -181,7 +181,7 @@ export default function Today() {
             <p className="text-secondary-fg text-sm mt-1">{friendlyDate()}</p>
           </div>
           <div className="flex items-center gap-2">
-            <StreakBadge />
+            <div data-tour="today-streak"><StreakBadge /></div>
             <div className="h-10 w-10 rounded-full bg-surface-elevated border border-border flex items-center justify-center text-sm font-medium text-secondary-fg">
               {(profile?.display_name || "·").slice(0,1).toUpperCase()}
             </div>
@@ -229,13 +229,13 @@ export default function Today() {
           <button onClick={paste} className="shrink-0 inline-flex items-center gap-1.5 px-3 py-2 rounded-full bg-surface border border-border text-xs text-secondary-fg pressable hover:text-foreground">
             <ClipboardPaste className="h-3.5 w-3.5" /> Paste
           </button>
-          <button onClick={voice} className="shrink-0 inline-flex items-center gap-1.5 px-3 py-2 rounded-full bg-surface border border-border text-xs text-secondary-fg pressable hover:text-foreground">
+          <button data-tour="today-voice" onClick={voice} className="shrink-0 inline-flex items-center gap-1.5 px-3 py-2 rounded-full bg-surface border border-border text-xs text-secondary-fg pressable hover:text-foreground">
             <Mic className="h-3.5 w-3.5" /> Voice
           </button>
-          <button onClick={useYesterday} className="shrink-0 inline-flex items-center gap-1.5 px-3 py-2 rounded-full bg-surface border border-border text-xs text-secondary-fg pressable hover:text-foreground">
+          <button data-tour="today-yesterday" onClick={useYesterday} className="shrink-0 inline-flex items-center gap-1.5 px-3 py-2 rounded-full bg-surface border border-border text-xs text-secondary-fg pressable hover:text-foreground">
             <Sparkles className="h-3.5 w-3.5" /> Use yesterday's
           </button>
-          <button onClick={saveAsTemplate} className="shrink-0 inline-flex items-center gap-1.5 px-3 py-2 rounded-full bg-surface border border-border text-xs text-secondary-fg pressable hover:text-foreground">
+          <button data-tour="today-template" onClick={saveAsTemplate} className="shrink-0 inline-flex items-center gap-1.5 px-3 py-2 rounded-full bg-surface border border-border text-xs text-secondary-fg pressable hover:text-foreground">
             <Bookmark className="h-3.5 w-3.5" /> Save template
           </button>
           {templates.map(t => (

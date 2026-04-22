@@ -33,6 +33,7 @@ export function TourProvider({ children }: { children: ReactNode }) {
   const [stepIndex, setStepIndex] = useState(0);
   const [rect, setRect] = useState<DOMRect | null>(null);
   const [tick, setTick] = useState(0); // re-measure trigger
+  const [scrolled, setScrolled] = useState(false); // ensure we only auto-scroll once per step
 
   const step = flow?.steps[stepIndex] || null;
 
@@ -43,10 +44,11 @@ export function TourProvider({ children }: { children: ReactNode }) {
     const measure = () => {
       const el = document.querySelector(step.selector) as HTMLElement | null;
       if (!el) { setRect(null); return; }
-      // Scroll into view if off-screen
       const r = el.getBoundingClientRect();
-      if (r.top < 60 || r.bottom > window.innerHeight - 200) {
+      // Scroll into view once per step if off-screen, then measure regardless
+      if (!scrolled && (r.top < 60 || r.bottom > window.innerHeight - 220)) {
         el.scrollIntoView({ behavior: "smooth", block: "center" });
+        setScrolled(true);
         raf = window.setTimeout(() => setTick(t => t + 1), 350) as unknown as number;
         return;
       }
@@ -61,7 +63,22 @@ export function TourProvider({ children }: { children: ReactNode }) {
       window.removeEventListener("scroll", onResize, true);
       if (raf) clearTimeout(raf);
     };
-  }, [step?.selector, tick]);
+  }, [step?.selector, tick, scrolled]);
+
+  // Reset scroll flag when step changes
+  useEffect(() => { setScrolled(false); }, [step?.id]);
+
+  // Auto-skip a step if its target never appears (e.g. element conditionally rendered)
+  useEffect(() => {
+    if (!step) return;
+    const t = setTimeout(() => {
+      const el = document.querySelector(step.selector);
+      if (!el) {
+        setStepIndex(i => (flow && i < flow.steps.length - 1 ? i + 1 : i));
+      }
+    }, 1200);
+    return () => clearTimeout(t);
+  }, [step?.id, flow]);
 
   // Re-measure 200ms after step changes (give DOM time to settle)
   useEffect(() => {
@@ -211,7 +228,28 @@ export const TOUR_TODAY: TourFlow = {
       id: "inbox",
       selector: "[data-tour='today-inbox']",
       title: "Inbox for stray thoughts",
-      body: "Got an idea mid-day? Tap here. It'll show up automatically on tomorrow's plan.",
+      body: "Got an idea mid-day? Tap here. It'll show up automatically on your next plan.",
+      placement: "top",
+    },
+    {
+      id: "voice",
+      selector: "[data-tour='today-voice']",
+      title: "Talk it out",
+      body: "Don't feel like typing? Dictate your tasks — voice gets transcribed straight into the input.",
+      placement: "top",
+    },
+    {
+      id: "yesterday",
+      selector: "[data-tour='today-yesterday']",
+      title: "Reuse yesterday",
+      body: "One tap to load yesterday's tasks. Great for routines that repeat day after day.",
+      placement: "top",
+    },
+    {
+      id: "template",
+      selector: "[data-tour='today-template']",
+      title: "Save a template",
+      body: "Got a standard day? Save it once, then load it any time with a single tap.",
       placement: "top",
     },
     {
@@ -220,6 +258,13 @@ export const TOUR_TODAY: TourFlow = {
       title: "Then plan your day",
       body: "AI estimates time for each task, asks you to confirm, then auto-schedules around your peak hours.",
       placement: "top",
+    },
+    {
+      id: "streak",
+      selector: "[data-tour='today-streak']",
+      title: "Build a streak",
+      body: "Plan a day, keep your streak alive. Miss one? You get one freeze per week — automatic.",
+      placement: "bottom",
     },
     {
       id: "tracker",
