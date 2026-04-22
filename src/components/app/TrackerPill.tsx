@@ -1,10 +1,13 @@
 import { useEffect, useMemo, useState } from "react";
-import { Play, Pause, Plus, Check, Trash2, ChevronLeft, ChevronRight } from "lucide-react";
+import { Play, Pause, Plus, Check, Trash2, ChevronLeft, ChevronRight, Download, ChevronDown } from "lucide-react";
 import { useTimeTracker, fmtHMS, fmtHM, TimeCategory } from "@/hooks/useTimeTracker";
 import { Sheet, SheetContent, SheetHeader, SheetTitle, SheetDescription } from "@/components/ui/sheet";
 import { Input } from "@/components/ui/input";
 import { supabase } from "@/integrations/supabase/client";
 import { useAuth } from "@/hooks/useAuth";
+import { toast } from "sonner";
+import jsPDF from "jspdf";
+import autoTable from "jspdf-autotable";
 
 type Entry = {
   id: string;
@@ -36,6 +39,8 @@ export function TrackerSheet({ open, onOpenChange }: { open: boolean; onOpenChan
   const [entries, setEntries] = useState<Entry[]>([]);
   const [monthCursor, setMonthCursor] = useState(() => { const d = new Date(); d.setDate(1); d.setHours(0,0,0,0); return d; });
   const [selectedDay, setSelectedDay] = useState<string | null>(null);
+  const [selectedCat, setSelectedCat] = useState<string | null>(null);
+  const [exporting, setExporting] = useState(false);
 
   const activeCat = categories.find(c => c.id === active?.category_id);
   const catMap = useMemo(() => new Map(categories.map(c => [c.id, c])), [categories]);
@@ -136,24 +141,213 @@ export function TrackerSheet({ open, onOpenChange }: { open: boolean; onOpenChan
       .sort((a, b) => b.sec - a.sec);
   }, [entries, catMap, now]);
 
+  // Today: build 24h timeline segments (clipped to today)
+  const todayTimeline = useMemo(() => {
+    const dayStart = startOfDay(new Date()).getTime();
+    const dayEnd = dayStart + DAY_MS;
+    const segs: Array<{ id: string; start: number; end: number; color: string; name: string }> = [];
+    entries.forEach(e => {
+      const s = new Date(e.started_at).getTime();
+      const en = e.ended_at ? new Date(e.ended_at).getTime() : now;
+      const a = Math.max(s, dayStart);
+      const b = Math.min(en, dayEnd);
+      if (b <= a) return;
+      const cat = e.category_id ? catMap.get(e.category_id) : undefined;
+      segs.push({ id: e.id, start: a - dayStart, end: b - dayStart, color: cat?.color || "hsl(var(--muted-foreground))", name: cat?.name || "Untracked" });
+    });
+    return segs;
+  }, [entries, catMap, now]);
+
+  // Period boundaries based on active tab (used for PDF + category drill-in)
+  const period = useMemo(() => {
+    if (tab === "today") {
+      const s = startOfDay(new Date()).getTime();
+      return { start: s, end: s + DAY_MS, label: "Today", days: 1 };
+    }
+    if (tab === "week") {
+      const today = startOfDay(new Date()).getTime();
+      return { start: today - 6 * DAY_MS, end: today + DAY_MS, label: "Last 7 days", days: 7 };
+    }
+    const first = new Date(monthCursor).getTime();
+    const next = new Date(monthCursor); next.setMonth(next.getMonth() + 1);
+    return { start: first, end: next.getTime(), label: monthCursor.toLocaleDateString(undefined, { month: "long", year: "numeric" }), days: Math.round((next.getTime() - first) / DAY_MS) };
+  }, [tab, monthCursor]);
+
+  // Per-category stats for the active period (for inline drill-in)
+  const periodCatStats = useMemo(() => {
+    const map = new Map<string, { sec: number; sessions: Array<{ id: string; start: number; end: number; note: string | null }>; perDay: Map<string, number> }>();
+    entries.forEach(e => {
+      if (!e.category_id) return;
+      const s = new Date(e.started_at).getTime();
+      const en = e.ended_at ? new Date(e.ended_at).getTime() : now;
+      const a = Math.max(s, period.start);
+      const b = Math.min(en, period.end);
+      if (b <= a) return;
+      const dur = (b - a) / 1000;
+      const cur = map.get(e.category_id) || { sec: 0, sessions: [], perDay: new Map() };
+      cur.sec += dur;
+      cur.sessions.push({ id: e.id, start: a, end: b, note: e.note });
+      const dayKey = ymd(new Date(a));
+      cur.perDay.set(dayKey, (cur.perDay.get(dayKey) || 0) + dur);
+      map.set(e.category_id, cur);
+    });
+    return map;
+  }, [entries, period, now]);
+
   const headerTotalSec = tab === "today" ? todayTotalSec : tab === "week" ? weekTotal : monthTotal;
   const headerLabel = tab === "today" ? "Today" : tab === "week" ? "This week" : monthCursor.toLocaleDateString(undefined, { month: "long", year: "numeric" });
 
   const monthLabel = monthCursor.toLocaleDateString(undefined, { month: "long", year: "numeric" });
+
+  // ----- PDF export -----
+  const exportPDF = () => {
+    setExporting(true);
+    try {
+      const doc = new jsPDF({ unit: "pt", format: "a4" });
+      const pageW = doc.internal.pageSize.getWidth();
+      const margin = 40;
+      let y = margin;
+
+      doc.setFont("helvetica", "bold"); doc.setFontSize(18);
+      doc.text("Time tracker report", margin, y); y += 22;
+      doc.setFont("helvetica", "normal"); doc.setFontSize(10); doc.setTextColor(110);
+      const periodText = `${period.label} · ${new Date(period.start).toLocaleDateString()} – ${new Date(period.end - 1).toLocaleDateString()}`;
+      doc.text(periodText, margin, y); y += 14;
+      doc.text(`Total: ${fmtHM(headerTotalSec)}`, margin, y); y += 20;
+      doc.setTextColor(0);
+
+      // Section: by category
+      const catRows: any[] = [];
+      const catTotals = Array.from(periodCatStats.entries())
+        .map(([id, v]) => ({ cat: catMap.get(id), sec: v.sec, sessions: v.sessions.length }))
+        .filter(x => x.cat)
+        .sort((a, b) => b.sec - a.sec);
+      const grand = catTotals.reduce((a, x) => a + x.sec, 0) || 1;
+      catTotals.forEach(x => catRows.push([x.cat!.name, fmtHM(x.sec), `${Math.round((x.sec / grand) * 100)}%`, String(x.sessions)]));
+
+      doc.setFont("helvetica", "bold"); doc.setFontSize(12);
+      doc.text("Summary by category", margin, y); y += 8;
+      autoTable(doc, {
+        startY: y + 4,
+        head: [["Category", "Time", "Share", "Sessions"]],
+        body: catRows.length ? catRows : [["—", "—", "—", "—"]],
+        styles: { fontSize: 10 },
+        headStyles: { fillColor: [240, 240, 245], textColor: 30 },
+        margin: { left: margin, right: margin },
+      });
+      y = (doc as any).lastAutoTable.finalY + 24;
+
+      // Section: per day
+      const periodDays: Array<{ key: string; date: Date; total: number }> = [];
+      for (let t = period.start; t < period.end; t += DAY_MS) {
+        const ds = t, de = t + DAY_MS;
+        let total = 0;
+        entries.forEach(e => { total += clipDuration(e, ds, de, now); });
+        periodDays.push({ key: ymd(new Date(ds)), date: new Date(ds), total });
+      }
+
+      if (y > doc.internal.pageSize.getHeight() - 120) { doc.addPage(); y = margin; }
+      doc.setFont("helvetica", "bold"); doc.setFontSize(12);
+      doc.text("Daily breakdown", margin, y); y += 16;
+      const maxDay = Math.max(1, ...periodDays.map(d => d.total));
+      const barAreaW = pageW - margin * 2 - 160;
+      doc.setFont("helvetica", "normal"); doc.setFontSize(9);
+      periodDays.forEach(d => {
+        if (y > doc.internal.pageSize.getHeight() - 40) { doc.addPage(); y = margin; }
+        const label = d.date.toLocaleDateString(undefined, { weekday: "short", month: "short", day: "numeric" });
+        doc.setTextColor(60);
+        doc.text(label, margin, y);
+        doc.setDrawColor(230); doc.setFillColor(240, 240, 245);
+        doc.roundedRect(margin + 110, y - 8, barAreaW, 10, 2, 2, "F");
+        if (d.total > 0) {
+          const w = Math.max(2, (d.total / maxDay) * barAreaW);
+          doc.setFillColor(99, 102, 241);
+          doc.roundedRect(margin + 110, y - 8, w, 10, 2, 2, "F");
+        }
+        doc.setTextColor(0);
+        doc.text(d.total > 0 ? fmtHM(d.total) : "—", margin + 110 + barAreaW + 8, y);
+        y += 16;
+      });
+      y += 10;
+
+      // Section: all sessions
+      const allSessions: any[] = [];
+      entries.forEach(e => {
+        const s = new Date(e.started_at).getTime();
+        const en = e.ended_at ? new Date(e.ended_at).getTime() : now;
+        const a = Math.max(s, period.start);
+        const b = Math.min(en, period.end);
+        if (b <= a) return;
+        const cat = e.category_id ? catMap.get(e.category_id) : undefined;
+        allSessions.push({ start: a, end: b, dur: (b - a) / 1000, cat: cat?.name || "Uncategorized", note: e.note || "" });
+      });
+      allSessions.sort((a, b) => a.start - b.start);
+
+      if (allSessions.length) {
+        if (y > doc.internal.pageSize.getHeight() - 80) { doc.addPage(); y = margin; }
+        doc.setFont("helvetica", "bold"); doc.setFontSize(12);
+        doc.text("Sessions", margin, y); y += 8;
+        autoTable(doc, {
+          startY: y + 4,
+          head: [["Date", "Start", "End", "Duration", "Category", "Note"]],
+          body: allSessions.map(s => [
+            new Date(s.start).toLocaleDateString(),
+            new Date(s.start).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" }),
+            new Date(s.end).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" }),
+            fmtHM(s.dur),
+            s.cat,
+            s.note,
+          ]),
+          styles: { fontSize: 9 },
+          headStyles: { fillColor: [240, 240, 245], textColor: 30 },
+          margin: { left: margin, right: margin },
+        });
+      }
+
+      // Footer
+      const pageCount = (doc as any).internal.getNumberOfPages();
+      for (let p = 1; p <= pageCount; p++) {
+        doc.setPage(p);
+        doc.setFontSize(8); doc.setTextColor(140);
+        doc.text(`Daydraft · generated ${new Date().toLocaleString()}`, margin, doc.internal.pageSize.getHeight() - 18);
+        doc.text(`${p} / ${pageCount}`, pageW - margin, doc.internal.pageSize.getHeight() - 18, { align: "right" });
+      }
+
+      const fileLabel = period.label.toLowerCase().replace(/\s+/g, "-");
+      doc.save(`daydraft-tracker-${fileLabel}-${ymd(new Date())}.pdf`);
+      toast.success("PDF exported");
+    } catch (err: any) {
+      toast.error(err?.message || "Export failed");
+    } finally {
+      setExporting(false);
+    }
+  };
 
   return (
     <Sheet open={open} onOpenChange={(v) => { onOpenChange(v); if (!v) setSelectedDay(null); }}>
       <SheetContent side="bottom" className="rounded-t-3xl p-0 border-border max-h-[92vh] overflow-y-auto">
         {/* Header */}
         <div className="px-5 pt-5 pb-4 border-b border-border">
-          <SheetHeader className="text-left">
-            <SheetTitle className="text-xl">Time tracker</SheetTitle>
-            <SheetDescription className="text-xs">
-              {active
-                ? <>Tracking <span className="text-foreground font-medium">{activeCat?.name}</span> · <span className="font-mono tabular-nums">{fmtHMS(elapsedSec)}</span></>
-                : <>{headerLabel}: <span className="text-foreground font-medium">{fmtHM(headerTotalSec)}</span></>}
-            </SheetDescription>
-          </SheetHeader>
+          <div className="flex items-start justify-between gap-3">
+            <SheetHeader className="text-left flex-1 min-w-0">
+              <SheetTitle className="text-xl">Time tracker</SheetTitle>
+              <SheetDescription className="text-xs">
+                {active
+                  ? <>Tracking <span className="text-foreground font-medium">{activeCat?.name}</span> · <span className="font-mono tabular-nums">{fmtHMS(elapsedSec)}</span></>
+                  : <>{headerLabel}: <span className="text-foreground font-medium">{fmtHM(headerTotalSec)}</span></>}
+              </SheetDescription>
+            </SheetHeader>
+            <button
+              onClick={exportPDF}
+              disabled={exporting || headerTotalSec === 0}
+              className="shrink-0 inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg border border-border bg-surface text-xs font-medium text-foreground pressable disabled:opacity-40 disabled:pointer-events-none"
+              aria-label="Export PDF"
+              title={`Export ${headerLabel} as PDF`}
+            >
+              <Download className="h-3.5 w-3.5" />
+              PDF
+            </button>
+          </div>
 
           {/* Tabs */}
           <div className="mt-4 inline-flex w-full rounded-xl bg-muted p-1">
@@ -185,31 +379,53 @@ export function TrackerSheet({ open, onOpenChange }: { open: boolean; onOpenChan
                     </div>
                   ))}
                 </div>
+
+                <div className="mt-4">
+                  <div className="text-[11px] font-medium uppercase tracking-wide text-secondary-fg mb-2">When you tracked (24h)</div>
+                  <DayTimeline24h segments={todayTimeline} />
+                </div>
               </div>
             )}
 
             <div className="px-4 py-4 space-y-2">
               {categories.map(c => {
                 const isActive = active?.category_id === c.id;
+                const isOpen = selectedCat === c.id;
+                const stat = periodCatStats.get(c.id);
+                const periodSec = stat?.sec || 0;
                 return (
-                  <div key={c.id} className={`flex items-center gap-2 rounded-2xl border px-3 py-2.5 ${isActive ? "border-primary/50 bg-primary/5" : "border-border bg-surface"}`}>
-                    <span className="h-3 w-3 rounded-full shrink-0" style={{ background: c.color }} />
-                    <span className="flex-1 text-[15px] font-medium truncate">{c.name}</span>
-                    {isActive ? (
-                      <button onClick={stop} className="inline-flex items-center gap-1 px-3 py-1.5 rounded-lg bg-primary text-primary-foreground text-xs font-medium pressable">
-                        <Pause className="h-3 w-3" fill="currentColor" /> Stop
+                  <div key={c.id} className={`rounded-2xl border ${isActive ? "border-primary/50 bg-primary/5" : "border-border bg-surface"} overflow-hidden`}>
+                    <div className="flex items-center gap-2 px-3 py-2.5">
+                      <button
+                        onClick={() => setSelectedCat(isOpen ? null : c.id)}
+                        className="flex-1 flex items-center gap-2 min-w-0 text-left pressable"
+                        aria-expanded={isOpen}
+                        aria-label={`${c.name} details`}
+                      >
+                        <span className="h-3 w-3 rounded-full shrink-0" style={{ background: c.color }} />
+                        <span className="flex-1 text-[15px] font-medium truncate">{c.name}</span>
+                        <span className="font-mono tabular-nums text-[11px] text-secondary-fg shrink-0">{fmtHM(periodSec)}</span>
+                        <ChevronDown className={`h-3.5 w-3.5 text-secondary-fg shrink-0 transition-transform ${isOpen ? "rotate-180" : ""}`} />
                       </button>
-                    ) : (
-                      <>
-                        <button onClick={() => active ? switchCategory(c.id) : start(c.id)} className="inline-flex items-center gap-1 px-3 py-1.5 rounded-lg bg-foreground text-background text-xs font-medium pressable">
-                          <Play className="h-3 w-3" fill="currentColor" /> {active ? "Switch" : "Start"}
+                      {isActive ? (
+                        <button onClick={stop} className="inline-flex items-center gap-1 px-3 py-1.5 rounded-lg bg-primary text-primary-foreground text-xs font-medium pressable">
+                          <Pause className="h-3 w-3" fill="currentColor" /> Stop
                         </button>
-                        {!c.is_default && (
-                          <button onClick={() => deleteCategory(c.id)} className="p-1.5 text-secondary-fg hover:text-destructive pressable" aria-label="Delete">
-                            <Trash2 className="h-3.5 w-3.5" />
+                      ) : (
+                        <>
+                          <button onClick={() => active ? switchCategory(c.id) : start(c.id)} className="inline-flex items-center gap-1 px-3 py-1.5 rounded-lg bg-foreground text-background text-xs font-medium pressable">
+                            <Play className="h-3 w-3" fill="currentColor" /> {active ? "Switch" : "Start"}
                           </button>
-                        )}
-                      </>
+                          {!c.is_default && (
+                            <button onClick={() => deleteCategory(c.id)} className="p-1.5 text-secondary-fg hover:text-destructive pressable" aria-label="Delete">
+                              <Trash2 className="h-3.5 w-3.5" />
+                            </button>
+                          )}
+                        </>
+                      )}
+                    </div>
+                    {isOpen && (
+                      <CategoryDetail cat={c} stat={stat} period={period} />
                     )}
                   </div>
                 );
@@ -384,6 +600,16 @@ function DayDetail({ detail, catMap }: { detail: NonNullable<ReturnType<() => an
         <>
           <StackedBar segments={byCat.map(x => ({ value: x.sec, color: x.cat!.color, label: x.cat!.name }))} totalSec={detail.total} />
 
+          <DayTimeline24h
+            segments={detail.items.map((it: any) => ({
+              id: it.id,
+              start: it.start - detail.date.getTime(),
+              end: it.end - detail.date.getTime(),
+              color: it.cat?.color || "hsl(var(--muted-foreground))",
+              name: it.cat?.name || "Untracked",
+            }))}
+          />
+
           <div className="space-y-1.5">
             {byCat.map(x => (
               <div key={x.cat!.id} className="flex items-center justify-between text-[13px]">
@@ -417,6 +643,154 @@ function DayDetail({ detail, catMap }: { detail: NonNullable<ReturnType<() => an
           )}
         </>
       )}
+    </div>
+  );
+}
+
+// 24h horizontal timeline. Segments expressed as offsets from start-of-day in ms.
+function DayTimeline24h({ segments }: { segments: Array<{ id: string; start: number; end: number; color: string; name: string }> }) {
+  const total = DAY_MS;
+  return (
+    <div>
+      <div className="relative h-7 rounded-lg bg-muted overflow-hidden">
+        {/* hour grid */}
+        {Array.from({ length: 23 }, (_, i) => i + 1).map(h => (
+          <div
+            key={h}
+            className={`absolute top-0 bottom-0 ${h % 6 === 0 ? "bg-border" : "bg-border/40"}`}
+            style={{ left: `${(h / 24) * 100}%`, width: 1 }}
+          />
+        ))}
+        {segments.map(s => {
+          const left = (s.start / total) * 100;
+          const width = Math.max(0.4, ((s.end - s.start) / total) * 100);
+          return (
+            <div
+              key={s.id}
+              title={`${s.name} · ${new Date(s.start).toUTCString().slice(17, 22)}–${new Date(s.end).toUTCString().slice(17, 22)}`}
+              className="absolute top-1 bottom-1 rounded-sm"
+              style={{ left: `${left}%`, width: `${width}%`, background: s.color }}
+            />
+          );
+        })}
+        {/* "now" indicator only if it's today (caller controls by passing today segments) */}
+      </div>
+      <div className="mt-1 flex justify-between text-[9px] font-mono tabular-nums text-secondary-fg/70">
+        <span>0</span><span>6</span><span>12</span><span>18</span><span>24</span>
+      </div>
+    </div>
+  );
+}
+
+// Inline category drill-in: shown beneath a clicked category row.
+function CategoryDetail({
+  cat,
+  stat,
+  period,
+}: {
+  cat: TimeCategory;
+  stat: { sec: number; sessions: Array<{ id: string; start: number; end: number; note: string | null }>; perDay: Map<string, number> } | undefined;
+  period: { start: number; end: number; label: string; days: number };
+}) {
+  const sec = stat?.sec || 0;
+  const sessions = stat?.sessions || [];
+  const perDay = stat?.perDay || new Map<string, number>();
+  const activeDays = perDay.size;
+  const avgPerActiveDay = activeDays > 0 ? sec / activeDays : 0;
+  const avgPerDay = period.days > 0 ? sec / period.days : 0;
+
+  // last 5 sessions (most recent first)
+  const recent = [...sessions].sort((a, b) => b.start - a.start).slice(0, 5);
+
+  // hour-of-day histogram: when does this category usually run?
+  const hourBuckets = new Array(24).fill(0);
+  sessions.forEach(s => {
+    let cursor = s.start;
+    while (cursor < s.end) {
+      const d = new Date(cursor);
+      const hourStart = new Date(d.getFullYear(), d.getMonth(), d.getDate(), d.getHours()).getTime();
+      const hourEnd = hourStart + 3_600_000;
+      const slice = Math.min(s.end, hourEnd) - cursor;
+      hourBuckets[d.getHours()] += slice / 1000;
+      cursor = hourEnd;
+    }
+  });
+  const maxHour = Math.max(1, ...hourBuckets);
+
+  if (sec === 0) {
+    return (
+      <div className="px-3 pb-3 pt-1 border-t border-border bg-background/50">
+        <div className="py-3 text-center text-[12px] text-secondary-fg">
+          No activity in <span className="text-foreground">{period.label.toLowerCase()}</span> yet
+        </div>
+      </div>
+    );
+  }
+
+  return (
+    <div className="px-3 pb-3 pt-2 border-t border-border bg-background/40 space-y-3 animate-in fade-in slide-in-from-top-1 duration-150">
+      {/* Stats row */}
+      <div className="grid grid-cols-3 gap-2">
+        <Stat label={period.label} value={fmtHM(sec)} />
+        <Stat label="Avg / active day" value={fmtHM(avgPerActiveDay)} />
+        <Stat label="Active days" value={`${activeDays}/${period.days}`} />
+      </div>
+
+      {/* Hour histogram */}
+      <div>
+        <div className="text-[10px] font-medium uppercase tracking-wide text-secondary-fg mb-1.5">Typical hours</div>
+        <div className="flex items-end gap-[2px] h-12">
+          {hourBuckets.map((v, h) => (
+            <div
+              key={h}
+              className="flex-1 rounded-sm"
+              style={{
+                height: `${v > 0 ? Math.max(8, (v / maxHour) * 100) : 4}%`,
+                background: v > 0 ? cat.color : "hsl(var(--muted))",
+                opacity: v > 0 ? 0.4 + (v / maxHour) * 0.6 : 1,
+              }}
+              title={`${String(h).padStart(2, "0")}:00 · ${fmtHM(v)}`}
+            />
+          ))}
+        </div>
+        <div className="mt-1 flex justify-between text-[9px] font-mono tabular-nums text-secondary-fg/70">
+          <span>0</span><span>6</span><span>12</span><span>18</span><span>24</span>
+        </div>
+      </div>
+
+      {/* Recent sessions */}
+      <div>
+        <div className="text-[10px] font-medium uppercase tracking-wide text-secondary-fg mb-1.5">Recent sessions</div>
+        <div className="space-y-1">
+          {recent.map(s => {
+            const dateStr = new Date(s.start).toLocaleDateString(undefined, { month: "short", day: "numeric" });
+            const startStr = new Date(s.start).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" });
+            const endStr = new Date(s.end).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" });
+            return (
+              <div key={s.id} className="flex items-center gap-2 text-[12px]">
+                <span className="font-mono tabular-nums text-secondary-fg w-[54px] shrink-0">{dateStr}</span>
+                <span className="font-mono tabular-nums text-secondary-fg w-[88px] shrink-0">{startStr}–{endStr}</span>
+                <span className="truncate flex-1 text-secondary-fg">{s.note || "—"}</span>
+                <span className="font-mono tabular-nums text-foreground">{fmtHM((s.end - s.start) / 1000)}</span>
+              </div>
+            );
+          })}
+        </div>
+        {sessions.length > recent.length && (
+          <div className="mt-1.5 text-[10px] text-secondary-fg/70">
+            + {sessions.length - recent.length} more in this period
+          </div>
+        )}
+      </div>
+    </div>
+  );
+}
+
+function Stat({ label, value }: { label: string; value: string }) {
+  return (
+    <div className="rounded-lg bg-muted/60 px-2 py-1.5">
+      <div className="text-[9px] font-medium uppercase tracking-wide text-secondary-fg truncate">{label}</div>
+      <div className="text-[13px] font-mono tabular-nums font-semibold mt-0.5">{value}</div>
     </div>
   );
 }
