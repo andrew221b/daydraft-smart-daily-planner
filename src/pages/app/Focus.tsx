@@ -6,6 +6,7 @@ import { Check, ChevronRight, Minus, Sparkles, MapPin, ExternalLink, Loader2, Li
 import { useAuth } from "@/hooks/useAuth";
 import { mapsUrl } from "@/lib/maps";
 import { toast } from "sonner";
+import { useTimeTracker, fmtHMS } from "@/hooks/useTimeTracker";
 
 type AIHelp = {
   substeps: string[];
@@ -18,6 +19,7 @@ export default function Focus() {
   const { blockId } = useParams();
   const nav = useNavigate();
   const { user } = useAuth();
+  const { active: tracking, start: startTracking, stop: stopTracking, elapsedSec, categories } = useTimeTracker();
   const [block, setBlock] = useState<any | null>(null);
   const [next, setNext] = useState<Block | null>(null);
   const [remaining, setRemaining] = useState<number>(0); // seconds
@@ -62,6 +64,25 @@ export default function Focus() {
   }, [block?.id]);
 
   useEffect(() => { if (block && remaining <= 0) complete(); /* eslint-disable-line */ }, [remaining]);
+
+  // Auto-start time tracking when entering Focus, stop when leaving (only if started here)
+  const startedHereRef = useRef(false);
+  useEffect(() => {
+    if (!block || !categories.length) return;
+    if (tracking) return; // honor existing session
+    startedHereRef.current = true;
+    startTracking(undefined, { source: "focus", blockId: block.id, note: block.title });
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [block?.id, categories.length]);
+
+  useEffect(() => {
+    return () => {
+      if (startedHereRef.current && tracking) stopTracking();
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
+  const trackingCat = categories.find(c => c.id === tracking?.category_id);
 
   const loadHelp = async () => {
     if (!block || helpLoading) return;
@@ -144,6 +165,13 @@ export default function Focus() {
     <div className="min-h-screen w-full bg-background flex justify-center">
       <div className="relative w-full max-w-[390px] min-h-screen flex flex-col items-center px-6 pt-14 pb-10 page-enter">
         <div className="px-3 py-1 rounded-full bg-primary/10 border border-primary/30 text-[11px] tracking-[0.2em] text-primary font-medium uppercase">Focus Mode</div>
+        {tracking && trackingCat && (
+          <div className="mt-2 inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full bg-surface border border-border text-[11px] text-secondary-fg">
+            <span className="h-1.5 w-1.5 rounded-full animate-pulse" style={{ background: trackingCat.color }} />
+            Tracking · <span className="text-foreground font-medium">{trackingCat.name}</span>
+            <span className="font-mono tabular-nums">{fmtHMS(elapsedSec)}</span>
+          </div>
+        )}
 
         <h1 className="mt-12 text-[28px] font-semibold text-center leading-tight max-w-[300px] line-clamp-2">{block.title}</h1>
 

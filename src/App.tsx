@@ -20,6 +20,7 @@ import Settings from "./pages/app/Settings";
 import ForgotPassword from "./pages/app/ForgotPassword";
 import ResetPassword from "./pages/app/ResetPassword";
 import { QuickCapture } from "./components/app/QuickCapture";
+import { TimeTrackerProvider } from "@/hooks/useTimeTracker";
 
 const queryClient = new QueryClient();
 
@@ -50,6 +51,7 @@ const App = () => (
       <ThemedToaster />
       <BrowserRouter>
         <AuthProvider>
+        <TimeTrackerProvider>
           <Routes>
             <Route path="/" element={<RootRedirect />} />
             <Route path="/auth" element={<Auth />} />
@@ -68,6 +70,7 @@ const App = () => (
             <Route path="*" element={<NotFound />} />
           </Routes>
           <QuickCapture />
+        </TimeTrackerProvider>
         </AuthProvider>
       </BrowserRouter>
     </TooltipProvider>

@@ -2,11 +2,15 @@ import { useEffect, useState } from "react";
 import { Shell } from "@/components/app/Shell";
 import { useAuth } from "@/hooks/useAuth";
 import { supabase } from "@/integrations/supabase/client";
+import { useTimeTracker, fmtHM } from "@/hooks/useTimeTracker";
 
 export default function Stats() {
   const { user } = useAuth();
+  const { categories, todayTotalSec, weekTotalSec } = useTimeTracker();
   const [days, setDays] = useState<{ date: string; focusMin: number; done: number; total: number }[]>([]);
   const [breakdown, setBreakdown] = useState({ deep_work: 0, communication: 0, routine: 0 });
+  const [trackedDays, setTrackedDays] = useState<{ date: string; sec: number }[]>([]);
+  const [byCategory, setByCategory] = useState<{ id: string; name: string; color: string; sec: number }[]>([]);
 
   useEffect(() => {
     if (!user) return;
@@ -35,11 +39,61 @@ export default function Stats() {
       });
       setDays(out);
       setBreakdown(counts);
+
+      // Tracked time over last 7 days
+      const sinceTracked = new Date(); sinceTracked.setDate(sinceTracked.getDate() - 6); sinceTracked.setHours(0,0,0,0);
+      const { data: ents } = await supabase
+        .from("time_entries")
+        .select("category_id,started_at,ended_at")
+        .eq("user_id", user.id)
+        .gte("started_at", sinceTracked.toISOString());
+      const dayMap: Record<string, number> = {};
+      const catMap: Record<string, number> = {};
+      const now = Date.now();
+      (ents || []).forEach((e: any) => {
+        const s = new Date(e.started_at).getTime();
+        const en = e.ended_at ? new Date(e.ended_at).getTime() : now;
+        const dur = Math.max(0, (en - s) / 1000);
+        const dKey = new Date(e.started_at).toISOString().slice(0, 10);
+        dayMap[dKey] = (dayMap[dKey] || 0) + dur;
+        if (e.category_id) catMap[e.category_id] = (catMap[e.category_id] || 0) + dur;
+      });
+      const arr: { date: string; sec: number }[] = [];
+      for (let i = 6; i >= 0; i--) {
+        const d = new Date(); d.setDate(d.getDate() - i);
+        const k = d.toISOString().slice(0, 10);
+        arr.push({ date: k, sec: dayMap[k] || 0 });
+      }
+      setTrackedDays(arr);
     })();
   }, [user?.id]);
 
+  useEffect(() => {
+    // recompute category breakdown when entries-derived weekTotalSec changes or categories load
+    if (!user || !categories.length) return;
+    (async () => {
+      const sinceCat = new Date(); sinceCat.setDate(sinceCat.getDate() - 6); sinceCat.setHours(0,0,0,0);
+      const { data: ents } = await supabase
+        .from("time_entries")
+        .select("category_id,started_at,ended_at")
+        .eq("user_id", user.id)
+        .gte("started_at", sinceCat.toISOString());
+      const catMap: Record<string, number> = {};
+      const now = Date.now();
+      (ents || []).forEach((e: any) => {
+        if (!e.category_id) return;
+        const s = new Date(e.started_at).getTime();
+        const en = e.ended_at ? new Date(e.ended_at).getTime() : now;
+        catMap[e.category_id] = (catMap[e.category_id] || 0) + Math.max(0, (en - s) / 1000);
+      });
+      setByCategory(categories.map(c => ({ id: c.id, name: c.name, color: c.color, sec: catMap[c.id] || 0 })).filter(x => x.sec > 0).sort((a, b) => b.sec - a.sec));
+    })();
+  }, [user?.id, categories.length, weekTotalSec]);
+
   const maxFocus = Math.max(60, ...days.map(d => d.focusMin));
   const totalBreak = breakdown.deep_work + breakdown.communication + breakdown.routine || 1;
+  const maxTracked = Math.max(3600, ...trackedDays.map(d => d.sec));
+  const totalCatSec = byCategory.reduce((s, c) => s + c.sec, 0) || 1;
 
   return (
     <Shell>
@@ -77,6 +131,52 @@ export default function Stats() {
             <Legend color="hsl(var(--type-comm))" label="Comms" />
             <Legend color="hsl(var(--type-routine))" label="Routine" />
           </div>
+        </div>
+
+        <div className="mt-4 rounded-2xl bg-surface border border-border shadow-card p-5">
+          <div className="flex items-end justify-between mb-4">
+            <div className="text-xs text-secondary-fg uppercase tracking-wider">Tracked hours</div>
+            <div className="text-right">
+              <div className="text-lg font-semibold tabular-nums">{fmtHM(todayTotalSec)}</div>
+              <div className="text-[10px] text-secondary-fg leading-none">today</div>
+            </div>
+          </div>
+          <div className="flex items-end gap-2 h-24">
+            {trackedDays.length === 0 ? (
+              <div className="text-secondary-fg text-sm">No tracked time yet.</div>
+            ) : (
+              trackedDays.map(d => (
+                <div key={d.date} className="flex-1 flex flex-col items-center gap-2">
+                  <div className="w-full rounded-t-md" style={{ height: `${(d.sec / maxTracked) * 100}%`, minHeight: 2, background: "hsl(var(--primary))" }} />
+                  <div className="text-[10px] text-secondary-fg">{new Date(d.date).toLocaleDateString(undefined, { weekday: "short" })[0]}</div>
+                </div>
+              ))
+            )}
+          </div>
+          <div className="mt-3 flex items-center justify-between text-xs text-secondary-fg">
+            <span>Last 7 days</span>
+            <span className="text-foreground font-medium tabular-nums">{fmtHM(weekTotalSec)} total</span>
+          </div>
+
+          {byCategory.length > 0 && (
+            <div className="mt-5 pt-4 border-t border-border space-y-2">
+              <div className="text-[11px] uppercase tracking-wider text-secondary-fg">By category</div>
+              {byCategory.map(c => (
+                <div key={c.id} className="space-y-1">
+                  <div className="flex items-center justify-between text-xs">
+                    <div className="flex items-center gap-2 min-w-0">
+                      <span className="h-2 w-2 rounded-full shrink-0" style={{ background: c.color }} />
+                      <span className="truncate">{c.name}</span>
+                    </div>
+                    <span className="tabular-nums text-foreground font-medium ml-2 shrink-0">{fmtHM(c.sec)}</span>
+                  </div>
+                  <div className="h-1.5 rounded-full bg-surface-elevated overflow-hidden">
+                    <div className="h-full rounded-full" style={{ width: `${(c.sec / totalCatSec) * 100}%`, background: c.color }} />
+                  </div>
+                </div>
+              ))}
+            </div>
+          )}
         </div>
       </div>
     </Shell>
