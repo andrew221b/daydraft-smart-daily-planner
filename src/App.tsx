@@ -19,6 +19,9 @@ import Stats from "./pages/app/Stats";
 import Settings from "./pages/app/Settings";
 import ForgotPassword from "./pages/app/ForgotPassword";
 import ResetPassword from "./pages/app/ResetPassword";
+import Privacy from "./pages/legal/Privacy";
+import Terms from "./pages/legal/Terms";
+import DeleteAccount from "./pages/legal/DeleteAccount";
 import { QuickCapture } from "./components/app/QuickCapture";
 import { TimeTrackerProvider } from "@/hooks/useTimeTracker";
 
@@ -67,6 +70,9 @@ const App = () => (
             <Route path="/history" element={<RequireAuth><History /></RequireAuth>} />
             <Route path="/stats" element={<RequireAuth><Stats /></RequireAuth>} />
             <Route path="/settings" element={<RequireAuth><Settings /></RequireAuth>} />
+            <Route path="/privacy" element={<Privacy />} />
+            <Route path="/terms" element={<Terms />} />
+            <Route path="/settings/delete-account" element={<RequireAuth><DeleteAccount /></RequireAuth>} />
             <Route path="*" element={<NotFound />} />
           </Routes>
           <QuickCapture />
