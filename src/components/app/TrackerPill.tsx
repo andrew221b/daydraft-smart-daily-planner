@@ -568,6 +568,8 @@ export function TrackerSheet({ open, onOpenChange }: { open: boolean; onOpenChan
         </div>
       </SheetContent>
     </Sheet>
+    <UpgradeSheet open={upgradeOpen} onOpenChange={setUpgradeOpen} reason="quota" />
+    </>
   );
 }
 
