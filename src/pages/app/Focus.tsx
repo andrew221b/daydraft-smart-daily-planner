@@ -2,14 +2,16 @@ import { useEffect, useRef, useState } from "react";
 import { useNavigate, useParams } from "react-router-dom";
 import { supabase } from "@/integrations/supabase/client";
 import { Block } from "@/lib/daydraft";
-import { Check, ChevronRight, Minus, Sparkles, MapPin, ExternalLink, Loader2, Lightbulb } from "lucide-react";
+import { Check, ChevronRight, Minus, Sparkles, MapPin, ExternalLink, Loader2, Lightbulb, Copy, Phone, CalendarPlus, Mail } from "lucide-react";
 import { useAuth } from "@/hooks/useAuth";
 import { mapsUrl } from "@/lib/maps";
+import { toast } from "sonner";
 
 type AIHelp = {
   substeps: string[];
   links: { label: string; url: string }[];
   tip: string;
+  draft?: { subject?: string; body: string };
 };
 
 export default function Focus() {
