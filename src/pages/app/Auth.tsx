@@ -1,12 +1,15 @@
 import { useEffect, useState } from "react";
 import { supabase } from "@/integrations/supabase/client";
+import { lovable } from "@/integrations/lovable";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Blobs } from "@/components/app/Blobs";
 import { toast } from "sonner";
-import { useNavigate } from "react-router-dom";
+import { Link, useNavigate } from "react-router-dom";
 import { useAuth } from "@/hooks/useAuth";
 import { useProfile } from "@/hooks/useProfile";
+import { Fingerprint } from "lucide-react";
+import { getStoredPasskey, passkeySupported, verifyPasskey } from "@/lib/passkeys";
 
 export default function Auth() {
   const { user, loading } = useAuth();
@@ -19,6 +22,8 @@ export default function Auth() {
   const [awaitingConfirmation, setAwaitingConfirmation] = useState(false);
   const [resending, setResending] = useState(false);
   const nav = useNavigate();
+  const stored = typeof window !== "undefined" ? getStoredPasskey() : null;
+  const canUsePasskey = passkeySupported() && !!stored;
 
   useEffect(() => {
     if (loading || (user && profileLoading)) return;
@@ -78,6 +83,33 @@ export default function Auth() {
     }
   };
 
+  const oauth = async (provider: "google" | "apple") => {
+    setBusy(true);
+    try {
+      const result = await lovable.auth.signInWithOAuth(provider, { redirect_uri: window.location.origin });
+      if (result.error) throw result.error;
+      // result.redirected handled by browser; otherwise tokens set, useEffect navigates
+    } catch (err: any) {
+      toast.error(err.message || `Couldn't sign in with ${provider}`);
+      setBusy(false);
+    }
+  };
+
+  const passkeyLogin = async () => {
+    setBusy(true);
+    try {
+      const { ok, userEmail } = await verifyPasskey();
+      if (!ok || !userEmail) throw new Error("Couldn't verify");
+      // Passkey verifies device identity; for now, prefill email and ask for password.
+      // (Full passwordless requires server-side challenge — out of scope here.)
+      setEmail(userEmail);
+      setMode("signin");
+      toast.success("Identity verified — enter your password to continue");
+    } catch (e: any) {
+      toast.error("Face ID / fingerprint failed");
+    } finally { setBusy(false); }
+  };
+
   if (loading || (user && profileLoading)) {
     return <div className="min-h-screen w-full bg-background" />;
   }
@@ -101,7 +133,29 @@ export default function Auth() {
 
           {!awaitingConfirmation ? (
             <>
-              <form onSubmit={submit} className="mt-10 space-y-3">
+              <div className="mt-8 space-y-2">
+                <button onClick={() => oauth("google")} disabled={busy}
+                  className="w-full h-12 rounded-xl bg-surface-elevated border border-border text-foreground hover:bg-surface pressable text-sm font-medium inline-flex items-center justify-center gap-2">
+                  <GoogleIcon /> Continue with Google
+                </button>
+                <button onClick={() => oauth("apple")} disabled={busy}
+                  className="w-full h-12 rounded-xl bg-foreground text-background hover:opacity-90 pressable text-sm font-medium inline-flex items-center justify-center gap-2">
+                  <AppleIcon /> Continue with Apple
+                </button>
+                {canUsePasskey && (
+                  <button onClick={passkeyLogin} disabled={busy}
+                    className="w-full h-12 rounded-xl bg-surface border border-primary/30 text-primary hover:bg-surface-elevated pressable text-sm font-medium inline-flex items-center justify-center gap-2">
+                    <Fingerprint className="h-4 w-4" /> Use Face ID / fingerprint
+                  </button>
+                )}
+              </div>
+              <div className="my-5 flex items-center gap-3 text-[11px] uppercase tracking-wider text-secondary-fg">
+                <div className="flex-1 h-px bg-border" />
+                <span>or continue with email</span>
+                <div className="flex-1 h-px bg-border" />
+              </div>
+
+              <form onSubmit={submit} className="space-y-3">
                 {mode === "signup" && (
                   <Input value={name} onChange={e => setName(e.target.value)} placeholder="Your name" className="h-12 bg-surface border-border rounded-xl" />
                 )}
@@ -112,15 +166,22 @@ export default function Auth() {
                 </Button>
               </form>
 
-              <button
-                onClick={() => {
-                  setAwaitingConfirmation(false);
-                  setMode(mode === "signup" ? "signin" : "signup");
-                }}
-                className="mt-6 text-secondary-fg text-sm hover:text-foreground transition-colors"
-              >
-                {mode === "signup" ? "I already have an account" : "Create a new account"}
-              </button>
+              <div className="mt-6 flex items-center justify-between">
+                <button
+                  onClick={() => {
+                    setAwaitingConfirmation(false);
+                    setMode(mode === "signup" ? "signin" : "signup");
+                  }}
+                  className="text-secondary-fg text-sm hover:text-foreground transition-colors"
+                >
+                  {mode === "signup" ? "I already have an account" : "Create a new account"}
+                </button>
+                {mode === "signin" && (
+                  <Link to="/forgot-password" className="text-secondary-fg text-sm hover:text-foreground transition-colors">
+                    Forgot password?
+                  </Link>
+                )}
+              </div>
             </>
           ) : (
             <div className="mt-10 space-y-3">
