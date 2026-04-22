@@ -7,7 +7,8 @@ import { Button } from "@/components/ui/button";
 import { useEffect, useState } from "react";
 import { peakWindow } from "@/lib/daydraft";
 import { ThemeToggle } from "@/components/app/ThemeToggle";
-import { Fingerprint, Sparkles, Bell, Calendar } from "lucide-react";
+import { Fingerprint, Sparkles, Bell, Calendar, FileText, Shield, Trash2 } from "lucide-react";
+import { Link } from "react-router-dom";
 import { clearStoredPasskey, enrollPasskey, getStoredPasskey, passkeySupported } from "@/lib/passkeys";
 import { toast } from "sonner";
 import { useEntitlement } from "@/hooks/useEntitlement";
@@ -173,6 +174,27 @@ export default function Settings() {
           <Button onClick={signOut} variant="outline" className="w-full h-12 rounded-xl border-border bg-surface hover:bg-surface-elevated pressable">
             Sign out
           </Button>
+
+          <Section title="Legal & privacy">
+            <div className="rounded-xl border border-border bg-surface divide-y divide-border overflow-hidden">
+              <Link to="/privacy" className="flex items-center gap-3 px-4 py-3 pressable hover:bg-surface-elevated">
+                <Shield className="h-4 w-4 text-secondary-fg" />
+                <span className="text-sm flex-1">Privacy Policy</span>
+                <span className="text-secondary-fg">›</span>
+              </Link>
+              <Link to="/terms" className="flex items-center gap-3 px-4 py-3 pressable hover:bg-surface-elevated">
+                <FileText className="h-4 w-4 text-secondary-fg" />
+                <span className="text-sm flex-1">Terms of Service</span>
+                <span className="text-secondary-fg">›</span>
+              </Link>
+              <Link to="/settings/delete-account" className="flex items-center gap-3 px-4 py-3 pressable hover:bg-surface-elevated text-destructive">
+                <Trash2 className="h-4 w-4" />
+                <span className="text-sm flex-1">Delete account</span>
+                <span>›</span>
+              </Link>
+            </div>
+          </Section>
+
           <p className="text-center text-[11px] text-secondary-fg pt-2">DayDraft · v1.0</p>
         </div>
       </div>
