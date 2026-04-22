@@ -263,6 +263,41 @@ export function ClarifySheet({ open, onOpenChange, rawInput, onConfirm }: Props)
                   )}
                 </div>
 
+                {/* Links + split suggestions */}
+                {(t.ai_links?.length || t.ai_should_split) && (
+                  <div className="space-y-1.5">
+                    {t.ai_links && t.ai_links.length > 0 && (
+                      <div className="flex flex-wrap gap-1.5">
+                        {t.ai_links.slice(0, 2).map((l, li) => (
+                          <a
+                            key={li}
+                            href={l.url}
+                            target="_blank"
+                            rel="noreferrer"
+                            className="inline-flex items-center gap-1 px-2 py-1 rounded-lg bg-background border border-border text-[11px] text-foreground hover:border-primary/40 pressable max-w-full"
+                            title={l.url}
+                          >
+                            <ExternalLink className="h-3 w-3 text-primary shrink-0" />
+                            <span className="truncate">{l.label}</span>
+                          </a>
+                        ))}
+                      </div>
+                    )}
+                    {t.ai_should_split && t.ai_split_into && t.ai_split_into.length > 1 && (
+                      <button
+                        onClick={() => applySplit(i)}
+                        className="w-full inline-flex items-center justify-center gap-1.5 px-2 py-1.5 rounded-lg bg-primary/10 border border-primary/30 text-[11px] font-medium text-primary pressable"
+                      >
+                        <Split className="h-3 w-3" />
+                        Split into {t.ai_split_into.length} blocks
+                        <span className="text-primary/70 font-normal">
+                          ({t.ai_split_into.map(s => fmt(s.estimate_min)).join(" + ")})
+                        </span>
+                      </button>
+                    )}
+                  </div>
+                )}
+
                 {/* Estimate stepper */}
                 <div className="flex items-center justify-between gap-2 bg-background/60 rounded-xl border border-border px-2 py-1.5">
                   <div className="flex items-center gap-1.5 text-[11px] text-secondary-fg">
