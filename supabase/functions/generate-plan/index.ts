@@ -1,4 +1,5 @@
 import { serve } from "https://deno.land/std@0.168.0/http/server.ts";
+import { createClient } from "https://esm.sh/@supabase/supabase-js@2.95.0";
 
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
@@ -8,12 +9,44 @@ const corsHeaders = {
 serve(async (req) => {
   if (req.method === "OPTIONS") return new Response(null, { headers: corsHeaders });
   try {
-    const { raw_input, energy_preference, name } = await req.json();
+    const { raw_input, energy_preference, name, mode, start_time } = await req.json();
     if (!raw_input || typeof raw_input !== "string") {
       return new Response(JSON.stringify({ error: "raw_input required" }), { status: 400, headers: { ...corsHeaders, "Content-Type": "application/json" } });
     }
     const LOVABLE_API_KEY = Deno.env.get("LOVABLE_API_KEY");
     if (!LOVABLE_API_KEY) throw new Error("LOVABLE_API_KEY missing");
+
+    // Optional: pull user_patterns + calendar events if authenticated
+    let pattern: any = null;
+    let calendarEvents: any[] = [];
+    const auth = req.headers.get("Authorization");
+    if (auth) {
+      try {
+        const supabase = createClient(
+          Deno.env.get("SUPABASE_URL")!,
+          Deno.env.get("SUPABASE_ANON_KEY")!,
+          { global: { headers: { Authorization: auth } } }
+        );
+        const { data: u } = await supabase.auth.getUser();
+        if (u?.user) {
+          const { data: p } = await supabase.from("user_patterns").select("*").eq("user_id", u.user.id).maybeSingle();
+          pattern = p;
+          // Pro: pull today's calendar events if connected
+          const { data: sub } = await supabase.from("subscriptions").select("status").eq("user_id", u.user.id).maybeSingle();
+          const isPro = sub?.status === "active" || sub?.status === "trialing";
+          const { data: tok } = await supabase.from("calendar_tokens").select("user_id").eq("user_id", u.user.id).maybeSingle();
+          if (isPro && tok) {
+            const ev = await fetch(`${Deno.env.get("SUPABASE_URL")}/functions/v1/fetch-calendar-events`, {
+              headers: { Authorization: auth, "Content-Type": "application/json" },
+            });
+            if (ev.ok) {
+              const j = await ev.json();
+              calendarEvents = j.events || [];
+            }
+          }
+        }
+      } catch (_e) { /* non-fatal */ }
+    }
 
     const peakMap: Record<string, string> = {
       morning: "8:00 to 12:00",
@@ -21,19 +54,33 @@ serve(async (req) => {
       night: "19:00 to 23:00",
     };
     const peak = peakMap[energy_preference] || peakMap.morning;
-    const startHour = energy_preference === "night" ? 18 : 9;
+    const defaultStart = energy_preference === "night" ? 18 : 9;
+    const startHour = start_time ? start_time.split(":")[0] : String(defaultStart).padStart(2, "0");
+
+    const isReplan = mode === "replan";
+    const patternHints = pattern ? `
+User patterns (use to compound intelligence):
+- Deep work overrun: ${Number(pattern.deep_work_overrun_pct || 0).toFixed(0)}% (account for it; pad deep blocks if positive)
+- Top abandoned types: ${JSON.stringify(pattern.abandoned_types || [])}
+- Completion by hour: ${JSON.stringify(pattern.completion_by_hour || {})}` : "";
+
+    const calHints = calendarEvents.length ? `
+FIXED calendar events you must schedule around (do not move, do not duplicate; emit them as kind="task" with type="communication" and a reasoning that mentions "from your calendar"):
+${calendarEvents.map((e: any) => `- ${e.start_time} (${e.duration_min}m) ${e.title}`).join("\n")}` : "";
 
     const system = `You are DayDraft, an expert productivity planner. Build a realistic, energy-aware schedule from a raw task list.
 Rules:
 - Front-load deep work in the user's peak window (${peak}).
-- Batch communication (emails, replies, standups) into 1-2 blocks, ideally after the peak.
+- Batch communication into 1-2 blocks, ideally after the peak.
 - Insert one 15-min break after ~2h of deep work, and a 60-min lunch around 12:00 (or 18:00 for night owls).
 - Each task block: 25-90 min. Keep total day under 8 working hours.
-- Day starts around ${String(startHour).padStart(2, "0")}:00.
+- Day starts around ${startHour}:00.${isReplan ? " This is a MID-DAY RE-PLAN — start now and only schedule what's left." : ""}
 - Classify each task as deep_work, communication, or routine.
 - Use kind="task" for actual tasks, "break" for breaks, "lunch" for lunch.
+- Extract location hints from raw text (e.g. "gym at 2pm", "lunch at Blue Bottle Mission") and include a short location string.
+- For EVERY task, include a one-sentence "reasoning" explaining placement (e.g. "Deep work first — your peak").
 - Summary: short, e.g. "5 tasks · 3 focus blocks · Done by 5pm".
-- Subtext: one short sentence, e.g. "Deep work front-loaded. Comms batched at 2pm."`;
+- Subtext: one short sentence.${patternHints}${calHints}`;
 
     const tools = [{
       type: "function",
@@ -55,6 +102,8 @@ Rules:
                   title: { type: "string" },
                   type: { type: "string", enum: ["deep_work", "communication", "routine"] },
                   kind: { type: "string", enum: ["task", "break", "lunch"] },
+                  reasoning: { type: "string" },
+                  location: { type: "string" },
                 },
                 required: ["start_time", "duration_min", "title", "type", "kind"],
                 additionalProperties: false,
