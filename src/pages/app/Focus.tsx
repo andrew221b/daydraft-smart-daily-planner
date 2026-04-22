@@ -6,6 +6,7 @@ import { Check, ChevronRight, Minus, Sparkles, MapPin, ExternalLink, Loader2, Li
 import { useAuth } from "@/hooks/useAuth";
 import { mapsUrl } from "@/lib/maps";
 import { toast } from "sonner";
+import { useTimeTracker, fmtHMS } from "@/hooks/useTimeTracker";
 
 type AIHelp = {
   substeps: string[];
@@ -18,6 +19,7 @@ export default function Focus() {
   const { blockId } = useParams();
   const nav = useNavigate();
   const { user } = useAuth();
+  const { active: tracking, start: startTracking, stop: stopTracking, elapsedSec, categories } = useTimeTracker();
   const [block, setBlock] = useState<any | null>(null);
   const [next, setNext] = useState<Block | null>(null);
   const [remaining, setRemaining] = useState<number>(0); // seconds
@@ -62,6 +64,25 @@ export default function Focus() {
   }, [block?.id]);
 
   useEffect(() => { if (block && remaining <= 0) complete(); /* eslint-disable-line */ }, [remaining]);
+
+  // Auto-start time tracking when entering Focus, stop when leaving (only if started here)
+  const startedHereRef = useRef(false);
+  useEffect(() => {
+    if (!block || !categories.length) return;
+    if (tracking) return; // honor existing session
+    startedHereRef.current = true;
+    startTracking(undefined, { source: "focus", blockId: block.id, note: block.title });
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [block?.id, categories.length]);
+
+  useEffect(() => {
+    return () => {
+      if (startedHereRef.current && tracking) stopTracking();
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
+  const trackingCat = categories.find(c => c.id === tracking?.category_id);
 
   const loadHelp = async () => {
     if (!block || helpLoading) return;
