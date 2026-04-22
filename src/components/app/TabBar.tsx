@@ -1,12 +1,12 @@
 import { NavLink } from "react-router-dom";
-import { Sun, Clock, BarChart3, Settings, Timer } from "lucide-react";
+import { Sun, CalendarDays, BarChart3, Settings, Hourglass } from "lucide-react";
 import { useTimeTracker, fmtHMS } from "@/hooks/useTimeTracker";
 import { useState } from "react";
 import { TrackerSheet } from "./TrackerPill";
 
 const items = [
   { to: "/today", icon: Sun },
-  { to: "/history", icon: Clock },
+  { to: "/history", icon: CalendarDays },
   { to: "/stats", icon: BarChart3 },
   { to: "/settings", icon: Settings },
 ];
@@ -69,7 +69,7 @@ export const TabBar = () => {
             className={`relative flex flex-col items-center justify-center min-w-[44px] min-h-[44px] pressable ${active ? "text-primary" : "text-secondary-fg"}`}
             aria-label="Time tracker"
           >
-            <Timer className="h-5 w-5" strokeWidth={2.2} />
+            <Hourglass className="h-5 w-5" strokeWidth={2.2} />
             {active && <span className="absolute top-0 right-1 h-1.5 w-1.5 rounded-full bg-primary animate-pulse" />}
           </button>
 
