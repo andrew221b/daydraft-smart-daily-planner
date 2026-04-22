@@ -7,9 +7,11 @@ import { Button } from "@/components/ui/button";
 import { useEffect, useState } from "react";
 import { peakWindow } from "@/lib/daydraft";
 import { ThemeToggle } from "@/components/app/ThemeToggle";
-import { Fingerprint } from "lucide-react";
+import { Fingerprint, Sparkles } from "lucide-react";
 import { clearStoredPasskey, enrollPasskey, getStoredPasskey, passkeySupported } from "@/lib/passkeys";
 import { toast } from "sonner";
+import { useEntitlement } from "@/hooks/useEntitlement";
+import { UpgradeSheet } from "@/components/app/UpgradeSheet";
 
 const energies = [
   { key: "morning" as const, label: "Morning person" },
@@ -22,6 +24,8 @@ export default function Settings() {
   const { signOut, user } = useAuth();
   const [name, setName] = useState("");
   const [hasPasskey, setHasPasskey] = useState(!!getStoredPasskey());
+  const { entitlement, isPro, planQuotaUsed, planQuotaLimit } = useEntitlement();
+  const [upgradeOpen, setUpgradeOpen] = useState(false);
   useEffect(() => { if (profile) setName(profile.display_name || ""); }, [profile?.id]);
 
   const togglePasskey = async () => {
@@ -54,6 +58,14 @@ export default function Settings() {
         <h1 className="text-[28px] font-semibold">Settings</h1>
 
         <div className="mt-8 space-y-6">
+          <Section title="DayDraft Pro">
+            <ProCard
+              entitlement={entitlement} isPro={isPro}
+              planQuotaUsed={planQuotaUsed} planQuotaLimit={planQuotaLimit}
+              onUpgrade={() => setUpgradeOpen(true)}
+            />
+          </Section>
+
           <Section title="Name">
             <Input value={name} onChange={e => setName(e.target.value)} onBlur={() => update({ display_name: name })}
               className="h-12 bg-surface border-border rounded-xl" />
@@ -110,6 +122,7 @@ export default function Settings() {
           <p className="text-center text-[11px] text-secondary-fg pt-2">DayDraft · v1.0</p>
         </div>
       </div>
+      <UpgradeSheet open={upgradeOpen} onOpenChange={setUpgradeOpen} reason="feature" />
     </Shell>
   );
 }
@@ -120,3 +133,45 @@ const Section = ({ title, children }: { title: string; children: React.ReactNode
     {children}
   </div>
 );
+
+const ProCard = ({ entitlement, isPro, planQuotaUsed, planQuotaLimit, onUpgrade }: {
+  entitlement: ReturnType<typeof useEntitlement>["entitlement"];
+  isPro: boolean;
+  planQuotaUsed: number;
+  planQuotaLimit: number;
+  onUpgrade: () => void;
+}) => {
+  const tier = entitlement?.tier || "free";
+  const badge = tier === "pro" ? "Pro"
+    : tier === "trial" ? `Trial · ${entitlement?.daysLeftInTrial}d left`
+    : "Free";
+  return (
+    <div className="rounded-xl border-2 border-primary/30 bg-primary/5 p-4 shadow-glow">
+      <div className="flex items-start justify-between">
+        <div>
+          <div className="flex items-center gap-1.5">
+            <Sparkles className="h-4 w-4 text-primary" />
+            <span className="text-[11px] font-semibold text-primary uppercase tracking-wider">{badge}</span>
+          </div>
+          <div className="text-sm mt-2">
+            {isPro
+              ? "Unlimited plans, calendar sync, and everything else."
+              : `${planQuotaUsed} of ${planQuotaLimit} free plans used this week.`}
+          </div>
+        </div>
+      </div>
+      {!isPro && (
+        <Button onClick={onUpgrade} className="w-full mt-4 h-11 rounded-xl text-primary-foreground font-medium pressable"
+          style={{ background: "var(--gradient-primary)" }}>
+          Start free trial
+        </Button>
+      )}
+      {isPro && (
+        <button onClick={() => toast("Subscription management coming soon")}
+          className="w-full mt-4 h-11 rounded-xl text-sm text-secondary-fg border border-border bg-surface pressable hover:text-foreground">
+          Manage subscription
+        </button>
+      )}
+    </div>
+  );
+};

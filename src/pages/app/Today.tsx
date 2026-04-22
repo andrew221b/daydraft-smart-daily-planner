@@ -12,6 +12,8 @@ import { toast } from "sonner";
 import { SpilloverChips } from "@/components/app/SpilloverChips";
 import { StreakBadge } from "@/components/app/StreakBadge";
 import { useStreak } from "@/hooks/useStreak";
+import { useEntitlement } from "@/hooks/useEntitlement";
+import { UpgradeSheet } from "@/components/app/UpgradeSheet";
 
 const placeholder = `Drop your tasks here...
 
@@ -22,6 +24,9 @@ export default function Today() {
   const { user } = useAuth();
   const nav = useNavigate();
   const { recordPlanToday } = useStreak();
+  const { isPro, planQuotaUsed, planQuotaRemaining, entitlement } = useEntitlement();
+  const [upgradeOpen, setUpgradeOpen] = useState(false);
+  const [upgradeReason, setUpgradeReason] = useState<"quota" | "feature" | "trial-banner">("feature");
   const [input, setInput] = useState("");
   const [busy, setBusy] = useState(false);
   const [hasToday, setHasToday] = useState(false);
@@ -58,6 +63,15 @@ export default function Today() {
   const plan = async () => {
     if (!input.trim()) { toast.error("Add at least one task"); return; }
     if (!user || !profile) return;
+    // Quota check (server-authoritative)
+    try {
+      const { data: q } = await supabase.functions.invoke("check-plan-quota", { body: {} });
+      if (q && q.allowed === false) {
+        setUpgradeReason("quota");
+        setUpgradeOpen(true);
+        return;
+      }
+    } catch {/* fail open */}
     setBusy(true);
     sessionStorage.setItem("dd_planning_input", input);
     nav("/today/planning");
@@ -96,6 +110,8 @@ export default function Today() {
     } finally { setBusy(false); }
   };
 
+  const showTrialBanner = entitlement?.tier === "trial" && (entitlement.daysLeftInTrial ?? 99) <= 3;
+
   return (
     <Shell>
       <div className="px-6 pt-12">
@@ -116,6 +132,25 @@ export default function Today() {
           <Zap className="h-3.5 w-3.5 text-primary" fill="currentColor" />
           <span className="text-xs font-medium text-primary">Peak hours: {peakWindow(profile?.energy_preference || "morning")}</span>
         </div>
+
+        {showTrialBanner && (
+          <button onClick={() => { setUpgradeReason("trial-banner"); setUpgradeOpen(true); }}
+            className="mt-3 w-full flex items-center justify-between px-4 py-3 rounded-xl border border-primary/30 bg-primary/5 pressable">
+            <div className="text-left">
+              <div className="text-sm font-medium text-foreground">{entitlement!.daysLeftInTrial} days left in trial</div>
+              <div className="text-xs text-secondary-fg">Tap to keep DayDraft Pro</div>
+            </div>
+            <span className="text-xs font-semibold text-primary">Upgrade →</span>
+          </button>
+        )}
+
+        {!isPro && planQuotaRemaining <= 2 && planQuotaRemaining > 0 && (
+          <div className="mt-3 text-[11px] text-secondary-fg">
+            {planQuotaRemaining} of {planQuotaUsed + planQuotaRemaining} free plans left this week.
+            <button onClick={() => { setUpgradeReason("feature"); setUpgradeOpen(true); }}
+              className="ml-1 text-primary hover:underline">Go unlimited</button>
+          </div>
+        )}
 
         <div className="mt-6 relative">
           <SpilloverChips onCarryOver={(titles) => {
@@ -154,6 +189,7 @@ export default function Today() {
           <p className="text-xs text-secondary-fg text-center mt-2">Usually takes 3 seconds</p>
         </div>
       </div>
+      <UpgradeSheet open={upgradeOpen} onOpenChange={setUpgradeOpen} reason={upgradeReason} />
     </Shell>
   );
 }
