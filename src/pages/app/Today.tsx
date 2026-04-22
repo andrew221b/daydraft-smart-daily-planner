@@ -10,6 +10,8 @@ import { supabase } from "@/integrations/supabase/client";
 import { ClipboardPaste, Mic, Sparkles, Zap, ArrowRight } from "lucide-react";
 import { toast } from "sonner";
 import { SpilloverChips } from "@/components/app/SpilloverChips";
+import { StreakBadge } from "@/components/app/StreakBadge";
+import { useStreak } from "@/hooks/useStreak";
 
 const placeholder = `Drop your tasks here...
 
@@ -19,6 +21,7 @@ export default function Today() {
   const { profile } = useProfile();
   const { user } = useAuth();
   const nav = useNavigate();
+  const { recordPlanToday } = useStreak();
   const [input, setInput] = useState("");
   const [busy, setBusy] = useState(false);
   const [hasToday, setHasToday] = useState(false);
@@ -81,6 +84,11 @@ export default function Today() {
         type: b.type, kind: b.kind, position: i,
       }));
       if (blocks.length) await supabase.from("blocks").insert(blocks);
+      try {
+        const res = await recordPlanToday();
+        if (res?.freezeUsed) toast("🧊 Streak freeze used — you're safe");
+        if (res?.milestone) toast.success(`🔥 ${res.milestone}-day streak! Incredible.`);
+      } catch {/* ignore */}
       nav("/today/plan");
     } catch (e: any) {
       toast.error(e.message || "Planning failed");
@@ -96,8 +104,11 @@ export default function Today() {
             <h1 className="text-[28px] font-semibold leading-tight">{greeting()}{profile?.display_name ? `, ${profile.display_name}` : ""}</h1>
             <p className="text-secondary-fg text-sm mt-1">{friendlyDate()}</p>
           </div>
-          <div className="h-10 w-10 rounded-full bg-surface-elevated border border-border flex items-center justify-center text-sm font-medium text-secondary-fg">
-            {(profile?.display_name || "·").slice(0,1).toUpperCase()}
+          <div className="flex items-center gap-2">
+            <StreakBadge />
+            <div className="h-10 w-10 rounded-full bg-surface-elevated border border-border flex items-center justify-center text-sm font-medium text-secondary-fg">
+              {(profile?.display_name || "·").slice(0,1).toUpperCase()}
+            </div>
           </div>
         </div>
 
