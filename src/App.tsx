@@ -5,6 +5,7 @@ import { TooltipProvider } from "@/components/ui/tooltip";
 import NotFound from "./pages/NotFound";
 import { AuthProvider, useAuth } from "@/hooks/useAuth";
 import { useProfile } from "@/hooks/useProfile";
+import { useTheme } from "@/lib/theme";
 import Auth from "./pages/app/Auth";
 import Onboarding from "./pages/app/Onboarding";
 import Today from "./pages/app/Today";
@@ -38,10 +39,15 @@ const RootRedirect = () => {
   return <Navigate to={user ? "/today" : "/auth"} replace />;
 };
 
+const ThemedToaster = () => {
+  const { resolved } = useTheme();
+  return <Sonner theme={resolved} position="top-center" />;
+};
+
 const App = () => (
   <QueryClientProvider client={queryClient}>
     <TooltipProvider>
-      <Sonner theme="dark" position="top-center" />
+      <ThemedToaster />
       <BrowserRouter>
         <AuthProvider>
           <Routes>

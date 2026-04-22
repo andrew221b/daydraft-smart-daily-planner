@@ -71,9 +71,22 @@ export default function Settings() {
     }
   };
 
-  const connectCalendar = () => {
+  const connectCalendar = async () => {
     if (!isPro) { setUpgradeOpen(true); return; }
-    toast("Google Calendar connection: complete setup in Cloud → Auth Providers, then refresh.");
+    setCalConnecting(true);
+    try {
+      const clientId = import.meta.env.VITE_GOOGLE_CALENDAR_CLIENT_ID as string | undefined;
+      if (!clientId) {
+        toast("Calendar sync isn't configured yet — we'll let you know when it's live.");
+        return;
+      }
+      const redirect = `${window.location.origin}/settings`;
+      const scope = encodeURIComponent("https://www.googleapis.com/auth/calendar.readonly");
+      const url = `https://accounts.google.com/o/oauth2/v2/auth?client_id=${clientId}&redirect_uri=${encodeURIComponent(redirect)}&response_type=code&access_type=offline&prompt=consent&scope=${scope}`;
+      window.location.href = url;
+    } finally {
+      setCalConnecting(false);
+    }
   };
 
   return (
