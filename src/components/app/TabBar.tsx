@@ -46,7 +46,10 @@ export const TabBar = () => {
         </div>
       )}
 
-      <nav className="fixed bottom-0 left-1/2 -translate-x-1/2 w-full max-w-[390px] z-40">
+      <nav
+        className="fixed bottom-0 left-1/2 -translate-x-1/2 w-full max-w-[390px] z-40"
+        style={{ paddingBottom: "env(safe-area-inset-bottom)" }}
+      >
         <div className="mx-4 mb-4 rounded-2xl bg-surface-elevated/90 backdrop-blur border border-border shadow-card flex items-center justify-around py-3">
           {items.slice(0, 2).map(({ to, icon: Icon }) => (
             <NavLink key={to} to={to} className={({ isActive }) =>
