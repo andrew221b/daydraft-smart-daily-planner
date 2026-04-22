@@ -24,6 +24,7 @@ type Ctx = {
   switchCategory: (categoryId: string) => Promise<void>;
   addCategory: (name: string, color?: string) => Promise<TimeCategory | null>;
   deleteCategory: (id: string) => Promise<void>;
+  renameCategory: (id: string, name: string) => Promise<void>;
   todayTotalSec: number;
   weekTotalSec: number;
   refresh: () => Promise<void>;
