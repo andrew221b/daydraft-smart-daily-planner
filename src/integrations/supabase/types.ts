@@ -64,6 +64,36 @@ export type Database = {
           },
         ]
       }
+      calendar_tokens: {
+        Row: {
+          access_token: string | null
+          created_at: string
+          email: string | null
+          expires_at: string | null
+          refresh_token: string
+          updated_at: string
+          user_id: string
+        }
+        Insert: {
+          access_token?: string | null
+          created_at?: string
+          email?: string | null
+          expires_at?: string | null
+          refresh_token: string
+          updated_at?: string
+          user_id: string
+        }
+        Update: {
+          access_token?: string | null
+          created_at?: string
+          email?: string | null
+          expires_at?: string | null
+          refresh_token?: string
+          updated_at?: string
+          user_id?: string
+        }
+        Relationships: []
+      }
       plans: {
         Row: {
           ai_subtext: string | null
@@ -97,30 +127,102 @@ export type Database = {
       profiles: {
         Row: {
           created_at: string
+          digest_opt_in: boolean
           display_name: string | null
           energy_preference: string
           id: string
+          install_prompted_at: string | null
           notifications_enabled: boolean
           onboarded: boolean
+          timezone: string
           updated_at: string
         }
         Insert: {
           created_at?: string
+          digest_opt_in?: boolean
           display_name?: string | null
           energy_preference?: string
           id: string
+          install_prompted_at?: string | null
           notifications_enabled?: boolean
           onboarded?: boolean
+          timezone?: string
           updated_at?: string
         }
         Update: {
           created_at?: string
+          digest_opt_in?: boolean
           display_name?: string | null
           energy_preference?: string
           id?: string
+          install_prompted_at?: string | null
           notifications_enabled?: boolean
           onboarded?: boolean
+          timezone?: string
           updated_at?: string
+        }
+        Relationships: []
+      }
+      streaks: {
+        Row: {
+          current_streak: number
+          freeze_resets_at: string
+          freezes_remaining: number
+          last_planned_date: string | null
+          longest_streak: number
+          updated_at: string
+          user_id: string
+        }
+        Insert: {
+          current_streak?: number
+          freeze_resets_at?: string
+          freezes_remaining?: number
+          last_planned_date?: string | null
+          longest_streak?: number
+          updated_at?: string
+          user_id: string
+        }
+        Update: {
+          current_streak?: number
+          freeze_resets_at?: string
+          freezes_remaining?: number
+          last_planned_date?: string | null
+          longest_streak?: number
+          updated_at?: string
+          user_id?: string
+        }
+        Relationships: []
+      }
+      subscriptions: {
+        Row: {
+          current_period_end: string | null
+          plan: string | null
+          status: string
+          stripe_customer_id: string | null
+          stripe_subscription_id: string | null
+          trial_ends_at: string | null
+          updated_at: string
+          user_id: string
+        }
+        Insert: {
+          current_period_end?: string | null
+          plan?: string | null
+          status?: string
+          stripe_customer_id?: string | null
+          stripe_subscription_id?: string | null
+          trial_ends_at?: string | null
+          updated_at?: string
+          user_id: string
+        }
+        Update: {
+          current_period_end?: string | null
+          plan?: string | null
+          status?: string
+          stripe_customer_id?: string | null
+          stripe_subscription_id?: string | null
+          trial_ends_at?: string | null
+          updated_at?: string
+          user_id?: string
         }
         Relationships: []
       }
