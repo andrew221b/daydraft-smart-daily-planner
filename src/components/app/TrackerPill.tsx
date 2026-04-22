@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useState } from "react";
-import { Play, Pause, Plus, Check, Trash2, ChevronLeft, ChevronRight, Download, ChevronDown } from "lucide-react";
+import { Play, Pause, Plus, Check, Trash2, ChevronLeft, ChevronRight, Download, ChevronDown, Lock } from "lucide-react";
 import { useTimeTracker, fmtHMS, fmtHM, TimeCategory } from "@/hooks/useTimeTracker";
 import { Sheet, SheetContent, SheetHeader, SheetTitle, SheetDescription } from "@/components/ui/sheet";
 import { Input } from "@/components/ui/input";
@@ -8,6 +8,8 @@ import { useAuth } from "@/hooks/useAuth";
 import { toast } from "sonner";
 import jsPDF from "jspdf";
 import autoTable from "jspdf-autotable";
+import { useEntitlement } from "@/hooks/useEntitlement";
+import { UpgradeSheet } from "@/components/app/UpgradeSheet";
 
 type Entry = {
   id: string;
@@ -34,6 +36,8 @@ function clipDuration(e: Entry, dayStart: number, dayEnd: number, now: number) {
 export function TrackerSheet({ open, onOpenChange }: { open: boolean; onOpenChange: (v: boolean) => void }) {
   const { user } = useAuth();
   const { active, elapsedSec, categories, start, stop, switchCategory, addCategory, deleteCategory, todayTotalSec } = useTimeTracker();
+  const { isPro } = useEntitlement();
+  const [upgradeOpen, setUpgradeOpen] = useState(false);
   const [newName, setNewName] = useState("");
   const [tab, setTab] = useState<Tab>("today");
   const [entries, setEntries] = useState<Entry[]>([]);
