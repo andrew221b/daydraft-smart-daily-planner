@@ -328,14 +328,26 @@ export function TrackerSheet({ open, onOpenChange }: { open: boolean; onOpenChan
       <SheetContent side="bottom" className="rounded-t-3xl p-0 border-border max-h-[92vh] overflow-y-auto">
         {/* Header */}
         <div className="px-5 pt-5 pb-4 border-b border-border">
-          <SheetHeader className="text-left">
-            <SheetTitle className="text-xl">Time tracker</SheetTitle>
-            <SheetDescription className="text-xs">
-              {active
-                ? <>Tracking <span className="text-foreground font-medium">{activeCat?.name}</span> · <span className="font-mono tabular-nums">{fmtHMS(elapsedSec)}</span></>
-                : <>{headerLabel}: <span className="text-foreground font-medium">{fmtHM(headerTotalSec)}</span></>}
-            </SheetDescription>
-          </SheetHeader>
+          <div className="flex items-start justify-between gap-3">
+            <SheetHeader className="text-left flex-1 min-w-0">
+              <SheetTitle className="text-xl">Time tracker</SheetTitle>
+              <SheetDescription className="text-xs">
+                {active
+                  ? <>Tracking <span className="text-foreground font-medium">{activeCat?.name}</span> · <span className="font-mono tabular-nums">{fmtHMS(elapsedSec)}</span></>
+                  : <>{headerLabel}: <span className="text-foreground font-medium">{fmtHM(headerTotalSec)}</span></>}
+              </SheetDescription>
+            </SheetHeader>
+            <button
+              onClick={exportPDF}
+              disabled={exporting || headerTotalSec === 0}
+              className="shrink-0 inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg border border-border bg-surface text-xs font-medium text-foreground pressable disabled:opacity-40 disabled:pointer-events-none"
+              aria-label="Export PDF"
+              title={`Export ${headerLabel} as PDF`}
+            >
+              <Download className="h-3.5 w-3.5" />
+              PDF
+            </button>
+          </div>
 
           {/* Tabs */}
           <div className="mt-4 inline-flex w-full rounded-xl bg-muted p-1">
@@ -366,6 +378,11 @@ export function TrackerSheet({ open, onOpenChange }: { open: boolean; onOpenChan
                       <span className="font-mono tabular-nums text-foreground">{fmtHM(x.sec)}</span>
                     </div>
                   ))}
+                </div>
+
+                <div className="mt-4">
+                  <div className="text-[11px] font-medium uppercase tracking-wide text-secondary-fg mb-2">When you tracked (24h)</div>
+                  <DayTimeline24h segments={todayTimeline} />
                 </div>
               </div>
             )}
