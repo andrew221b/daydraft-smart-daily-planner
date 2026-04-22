@@ -1,4 +1,4 @@
-import { useEffect, useState, useCallback } from "react";
+import { useEffect, useState, useCallback, useRef } from "react";
 import { supabase } from "@/integrations/supabase/client";
 import { useAuth } from "./useAuth";
 import { todayDateStr } from "@/lib/daydraft";
@@ -23,6 +23,9 @@ export const useStreak = () => {
   const { user } = useAuth();
   const [streak, setStreak] = useState<Streak | null>(null);
   const [loading, setLoading] = useState(true);
+  // Idempotency guard: prevents double-recording within the same session if
+  // recordPlanToday is invoked twice in quick succession (double-tap on Plan).
+  const recordingRef = useRef<Promise<any> | null>(null);
 
   const refresh = useCallback(async () => {
     if (!user) { setStreak(null); setLoading(false); return; }
@@ -49,7 +52,9 @@ export const useStreak = () => {
   // Call after a plan has been saved today
   const recordPlanToday = useCallback(async () => {
     if (!user) return null;
+    if (recordingRef.current) return recordingRef.current;
     const today = todayDateStr();
+    const run = (async () => {
     const { data: existing } = await supabase.from("streaks").select("*").eq("user_id", user.id).maybeSingle();
     let s = existing as Streak | null;
     if (!s) {
@@ -84,10 +89,38 @@ export const useStreak = () => {
       longest_streak: longest,
       last_planned_date: today,
       freezes_remaining: freezes,
-    }).eq("user_id", user.id).select().maybeSingle();
+    }).eq("user_id", user.id).neq("last_planned_date", today).select().maybeSingle();
+    // If the row was updated by a concurrent call (last_planned_date became today),
+    // re-read the current value and return it without an extra increment.
+    if (!upd) {
+      const { data: latest } = await supabase.from("streaks").select("*").eq("user_id", user.id).maybeSingle();
+      if (latest) setStreak(latest as Streak);
+      return latest ? { ...(latest as Streak), milestone: null as number | null, freezeUsed: false } : null;
+    }
     if (upd) setStreak(upd as Streak);
     return { ...(upd as Streak), milestone, freezeUsed };
+    })();
+    recordingRef.current = run;
+    try { return await run; } finally { recordingRef.current = null; }
   }, [user?.id]);
 
-  return { streak, loading, refresh, recordPlanToday };
+  // Manually restore yesterday's streak using a freeze, when the user missed a single day.
+  const restoreWithFreeze = useCallback(async () => {
+    if (!user || !streak) return false;
+    if (streak.freezes_remaining < 1) return false;
+    const today = todayDateStr();
+    if (!streak.last_planned_date) return false;
+    const gap = daysBetween(streak.last_planned_date, today);
+    // Only valid when exactly one day was missed (yesterday was skipped).
+    if (gap !== 2) return false;
+    const { data: upd } = await supabase.from("streaks").update({
+      freezes_remaining: streak.freezes_remaining - 1,
+      // Pretend yesterday was planned so today can continue the streak naturally.
+      last_planned_date: new Date(Date.now() - 86400000).toISOString().slice(0, 10),
+    }).eq("user_id", user.id).select().maybeSingle();
+    if (upd) setStreak(upd as Streak);
+    return true;
+  }, [user?.id, streak]);
+
+  return { streak, loading, refresh, recordPlanToday, restoreWithFreeze };
 };
