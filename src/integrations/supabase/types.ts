@@ -303,31 +303,46 @@ export type Database = {
       }
       subscriptions: {
         Row: {
+          apple_latest_transaction_id: string | null
+          apple_original_transaction_id: string | null
+          apple_product_id: string | null
           current_period_end: string | null
+          environment: string | null
+          last_event_at: string | null
+          last_notification_type: string | null
           plan: string | null
+          platform: string
           status: string
-          stripe_customer_id: string | null
-          stripe_subscription_id: string | null
           trial_ends_at: string | null
           updated_at: string
           user_id: string
         }
         Insert: {
+          apple_latest_transaction_id?: string | null
+          apple_original_transaction_id?: string | null
+          apple_product_id?: string | null
           current_period_end?: string | null
+          environment?: string | null
+          last_event_at?: string | null
+          last_notification_type?: string | null
           plan?: string | null
+          platform?: string
           status?: string
-          stripe_customer_id?: string | null
-          stripe_subscription_id?: string | null
           trial_ends_at?: string | null
           updated_at?: string
           user_id: string
         }
         Update: {
+          apple_latest_transaction_id?: string | null
+          apple_original_transaction_id?: string | null
+          apple_product_id?: string | null
           current_period_end?: string | null
+          environment?: string | null
+          last_event_at?: string | null
+          last_notification_type?: string | null
           plan?: string | null
+          platform?: string
           status?: string
-          stripe_customer_id?: string | null
-          stripe_subscription_id?: string | null
           trial_ends_at?: string | null
           updated_at?: string
           user_id?: string
