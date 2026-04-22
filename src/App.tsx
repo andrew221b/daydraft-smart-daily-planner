@@ -4,7 +4,7 @@ import { Toaster as Sonner } from "@/components/ui/sonner";
 import { TooltipProvider } from "@/components/ui/tooltip";
 import NotFound from "./pages/NotFound";
 import { AuthProvider, useAuth } from "@/hooks/useAuth";
-import { useProfile } from "@/hooks/useProfile";
+import { ProfileProvider, useProfile } from "@/hooks/useProfile";
 import { useTheme } from "@/lib/theme";
 import Auth from "./pages/app/Auth";
 import Onboarding from "./pages/app/Onboarding";
@@ -54,6 +54,7 @@ const App = () => (
       <ThemedToaster />
       <BrowserRouter>
         <AuthProvider>
+        <ProfileProvider>
         <TimeTrackerProvider>
           <Routes>
             <Route path="/" element={<RootRedirect />} />
@@ -77,6 +78,7 @@ const App = () => (
           </Routes>
           <QuickCapture />
         </TimeTrackerProvider>
+        </ProfileProvider>
         </AuthProvider>
       </BrowserRouter>
     </TooltipProvider>
