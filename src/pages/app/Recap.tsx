@@ -5,8 +5,10 @@ import { useAuth } from "@/hooks/useAuth";
 import { useProfile } from "@/hooks/useProfile";
 import { supabase } from "@/integrations/supabase/client";
 import { Block, todayDateStr } from "@/lib/daydraft";
-import { Sparkles } from "lucide-react";
+import { Sparkles, Clock } from "lucide-react";
 import { Button } from "@/components/ui/button";
+import { useTimeTracker, fmtHM } from "@/hooks/useTimeTracker";
+import { toast } from "sonner";
 
 export default function Recap() {
   const { user } = useAuth();
@@ -14,6 +16,8 @@ export default function Recap() {
   const nav = useNavigate();
   const [blocks, setBlocks] = useState<Block[]>([]);
   const [insight, setInsight] = useState<string | null>(null);
+  const { todayTotalSec, categories, refresh: refreshTracker } = useTimeTracker();
+  const [backfilled, setBackfilled] = useState(false);
 
   useEffect(() => {
     if (!user) return;
@@ -40,6 +44,40 @@ export default function Recap() {
   const eff = plannedMin ? Math.round((completedMin / plannedMin) * 100) : 0;
   const fh = Math.floor(focusMin / 60), fm = focusMin % 60;
 
+  // "Forgot to track?" — completed focus minutes vs tracked seconds today
+  const completedFocusSec = tasks.filter(b => b.completed).reduce((s, b) => s + b.duration_min * 60, 0);
+  const showRecover = !backfilled && completedFocusSec >= 30 * 60 && todayTotalSec < completedFocusSec * 0.5;
+
+  const backfill = async () => {
+    if (!user) return;
+    const cat = categories.find(c => c.is_default) || categories[0];
+    if (!cat) { toast.error("No category found"); return; }
+    const completed = tasks.filter(b => b.completed);
+    const now = new Date();
+    // Sequentially place blocks ending now, going backwards
+    let cursor = now.getTime();
+    const rows = completed.map((b) => {
+      const end = new Date(cursor);
+      cursor -= b.duration_min * 60 * 1000;
+      const start = new Date(cursor);
+      return {
+        user_id: user.id,
+        category_id: cat.id,
+        started_at: start.toISOString(),
+        ended_at: end.toISOString(),
+        source: "recap",
+        block_id: b.id,
+        note: b.title,
+      };
+    });
+    if (!rows.length) return;
+    const { error } = await supabase.from("time_entries").insert(rows);
+    if (error) { toast.error(error.message); return; }
+    setBackfilled(true);
+    await refreshTracker();
+    toast.success("Tracked time recorded");
+  };
+
   return (
     <Shell>
       <div className="relative">
@@ -53,6 +91,22 @@ export default function Recap() {
             <Stat label="Focus time" value={`${fh}h ${fm}m`} />
             <Stat label="Efficiency" value={`${eff}%`} />
           </div>
+
+          {showRecover && (
+            <button
+              onClick={backfill}
+              className="mt-6 w-full flex items-center gap-3 px-4 py-3 rounded-2xl border border-primary/30 bg-primary/5 text-left pressable"
+            >
+              <div className="h-9 w-9 rounded-full bg-primary/10 flex items-center justify-center shrink-0">
+                <Clock className="h-4 w-4 text-primary" />
+              </div>
+              <div className="flex-1 min-w-0">
+                <div className="text-sm font-medium text-foreground">Forgot to track today?</div>
+                <div className="text-xs text-secondary-fg">You only tracked {fmtHM(todayTotalSec)} but completed {fh}h {fm}m of focus. Tap to credit it.</div>
+              </div>
+              <span className="text-xs font-semibold text-primary shrink-0">Credit →</span>
+            </button>
+          )}
 
           <div className="mt-6 rounded-2xl bg-surface-elevated border border-border shadow-card p-4">
             <div className="flex items-center gap-2 text-primary">
