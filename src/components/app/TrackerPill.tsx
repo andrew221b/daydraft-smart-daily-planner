@@ -39,6 +39,8 @@ export function TrackerSheet({ open, onOpenChange }: { open: boolean; onOpenChan
   const [entries, setEntries] = useState<Entry[]>([]);
   const [monthCursor, setMonthCursor] = useState(() => { const d = new Date(); d.setDate(1); d.setHours(0,0,0,0); return d; });
   const [selectedDay, setSelectedDay] = useState<string | null>(null);
+  const [selectedCat, setSelectedCat] = useState<string | null>(null);
+  const [exporting, setExporting] = useState(false);
 
   const activeCat = categories.find(c => c.id === active?.category_id);
   const catMap = useMemo(() => new Map(categories.map(c => [c.id, c])), [categories]);
@@ -138,6 +140,59 @@ export function TrackerSheet({ open, onOpenChange }: { open: boolean; onOpenChan
       .filter(x => x.cat)
       .sort((a, b) => b.sec - a.sec);
   }, [entries, catMap, now]);
+
+  // Today: build 24h timeline segments (clipped to today)
+  const todayTimeline = useMemo(() => {
+    const dayStart = startOfDay(new Date()).getTime();
+    const dayEnd = dayStart + DAY_MS;
+    const segs: Array<{ id: string; start: number; end: number; color: string; name: string }> = [];
+    entries.forEach(e => {
+      const s = new Date(e.started_at).getTime();
+      const en = e.ended_at ? new Date(e.ended_at).getTime() : now;
+      const a = Math.max(s, dayStart);
+      const b = Math.min(en, dayEnd);
+      if (b <= a) return;
+      const cat = e.category_id ? catMap.get(e.category_id) : undefined;
+      segs.push({ id: e.id, start: a - dayStart, end: b - dayStart, color: cat?.color || "hsl(var(--muted-foreground))", name: cat?.name || "Untracked" });
+    });
+    return segs;
+  }, [entries, catMap, now]);
+
+  // Period boundaries based on active tab (used for PDF + category drill-in)
+  const period = useMemo(() => {
+    if (tab === "today") {
+      const s = startOfDay(new Date()).getTime();
+      return { start: s, end: s + DAY_MS, label: "Today", days: 1 };
+    }
+    if (tab === "week") {
+      const today = startOfDay(new Date()).getTime();
+      return { start: today - 6 * DAY_MS, end: today + DAY_MS, label: "Last 7 days", days: 7 };
+    }
+    const first = new Date(monthCursor).getTime();
+    const next = new Date(monthCursor); next.setMonth(next.getMonth() + 1);
+    return { start: first, end: next.getTime(), label: monthCursor.toLocaleDateString(undefined, { month: "long", year: "numeric" }), days: Math.round((next.getTime() - first) / DAY_MS) };
+  }, [tab, monthCursor]);
+
+  // Per-category stats for the active period (for inline drill-in)
+  const periodCatStats = useMemo(() => {
+    const map = new Map<string, { sec: number; sessions: Array<{ id: string; start: number; end: number; note: string | null }>; perDay: Map<string, number> }>();
+    entries.forEach(e => {
+      if (!e.category_id) return;
+      const s = new Date(e.started_at).getTime();
+      const en = e.ended_at ? new Date(e.ended_at).getTime() : now;
+      const a = Math.max(s, period.start);
+      const b = Math.min(en, period.end);
+      if (b <= a) return;
+      const dur = (b - a) / 1000;
+      const cur = map.get(e.category_id) || { sec: 0, sessions: [], perDay: new Map() };
+      cur.sec += dur;
+      cur.sessions.push({ id: e.id, start: a, end: b, note: e.note });
+      const dayKey = ymd(new Date(a));
+      cur.perDay.set(dayKey, (cur.perDay.get(dayKey) || 0) + dur);
+      map.set(e.category_id, cur);
+    });
+    return map;
+  }, [entries, period, now]);
 
   const headerTotalSec = tab === "today" ? todayTotalSec : tab === "week" ? weekTotal : monthTotal;
   const headerLabel = tab === "today" ? "Today" : tab === "week" ? "This week" : monthCursor.toLocaleDateString(undefined, { month: "long", year: "numeric" });
