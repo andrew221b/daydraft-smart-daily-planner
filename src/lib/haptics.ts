@@ -1,76 +1,34 @@
 /**
- * Cross-platform haptic feedback.
+ * Web haptic feedback wrapper using the Vibration API.
  *
- * Web: uses navigator.vibrate (Android Chrome supports it; iOS Safari ignores it).
- * Native (Capacitor): when @capacitor/haptics is installed, we'll dynamically import
- * and call the appropriate API. Falls back to web vibration silently.
- *
- * Use these helpers everywhere instead of calling navigator.vibrate directly so
- * we have a single place to wire native APIs when packaging with Capacitor.
+ * Android Chrome supports `navigator.vibrate`; iOS Safari ignores it silently.
+ * The single entry point makes it trivial to swap in a native implementation
+ * later (e.g. when porting to a fully native iOS/Android app).
  */
 
 type Impact = "light" | "medium" | "heavy";
 type Notify = "success" | "warning" | "error";
 
-let cachedNative: any = null;
-let nativeChecked = false;
-
-async function getNative() {
-  if (nativeChecked) return cachedNative;
-  nativeChecked = true;
-  try {
-    // Optional dependency — only present in native (Capacitor) builds.
-    // The specifier is built at runtime so Rollup/Vite don't try to resolve it at build time.
-    const pkg = ["@capacitor", "haptics"].join("/");
-    // @ts-ignore
-    const mod = await import(/* @vite-ignore */ pkg);
-    cachedNative = mod;
-  } catch {
-    cachedNative = null;
-  }
-  return cachedNative;
-}
-
-const webVibrate = (pattern: number | number[]) => {
+const vibrate = (pattern: number | number[]) => {
   try { navigator.vibrate?.(pattern); } catch { /* ignore */ }
 };
 
 export const haptics = {
   /** Light tap — buttons, toggles, navigation. */
-  tap: () => {
-    getNative().then(n => {
-      if (n) n.Haptics.impact({ style: n.ImpactStyle.Light }).catch(() => webVibrate(8));
-      else webVibrate(8);
-    });
-  },
+  tap: () => vibrate(8),
   impact: (style: Impact = "medium") => {
     const ms = style === "light" ? 8 : style === "heavy" ? 25 : 14;
-    getNative().then(n => {
-      if (n) {
-        const map = { light: n.ImpactStyle.Light, medium: n.ImpactStyle.Medium, heavy: n.ImpactStyle.Heavy };
-        n.Haptics.impact({ style: map[style] }).catch(() => webVibrate(ms));
-      } else webVibrate(ms);
-    });
+    vibrate(ms);
   },
-  /** Success/warning/error pattern — completion, errors. */
+  /** Success / warning / error pattern — completion, errors. */
   notify: (type: Notify = "success") => {
     const patterns: Record<Notify, number[]> = {
       success: [10, 40, 18],
       warning: [12, 60, 12],
       error: [20, 50, 20, 50, 20],
     };
-    getNative().then(n => {
-      if (n) {
-        const map = { success: n.NotificationType.Success, warning: n.NotificationType.Warning, error: n.NotificationType.Error };
-        n.Haptics.notification({ type: map[type] }).catch(() => webVibrate(patterns[type]));
-      } else webVibrate(patterns[type]);
-    });
+    vibrate(patterns[type]);
   },
   /** Selection change — picker, segment switch. */
-  selection: () => {
-    getNative().then(n => {
-      if (n) n.Haptics.selectionChanged?.().catch(() => webVibrate(5));
-      else webVibrate(5);
-    });
-  },
+  selection: () => vibrate(5),
 };
