@@ -238,7 +238,7 @@ export default function Today() {
         )}
 
         <div className="mt-8">
-          <Button onClick={plan} disabled={busy} className="w-full h-13 py-3.5 rounded-xl text-primary-foreground text-base font-medium pressable shadow-glow"
+          <Button onClick={openClarify} disabled={busy} className="w-full h-13 py-3.5 rounded-xl text-primary-foreground text-base font-medium pressable shadow-glow"
             style={{ background: "var(--gradient-primary)" }}>
             Plan My Day <ArrowRight className="h-4 w-4" />
           </Button>
@@ -246,6 +246,7 @@ export default function Today() {
         </div>
       </div>
       <UpgradeSheet open={upgradeOpen} onOpenChange={setUpgradeOpen} reason={upgradeReason} />
+      <ClarifySheet open={clarifyOpen} onOpenChange={setClarifyOpen} rawInput={input} onConfirm={plan} />
     </Shell>
   );
 }
