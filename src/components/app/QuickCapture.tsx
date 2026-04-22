@@ -9,7 +9,7 @@ import { toast } from "sonner";
 
 type Capture = { id: string; content: string; consumed: boolean; created_at: string };
 
-export function QuickCaptureButton({ className = "" }: { className?: string }) {
+export function QuickCaptureButton({ className = "", variant = "icon" }: { className?: string; variant?: "icon" | "chip" }) {
   const { user } = useAuth();
   const [open, setOpen] = useState(false);
   const [text, setText] = useState("");
@@ -72,13 +72,16 @@ export function QuickCaptureButton({ className = "" }: { className?: string }) {
       <button
         onClick={() => setOpen(true)}
         aria-label={`Inbox · ${pendingCount} pending`}
-        className={`relative h-10 w-10 rounded-full bg-surface-elevated border border-border flex items-center justify-center text-secondary-fg hover:text-foreground pressable ${className}`}
+        className={variant === "chip"
+          ? `shrink-0 inline-flex items-center gap-1.5 px-3 py-2 rounded-full bg-surface border border-border text-xs text-secondary-fg pressable hover:text-foreground ${className}`
+          : `relative h-10 w-10 rounded-full bg-surface-elevated border border-border flex items-center justify-center text-secondary-fg hover:text-foreground pressable ${className}`}
       >
-        <Inbox className="h-4 w-4" strokeWidth={2.2} />
+        <Inbox className={variant === "chip" ? "h-3.5 w-3.5" : "h-4 w-4"} strokeWidth={2.2} />
+        {variant === "chip" && <span>Inbox</span>}
         {pendingCount > 0 && (
-          <span className="absolute -top-1 -right-1 min-w-[18px] h-[18px] px-1 rounded-full bg-primary text-primary-foreground text-[10px] font-semibold flex items-center justify-center border-2 border-background">
-            {pendingCount > 99 ? "99+" : pendingCount}
-          </span>
+          variant === "chip"
+            ? <span className="inline-flex min-w-[18px] h-[18px] px-1 rounded-full bg-primary/10 text-primary text-[10px] font-semibold items-center justify-center">{pendingCount > 99 ? "99+" : pendingCount}</span>
+            : <span className="absolute -top-1 -right-1 min-w-[18px] h-[18px] px-1 rounded-full bg-primary text-primary-foreground text-[10px] font-semibold flex items-center justify-center border-2 border-background">{pendingCount > 99 ? "99+" : pendingCount}</span>
         )}
       </button>
 
