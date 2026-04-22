@@ -50,7 +50,19 @@ Rules:
 - Communication (email, slack, calls): 15-30m typical.
 - Routine (errands, admin): 10-20m typical.
 - If the title implies a meeting with explicit length, honor it.
-- Classify type: deep_work | communication | routine.${personal}`;
+- Classify type: deep_work | communication | routine.
+- Detect a primary action_kind from this list and only this list:
+  • "url"      → external website task (e.g. log in to CRA, file taxes online, submit a form on a known site)
+  • "email"    → write/reply to an email
+  • "message"  → send a slack/whatsapp/sms/telegram message
+  • "call"     → phone call
+  • "calendar" → schedule/attend a meeting
+  • "maps"     → go somewhere physical (gym, store, doctor)
+  • "research" → read/learn/figure out something
+  • "none"     → nothing actionable to link
+- For action_kind "url", "research", "calendar": include 1-2 helpful real links (login pages, official docs, well-known tools). NEVER invent URLs — if uncertain, omit. Prefer canonical domains (cra-arc.gc.ca, calendar.google.com, github.com, stripe.com/docs, etc.).
+- For action_kind "email" or "message": include links: [] (handled by drafts later).
+- If estimate_min > 90, set should_split = true and provide split_into: 2-3 sub-blocks (title + minutes) that together equal the estimate, each 25-60min, with a different focus (e.g. outline → draft → review).${personal}`;
 
     const tools = [{
       type: "function",
@@ -69,8 +81,34 @@ Rules:
                   estimate_min: { type: "integer" },
                   type: { type: "string", enum: ["deep_work", "communication", "routine"] },
                   reason: { type: "string", description: "Short 1-line reason, max 70 chars" },
+                  action_kind: { type: "string", enum: ["url", "email", "message", "call", "calendar", "maps", "research", "none"] },
+                  links: {
+                    type: "array",
+                    items: {
+                      type: "object",
+                      properties: {
+                        label: { type: "string" },
+                        url: { type: "string" },
+                      },
+                      required: ["label", "url"],
+                      additionalProperties: false,
+                    },
+                  },
+                  should_split: { type: "boolean" },
+                  split_into: {
+                    type: "array",
+                    items: {
+                      type: "object",
+                      properties: {
+                        title: { type: "string" },
+                        estimate_min: { type: "integer" },
+                      },
+                      required: ["title", "estimate_min"],
+                      additionalProperties: false,
+                    },
+                  },
                 },
-                required: ["index", "estimate_min", "type", "reason"],
+                required: ["index", "estimate_min", "type", "reason", "action_kind", "links", "should_split", "split_into"],
                 additionalProperties: false,
               },
             },

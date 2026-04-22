@@ -2,14 +2,16 @@ import { useEffect, useRef, useState } from "react";
 import { useNavigate, useParams } from "react-router-dom";
 import { supabase } from "@/integrations/supabase/client";
 import { Block } from "@/lib/daydraft";
-import { Check, ChevronRight, Minus, Sparkles, MapPin, ExternalLink, Loader2, Lightbulb } from "lucide-react";
+import { Check, ChevronRight, Minus, Sparkles, MapPin, ExternalLink, Loader2, Lightbulb, Copy, Phone, CalendarPlus, Mail } from "lucide-react";
 import { useAuth } from "@/hooks/useAuth";
 import { mapsUrl } from "@/lib/maps";
+import { toast } from "sonner";
 
 type AIHelp = {
   substeps: string[];
   links: { label: string; url: string }[];
   tip: string;
+  draft?: { subject?: string; body: string };
 };
 
 export default function Focus() {
@@ -112,6 +114,32 @@ export default function Focus() {
   const secs = Math.floor(remaining % 60);
   const lowTime = remaining < 300;
 
+  // Smart contextual quick actions derived from the title/type
+  const title = (block.title || "").toLowerCase();
+  const isCall = /\b(call|phone|ring|dial)\b/.test(title);
+  const isMeeting = block.type === "communication" && /\b(meeting|sync|standup|1:1|catchup|catch-up|call with|meet with)\b/.test(title);
+  const isEmail = /\b(email|reply|respond|inbox)\b/.test(title);
+
+  const calendarUrl = (() => {
+    const t = encodeURIComponent(block.title || "Block");
+    return `https://calendar.google.com/calendar/render?action=TEMPLATE&text=${t}`;
+  })();
+  const mailtoUrl = `mailto:?subject=${encodeURIComponent(block.title || "")}`;
+  const telUrl = `tel:`;
+
+  const copyDraft = async () => {
+    if (!help?.draft) return;
+    const txt = help.draft.subject
+      ? `Subject: ${help.draft.subject}\n\n${help.draft.body}`
+      : help.draft.body;
+    try {
+      await navigator.clipboard.writeText(txt);
+      toast.success("Draft copied");
+    } catch {
+      toast.error("Couldn't copy");
+    }
+  };
+
   return (
     <div className="min-h-screen w-full bg-background flex justify-center">
       <div className="relative w-full max-w-[390px] min-h-screen flex flex-col items-center px-6 pt-14 pb-10 page-enter">
@@ -185,6 +213,26 @@ export default function Focus() {
                   <ExternalLink className="h-3.5 w-3.5 text-secondary-fg" />
                 </a>
               )}
+              {/* Contextual quick actions */}
+              {(isCall || isMeeting || isEmail) && (
+                <div className="flex gap-1.5 flex-wrap">
+                  {isCall && (
+                    <a href={telUrl} className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-background border border-border text-xs font-medium text-foreground pressable">
+                      <Phone className="h-3.5 w-3.5 text-primary" /> Call
+                    </a>
+                  )}
+                  {isMeeting && (
+                    <a href={calendarUrl} target="_blank" rel="noreferrer" className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-background border border-border text-xs font-medium text-foreground pressable">
+                      <CalendarPlus className="h-3.5 w-3.5 text-primary" /> Add to calendar
+                    </a>
+                  )}
+                  {isEmail && (
+                    <a href={mailtoUrl} className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-background border border-border text-xs font-medium text-foreground pressable">
+                      <Mail className="h-3.5 w-3.5 text-primary" /> New email
+                    </a>
+                  )}
+                </div>
+              )}
               {helpLoading && (
                 <div className="flex items-center gap-2 text-sm text-secondary-fg py-3 justify-center">
                   <Loader2 className="h-4 w-4 animate-spin" /> Thinking…
@@ -195,6 +243,24 @@ export default function Focus() {
               )}
               {help && (
                 <>
+                  {help.draft && (
+                    <div className="rounded-xl border border-primary/30 bg-primary/5 overflow-hidden">
+                      <div className="flex items-center justify-between px-3 py-2 border-b border-primary/20">
+                        <div className="flex items-center gap-1.5 text-[11px] uppercase tracking-wider text-primary font-medium">
+                          <Mail className="h-3 w-3" /> Draft
+                        </div>
+                        <button onClick={copyDraft} className="inline-flex items-center gap-1 text-[11px] font-medium text-primary pressable">
+                          <Copy className="h-3 w-3" /> Copy
+                        </button>
+                      </div>
+                      <div className="px-3 py-2.5 text-sm space-y-1">
+                        {help.draft.subject && (
+                          <div className="text-foreground"><span className="text-secondary-fg text-xs">Subject: </span>{help.draft.subject}</div>
+                        )}
+                        <pre className="whitespace-pre-wrap font-sans text-foreground text-[13px] leading-relaxed">{help.draft.body}</pre>
+                      </div>
+                    </div>
+                  )}
                   {help.substeps?.length > 0 && (
                     <div>
                       <div className="text-[11px] uppercase tracking-wider text-secondary-fg mb-1.5">Steps</div>

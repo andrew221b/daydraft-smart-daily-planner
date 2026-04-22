@@ -2,7 +2,7 @@ import { useEffect, useMemo, useState } from "react";
 import { Sheet, SheetContent, SheetHeader, SheetTitle, SheetDescription } from "@/components/ui/sheet";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
-import { Sparkles, Clock, Flag, CalendarClock, X, Check, Loader2, Wand2 } from "lucide-react";
+import { Sparkles, Clock, Flag, CalendarClock, X, Check, Loader2, Wand2, ExternalLink, Mail, MessageSquare, Phone, MapPin, BookOpen, Link2, Split } from "lucide-react";
 import { supabase } from "@/integrations/supabase/client";
 import { toast } from "sonner";
 
@@ -19,6 +19,10 @@ type Row = ClarifiedTask & {
   ai_type?: "deep_work" | "communication" | "routine";
   ai_reason?: string;
   accepted?: boolean; // user accepted AI suggestion (or matches)
+  ai_action_kind?: "url" | "email" | "message" | "call" | "calendar" | "maps" | "research" | "none";
+  ai_links?: { label: string; url: string }[];
+  ai_should_split?: boolean;
+  ai_split_into?: { title: string; estimate_min: number }[];
 };
 
 interface Props {
@@ -94,6 +98,10 @@ export function ClarifySheet({ open, onOpenChange, rawInput, onConfirm }: Props)
           ai_estimate_min: e.estimate_min,
           ai_type: e.type as Row["ai_type"],
           ai_reason: e.reason,
+          ai_action_kind: (e as any).action_kind,
+          ai_links: (e as any).links || [],
+          ai_should_split: (e as any).should_split,
+          ai_split_into: (e as any).split_into || [],
         };
       }));
     } catch (e: any) {
@@ -120,6 +128,20 @@ export function ClarifySheet({ open, onOpenChange, rawInput, onConfirm }: Props)
     update(i, { estimate_min: next, accepted: tasks[i].ai_estimate_min === next });
   };
 
+  const applySplit = (i: number) => {
+    const r = tasks[i];
+    if (!r.ai_split_into?.length) return;
+    const newRows: Row[] = r.ai_split_into.map((s, idx) => ({
+      title: s.title,
+      estimate_min: s.estimate_min,
+      priority: r.priority,
+      fixed_time: idx === 0 ? r.fixed_time : undefined,
+      accepted: true,
+    }));
+    setTasks(t => [...t.slice(0, i), ...newRows, ...t.slice(i + 1)]);
+    toast.success(`Split into ${newRows.length} blocks`);
+  };
+
   const totalMin = tasks.reduce((a, t) => a + (t.estimate_min || 0), 0);
   const hours = Math.floor(totalMin / 60);
   const mins = totalMin % 60;
@@ -130,6 +152,19 @@ export function ClarifySheet({ open, onOpenChange, rawInput, onConfirm }: Props)
     p === "high" ? "bg-destructive/10 text-destructive border-destructive/30"
       : p === "low" ? "bg-muted text-muted-foreground border-border"
       : "bg-primary/10 text-primary border-primary/30";
+
+  const actionMeta = (k?: Row["ai_action_kind"]) => {
+    switch (k) {
+      case "url": return { Icon: Link2, label: "Web" };
+      case "email": return { Icon: Mail, label: "Email" };
+      case "message": return { Icon: MessageSquare, label: "Message" };
+      case "call": return { Icon: Phone, label: "Call" };
+      case "calendar": return { Icon: CalendarClock, label: "Meeting" };
+      case "maps": return { Icon: MapPin, label: "Go to" };
+      case "research": return { Icon: BookOpen, label: "Research" };
+      default: return null;
+    }
+  };
 
   return (
     <Sheet open={open} onOpenChange={onOpenChange}>
@@ -175,6 +210,15 @@ export function ClarifySheet({ open, onOpenChange, rawInput, onConfirm }: Props)
                     className="flex-1 h-8 bg-transparent border-0 px-0 text-[15px] font-medium focus-visible:ring-0 shadow-none"
                     placeholder="Task title"
                   />
+                  {(() => {
+                    const am = actionMeta(t.ai_action_kind);
+                    if (!am) return null;
+                    return (
+                      <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full bg-primary/10 text-primary text-[10px] font-medium border border-primary/20 shrink-0 mt-1">
+                        <am.Icon className="h-3 w-3" /> {am.label}
+                      </span>
+                    );
+                  })()}
                   <button
                     onClick={() => remove(i)}
                     className="text-secondary-fg hover:text-destructive p-1 pressable"
@@ -218,6 +262,41 @@ export function ClarifySheet({ open, onOpenChange, rawInput, onConfirm }: Props)
                     <span className="text-secondary-fg italic">—</span>
                   )}
                 </div>
+
+                {/* Links + split suggestions */}
+                {(t.ai_links?.length || t.ai_should_split) && (
+                  <div className="space-y-1.5">
+                    {t.ai_links && t.ai_links.length > 0 && (
+                      <div className="flex flex-wrap gap-1.5">
+                        {t.ai_links.slice(0, 2).map((l, li) => (
+                          <a
+                            key={li}
+                            href={l.url}
+                            target="_blank"
+                            rel="noreferrer"
+                            className="inline-flex items-center gap-1 px-2 py-1 rounded-lg bg-background border border-border text-[11px] text-foreground hover:border-primary/40 pressable max-w-full"
+                            title={l.url}
+                          >
+                            <ExternalLink className="h-3 w-3 text-primary shrink-0" />
+                            <span className="truncate">{l.label}</span>
+                          </a>
+                        ))}
+                      </div>
+                    )}
+                    {t.ai_should_split && t.ai_split_into && t.ai_split_into.length > 1 && (
+                      <button
+                        onClick={() => applySplit(i)}
+                        className="w-full inline-flex items-center justify-center gap-1.5 px-2 py-1.5 rounded-lg bg-primary/10 border border-primary/30 text-[11px] font-medium text-primary pressable"
+                      >
+                        <Split className="h-3 w-3" />
+                        Split into {t.ai_split_into.length} blocks
+                        <span className="text-primary/70 font-normal">
+                          ({t.ai_split_into.map(s => fmt(s.estimate_min)).join(" + ")})
+                        </span>
+                      </button>
+                    )}
+                  </div>
+                )}
 
                 {/* Estimate stepper */}
                 <div className="flex items-center justify-between gap-2 bg-background/60 rounded-xl border border-border px-2 py-1.5">
