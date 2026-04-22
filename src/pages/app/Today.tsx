@@ -7,7 +7,7 @@ import { useProfile } from "@/hooks/useProfile";
 import { useAuth } from "@/hooks/useAuth";
 import { greeting, friendlyDate, peakWindow, todayDateStr } from "@/lib/daydraft";
 import { supabase } from "@/integrations/supabase/client";
-import { Mic, Sparkles, Zap, ArrowRight } from "lucide-react";
+import { Mic, Sparkles, Zap, ArrowRight, RotateCw } from "lucide-react";
 import { toast } from "sonner";
 import { SpilloverChips } from "@/components/app/SpilloverChips";
 import { StreakBadge } from "@/components/app/StreakBadge";
@@ -20,9 +20,18 @@ import { QuickCaptureButton } from "@/components/app/QuickCapture";
 import { useTour, TOUR_TODAY } from "@/components/app/Tour";
 import { haptics } from "@/lib/haptics";
 
-const placeholder = `Drop your tasks here...
+const PLACEHOLDERS = [
+  "Finish Q4 deck 1h\nCall mom 15min\nReply to Alex\n30min gym",
+  "Ship PR review\nDeep work on roadmap 90m\nLunch with Sam at 1pm\nInbox zero",
+  "Write blog post 45m\nDoctor at 3pm\nPlan sprint 1h\nWalk the dog 20min",
+  "Study for exam 2h\nGroceries\nMeditate 10m\nLaundry",
+];
 
-e.g. Write proposal, Reply to Alex, Fix login bug, Team standup, Review contracts`;
+// Detect typed durations (30m, 1h, 90min) so the user gets visual confirmation.
+const DURATION_RE = /\b(\d+)\s*(h|hr|hour|hrs|hours|m|min|mins|minutes)\b/gi;
+const countTasks = (s: string) =>
+  s.split(/\r?\n/).map(l => l.trim()).filter(Boolean).length;
+const countDurations = (s: string) => (s.match(DURATION_RE) || []).length;
 
 export default function Today() {
   const { profile } = useProfile();
@@ -38,11 +47,26 @@ export default function Today() {
   const [hasToday, setHasToday] = useState(false);
   const [templates, setTemplates] = useState<{ id: string; name: string; raw_input: string }[]>([]);
   const [clarifyOpen, setClarifyOpen] = useState(false);
+  const [placeholderIdx, setPlaceholderIdx] = useState(0);
+  const [yesterdayPreview, setYesterdayPreview] = useState<string | null>(null);
+
+  // Rotate placeholder examples every 4s while empty.
+  useEffect(() => {
+    if (input) return;
+    const t = setInterval(() => {
+      setPlaceholderIdx(i => (i + 1) % PLACEHOLDERS.length);
+    }, 4000);
+    return () => clearInterval(t);
+  }, [input]);
 
   useEffect(() => {
     if (!user) return;
     supabase.from("plans").select("id").eq("user_id", user.id).eq("date", todayDateStr()).maybeSingle()
       .then(({ data }) => setHasToday(!!data));
+    // Pull yesterday's plan for the "Plan like yesterday" card
+    supabase.from("plans").select("raw_input").eq("user_id", user.id)
+      .lt("date", todayDateStr()).order("date", { ascending: false }).limit(1).maybeSingle()
+      .then(({ data }) => { if (data?.raw_input) setYesterdayPreview(data.raw_input); });
     // Pull saved templates
     supabase.from("block_templates").select("id, name, raw_input").eq("user_id", user.id).order("created_at", { ascending: false })
       .then(({ data }) => setTemplates((data || []) as any));
