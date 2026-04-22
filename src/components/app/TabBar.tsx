@@ -1,5 +1,8 @@
 import { NavLink } from "react-router-dom";
-import { Sun, Clock, BarChart3, Settings } from "lucide-react";
+import { Sun, Clock, BarChart3, Settings, Timer } from "lucide-react";
+import { useTimeTracker, fmtHMS } from "@/hooks/useTimeTracker";
+import { useState } from "react";
+import { TrackerSheet } from "./TrackerPill";
 
 const items = [
   { to: "/today", icon: Sun },
@@ -8,20 +11,79 @@ const items = [
   { to: "/settings", icon: Settings },
 ];
 
-export const TabBar = () => (
-  <nav className="fixed bottom-0 left-1/2 -translate-x-1/2 w-full max-w-[390px] z-40">
-    <div className="mx-4 mb-4 rounded-2xl bg-surface-elevated/90 backdrop-blur border border-border shadow-card flex justify-around py-3">
-      {items.map(({ to, icon: Icon }) => (
-        <NavLink key={to} to={to} className={({ isActive }) =>
-          `relative flex flex-col items-center justify-center w-12 h-10 pressable ${isActive ? "text-primary" : "text-secondary-fg"}`}>
-          {({ isActive }) => (
-            <>
-              <Icon className="h-5 w-5" strokeWidth={2.2} />
-              {isActive && <span className="absolute -bottom-0.5 h-1 w-1 rounded-full bg-primary" />}
-            </>
-          )}
-        </NavLink>
-      ))}
-    </div>
-  </nav>
-);
+export const TabBar = () => {
+  const { active, elapsedSec, stop } = useTimeTracker();
+  const [trackerOpen, setTrackerOpen] = useState(false);
+
+  return (
+    <>
+      {/* Active timer strip — sits above tab bar, doesn't overlap content */}
+      {active && (
+        <div className="fixed bottom-[88px] left-1/2 -translate-x-1/2 w-full max-w-[390px] z-40 pointer-events-none">
+          <div className="mx-4 pointer-events-auto">
+            <button
+              onClick={() => setTrackerOpen(true)}
+              className="w-full flex items-center gap-2 px-3.5 py-2 rounded-xl bg-primary/95 text-primary-foreground border border-primary/40 shadow-glow backdrop-blur pressable"
+              aria-label="Active time tracker"
+            >
+              <span className="relative flex h-2 w-2 shrink-0">
+                <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-primary-foreground opacity-60" />
+                <span className="relative inline-flex rounded-full h-2 w-2 bg-primary-foreground" />
+              </span>
+              <span className="text-xs font-medium truncate flex-1 text-left">Tracking</span>
+              <span className="text-xs font-mono tabular-nums">{fmtHMS(elapsedSec)}</span>
+              <span
+                role="button"
+                tabIndex={0}
+                onClick={(e) => { e.stopPropagation(); stop(); }}
+                onKeyDown={(e) => { if (e.key === "Enter") { e.stopPropagation(); stop(); } }}
+                className="ml-1 px-2 py-0.5 rounded-md bg-primary-foreground/20 text-[10px] font-semibold uppercase tracking-wide pressable"
+              >
+                Stop
+              </span>
+            </button>
+          </div>
+        </div>
+      )}
+
+      <nav className="fixed bottom-0 left-1/2 -translate-x-1/2 w-full max-w-[390px] z-40">
+        <div className="mx-4 mb-4 rounded-2xl bg-surface-elevated/90 backdrop-blur border border-border shadow-card flex items-center justify-around py-3">
+          {items.slice(0, 2).map(({ to, icon: Icon }) => (
+            <NavLink key={to} to={to} className={({ isActive }) =>
+              `relative flex flex-col items-center justify-center w-12 h-10 pressable ${isActive ? "text-primary" : "text-secondary-fg"}`}>
+              {({ isActive }) => (
+                <>
+                  <Icon className="h-5 w-5" strokeWidth={2.2} />
+                  {isActive && <span className="absolute -bottom-0.5 h-1 w-1 rounded-full bg-primary" />}
+                </>
+              )}
+            </NavLink>
+          ))}
+
+          <button
+            onClick={() => setTrackerOpen(true)}
+            className={`relative flex flex-col items-center justify-center w-12 h-10 pressable ${active ? "text-primary" : "text-secondary-fg"}`}
+            aria-label="Time tracker"
+          >
+            <Timer className="h-5 w-5" strokeWidth={2.2} />
+            {active && <span className="absolute top-0 right-1 h-1.5 w-1.5 rounded-full bg-primary animate-pulse" />}
+          </button>
+
+          {items.slice(2).map(({ to, icon: Icon }) => (
+            <NavLink key={to} to={to} className={({ isActive }) =>
+              `relative flex flex-col items-center justify-center w-12 h-10 pressable ${isActive ? "text-primary" : "text-secondary-fg"}`}>
+              {({ isActive }) => (
+                <>
+                  <Icon className="h-5 w-5" strokeWidth={2.2} />
+                  {isActive && <span className="absolute -bottom-0.5 h-1 w-1 rounded-full bg-primary" />}
+                </>
+              )}
+            </NavLink>
+          ))}
+        </div>
+      </nav>
+
+      <TrackerSheet open={trackerOpen} onOpenChange={setTrackerOpen} />
+    </>
+  );
+};

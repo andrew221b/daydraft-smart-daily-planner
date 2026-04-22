@@ -1,49 +1,17 @@
 import { useState } from "react";
-import { Play, Pause, Plus, Check, X, Trash2 } from "lucide-react";
+import { Play, Pause, Plus, Check, Trash2 } from "lucide-react";
 import { useTimeTracker, fmtHMS, fmtHM } from "@/hooks/useTimeTracker";
 import { Sheet, SheetContent, SheetHeader, SheetTitle, SheetDescription } from "@/components/ui/sheet";
 import { Input } from "@/components/ui/input";
 
-export function TrackerPill() {
+export function TrackerSheet({ open, onOpenChange }: { open: boolean; onOpenChange: (v: boolean) => void }) {
   const { active, elapsedSec, categories, start, stop, switchCategory, addCategory, deleteCategory, todayTotalSec } = useTimeTracker();
-  const [open, setOpen] = useState(false);
   const [newName, setNewName] = useState("");
 
   const activeCat = categories.find(c => c.id === active?.category_id);
 
   return (
-    <>
-      <button
-        onClick={() => setOpen(true)}
-        className={`fixed left-1/2 -translate-x-1/2 z-30 inline-flex items-center gap-2 px-3.5 py-2 rounded-full border shadow-card backdrop-blur pressable transition-all ${
-          active
-            ? "bg-primary text-primary-foreground border-primary/40 shadow-glow"
-            : "bg-surface-elevated/90 text-foreground border-border"
-        }`}
-        style={{ bottom: "92px" }}
-        aria-label="Time tracker"
-      >
-        {active ? (
-          <>
-            <span className="relative flex h-2 w-2">
-              <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-primary-foreground opacity-60" />
-              <span className="relative inline-flex rounded-full h-2 w-2 bg-primary-foreground" />
-            </span>
-            <span className="text-xs font-medium">{activeCat?.name || "Tracking"}</span>
-            <span className="text-xs font-mono tabular-nums opacity-90">{fmtHMS(elapsedSec)}</span>
-          </>
-        ) : (
-          <>
-            <Play className="h-3.5 w-3.5 text-primary" fill="currentColor" />
-            <span className="text-xs font-medium">Track time</span>
-            {todayTotalSec > 0 && (
-              <span className="text-[10px] text-secondary-fg">· {fmtHM(todayTotalSec)} today</span>
-            )}
-          </>
-        )}
-      </button>
-
-      <Sheet open={open} onOpenChange={setOpen}>
+    <Sheet open={open} onOpenChange={onOpenChange}>
         <SheetContent side="bottom" className="rounded-t-3xl p-0 border-border max-h-[90vh] overflow-y-auto">
           <div className="px-5 pt-5 pb-4 border-b border-border">
             <SheetHeader className="text-left">
@@ -111,7 +79,6 @@ export function TrackerPill() {
             Tracking runs in the background — close the app and it keeps counting.
           </div>
         </SheetContent>
-      </Sheet>
-    </>
+    </Sheet>
   );
 }
