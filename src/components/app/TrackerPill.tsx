@@ -390,25 +390,42 @@ export function TrackerSheet({ open, onOpenChange }: { open: boolean; onOpenChan
             <div className="px-4 py-4 space-y-2">
               {categories.map(c => {
                 const isActive = active?.category_id === c.id;
+                const isOpen = selectedCat === c.id;
+                const stat = periodCatStats.get(c.id);
+                const periodSec = stat?.sec || 0;
                 return (
-                  <div key={c.id} className={`flex items-center gap-2 rounded-2xl border px-3 py-2.5 ${isActive ? "border-primary/50 bg-primary/5" : "border-border bg-surface"}`}>
-                    <span className="h-3 w-3 rounded-full shrink-0" style={{ background: c.color }} />
-                    <span className="flex-1 text-[15px] font-medium truncate">{c.name}</span>
-                    {isActive ? (
-                      <button onClick={stop} className="inline-flex items-center gap-1 px-3 py-1.5 rounded-lg bg-primary text-primary-foreground text-xs font-medium pressable">
-                        <Pause className="h-3 w-3" fill="currentColor" /> Stop
+                  <div key={c.id} className={`rounded-2xl border ${isActive ? "border-primary/50 bg-primary/5" : "border-border bg-surface"} overflow-hidden`}>
+                    <div className="flex items-center gap-2 px-3 py-2.5">
+                      <button
+                        onClick={() => setSelectedCat(isOpen ? null : c.id)}
+                        className="flex-1 flex items-center gap-2 min-w-0 text-left pressable"
+                        aria-expanded={isOpen}
+                        aria-label={`${c.name} details`}
+                      >
+                        <span className="h-3 w-3 rounded-full shrink-0" style={{ background: c.color }} />
+                        <span className="flex-1 text-[15px] font-medium truncate">{c.name}</span>
+                        <span className="font-mono tabular-nums text-[11px] text-secondary-fg shrink-0">{fmtHM(periodSec)}</span>
+                        <ChevronDown className={`h-3.5 w-3.5 text-secondary-fg shrink-0 transition-transform ${isOpen ? "rotate-180" : ""}`} />
                       </button>
-                    ) : (
-                      <>
-                        <button onClick={() => active ? switchCategory(c.id) : start(c.id)} className="inline-flex items-center gap-1 px-3 py-1.5 rounded-lg bg-foreground text-background text-xs font-medium pressable">
-                          <Play className="h-3 w-3" fill="currentColor" /> {active ? "Switch" : "Start"}
+                      {isActive ? (
+                        <button onClick={stop} className="inline-flex items-center gap-1 px-3 py-1.5 rounded-lg bg-primary text-primary-foreground text-xs font-medium pressable">
+                          <Pause className="h-3 w-3" fill="currentColor" /> Stop
                         </button>
-                        {!c.is_default && (
-                          <button onClick={() => deleteCategory(c.id)} className="p-1.5 text-secondary-fg hover:text-destructive pressable" aria-label="Delete">
-                            <Trash2 className="h-3.5 w-3.5" />
+                      ) : (
+                        <>
+                          <button onClick={() => active ? switchCategory(c.id) : start(c.id)} className="inline-flex items-center gap-1 px-3 py-1.5 rounded-lg bg-foreground text-background text-xs font-medium pressable">
+                            <Play className="h-3 w-3" fill="currentColor" /> {active ? "Switch" : "Start"}
                           </button>
-                        )}
-                      </>
+                          {!c.is_default && (
+                            <button onClick={() => deleteCategory(c.id)} className="p-1.5 text-secondary-fg hover:text-destructive pressable" aria-label="Delete">
+                              <Trash2 className="h-3.5 w-3.5" />
+                            </button>
+                          )}
+                        </>
+                      )}
+                    </div>
+                    {isOpen && (
+                      <CategoryDetail cat={c} stat={stat} period={period} />
                     )}
                   </div>
                 );
