@@ -14,13 +14,42 @@ export type Database = {
   }
   public: {
     Tables: {
+      block_templates: {
+        Row: {
+          created_at: string
+          id: string
+          name: string
+          raw_input: string
+          user_id: string
+        }
+        Insert: {
+          created_at?: string
+          id?: string
+          name: string
+          raw_input: string
+          user_id: string
+        }
+        Update: {
+          created_at?: string
+          id?: string
+          name?: string
+          raw_input?: string
+          user_id?: string
+        }
+        Relationships: []
+      }
       blocks: {
         Row: {
+          ai_reasoning: string | null
           completed: boolean
           created_at: string
           duration_min: number
           id: string
+          is_calendar_event: boolean
           kind: string
+          location: string | null
+          location_lat: number | null
+          location_lng: number | null
           plan_id: string
           position: number
           start_time: string
@@ -29,11 +58,16 @@ export type Database = {
           user_id: string
         }
         Insert: {
+          ai_reasoning?: string | null
           completed?: boolean
           created_at?: string
           duration_min: number
           id?: string
+          is_calendar_event?: boolean
           kind?: string
+          location?: string | null
+          location_lat?: number | null
+          location_lng?: number | null
           plan_id: string
           position?: number
           start_time: string
@@ -42,11 +76,16 @@ export type Database = {
           user_id: string
         }
         Update: {
+          ai_reasoning?: string | null
           completed?: boolean
           created_at?: string
           duration_min?: number
           id?: string
+          is_calendar_event?: boolean
           kind?: string
+          location?: string | null
+          location_lat?: number | null
+          location_lng?: number | null
           plan_id?: string
           position?: number
           start_time?: string
@@ -130,8 +169,11 @@ export type Database = {
           digest_opt_in: boolean
           display_name: string | null
           energy_preference: string
+          energy_zones: Json | null
+          evening_nudge_local_time: string
           id: string
           install_prompted_at: string | null
+          morning_nudge_local_time: string
           notifications_enabled: boolean
           onboarded: boolean
           passkey_enabled: boolean
@@ -144,8 +186,11 @@ export type Database = {
           digest_opt_in?: boolean
           display_name?: string | null
           energy_preference?: string
+          energy_zones?: Json | null
+          evening_nudge_local_time?: string
           id: string
           install_prompted_at?: string | null
+          morning_nudge_local_time?: string
           notifications_enabled?: boolean
           onboarded?: boolean
           passkey_enabled?: boolean
@@ -158,14 +203,68 @@ export type Database = {
           digest_opt_in?: boolean
           display_name?: string | null
           energy_preference?: string
+          energy_zones?: Json | null
+          evening_nudge_local_time?: string
           id?: string
           install_prompted_at?: string | null
+          morning_nudge_local_time?: string
           notifications_enabled?: boolean
           onboarded?: boolean
           passkey_enabled?: boolean
           theme?: string
           timezone?: string
           updated_at?: string
+        }
+        Relationships: []
+      }
+      push_subscriptions: {
+        Row: {
+          auth: string
+          created_at: string
+          endpoint: string
+          id: string
+          p256dh: string
+          user_id: string
+        }
+        Insert: {
+          auth: string
+          created_at?: string
+          endpoint: string
+          id?: string
+          p256dh: string
+          user_id: string
+        }
+        Update: {
+          auth?: string
+          created_at?: string
+          endpoint?: string
+          id?: string
+          p256dh?: string
+          user_id?: string
+        }
+        Relationships: []
+      }
+      quick_captures: {
+        Row: {
+          consumed: boolean
+          content: string
+          created_at: string
+          id: string
+          user_id: string
+        }
+        Insert: {
+          consumed?: boolean
+          content: string
+          created_at?: string
+          id?: string
+          user_id: string
+        }
+        Update: {
+          consumed?: boolean
+          content?: string
+          created_at?: string
+          id?: string
+          user_id?: string
         }
         Relationships: []
       }
@@ -227,6 +326,30 @@ export type Database = {
           stripe_customer_id?: string | null
           stripe_subscription_id?: string | null
           trial_ends_at?: string | null
+          updated_at?: string
+          user_id?: string
+        }
+        Relationships: []
+      }
+      user_patterns: {
+        Row: {
+          abandoned_types: Json
+          completion_by_hour: Json
+          deep_work_overrun_pct: number
+          updated_at: string
+          user_id: string
+        }
+        Insert: {
+          abandoned_types?: Json
+          completion_by_hour?: Json
+          deep_work_overrun_pct?: number
+          updated_at?: string
+          user_id: string
+        }
+        Update: {
+          abandoned_types?: Json
+          completion_by_hour?: Json
+          deep_work_overrun_pct?: number
           updated_at?: string
           user_id?: string
         }

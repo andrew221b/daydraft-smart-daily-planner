@@ -14,6 +14,7 @@ import { StreakBadge } from "@/components/app/StreakBadge";
 import { useStreak } from "@/hooks/useStreak";
 import { useEntitlement } from "@/hooks/useEntitlement";
 import { UpgradeSheet } from "@/components/app/UpgradeSheet";
+import { Bookmark } from "lucide-react";
 
 const placeholder = `Drop your tasks here...
 
@@ -30,11 +31,25 @@ export default function Today() {
   const [input, setInput] = useState("");
   const [busy, setBusy] = useState(false);
   const [hasToday, setHasToday] = useState(false);
+  const [templates, setTemplates] = useState<{ id: string; name: string; raw_input: string }[]>([]);
 
   useEffect(() => {
     if (!user) return;
     supabase.from("plans").select("id").eq("user_id", user.id).eq("date", todayDateStr()).maybeSingle()
       .then(({ data }) => setHasToday(!!data));
+    // Pull saved templates
+    supabase.from("block_templates").select("id, name, raw_input").eq("user_id", user.id).order("created_at", { ascending: false })
+      .then(({ data }) => setTemplates((data || []) as any));
+    // Pull unconsumed quick captures and auto-prepend
+    (async () => {
+      const { data: caps } = await supabase.from("quick_captures").select("*").eq("user_id", user.id).eq("consumed", false);
+      if (caps && caps.length) {
+        const block = caps.map((c: any) => c.content).join("\n");
+        setInput(prev => prev ? block + "\n" + prev : block);
+        await supabase.from("quick_captures").update({ consumed: true } as any).eq("user_id", user.id).eq("consumed", false);
+        toast(`📥 Added ${caps.length} from quick capture`);
+      }
+    })();
   }, [user?.id]);
 
   const paste = async () => {
@@ -48,6 +63,23 @@ export default function Today() {
       .lt("date", todayDateStr()).order("date", { ascending: false }).limit(1).maybeSingle();
     if (data?.raw_input) { setInput(data.raw_input); toast.success("Loaded yesterday's tasks"); }
     else toast("No previous tasks found");
+  };
+
+  const saveAsTemplate = async () => {
+    if (!user || !input.trim()) { toast.error("Add tasks first"); return; }
+    const name = prompt("Template name", "My standard day");
+    if (!name) return;
+    const { data, error } = await supabase.from("block_templates").insert({
+      user_id: user.id, name, raw_input: input,
+    } as any).select().single();
+    if (error) { toast.error(error.message); return; }
+    setTemplates(t => [data as any, ...t]);
+    toast.success("Template saved");
+  };
+
+  const applyTemplate = (t: { raw_input: string; name: string }) => {
+    setInput(t.raw_input);
+    toast.success(`Loaded "${t.name}"`);
   };
 
   const voice = () => {
@@ -173,6 +205,14 @@ export default function Today() {
           <button onClick={useYesterday} className="shrink-0 inline-flex items-center gap-1.5 px-3 py-2 rounded-full bg-surface border border-border text-xs text-secondary-fg pressable hover:text-foreground">
             <Sparkles className="h-3.5 w-3.5" /> Use yesterday's
           </button>
+          <button onClick={saveAsTemplate} className="shrink-0 inline-flex items-center gap-1.5 px-3 py-2 rounded-full bg-surface border border-border text-xs text-secondary-fg pressable hover:text-foreground">
+            <Bookmark className="h-3.5 w-3.5" /> Save template
+          </button>
+          {templates.map(t => (
+            <button key={t.id} onClick={() => applyTemplate(t)} className="shrink-0 inline-flex items-center gap-1.5 px-3 py-2 rounded-full bg-primary/5 border border-primary/30 text-xs text-primary pressable hover:bg-primary/10">
+              {t.name}
+            </button>
+          ))}
         </div>
 
         {hasToday && (

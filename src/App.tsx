@@ -18,6 +18,7 @@ import Stats from "./pages/app/Stats";
 import Settings from "./pages/app/Settings";
 import ForgotPassword from "./pages/app/ForgotPassword";
 import ResetPassword from "./pages/app/ResetPassword";
+import { QuickCapture } from "./components/app/QuickCapture";
 
 const queryClient = new QueryClient();
 
@@ -60,6 +61,7 @@ const App = () => (
             <Route path="/settings" element={<RequireAuth><Settings /></RequireAuth>} />
             <Route path="*" element={<NotFound />} />
           </Routes>
+          <QuickCapture />
         </AuthProvider>
       </BrowserRouter>
     </TooltipProvider>

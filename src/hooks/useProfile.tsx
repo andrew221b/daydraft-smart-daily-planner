@@ -13,6 +13,9 @@ export interface Profile {
   install_prompted_at?: string | null;
   digest_opt_in?: boolean;
   timezone?: string;
+  energy_zones?: { peak?: [number, number]; dip?: [number, number]; recovery?: [number, number] } | null;
+  morning_nudge_local_time?: string;
+  evening_nudge_local_time?: string;
 }
 
 export const useProfile = () => {

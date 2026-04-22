@@ -7,11 +7,12 @@ import { Button } from "@/components/ui/button";
 import { useEffect, useState } from "react";
 import { peakWindow } from "@/lib/daydraft";
 import { ThemeToggle } from "@/components/app/ThemeToggle";
-import { Fingerprint, Sparkles } from "lucide-react";
+import { Fingerprint, Sparkles, Bell, Calendar } from "lucide-react";
 import { clearStoredPasskey, enrollPasskey, getStoredPasskey, passkeySupported } from "@/lib/passkeys";
 import { toast } from "sonner";
 import { useEntitlement } from "@/hooks/useEntitlement";
 import { UpgradeSheet } from "@/components/app/UpgradeSheet";
+import { enablePush, disablePush, pushSupported } from "@/lib/push";
 
 const energies = [
   { key: "morning" as const, label: "Morning person" },
@@ -26,6 +27,7 @@ export default function Settings() {
   const [hasPasskey, setHasPasskey] = useState(!!getStoredPasskey());
   const { entitlement, isPro, planQuotaUsed, planQuotaLimit } = useEntitlement();
   const [upgradeOpen, setUpgradeOpen] = useState(false);
+  const [calConnecting, setCalConnecting] = useState(false);
   useEffect(() => { if (profile) setName(profile.display_name || ""); }, [profile?.id]);
 
   const togglePasskey = async () => {
@@ -50,6 +52,28 @@ export default function Settings() {
     } catch (e: any) {
       toast.error(e?.message || "Couldn't enroll");
     }
+  };
+
+  const togglePush = async (v: boolean) => {
+    if (!user) return;
+    try {
+      if (v) {
+        if (!pushSupported()) { toast.error("Notifications not supported on this device"); return; }
+        await enablePush(user.id);
+        update({ notifications_enabled: true });
+        toast.success("Notifications enabled");
+      } else {
+        await disablePush(user.id);
+        update({ notifications_enabled: false });
+      }
+    } catch (e: any) {
+      toast.error(e.message || "Couldn't change notifications");
+    }
+  };
+
+  const connectCalendar = () => {
+    if (!isPro) { setUpgradeOpen(true); return; }
+    toast("Google Calendar connection: complete setup in Cloud → Auth Providers, then refresh.");
   };
 
   return (
@@ -108,12 +132,29 @@ export default function Settings() {
 
           <Section title="Notifications">
             <div className="flex items-center justify-between rounded-xl bg-surface border border-border px-4 py-3">
-              <div>
-                <div className="text-sm">Morning nudge</div>
-                <div className="text-xs text-secondary-fg">One reminder to start your day</div>
+              <div className="flex items-center gap-3">
+                <Bell className="h-5 w-5 text-primary" />
+                <div>
+                  <div className="text-sm">Morning + evening nudges</div>
+                  <div className="text-xs text-secondary-fg">7am draft · 9pm wins · Sunday recap</div>
+                </div>
               </div>
-              <Switch checked={!!profile?.notifications_enabled} onCheckedChange={v => update({ notifications_enabled: v })} />
+              <Switch checked={!!profile?.notifications_enabled} onCheckedChange={togglePush} />
             </div>
+          </Section>
+
+          <Section title="Calendar">
+            <button onClick={connectCalendar}
+              className="w-full flex items-center justify-between px-4 py-3 rounded-xl border-2 border-border bg-surface pressable hover:border-primary/30">
+              <div className="flex items-center gap-3">
+                <Calendar className="h-5 w-5 text-primary" />
+                <div className="text-left">
+                  <div className="text-sm">Connect Google Calendar</div>
+                  <div className="text-xs text-secondary-fg">{isPro ? "Plan around your meetings" : "Pro · plan around your meetings"}</div>
+                </div>
+              </div>
+              <span className="text-xs font-medium text-primary">{isPro ? "Connect" : "Pro"}</span>
+            </button>
           </Section>
 
           <Button onClick={signOut} variant="outline" className="w-full h-12 rounded-xl border-border bg-surface hover:bg-surface-elevated pressable">
