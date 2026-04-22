@@ -331,6 +331,77 @@ export type Database = {
         }
         Relationships: []
       }
+      time_categories: {
+        Row: {
+          color: string
+          created_at: string
+          id: string
+          is_default: boolean
+          name: string
+          user_id: string
+        }
+        Insert: {
+          color?: string
+          created_at?: string
+          id?: string
+          is_default?: boolean
+          name: string
+          user_id: string
+        }
+        Update: {
+          color?: string
+          created_at?: string
+          id?: string
+          is_default?: boolean
+          name?: string
+          user_id?: string
+        }
+        Relationships: []
+      }
+      time_entries: {
+        Row: {
+          block_id: string | null
+          category_id: string | null
+          created_at: string
+          ended_at: string | null
+          id: string
+          note: string | null
+          source: string
+          started_at: string
+          user_id: string
+        }
+        Insert: {
+          block_id?: string | null
+          category_id?: string | null
+          created_at?: string
+          ended_at?: string | null
+          id?: string
+          note?: string | null
+          source?: string
+          started_at?: string
+          user_id: string
+        }
+        Update: {
+          block_id?: string | null
+          category_id?: string | null
+          created_at?: string
+          ended_at?: string | null
+          id?: string
+          note?: string | null
+          source?: string
+          started_at?: string
+          user_id?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "time_entries_category_id_fkey"
+            columns: ["category_id"]
+            isOneToOne: false
+            referencedRelation: "time_categories"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       user_patterns: {
         Row: {
           abandoned_types: Json
