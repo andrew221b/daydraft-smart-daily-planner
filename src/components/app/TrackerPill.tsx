@@ -329,6 +329,7 @@ export function TrackerSheet({ open, onOpenChange }: { open: boolean; onOpenChan
   };
 
   return (
+    <>
     <Sheet open={open} onOpenChange={(v) => { onOpenChange(v); if (!v) setSelectedDay(null); }}>
       <SheetContent side="bottom" className="rounded-t-3xl p-0 border-border max-h-[92vh] overflow-y-auto">
         {/* Header */}
