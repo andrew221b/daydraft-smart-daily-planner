@@ -35,7 +35,7 @@ function clipDuration(e: Entry, dayStart: number, dayEnd: number, now: number) {
 
 export function TrackerSheet({ open, onOpenChange }: { open: boolean; onOpenChange: (v: boolean) => void }) {
   const { user } = useAuth();
-  const { active, elapsedSec, categories, start, stop, switchCategory, addCategory, deleteCategory, renameCategory, todayTotalSec } = useTimeTracker();
+  const { active, elapsedSec, categories, start, stop, switchCategory, addCategory, deleteCategory, renameCategory, addManualEntry, todayTotalSec } = useTimeTracker();
   const { isPro } = useEntitlement();
   const [upgradeOpen, setUpgradeOpen] = useState(false);
   const [newName, setNewName] = useState("");
@@ -47,6 +47,7 @@ export function TrackerSheet({ open, onOpenChange }: { open: boolean; onOpenChan
   const [selectedDay, setSelectedDay] = useState<string | null>(null);
   const [selectedCat, setSelectedCat] = useState<string | null>(null);
   const [exporting, setExporting] = useState(false);
+  const [manualForCat, setManualForCat] = useState<string | null>(null);
 
   const activeCat = categories.find(c => c.id === active?.category_id);
   const catMap = useMemo(() => new Map(categories.map(c => [c.id, c])), [categories]);
