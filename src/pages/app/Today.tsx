@@ -237,16 +237,43 @@ export default function Today() {
             setInput(prev => prev ? block + "\n" + prev : block);
             toast.success(titles.length === 1 ? "Carried over" : `Carried over ${titles.length} tasks`);
           }} />
+          {yesterdayPreview && !input && (
+            <button
+              onClick={() => { setInput(yesterdayPreview); haptics.tap(); toast.success("Loaded yesterday's tasks"); }}
+              className="mb-3 w-full flex items-center justify-between gap-3 px-4 py-3 rounded-2xl border border-primary/30 bg-primary/5 pressable text-left"
+            >
+              <div className="flex items-center gap-2 min-w-0">
+                <RotateCw className="h-4 w-4 text-primary shrink-0" />
+                <div className="min-w-0">
+                  <div className="text-sm font-medium">Plan like yesterday</div>
+                  <div className="text-xs text-secondary-fg truncate">
+                    {yesterdayPreview.split(/\r?\n/).filter(Boolean).slice(0, 3).join(" · ")}
+                  </div>
+                </div>
+              </div>
+              <span className="text-xs font-semibold text-primary shrink-0">Use →</span>
+            </button>
+          )}
           <Textarea
             data-tour="today-input"
-            value={input} onChange={e => setInput(e.target.value)} placeholder={placeholder}
+            value={input} onChange={e => setInput(e.target.value)} placeholder={PLACEHOLDERS[placeholderIdx]}
             className="min-h-[200px] bg-surface border-border rounded-[20px] p-4 text-base leading-relaxed resize-none focus-visible:ring-primary/40 focus-visible:ring-offset-0 focus-visible:border-primary/40 transition-all" />
+          {input.trim() && (
+            <div className="absolute bottom-3 right-4 inline-flex items-center gap-2 px-2.5 py-1 rounded-full bg-background/80 backdrop-blur border border-border text-[11px] text-secondary-fg pointer-events-none">
+              <span className="text-foreground font-medium tabular-nums">{countTasks(input)}</span>
+              {countTasks(input) === 1 ? "task" : "tasks"}
+              {countDurations(input) > 0 && (
+                <span className="text-primary">· {countDurations(input)} timed</span>
+              )}
+            </div>
+          )}
         </div>
 
         <div className="flex gap-2 mt-3 overflow-x-auto pb-1">
           <QuickCaptureButton variant="chip" className="" />
-          <button data-tour="today-voice" onClick={voice} className="shrink-0 inline-flex items-center gap-1.5 px-3 py-2 rounded-full bg-surface border border-border text-xs text-secondary-fg pressable hover:text-foreground">
-            <Mic className="h-3.5 w-3.5" /> Voice
+          <button data-tour="today-voice" onClick={voice}
+            className="shrink-0 inline-flex items-center gap-1.5 px-3 py-2 rounded-full bg-primary/10 border border-primary/30 text-xs font-medium text-primary pressable hover:bg-primary/15">
+            <Mic className="h-3.5 w-3.5" fill="currentColor" /> Voice
           </button>
           <button data-tour="today-yesterday" onClick={useYesterday} className="shrink-0 inline-flex items-center gap-1.5 px-3 py-2 rounded-full bg-surface border border-border text-xs text-secondary-fg pressable hover:text-foreground">
             <Sparkles className="h-3.5 w-3.5" /> Use yesterday's
