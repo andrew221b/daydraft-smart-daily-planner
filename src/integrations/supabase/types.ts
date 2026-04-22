@@ -179,6 +179,7 @@ export type Database = {
           passkey_enabled: boolean
           theme: string
           timezone: string
+          tour_seen: Json
           updated_at: string
         }
         Insert: {
@@ -196,6 +197,7 @@ export type Database = {
           passkey_enabled?: boolean
           theme?: string
           timezone?: string
+          tour_seen?: Json
           updated_at?: string
         }
         Update: {
@@ -213,6 +215,7 @@ export type Database = {
           passkey_enabled?: boolean
           theme?: string
           timezone?: string
+          tour_seen?: Json
           updated_at?: string
         }
         Relationships: []
