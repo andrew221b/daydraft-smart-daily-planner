@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useState } from "react";
-import { Play, Pause, Plus, Check, Trash2, ChevronLeft, ChevronRight, Download, ChevronDown } from "lucide-react";
+import { Play, Pause, Plus, Check, Trash2, ChevronLeft, ChevronRight, Download, ChevronDown, Lock } from "lucide-react";
 import { useTimeTracker, fmtHMS, fmtHM, TimeCategory } from "@/hooks/useTimeTracker";
 import { Sheet, SheetContent, SheetHeader, SheetTitle, SheetDescription } from "@/components/ui/sheet";
 import { Input } from "@/components/ui/input";
@@ -8,6 +8,8 @@ import { useAuth } from "@/hooks/useAuth";
 import { toast } from "sonner";
 import jsPDF from "jspdf";
 import autoTable from "jspdf-autotable";
+import { useEntitlement } from "@/hooks/useEntitlement";
+import { UpgradeSheet } from "@/components/app/UpgradeSheet";
 
 type Entry = {
   id: string;
@@ -34,6 +36,8 @@ function clipDuration(e: Entry, dayStart: number, dayEnd: number, now: number) {
 export function TrackerSheet({ open, onOpenChange }: { open: boolean; onOpenChange: (v: boolean) => void }) {
   const { user } = useAuth();
   const { active, elapsedSec, categories, start, stop, switchCategory, addCategory, deleteCategory, todayTotalSec } = useTimeTracker();
+  const { isPro } = useEntitlement();
+  const [upgradeOpen, setUpgradeOpen] = useState(false);
   const [newName, setNewName] = useState("");
   const [tab, setTab] = useState<Tab>("today");
   const [entries, setEntries] = useState<Entry[]>([]);
@@ -201,6 +205,7 @@ export function TrackerSheet({ open, onOpenChange }: { open: boolean; onOpenChan
 
   // ----- PDF export -----
   const exportPDF = () => {
+    if (!isPro) { setUpgradeOpen(true); return; }
     setExporting(true);
     try {
       const doc = new jsPDF({ unit: "pt", format: "a4" });
@@ -324,6 +329,7 @@ export function TrackerSheet({ open, onOpenChange }: { open: boolean; onOpenChan
   };
 
   return (
+    <>
     <Sheet open={open} onOpenChange={(v) => { onOpenChange(v); if (!v) setSelectedDay(null); }}>
       <SheetContent side="bottom" className="rounded-t-3xl p-0 border-border max-h-[92vh] overflow-y-auto">
         {/* Header */}
@@ -342,9 +348,9 @@ export function TrackerSheet({ open, onOpenChange }: { open: boolean; onOpenChan
               disabled={exporting || headerTotalSec === 0}
               className="shrink-0 inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg border border-border bg-surface text-xs font-medium text-foreground pressable disabled:opacity-40 disabled:pointer-events-none"
               aria-label="Export PDF"
-              title={`Export ${headerLabel} as PDF`}
+              title={isPro ? `Export ${headerLabel} as PDF` : "PDF export is a Pro feature"}
             >
-              <Download className="h-3.5 w-3.5" />
+              {isPro ? <Download className="h-3.5 w-3.5" /> : <Lock className="h-3.5 w-3.5" />}
               PDF
             </button>
           </div>
@@ -563,6 +569,8 @@ export function TrackerSheet({ open, onOpenChange }: { open: boolean; onOpenChan
         </div>
       </SheetContent>
     </Sheet>
+    <UpgradeSheet open={upgradeOpen} onOpenChange={setUpgradeOpen} reason="quota" />
+    </>
   );
 }
 
