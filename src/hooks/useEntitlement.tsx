@@ -18,6 +18,7 @@ export const FREE_PLAN_QUOTA = 5; // plans per rolling 7 days
 const computeTier = (status: string, trialEndsAt: string | null): Tier => {
   if (status === "active") return "pro";
   if (status === "trialing" && trialEndsAt && new Date(trialEndsAt) > new Date()) return "trial";
+  // expired / canceled / refunded / past_due / free → free tier
   return "free";
 };
 
