@@ -78,6 +78,9 @@ export default function Recap() {
               style={{ background: "var(--gradient-primary)" }}>
               Plan Tomorrow
             </Button>
+            <button onClick={() => nav("/recap/week")} className="w-full text-primary text-sm hover:underline">
+              See your week →
+            </button>
             <button onClick={() => nav("/today")} className="w-full text-secondary-fg text-sm hover:text-foreground transition-colors">
               Done for today
             </button>
