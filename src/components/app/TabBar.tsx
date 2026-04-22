@@ -65,6 +65,7 @@ export const TabBar = () => {
 
           <button
             onClick={() => setTrackerOpen(true)}
+            data-tour="tracker"
             className={`relative flex flex-col items-center justify-center w-12 h-10 pressable ${active ? "text-primary" : "text-secondary-fg"}`}
             aria-label="Time tracker"
           >
