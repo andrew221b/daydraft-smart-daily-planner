@@ -2,7 +2,7 @@ import { useEffect, useMemo, useState } from "react";
 import { Sheet, SheetContent, SheetHeader, SheetTitle, SheetDescription } from "@/components/ui/sheet";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
-import { Sparkles, Clock, Flag, CalendarClock, X, Check, Loader2, Wand2 } from "lucide-react";
+import { Sparkles, Clock, Flag, CalendarClock, X, Check, Loader2, Wand2, ExternalLink, Mail, MessageSquare, Phone, MapPin, BookOpen, Link2, Split } from "lucide-react";
 import { supabase } from "@/integrations/supabase/client";
 import { toast } from "sonner";
 
@@ -19,6 +19,10 @@ type Row = ClarifiedTask & {
   ai_type?: "deep_work" | "communication" | "routine";
   ai_reason?: string;
   accepted?: boolean; // user accepted AI suggestion (or matches)
+  ai_action_kind?: "url" | "email" | "message" | "call" | "calendar" | "maps" | "research" | "none";
+  ai_links?: { label: string; url: string }[];
+  ai_should_split?: boolean;
+  ai_split_into?: { title: string; estimate_min: number }[];
 };
 
 interface Props {
