@@ -15,6 +15,7 @@ import { useStreak } from "@/hooks/useStreak";
 import { useEntitlement } from "@/hooks/useEntitlement";
 import { UpgradeSheet } from "@/components/app/UpgradeSheet";
 import { Bookmark } from "lucide-react";
+import { ClarifySheet, ClarifiedTask } from "@/components/app/ClarifySheet";
 
 const placeholder = `Drop your tasks here...
 
@@ -32,6 +33,7 @@ export default function Today() {
   const [busy, setBusy] = useState(false);
   const [hasToday, setHasToday] = useState(false);
   const [templates, setTemplates] = useState<{ id: string; name: string; raw_input: string }[]>([]);
+  const [clarifyOpen, setClarifyOpen] = useState(false);
 
   useEffect(() => {
     if (!user) return;
@@ -92,10 +94,9 @@ export default function Today() {
     toast("Listening...");
   };
 
-  const plan = async () => {
+  const openClarify = async () => {
     if (!input.trim()) { toast.error("Add at least one task"); return; }
     if (!user || !profile) return;
-    // Quota check (server-authoritative)
     try {
       const { data: q } = await supabase.functions.invoke("check-plan-quota", { body: {} });
       if (q && q.allowed === false) {
@@ -104,13 +105,24 @@ export default function Today() {
         return;
       }
     } catch {/* fail open */}
+    setClarifyOpen(true);
+  };
+
+  const plan = async (clarified: ClarifiedTask[]) => {
+    if (!user || !profile) return;
+    setClarifyOpen(false);
     setBusy(true);
     sessionStorage.setItem("dd_planning_input", input);
     nav("/today/planning");
     try {
       const minWait = new Promise(r => setTimeout(r, 1500));
       const { data, error } = await supabase.functions.invoke("generate-plan", {
-        body: { raw_input: input, energy_preference: profile.energy_preference, name: profile.display_name },
+        body: {
+          raw_input: input,
+          energy_preference: profile.energy_preference,
+          name: profile.display_name,
+          clarified_tasks: clarified,
+        },
       });
       await minWait;
       if (error) throw error;
@@ -226,7 +238,7 @@ export default function Today() {
         )}
 
         <div className="mt-8">
-          <Button onClick={plan} disabled={busy} className="w-full h-13 py-3.5 rounded-xl text-primary-foreground text-base font-medium pressable shadow-glow"
+          <Button onClick={openClarify} disabled={busy} className="w-full h-13 py-3.5 rounded-xl text-primary-foreground text-base font-medium pressable shadow-glow"
             style={{ background: "var(--gradient-primary)" }}>
             Plan My Day <ArrowRight className="h-4 w-4" />
           </Button>
@@ -234,6 +246,7 @@ export default function Today() {
         </div>
       </div>
       <UpgradeSheet open={upgradeOpen} onOpenChange={setUpgradeOpen} reason={upgradeReason} />
+      <ClarifySheet open={clarifyOpen} onOpenChange={setClarifyOpen} rawInput={input} onConfirm={plan} />
     </Shell>
   );
 }

@@ -9,7 +9,7 @@ const corsHeaders = {
 serve(async (req) => {
   if (req.method === "OPTIONS") return new Response(null, { headers: corsHeaders });
   try {
-    const { raw_input, energy_preference, name, mode, start_time } = await req.json();
+    const { raw_input, energy_preference, name, mode, start_time, clarified_tasks } = await req.json();
     if (!raw_input || typeof raw_input !== "string") {
       return new Response(JSON.stringify({ error: "raw_input required" }), { status: 400, headers: { ...corsHeaders, "Content-Type": "application/json" } });
     }
@@ -58,6 +58,21 @@ serve(async (req) => {
     const startHour = start_time ? start_time.split(":")[0] : String(defaultStart).padStart(2, "0");
 
     const isReplan = mode === "replan";
+    const clarifiedHints = Array.isArray(clarified_tasks) && clarified_tasks.length ? `
+
+USER-CLARIFIED TASKS (authoritative — DO NOT change titles, durations, or fixed times; use these instead of re-parsing raw_input):
+${clarified_tasks.map((t: any, i: number) => {
+  const fixed = t.fixed_time ? ` — FIXED at ${t.fixed_time} (must start exactly here)` : "";
+  const prio = t.priority ? ` [${t.priority} priority]` : "";
+  return `${i + 1}. "${t.title}" — ${t.estimate_min}m${prio}${fixed}`;
+}).join("\n")}
+
+Rules for clarified tasks:
+- Use the EXACT title and duration_min the user provided.
+- Schedule HIGH priority tasks in the peak window first.
+- LOW priority tasks fill remaining time; drop them if the day overflows 8h.
+- For tasks with FIXED times, set start_time to that exact value and arrange other tasks around them.` : "";
+
     const patternHints = pattern ? `
 User patterns (use to compound intelligence):
 - Deep work overrun: ${Number(pattern.deep_work_overrun_pct || 0).toFixed(0)}% (account for it; pad deep blocks if positive)
@@ -80,7 +95,7 @@ Rules:
 - Extract location hints from raw text (e.g. "gym at 2pm", "lunch at Blue Bottle Mission") and include a short location string.
 - For EVERY task, include a one-sentence "reasoning" explaining placement (e.g. "Deep work first — your peak").
 - Summary: short, e.g. "5 tasks · 3 focus blocks · Done by 5pm".
-- Subtext: one short sentence.${patternHints}${calHints}`;
+- Subtext: one short sentence.${clarifiedHints}${patternHints}${calHints}`;
 
     const tools = [{
       type: "function",
