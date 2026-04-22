@@ -199,6 +199,130 @@ export function TrackerSheet({ open, onOpenChange }: { open: boolean; onOpenChan
 
   const monthLabel = monthCursor.toLocaleDateString(undefined, { month: "long", year: "numeric" });
 
+  // ----- PDF export -----
+  const exportPDF = () => {
+    setExporting(true);
+    try {
+      const doc = new jsPDF({ unit: "pt", format: "a4" });
+      const pageW = doc.internal.pageSize.getWidth();
+      const margin = 40;
+      let y = margin;
+
+      doc.setFont("helvetica", "bold"); doc.setFontSize(18);
+      doc.text("Time tracker report", margin, y); y += 22;
+      doc.setFont("helvetica", "normal"); doc.setFontSize(10); doc.setTextColor(110);
+      const periodText = `${period.label} · ${new Date(period.start).toLocaleDateString()} – ${new Date(period.end - 1).toLocaleDateString()}`;
+      doc.text(periodText, margin, y); y += 14;
+      doc.text(`Total: ${fmtHM(headerTotalSec)}`, margin, y); y += 20;
+      doc.setTextColor(0);
+
+      // Section: by category
+      const catRows: any[] = [];
+      const catTotals = Array.from(periodCatStats.entries())
+        .map(([id, v]) => ({ cat: catMap.get(id), sec: v.sec, sessions: v.sessions.length }))
+        .filter(x => x.cat)
+        .sort((a, b) => b.sec - a.sec);
+      const grand = catTotals.reduce((a, x) => a + x.sec, 0) || 1;
+      catTotals.forEach(x => catRows.push([x.cat!.name, fmtHM(x.sec), `${Math.round((x.sec / grand) * 100)}%`, String(x.sessions)]));
+
+      doc.setFont("helvetica", "bold"); doc.setFontSize(12);
+      doc.text("Summary by category", margin, y); y += 8;
+      autoTable(doc, {
+        startY: y + 4,
+        head: [["Category", "Time", "Share", "Sessions"]],
+        body: catRows.length ? catRows : [["—", "—", "—", "—"]],
+        styles: { fontSize: 10 },
+        headStyles: { fillColor: [240, 240, 245], textColor: 30 },
+        margin: { left: margin, right: margin },
+      });
+      y = (doc as any).lastAutoTable.finalY + 24;
+
+      // Section: per day
+      const periodDays: Array<{ key: string; date: Date; total: number }> = [];
+      for (let t = period.start; t < period.end; t += DAY_MS) {
+        const ds = t, de = t + DAY_MS;
+        let total = 0;
+        entries.forEach(e => { total += clipDuration(e, ds, de, now); });
+        periodDays.push({ key: ymd(new Date(ds)), date: new Date(ds), total });
+      }
+
+      if (y > doc.internal.pageSize.getHeight() - 120) { doc.addPage(); y = margin; }
+      doc.setFont("helvetica", "bold"); doc.setFontSize(12);
+      doc.text("Daily breakdown", margin, y); y += 16;
+      const maxDay = Math.max(1, ...periodDays.map(d => d.total));
+      const barAreaW = pageW - margin * 2 - 160;
+      doc.setFont("helvetica", "normal"); doc.setFontSize(9);
+      periodDays.forEach(d => {
+        if (y > doc.internal.pageSize.getHeight() - 40) { doc.addPage(); y = margin; }
+        const label = d.date.toLocaleDateString(undefined, { weekday: "short", month: "short", day: "numeric" });
+        doc.setTextColor(60);
+        doc.text(label, margin, y);
+        doc.setDrawColor(230); doc.setFillColor(240, 240, 245);
+        doc.roundedRect(margin + 110, y - 8, barAreaW, 10, 2, 2, "F");
+        if (d.total > 0) {
+          const w = Math.max(2, (d.total / maxDay) * barAreaW);
+          doc.setFillColor(99, 102, 241);
+          doc.roundedRect(margin + 110, y - 8, w, 10, 2, 2, "F");
+        }
+        doc.setTextColor(0);
+        doc.text(d.total > 0 ? fmtHM(d.total) : "—", margin + 110 + barAreaW + 8, y);
+        y += 16;
+      });
+      y += 10;
+
+      // Section: all sessions
+      const allSessions: any[] = [];
+      entries.forEach(e => {
+        const s = new Date(e.started_at).getTime();
+        const en = e.ended_at ? new Date(e.ended_at).getTime() : now;
+        const a = Math.max(s, period.start);
+        const b = Math.min(en, period.end);
+        if (b <= a) return;
+        const cat = e.category_id ? catMap.get(e.category_id) : undefined;
+        allSessions.push({ start: a, end: b, dur: (b - a) / 1000, cat: cat?.name || "Uncategorized", note: e.note || "" });
+      });
+      allSessions.sort((a, b) => a.start - b.start);
+
+      if (allSessions.length) {
+        if (y > doc.internal.pageSize.getHeight() - 80) { doc.addPage(); y = margin; }
+        doc.setFont("helvetica", "bold"); doc.setFontSize(12);
+        doc.text("Sessions", margin, y); y += 8;
+        autoTable(doc, {
+          startY: y + 4,
+          head: [["Date", "Start", "End", "Duration", "Category", "Note"]],
+          body: allSessions.map(s => [
+            new Date(s.start).toLocaleDateString(),
+            new Date(s.start).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" }),
+            new Date(s.end).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" }),
+            fmtHM(s.dur),
+            s.cat,
+            s.note,
+          ]),
+          styles: { fontSize: 9 },
+          headStyles: { fillColor: [240, 240, 245], textColor: 30 },
+          margin: { left: margin, right: margin },
+        });
+      }
+
+      // Footer
+      const pageCount = (doc as any).internal.getNumberOfPages();
+      for (let p = 1; p <= pageCount; p++) {
+        doc.setPage(p);
+        doc.setFontSize(8); doc.setTextColor(140);
+        doc.text(`Daydraft · generated ${new Date().toLocaleString()}`, margin, doc.internal.pageSize.getHeight() - 18);
+        doc.text(`${p} / ${pageCount}`, pageW - margin, doc.internal.pageSize.getHeight() - 18, { align: "right" });
+      }
+
+      const fileLabel = period.label.toLowerCase().replace(/\s+/g, "-");
+      doc.save(`daydraft-tracker-${fileLabel}-${ymd(new Date())}.pdf`);
+      toast.success("PDF exported");
+    } catch (err: any) {
+      toast.error(err?.message || "Export failed");
+    } finally {
+      setExporting(false);
+    }
+  };
+
   return (
     <Sheet open={open} onOpenChange={(v) => { onOpenChange(v); if (!v) setSelectedDay(null); }}>
       <SheetContent side="bottom" className="rounded-t-3xl p-0 border-border max-h-[92vh] overflow-y-auto">
