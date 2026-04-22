@@ -44,8 +44,13 @@ export default function Stats() {
   return (
     <Shell>
       <div className="px-6 pt-14">
-        <h1 className="text-[28px] font-semibold">Stats</h1>
-        <p className="text-secondary-fg text-sm mt-1">Last 7 days.</p>
+        <div className="flex items-end justify-between">
+          <div>
+            <h1 className="text-[28px] font-semibold">Stats</h1>
+            <p className="text-secondary-fg text-sm mt-1">Last 7 days.</p>
+          </div>
+          <a href="/recap/week" className="text-xs text-primary hover:underline">Week recap →</a>
+        </div>
 
         <div className="mt-8 rounded-2xl bg-surface border border-border shadow-card p-5">
           <div className="text-xs text-secondary-fg uppercase tracking-wider mb-4">Focus minutes</div>
