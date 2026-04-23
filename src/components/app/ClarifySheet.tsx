@@ -39,6 +39,8 @@ interface Props {
   onOpenChange: (v: boolean) => void;
   rawInput: string;
   onConfirm: (tasks: ClarifiedTask[]) => void;
+  /** Date the plan is for, YYYY-MM-DD. Used to compute remaining hours. */
+  planDate?: string;
 }
 
 // naive parse: extract "30m"/"1h", "at 2pm", urgency hints
