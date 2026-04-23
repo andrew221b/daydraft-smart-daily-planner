@@ -31,9 +31,32 @@ export const fmtTime = (hhmm: string) => {
   return m === 0 ? `${hr}${period}` : `${hr}:${String(m).padStart(2, "0")}${period}`;
 };
 
-export const todayDateStr = () => {
-  const d = new Date();
-  return d.toISOString().slice(0, 10);
+// Local-date YYYY-MM-DD (avoid UTC drift around midnight).
+export const dateStr = (d: Date = new Date()) => {
+  const y = d.getFullYear();
+  const m = String(d.getMonth() + 1).padStart(2, "0");
+  const day = String(d.getDate()).padStart(2, "0");
+  return `${y}-${m}-${day}`;
+};
+
+export const todayDateStr = () => dateStr(new Date());
+
+export const parseDateStr = (s: string): Date => {
+  const [y, m, d] = s.split("-").map(Number);
+  return new Date(y, (m || 1) - 1, d || 1);
+};
+
+export const isFutureDateStr = (s: string) => {
+  return parseDateStr(s).getTime() > parseDateStr(todayDateStr()).getTime();
+};
+
+export const friendlyDateFor = (d: Date) => {
+  const today = new Date(); today.setHours(0,0,0,0);
+  const target = new Date(d); target.setHours(0,0,0,0);
+  const diff = Math.round((target.getTime() - today.getTime()) / 86400000);
+  if (diff === 0) return "Today";
+  if (diff === 1) return "Tomorrow";
+  return d.toLocaleDateString(undefined, { weekday: "short", month: "short", day: "numeric" });
 };
 
 export const greeting = () => {
