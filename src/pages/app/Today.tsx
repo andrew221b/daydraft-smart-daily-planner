@@ -141,10 +141,9 @@ export default function Today() {
       if (error) throw error;
       if (data?.error) throw new Error(data.error);
 
-      // upsert plan
-      const today = todayDateStr();
+      // upsert plan for the chosen date (today by default, can be a future date)
       const { data: planRow, error: planErr } = await supabase.from("plans").upsert({
-        user_id: user.id, date: today, raw_input: input, ai_summary: data.summary, ai_subtext: data.subtext,
+        user_id: user.id, date: planDate, raw_input: input, ai_summary: data.summary, ai_subtext: data.subtext,
       }, { onConflict: "user_id,date" }).select().single();
       if (planErr) throw planErr;
 
@@ -172,14 +171,17 @@ export default function Today() {
         );
       } catch {/* ignore */}
       try {
-        const res = await recordPlanToday();
-        if (res?.freezeUsed) toast("🧊 Streak freeze used — you're safe");
-        if (res?.milestone) toast.success(`🔥 ${res.milestone}-day streak! Incredible.`);
+        // Streak only counts plans for today; planning ahead doesn't bump it.
+        if (planDate === todayDateStr()) {
+          const res = await recordPlanToday();
+          if (res?.freezeUsed) toast("🧊 Streak freeze used — you're safe");
+          if (res?.milestone) toast.success(`🔥 ${res.milestone}-day streak! Incredible.`);
+        }
       } catch {/* ignore */}
-      nav("/today/plan");
+      nav(planDate === todayDateStr() ? "/today/plan" : `/today/plan?date=${planDate}`);
     } catch (e: any) {
       toast.error(e.message || "Planning failed");
-      nav("/today");
+      nav(planDate === todayDateStr() ? "/today" : `/today?date=${planDate}`);
     } finally { setBusy(false); }
   };
 
