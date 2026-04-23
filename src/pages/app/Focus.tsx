@@ -39,6 +39,20 @@ export default function Focus() {
 
   useEffect(() => {
     if (!blockId || !user) return;
+    // Reset all per-block state so navigating between blocks via /focus/:id
+    // doesn't leave the previous block's UI (e.g. green checkmark) on screen.
+    setBlock(null);
+    setNext(null);
+    setRemaining(0);
+    setTotal(1);
+    setShowCheck(false);
+    setExtended(false);
+    setArmed(false);
+    setHelp(null);
+    setHelpOpen(false);
+    setHelpError(null);
+    setHelpLoading(false);
+    startedHereRef.current = false;
     (async () => {
       const { data } = await supabase.from("blocks").select("*").eq("id", blockId).maybeSingle();
       if (!data) { nav("/today/plan"); return; }
@@ -48,12 +62,14 @@ export default function Focus() {
       const { data: rest } = await supabase.from("blocks").select("*").eq("plan_id", data.plan_id)
         .eq("kind", "task").eq("completed", false).gt("position", data.position).order("position").limit(1);
       setNext((rest?.[0] as Block) || null);
-      // Show preflight on first visit per session
-      if (!sessionStorage.getItem("dd_preflight_seen")) {
+      // Show preflight on first visit per session (only on initial entry —
+      // skip when transitioning between focus blocks).
+      if (!sessionStorage.getItem("dd_preflight_seen") && !sessionStorage.getItem("dd_focus_active")) {
         setPreflightOpen(true);
       } else {
         setArmed(true);
       }
+      sessionStorage.setItem("dd_focus_active", "1");
     })();
   }, [blockId, user?.id]);
 
