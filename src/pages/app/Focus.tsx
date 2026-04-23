@@ -2,12 +2,14 @@ import { useEffect, useRef, useState } from "react";
 import { useNavigate, useParams } from "react-router-dom";
 import { supabase } from "@/integrations/supabase/client";
 import { Block } from "@/lib/daydraft";
-import { Check, ChevronRight, Minus, Sparkles, MapPin, ExternalLink, Loader2, Lightbulb, Copy, Phone, CalendarPlus, Mail } from "lucide-react";
+import { Check, ChevronRight, Minus, Plus, Sparkles, MapPin, ExternalLink, Loader2, Lightbulb, Copy, Phone, CalendarPlus, Mail } from "lucide-react";
 import { useAuth } from "@/hooks/useAuth";
 import { mapsUrl } from "@/lib/maps";
 import { toast } from "sonner";
 import { useTimeTracker, fmtHMS } from "@/hooks/useTimeTracker";
 import { haptics } from "@/lib/haptics";
+import { PreflightSheet } from "@/components/app/PreflightSheet";
+import { QuickCaptureButton } from "@/components/app/QuickCapture";
 
 type AIHelp = {
   substeps: string[];
@@ -31,6 +33,9 @@ export default function Focus() {
   const [helpError, setHelpError] = useState<string | null>(null);
   const [helpOpen, setHelpOpen] = useState(false);
   const tickRef = useRef<number | null>(null);
+  const [preflightOpen, setPreflightOpen] = useState(false);
+  const [armed, setArmed] = useState(false);
+  const [extended, setExtended] = useState(false);
 
   useEffect(() => {
     if (!blockId || !user) return;
@@ -43,11 +48,23 @@ export default function Focus() {
       const { data: rest } = await supabase.from("blocks").select("*").eq("plan_id", data.plan_id)
         .eq("kind", "task").eq("completed", false).gt("position", data.position).order("position").limit(1);
       setNext((rest?.[0] as Block) || null);
+      // Show preflight on first visit per session
+      if (!sessionStorage.getItem("dd_preflight_seen")) {
+        setPreflightOpen(true);
+      } else {
+        setArmed(true);
+      }
     })();
   }, [blockId, user?.id]);
 
+  const dismissPreflight = () => {
+    sessionStorage.setItem("dd_preflight_seen", "1");
+    setPreflightOpen(false);
+    setArmed(true);
+  };
+
   useEffect(() => {
-    if (!block) return;
+    if (!block || !armed) return;
     const onVis = () => { /* timer pauses naturally when tab hidden — we use realtime */ };
     document.addEventListener("visibilitychange", onVis);
     let last = Date.now();
@@ -62,9 +79,27 @@ export default function Focus() {
     };
     tick();
     return () => { if (tickRef.current) clearTimeout(tickRef.current); document.removeEventListener("visibilitychange", onVis); };
-  }, [block?.id]);
+  }, [block?.id, armed]);
 
-  useEffect(() => { if (block && remaining <= 0) complete(); /* eslint-disable-line */ }, [remaining]);
+  useEffect(() => {
+    if (!block || !armed) return;
+    if (remaining > 0) return;
+    // Offer extend before auto-completing the block
+    if (!extended) {
+      // pause at zero — show "extend or complete" UI; do nothing here
+      return;
+    }
+    complete();
+    // eslint-disable-next-line
+  }, [remaining]);
+
+  const extendFiveMin = () => {
+    setRemaining(r => r + 5 * 60);
+    setTotal(t => t + 5 * 60);
+    setExtended(true);
+    haptics.tap();
+    toast.success("+5 min added");
+  };
 
   // Auto-start time tracking when entering Focus, stop when leaving (only if started here)
   const startedHereRef = useRef(false);
@@ -137,6 +172,7 @@ export default function Focus() {
   const mins = Math.floor(remaining / 60);
   const secs = Math.floor(remaining % 60);
   const lowTime = remaining < 300;
+  const timeUp = remaining <= 0 && armed;
 
   // Smart contextual quick actions derived from the title/type
   const title = (block.title || "").toLowerCase();
@@ -179,7 +215,15 @@ export default function Focus() {
         <h1 className="mt-12 text-[28px] font-semibold text-center leading-tight max-w-[300px] line-clamp-2">{block.title}</h1>
 
         <div className="relative mt-12">
-          <svg width="260" height="260" className={lowTime ? "ring-pulse rounded-full" : ""}>
+          {/* Ambient breathing ring (subtle pulse around the timer) */}
+          <div
+            className="absolute inset-0 rounded-full pointer-events-none"
+            style={{
+              background: "radial-gradient(closest-side, hsl(var(--primary) / 0.18), transparent 70%)",
+              animation: "breathe 4s ease-in-out infinite",
+            }}
+          />
+          <svg width="260" height="260" className={lowTime ? "ring-pulse rounded-full relative" : "relative"}>
             <circle cx="130" cy="130" r={radius} stroke="hsl(var(--border))" strokeWidth="6" fill="none" />
             <circle cx="130" cy="130" r={radius} stroke="hsl(var(--primary))" strokeWidth="6" fill="none" strokeLinecap="round"
               strokeDasharray={circ} strokeDashoffset={offset} transform="rotate(-90 130 130)" style={{ transition: "stroke-dashoffset 240ms linear" }} />
@@ -188,6 +232,11 @@ export default function Focus() {
             {showCheck ? (
               <div className="h-20 w-20 rounded-full bg-success flex items-center justify-center check-pop">
                 <Check className="h-10 w-10 text-success-foreground" strokeWidth={3} />
+              </div>
+            ) : timeUp ? (
+              <div className="text-center">
+                <div className="text-[28px] font-mono-sf font-semibold tabular-nums leading-none text-primary">Time's up</div>
+                <div className="text-secondary-fg text-xs mt-2">Need a little more?</div>
               </div>
             ) : (
               <>
@@ -201,17 +250,24 @@ export default function Focus() {
         </div>
 
         <div className="flex items-center gap-3 mt-14 w-full">
-          <button onClick={() => setRemaining(r => Math.max(0, r - 300))} className="h-12 px-4 rounded-xl bg-surface border border-border text-sm font-medium pressable flex items-center gap-1.5">
-            <Minus className="h-3.5 w-3.5" /> 5 min
+          <button onClick={extendFiveMin} className="h-12 px-3 rounded-xl bg-surface border border-border text-sm font-medium pressable flex items-center gap-1.5">
+            <Plus className="h-3.5 w-3.5" /> 5 min
           </button>
           <button onClick={complete} className="flex-1 h-13 py-3 rounded-xl bg-primary text-primary-foreground font-medium pressable shadow-glow flex items-center justify-center gap-2"
             style={{ background: "var(--gradient-primary)" }}>
             Complete <Check className="h-4 w-4" strokeWidth={3} />
           </button>
-          <button onClick={skip} className="h-12 px-4 rounded-xl bg-surface border border-border text-sm font-medium pressable flex items-center gap-1.5">
-            Skip <ChevronRight className="h-3.5 w-3.5" />
-          </button>
+          <div className="shrink-0">
+            <QuickCaptureButton variant="icon" />
+          </div>
         </div>
+        <button onClick={skip} className="mt-3 text-secondary-fg text-xs hover:text-foreground inline-flex items-center gap-1">
+          Skip block <ChevronRight className="h-3 w-3" />
+        </button>
+        <style>{`@keyframes breathe {
+          0%, 100% { transform: scale(0.92); opacity: 0.55; }
+          50% { transform: scale(1.05); opacity: 0.95; }
+        }`}</style>
 
         <div className="mt-auto pt-10 text-secondary-fg text-[13px]">
           {next ? <>Next up: <span className="text-foreground">{next.title}</span></> : "Last block — finish strong."}
@@ -336,6 +392,7 @@ export default function Focus() {
           )}
         </div>
       </div>
+      <PreflightSheet open={preflightOpen} onOpenChange={(v) => { if (!v) dismissPreflight(); }} onStart={dismissPreflight} />
     </div>
   );
 }
