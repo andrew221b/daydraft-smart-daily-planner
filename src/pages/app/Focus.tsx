@@ -176,6 +176,10 @@ export default function Focus() {
     haptics.notify("success");
     setShowCheck(true);
     await supabase.from("blocks").update({ completed: true }).eq("id", block.id);
+    if (startedHereRef.current && tracking) {
+      try { await stopTracking(); } catch {/* ignore */}
+      startedHereRef.current = false;
+    }
     setTimeout(() => {
       if (next) nav(`/focus/${next.id}`);
       else nav("/recap");
@@ -186,6 +190,10 @@ export default function Focus() {
     if (!block) return;
     haptics.impact("light");
     await supabase.from("blocks").update({ completed: true }).eq("id", block.id);
+    if (startedHereRef.current && tracking) {
+      try { await stopTracking(); } catch {/* ignore */}
+      startedHereRef.current = false;
+    }
     if (next) nav(`/focus/${next.id}`); else nav("/recap");
   };
 
