@@ -153,6 +153,18 @@ export default function Today() {
         location_lng: b.location_lng ?? null,
       }));
       if (blocks.length) await supabase.from("blocks").insert(blocks);
+      // Persist user's per-task time-tracking choices for Focus to read.
+      // We key by normalized title within the plan, since AI may rename
+      // blocks slightly when scheduling.
+      try {
+        const trackTitles = clarified
+          .filter(t => t.track_time)
+          .map(t => t.title.trim().toLowerCase());
+        localStorage.setItem(
+          `dd_track_titles_${planRow.id}`,
+          JSON.stringify(trackTitles),
+        );
+      } catch {/* ignore */}
       try {
         const res = await recordPlanToday();
         if (res?.freezeUsed) toast("🧊 Streak freeze used — you're safe");

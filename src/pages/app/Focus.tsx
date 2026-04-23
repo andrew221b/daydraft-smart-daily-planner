@@ -2,7 +2,7 @@ import { useEffect, useRef, useState } from "react";
 import { useNavigate, useParams } from "react-router-dom";
 import { supabase } from "@/integrations/supabase/client";
 import { Block } from "@/lib/daydraft";
-import { Check, ChevronRight, Minus, Plus, Sparkles, MapPin, ExternalLink, Loader2, Lightbulb, Copy, Phone, CalendarPlus, Mail } from "lucide-react";
+import { Check, ChevronRight, Minus, Plus, Sparkles, MapPin, ExternalLink, Loader2, Lightbulb, Copy, Phone, CalendarPlus, Mail, Timer, Square } from "lucide-react";
 import { useAuth } from "@/hooks/useAuth";
 import { mapsUrl } from "@/lib/maps";
 import { toast } from "sonner";
@@ -36,9 +36,24 @@ export default function Focus() {
   const [preflightOpen, setPreflightOpen] = useState(false);
   const [armed, setArmed] = useState(false);
   const [extended, setExtended] = useState(false);
+  const startedHereRef = useRef(false);
 
   useEffect(() => {
     if (!blockId || !user) return;
+    // Reset all per-block state so navigating between blocks via /focus/:id
+    // doesn't leave the previous block's UI (e.g. green checkmark) on screen.
+    setBlock(null);
+    setNext(null);
+    setRemaining(0);
+    setTotal(1);
+    setShowCheck(false);
+    setExtended(false);
+    setArmed(false);
+    setHelp(null);
+    setHelpOpen(false);
+    setHelpError(null);
+    setHelpLoading(false);
+    startedHereRef.current = false;
     (async () => {
       const { data } = await supabase.from("blocks").select("*").eq("id", blockId).maybeSingle();
       if (!data) { nav("/today/plan"); return; }
@@ -48,12 +63,14 @@ export default function Focus() {
       const { data: rest } = await supabase.from("blocks").select("*").eq("plan_id", data.plan_id)
         .eq("kind", "task").eq("completed", false).gt("position", data.position).order("position").limit(1);
       setNext((rest?.[0] as Block) || null);
-      // Show preflight on first visit per session
-      if (!sessionStorage.getItem("dd_preflight_seen")) {
+      // Show preflight on first visit per session (only on initial entry —
+      // skip when transitioning between focus blocks).
+      if (!sessionStorage.getItem("dd_preflight_seen") && !sessionStorage.getItem("dd_focus_active")) {
         setPreflightOpen(true);
       } else {
         setArmed(true);
       }
+      sessionStorage.setItem("dd_focus_active", "1");
     })();
   }, [blockId, user?.id]);
 
@@ -101,11 +118,18 @@ export default function Focus() {
     toast.success("+5 min added");
   };
 
-  // Auto-start time tracking when entering Focus, stop when leaving (only if started here)
-  const startedHereRef = useRef(false);
+  // Start time-tracking only if the user opted in for THIS task during planning.
+  // The choice is persisted per plan in localStorage (see Today.tsx).
   useEffect(() => {
     if (!block || !categories.length) return;
-    if (tracking) return; // honor existing session
+    if (tracking) return; // honor any existing session
+    let optedIn = false;
+    try {
+      const raw = localStorage.getItem(`dd_track_titles_${block.plan_id}`);
+      const titles: string[] = raw ? JSON.parse(raw) : [];
+      optedIn = titles.includes((block.title || "").trim().toLowerCase());
+    } catch {/* ignore */}
+    if (!optedIn) return;
     startedHereRef.current = true;
     startTracking(undefined, { source: "focus", blockId: block.id, note: block.title });
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -113,7 +137,9 @@ export default function Focus() {
 
   useEffect(() => {
     return () => {
+      // Stop tracking on unmount (leaving Focus entirely)
       if (startedHereRef.current && tracking) stopTracking();
+      sessionStorage.removeItem("dd_focus_active");
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
@@ -150,6 +176,10 @@ export default function Focus() {
     haptics.notify("success");
     setShowCheck(true);
     await supabase.from("blocks").update({ completed: true }).eq("id", block.id);
+    if (startedHereRef.current && tracking) {
+      try { await stopTracking(); } catch {/* ignore */}
+      startedHereRef.current = false;
+    }
     setTimeout(() => {
       if (next) nav(`/focus/${next.id}`);
       else nav("/recap");
@@ -160,6 +190,10 @@ export default function Focus() {
     if (!block) return;
     haptics.impact("light");
     await supabase.from("blocks").update({ completed: true }).eq("id", block.id);
+    if (startedHereRef.current && tracking) {
+      try { await stopTracking(); } catch {/* ignore */}
+      startedHereRef.current = false;
+    }
     if (next) nav(`/focus/${next.id}`); else nav("/recap");
   };
 
@@ -264,6 +298,25 @@ export default function Focus() {
         <button onClick={skip} className="mt-3 text-secondary-fg text-xs hover:text-foreground inline-flex items-center gap-1">
           Skip block <ChevronRight className="h-3 w-3" />
         </button>
+        {!tracking && armed && categories.length > 0 && (
+          <button
+            onClick={() => {
+              startedHereRef.current = true;
+              startTracking(undefined, { source: "focus", blockId: block.id, note: block.title });
+            }}
+            className="mt-3 inline-flex items-center gap-1.5 px-3 py-1.5 rounded-full bg-surface border border-border text-[12px] text-secondary-fg hover:text-foreground pressable"
+          >
+            <Timer className="h-3.5 w-3.5" /> Start tracking
+          </button>
+        )}
+        {tracking && startedHereRef.current && (
+          <button
+            onClick={() => { stopTracking(); startedHereRef.current = false; }}
+            className="mt-3 inline-flex items-center gap-1.5 px-3 py-1.5 rounded-full bg-surface border border-border text-[12px] text-secondary-fg hover:text-foreground pressable"
+          >
+            <Square className="h-3.5 w-3.5" /> Stop tracking
+          </button>
+        )}
         <style>{`@keyframes breathe {
           0%, 100% { transform: scale(0.92); opacity: 0.55; }
           50% { transform: scale(1.05); opacity: 0.95; }
