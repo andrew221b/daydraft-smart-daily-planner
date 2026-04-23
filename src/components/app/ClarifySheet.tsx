@@ -4,7 +4,7 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import {
   Sparkles, Clock, X, Check, Loader2, Split, GripVertical,
-  ChevronDown, ChevronUp, ExternalLink, CalendarClock,
+  ChevronDown, ChevronUp, ExternalLink, CalendarClock, Timer,
 } from "lucide-react";
 import { supabase } from "@/integrations/supabase/client";
 import { toast } from "sonner";
