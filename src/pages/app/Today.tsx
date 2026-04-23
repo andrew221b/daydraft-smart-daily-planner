@@ -217,15 +217,6 @@ export default function Today() {
             data-tour="today-input"
             value={input} onChange={e => setInput(e.target.value)} placeholder={DEFAULT_PLACEHOLDER}
             className="min-h-[200px] bg-surface border-border rounded-[20px] p-4 text-base leading-relaxed resize-none focus-visible:ring-primary/40 focus-visible:ring-offset-0 focus-visible:border-primary/40 transition-all" />
-          {input.trim() && (
-            <div className="absolute bottom-3 right-4 inline-flex items-center gap-2 px-2.5 py-1 rounded-full bg-background/80 backdrop-blur border border-border text-[11px] text-secondary-fg pointer-events-none">
-              <span className="text-foreground font-medium tabular-nums">{countTasks(input)}</span>
-              {countTasks(input) === 1 ? "task" : "tasks"}
-              {countDurations(input) > 0 && (
-                <span className="text-primary">· {countDurations(input)} timed</span>
-              )}
-            </div>
-          )}
         </div>
 
         <div className="flex gap-2 mt-3 overflow-x-auto pb-1">
