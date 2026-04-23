@@ -23,12 +23,6 @@ import { haptics } from "@/lib/haptics";
 const DEFAULT_PLACEHOLDER =
   "Write however you want — AI will figure it out.\n\nE.g. finish deck, call mom 15min, gym, reply to Alex...";
 
-// Detect typed durations (30m, 1h, 90min) so the user gets visual confirmation.
-const DURATION_RE = /\b(\d+)\s*(h|hr|hour|hrs|hours|m|min|mins|minutes)\b/gi;
-const countTasks = (s: string) =>
-  s.split(/\r?\n/).map(l => l.trim()).filter(Boolean).length;
-const countDurations = (s: string) => (s.match(DURATION_RE) || []).length;
-
 export default function Today() {
   const { profile } = useProfile();
   const { user } = useAuth();
