@@ -450,6 +450,28 @@ export function TrackerSheet({ open, onOpenChange }: { open: boolean; onOpenChan
               </div>
             </div>
 
+            {/* Today proportional breakdown (only if any time) */}
+            {todayByCat.length > 0 && (
+              <div className="px-5 pt-4">
+                <div className="text-[10px] font-semibold uppercase tracking-wider text-secondary-fg mb-2">Where today went</div>
+                <div className="space-y-1.5">
+                  {todayByCat.map(x => {
+                    const pct = (x.sec / Math.max(1, todayTotalSec)) * 100;
+                    return (
+                      <div key={x.cat!.id} className="flex items-center gap-2 text-[12px]">
+                        <span className="h-2 w-2 rounded-full shrink-0" style={{ background: x.cat!.color }} />
+                        <span className="w-20 truncate text-foreground">{x.cat!.name}</span>
+                        <div className="flex-1 h-1.5 rounded-full bg-muted overflow-hidden">
+                          <div className="h-full rounded-full transition-all" style={{ width: `${pct}%`, background: x.cat!.color }} />
+                        </div>
+                        <span className="font-mono tabular-nums text-secondary-fg w-12 text-right">{fmtHM(x.sec)}</span>
+                      </div>
+                    );
+                  })}
+                </div>
+              </div>
+            )}
+
             {/* Active hint */}
             {active && (
               <div className="px-5 pt-3">
