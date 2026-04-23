@@ -21,7 +21,7 @@ import { useTour, TOUR_TODAY } from "@/components/app/Tour";
 import { haptics } from "@/lib/haptics";
 
 const DEFAULT_PLACEHOLDER =
-  "What do you want to get done today? List your tasks, one per line.";
+  "Write however you want — AI will figure it out.\n\nE.g. finish deck, call mom 15min, gym, reply to Alex...";
 
 // Detect typed durations (30m, 1h, 90min) so the user gets visual confirmation.
 const DURATION_RE = /\b(\d+)\s*(h|hr|hour|hrs|hours|m|min|mins|minutes)\b/gi;
