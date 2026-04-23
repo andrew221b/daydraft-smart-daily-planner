@@ -354,7 +354,7 @@ export function TrackerSheet({ open, onOpenChange }: { open: boolean; onOpenChan
   return (
     <>
     <Sheet open={open} onOpenChange={(v) => { onOpenChange(v); if (!v) setSelectedDay(null); }}>
-      <SheetContent side="bottom" className="rounded-t-3xl p-0 border-border max-h-[92vh] overflow-y-auto">
+      <SheetContent side="bottom" className="rounded-t-3xl p-0 border-border max-h-[92vh] overflow-y-auto scrollbar-none [&::-webkit-scrollbar]:hidden">
         {/* Header */}
         <div className="px-5 pt-5 pb-4 border-b border-border">
           <div className="flex items-start justify-between gap-3">
