@@ -533,6 +533,30 @@ export default function DayView() {
           </div>
         </SheetContent>
       </Sheet>
+      <AlertDialog open={!!confirmRemoveId} onOpenChange={(v) => { if (!v) setConfirmRemoveId(null); }}>
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>Delete this block?</AlertDialogTitle>
+            <AlertDialogDescription>
+              {(() => {
+                const t = blocks.find(b => b.id === confirmRemoveId)?.title;
+                return t ? `"${t}" will be removed from today's plan. You'll have a few seconds to undo.` : "This block will be removed from today's plan.";
+              })()}
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel>Cancel</AlertDialogCancel>
+            <AlertDialogAction
+              className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
+              onClick={() => {
+                const id = confirmRemoveId;
+                setConfirmRemoveId(null);
+                if (id) removeBlock(id);
+              }}
+            >Delete</AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
     </Shell>
   );
 }
