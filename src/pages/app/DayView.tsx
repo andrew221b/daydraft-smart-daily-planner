@@ -132,6 +132,14 @@ export default function DayView() {
     setTimeout(async () => {
       if (undone) return;
       await supabase.from("blocks").delete().eq("id", id);
+      // If this was the last block, also delete the now-empty plan so it
+      // doesn't haunt History as an "empty day" entry.
+      if (plan && next.length === 0) {
+        await supabase.from("plans").delete().eq("id", plan.id);
+        setPlan(null);
+        setPlanMissing(true);
+        return;
+      }
       await persistOrder(next);
     }, 5200);
   };

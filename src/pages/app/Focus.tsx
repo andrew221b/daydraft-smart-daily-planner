@@ -68,7 +68,11 @@ export default function Focus() {
     startedHereRef.current = false;
     (async () => {
       const { data } = await supabase.from("blocks").select("*").eq("id", blockId).maybeSingle();
-      if (!data) { nav("/today/plan"); return; }
+      if (!data) {
+        toast("This block no longer exists");
+        nav("/today/plan");
+        return;
+      }
       setBlock(data as Block);
       setTotal(data.duration_min * 60);
       setRemaining(data.duration_min * 60);

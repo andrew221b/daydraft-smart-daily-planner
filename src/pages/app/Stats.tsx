@@ -47,22 +47,30 @@ export default function Stats() {
         .select("category_id,started_at,ended_at")
         .eq("user_id", user.id)
         .gte("started_at", sinceTracked.toISOString());
+      // Use LOCAL ymd, not toISOString().slice(0,10) which produces UTC keys.
+      // Otherwise an evening session in a UTC- timezone gets bucketed into the
+      // following day, and the bars don't match the user's lived experience.
+      const ymd = (d: Date) => `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,"0")}-${String(d.getDate()).padStart(2,"0")}`;
       const dayMap: Record<string, number> = {};
-      const catMap: Record<string, number> = {};
       const now = Date.now();
       (ents || []).forEach((e: any) => {
-        const s = new Date(e.started_at).getTime();
-        const en = e.ended_at ? new Date(e.ended_at).getTime() : now;
-        const dur = Math.max(0, (en - s) / 1000);
-        const dKey = new Date(e.started_at).toISOString().slice(0, 10);
-        dayMap[dKey] = (dayMap[dKey] || 0) + dur;
-        if (e.category_id) catMap[e.category_id] = (catMap[e.category_id] || 0) + dur;
+        // Distribute durations across day boundaries so a session that crosses
+        // midnight is split between both days correctly.
+        let cursor = new Date(e.started_at).getTime();
+        const end = e.ended_at ? new Date(e.ended_at).getTime() : now;
+        while (cursor < end) {
+          const d = new Date(cursor);
+          const dayStart = new Date(d.getFullYear(), d.getMonth(), d.getDate()).getTime();
+          const dayEnd = dayStart + 86_400_000;
+          const slice = Math.min(end, dayEnd) - cursor;
+          if (slice > 0) dayMap[ymd(d)] = (dayMap[ymd(d)] || 0) + slice / 1000;
+          cursor = dayEnd;
+        }
       });
       const arr: { date: string; sec: number }[] = [];
       for (let i = 6; i >= 0; i--) {
         const d = new Date(); d.setDate(d.getDate() - i);
-        const k = d.toISOString().slice(0, 10);
-        arr.push({ date: k, sec: dayMap[k] || 0 });
+        arr.push({ date: ymd(d), sec: dayMap[ymd(d)] || 0 });
       }
       setTrackedDays(arr);
     })();
@@ -110,12 +118,17 @@ export default function Stats() {
           <div className="text-xs text-secondary-fg uppercase tracking-wider mb-4">Focus minutes</div>
           <div className="flex items-end gap-2 h-32">
             {days.length === 0 ? <div className="text-secondary-fg text-sm">No data yet.</div> :
-              days.map(d => (
-                <div key={d.date} className="flex-1 flex flex-col items-center gap-2">
-                  <div className="w-full bg-primary/80 rounded-t-md" style={{ height: `${(d.focusMin / maxFocus) * 100}%`, minHeight: 2 }} />
-                  <div className="text-[10px] text-secondary-fg">{new Date(d.date).toLocaleDateString(undefined, { weekday: "short" })[0]}</div>
-                </div>
-              ))}
+              days.map(d => {
+                // parse YYYY-MM-DD as LOCAL — `new Date("YYYY-MM-DD")` is UTC.
+                const [y, mo, da] = d.date.split("-").map(Number);
+                const localDate = new Date(y, (mo || 1) - 1, da || 1);
+                return (
+                  <div key={d.date} className="flex-1 flex flex-col items-center gap-2">
+                    <div className="w-full bg-primary/80 rounded-t-md" style={{ height: `${(d.focusMin / maxFocus) * 100}%`, minHeight: 2 }} />
+                    <div className="text-[10px] text-secondary-fg">{localDate.toLocaleDateString(undefined, { weekday: "short" })[0]}</div>
+                  </div>
+                );
+              })}
           </div>
         </div>
 
@@ -145,12 +158,16 @@ export default function Stats() {
             {trackedDays.length === 0 ? (
               <div className="text-secondary-fg text-sm">No tracked time yet.</div>
             ) : (
-              trackedDays.map(d => (
-                <div key={d.date} className="flex-1 flex flex-col items-center gap-2">
-                  <div className="w-full rounded-t-md" style={{ height: `${(d.sec / maxTracked) * 100}%`, minHeight: 2, background: "hsl(var(--primary))" }} />
-                  <div className="text-[10px] text-secondary-fg">{new Date(d.date).toLocaleDateString(undefined, { weekday: "short" })[0]}</div>
-                </div>
-              ))
+              trackedDays.map(d => {
+                const [y, mo, da] = d.date.split("-").map(Number);
+                const localDate = new Date(y, (mo || 1) - 1, da || 1);
+                return (
+                  <div key={d.date} className="flex-1 flex flex-col items-center gap-2">
+                    <div className="w-full rounded-t-md" style={{ height: `${(d.sec / maxTracked) * 100}%`, minHeight: 2, background: "hsl(var(--primary))" }} />
+                    <div className="text-[10px] text-secondary-fg">{localDate.toLocaleDateString(undefined, { weekday: "short" })[0]}</div>
+                  </div>
+                );
+              })
             )}
           </div>
           <div className="mt-3 flex items-center justify-between text-xs text-secondary-fg">

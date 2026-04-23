@@ -357,26 +357,17 @@ export function TrackerSheet({ open, onOpenChange }: { open: boolean; onOpenChan
       <SheetContent side="bottom" className="rounded-t-3xl p-0 border-border max-h-[92vh] overflow-y-auto scrollbar-none [&::-webkit-scrollbar]:hidden">
         {/* Header */}
         <div className="px-5 pt-5 pb-4 border-b border-border">
-          <div className="flex items-start justify-between gap-3">
-            <SheetHeader className="text-left flex-1 min-w-0">
-              <SheetTitle className="text-xl">Time tracker</SheetTitle>
-              <SheetDescription className="text-xs">
-                {active
-                  ? <>Tracking <span className="text-foreground font-medium">{activeCat?.name}</span> · <span className="font-mono tabular-nums">{fmtHMS(elapsedSec)}</span></>
-                  : <>{headerLabel}: <span className="text-foreground font-medium">{fmtHM(headerTotalSec)}</span></>}
-              </SheetDescription>
-            </SheetHeader>
-            <button
-              onClick={exportPDF}
-              disabled={exporting || headerTotalSec === 0}
-              className="shrink-0 inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg border border-border bg-surface text-xs font-medium text-foreground pressable disabled:opacity-40 disabled:pointer-events-none"
-              aria-label="Export PDF"
-              title={isPro ? `Export ${headerLabel} as PDF` : "PDF export is a Pro feature"}
-            >
-              {isPro ? <Download className="h-3.5 w-3.5" /> : <Lock className="h-3.5 w-3.5" />}
-              PDF
-            </button>
-          </div>
+          {/* PDF moved to the bottom of the sheet — the close (X) sits in the
+              top-right of SheetContent and any button placed beside it gets
+              accidentally tapped when the user reaches to dismiss. */}
+          <SheetHeader className="text-left">
+            <SheetTitle className="text-xl pr-8">Time tracker</SheetTitle>
+            <SheetDescription className="text-xs">
+              {active
+                ? <>Tracking <span className="text-foreground font-medium">{activeCat?.name}</span> · <span className="font-mono tabular-nums">{fmtHMS(elapsedSec)}</span></>
+                : <>{headerLabel}: <span className="text-foreground font-medium">{fmtHM(headerTotalSec)}</span></>}
+            </SheetDescription>
+          </SheetHeader>
 
           {/* Tabs */}
           <div className="mt-4 inline-flex w-full rounded-xl bg-muted p-1">
@@ -718,6 +709,19 @@ export function TrackerSheet({ open, onOpenChange }: { open: boolean; onOpenChan
           </div>
         )}
 
+        {/* PDF export — placed at the bottom of the sheet, well clear of the X */}
+        <div className="px-5 pt-3 pb-2">
+          <button
+            onClick={exportPDF}
+            disabled={exporting || headerTotalSec === 0}
+            className="w-full inline-flex items-center justify-center gap-2 h-11 rounded-xl border border-border bg-surface text-sm font-medium text-foreground pressable disabled:opacity-40 disabled:pointer-events-none"
+            aria-label="Export PDF"
+            title={isPro ? `Export ${headerLabel} as PDF` : "PDF export is a Pro feature"}
+          >
+            {isPro ? <Download className="h-4 w-4" /> : <Lock className="h-4 w-4" />}
+            {isPro ? `Export ${headerLabel} as PDF` : "Export as PDF · Pro"}
+          </button>
+        </div>
         <div className="px-5 pb-6 pt-2 text-[11px] text-secondary-fg text-center">
           Tracking runs in the background — close the app and it keeps counting.
         </div>

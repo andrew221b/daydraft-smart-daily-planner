@@ -282,14 +282,9 @@ export default function Recap() {
             </p>
           </div>
 
-          <div className="mt-8">
-            <div className="text-sm text-secondary-fg mb-2">Tomorrow looks like →</div>
-            <div className="flex gap-2 overflow-x-auto pb-2">
-              {["Plan tomorrow's top tasks", "Protect your peak hours", "Batch your comms"].map(t => (
-                <div key={t} className="shrink-0 px-3 py-2 rounded-full bg-surface border border-border text-xs text-secondary-fg">{t}</div>
-              ))}
-            </div>
-          </div>
+          {/* "Tomorrow looks like" was a static placeholder — removed. The
+              insight card above and the carry-over button cover what users
+              actually act on. */}
 
           <div className="mt-10 space-y-3">
             <Button

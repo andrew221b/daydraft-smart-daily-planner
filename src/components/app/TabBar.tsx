@@ -17,31 +17,33 @@ export const TabBar = () => {
 
   return (
     <>
-      {/* Active timer strip — sits above tab bar, doesn't overlap content */}
+      {/* Active timer strip — sits above tab bar, doesn't overlap content.
+          We use a div+two-buttons (not nested <button>) for valid HTML and
+          to give Stop a clean independent target without event-bubbling hacks. */}
       {active && (
         <div className="fixed bottom-[88px] left-1/2 -translate-x-1/2 w-full max-w-[390px] z-40 pointer-events-none">
           <div className="mx-4 pointer-events-auto">
-            <button
-              onClick={() => setTrackerOpen(true)}
-              className="w-full flex items-center gap-2 px-3.5 py-2 rounded-xl bg-primary/95 text-primary-foreground border border-primary/40 shadow-glow backdrop-blur pressable"
-              aria-label="Active time tracker"
-            >
-              <span className="relative flex h-2 w-2 shrink-0">
-                <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-primary-foreground opacity-60" />
-                <span className="relative inline-flex rounded-full h-2 w-2 bg-primary-foreground" />
-              </span>
-              <span className="text-xs font-medium truncate flex-1 text-left">Tracking</span>
-              <span className="text-xs font-mono tabular-nums">{fmtHMS(elapsedSec)}</span>
-              <span
-                role="button"
-                tabIndex={0}
-                onClick={(e) => { e.stopPropagation(); stop(); }}
-                onKeyDown={(e) => { if (e.key === "Enter") { e.stopPropagation(); stop(); } }}
-                className="ml-1 px-2 py-0.5 rounded-md bg-primary-foreground/20 text-[10px] font-semibold uppercase tracking-wide pressable"
+            <div className="w-full flex items-center gap-2 px-3.5 py-2 rounded-xl bg-primary/95 text-primary-foreground border border-primary/40 shadow-glow backdrop-blur">
+              <button
+                onClick={() => setTrackerOpen(true)}
+                className="flex-1 flex items-center gap-2 min-w-0 pressable text-left"
+                aria-label="Open time tracker"
+              >
+                <span className="relative flex h-2 w-2 shrink-0">
+                  <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-primary-foreground opacity-60" />
+                  <span className="relative inline-flex rounded-full h-2 w-2 bg-primary-foreground" />
+                </span>
+                <span className="text-xs font-medium truncate flex-1">Tracking</span>
+                <span className="text-xs font-mono tabular-nums">{fmtHMS(elapsedSec)}</span>
+              </button>
+              <button
+                onClick={() => stop()}
+                className="px-2 py-0.5 rounded-md bg-primary-foreground/20 text-[10px] font-semibold uppercase tracking-wide pressable shrink-0"
+                aria-label="Stop tracking"
               >
                 Stop
-              </span>
-            </button>
+              </button>
+            </div>
           </div>
         </div>
       )}

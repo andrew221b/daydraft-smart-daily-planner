@@ -38,6 +38,7 @@ export default function Today() {
   const [input, setInput] = useState("");
   const [busy, setBusy] = useState(false);
   const [hasPlanForDate, setHasPlanForDate] = useState(false);
+  const [existingSummary, setExistingSummary] = useState<string | null>(null);
   const [templates, setTemplates] = useState<{ id: string; name: string; raw_input: string }[]>([]);
   const [clarifyOpen, setClarifyOpen] = useState(false);
   // Date the user is planning for. Defaults to today; can be set to any future date.
@@ -49,10 +50,12 @@ export default function Today() {
     // A plan is "real" only if it has at least one block. An emptied plan
     // (user deleted every task) shouldn't show the "View existing plan" CTA.
     (async () => {
-      const { data: p } = await supabase.from("plans").select("id").eq("user_id", user.id).eq("date", planDate).maybeSingle();
-      if (!p) { setHasPlanForDate(false); return; }
+      const { data: p } = await supabase.from("plans").select("id, ai_summary").eq("user_id", user.id).eq("date", planDate).maybeSingle();
+      if (!p) { setHasPlanForDate(false); setExistingSummary(null); return; }
       const { count } = await supabase.from("blocks").select("id", { count: "exact", head: true }).eq("plan_id", p.id);
-      setHasPlanForDate((count ?? 0) > 0);
+      const has = (count ?? 0) > 0;
+      setHasPlanForDate(has);
+      setExistingSummary(has ? (p.ai_summary || null) : null);
     })();
     // Pull saved templates
     supabase.from("block_templates").select("id, name, raw_input").eq("user_id", user.id).order("created_at", { ascending: false })
@@ -93,11 +96,25 @@ export default function Today() {
 
   const useYesterday = async () => {
     if (!user) return;
-    // Use the most recent plan strictly BEFORE the date we're planning for.
-    // This makes "Use yesterday's" sensible when planning a future day too.
-    const { data } = await supabase.from("plans").select("raw_input").eq("user_id", user.id)
-      .lt("date", planDate).order("date", { ascending: false }).limit(1).maybeSingle();
-    if (data?.raw_input) { setInput(data.raw_input); toast.success("Loaded previous tasks"); }
+    // Use the most recent plan strictly BEFORE the date we're planning for
+    // *that actually had tasks*. Skip planless `raw_input` shells (which can
+    // happen after a failed AI generation) and strip any `[for:..]` /
+    // `[today]` quick-capture markers that were injected last time — those
+    // pollute the textarea otherwise.
+    const { data } = await supabase
+      .from("plans")
+      .select("raw_input, blocks!inner(id)")
+      .eq("user_id", user.id)
+      .lt("date", planDate)
+      .order("date", { ascending: false })
+      .limit(1)
+      .maybeSingle();
+    const raw = (data?.raw_input || "")
+      .split(/\r?\n/)
+      .map(line => line.replace(/^\[(today|for:\d{4}-\d{2}-\d{2})\]\s*/i, "").trim())
+      .filter(Boolean)
+      .join("\n");
+    if (raw) { setInput(raw); toast.success("Loaded previous tasks"); }
     else toast("No previous tasks found");
   };
 
@@ -302,10 +319,16 @@ export default function Today() {
         </div>
 
         {hasPlanForDate && (
-          <button onClick={() => nav(planDate === todayDateStr() ? "/today/plan" : `/today/plan?date=${planDate}`)} className="mt-4 w-full text-left text-sm text-primary hover:underline">
-            {planDate === todayDateStr()
-              ? "View today's existing plan →"
-              : `View existing plan for ${friendlyDateFor(parseDateStr(planDate))} →`}
+          <button
+            onClick={() => nav(planDate === todayDateStr() ? "/today/plan" : `/today/plan?date=${planDate}`)}
+            className="mt-4 w-full text-left rounded-xl bg-primary/5 border border-primary/20 px-3 py-2.5 pressable hover:border-primary/40 transition-colors"
+          >
+            <div className="text-[11px] uppercase tracking-wider text-primary font-semibold">
+              {planDate === todayDateStr() ? "Today's plan" : `Plan for ${friendlyDateFor(parseDateStr(planDate))}`}
+            </div>
+            <div className="text-sm text-foreground mt-0.5 truncate">
+              {existingSummary || "Open plan →"}
+            </div>
           </button>
         )}
 
