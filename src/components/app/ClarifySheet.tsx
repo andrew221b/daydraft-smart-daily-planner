@@ -4,7 +4,7 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import {
   Sparkles, Clock, X, Check, Loader2, Split, GripVertical,
-  ChevronDown, ChevronUp, ExternalLink, CalendarClock, Timer,
+  ChevronDown, ChevronUp, ExternalLink, CalendarClock, Timer, AlertTriangle,
 } from "lucide-react";
 import { supabase } from "@/integrations/supabase/client";
 import { toast } from "sonner";
@@ -39,6 +39,8 @@ interface Props {
   onOpenChange: (v: boolean) => void;
   rawInput: string;
   onConfirm: (tasks: ClarifiedTask[]) => void;
+  /** Date the plan is for, YYYY-MM-DD. Used to compute remaining hours. */
+  planDate?: string;
 }
 
 // naive parse: extract "30m"/"1h", "at 2pm", urgency hints
@@ -86,7 +88,7 @@ function localSplit(input: string): string[] {
     .filter(Boolean);
 }
 
-export function ClarifySheet({ open, onOpenChange, rawInput, onConfirm }: Props) {
+export function ClarifySheet({ open, onOpenChange, rawInput, onConfirm, planDate }: Props) {
   const initial = useMemo(
     () => localSplit(rawInput).map(parseLine),
     [rawInput],
@@ -208,6 +210,25 @@ export function ClarifySheet({ open, onOpenChange, rawInput, onConfirm }: Props)
   const hours = Math.floor(totalMin / 60);
   const mins = totalMin % 60;
 
+  // Capacity check: how many minutes are realistically left to fill?
+  // - Today: from now until 23:59 local.
+  // - Future date: a generous full waking day (16h) from 7am.
+  // We compare against the sum of estimates so the user notices when they
+  // overcommit (e.g. planning 8h at 11pm).
+  const capacityMin = useMemo(() => {
+    const today = new Date();
+    const y = today.getFullYear(), mo = today.getMonth(), d = today.getDate();
+    const todayKey = `${y}-${String(mo+1).padStart(2,"0")}-${String(d).padStart(2,"0")}`;
+    if (!planDate || planDate === todayKey) {
+      const endOfDay = new Date(y, mo, d, 23, 59, 0, 0);
+      return Math.max(0, Math.round((endOfDay.getTime() - today.getTime()) / 60000));
+    }
+    return 16 * 60; // future day budget
+  }, [planDate, open]);
+  const overCapacity = totalMin > capacityMin;
+  const capH = Math.floor(capacityMin / 60);
+  const capM = capacityMin % 60;
+
   return (
     <Sheet open={open} onOpenChange={onOpenChange}>
       <SheetContent side="bottom" className="rounded-t-3xl max-h-[94vh] overflow-y-auto p-0 border-border">
@@ -220,11 +241,20 @@ export function ClarifySheet({ open, onOpenChange, rawInput, onConfirm }: Props)
             </SheetTitle>
             <SheetDescription className="text-xs">
               {splitting ? "AI is splitting your tasks…" : "Drag to reorder · top = highest priority"} ·{" "}
-              <span className="text-primary font-medium">
+              <span className={overCapacity ? "text-destructive font-medium" : "text-primary font-medium"}>
                 {hours > 0 ? `${hours}h ` : ""}{mins}m total
               </span>
             </SheetDescription>
           </SheetHeader>
+          {overCapacity && tasks.length > 0 && (
+            <div className="mt-2 flex items-start gap-2 px-2.5 py-2 rounded-lg bg-destructive/10 border border-destructive/30">
+              <AlertTriangle className="h-3.5 w-3.5 text-destructive shrink-0 mt-0.5" />
+              <p className="text-[11px] text-destructive leading-snug">
+                Only <span className="font-semibold">{capH > 0 ? `${capH}h ` : ""}{capM}m</span> left
+                {planDate ? "" : " today"}. Trim tasks or move some to tomorrow.
+              </p>
+            </div>
+          )}
         </div>
 
         {/* List */}
@@ -371,14 +401,14 @@ function SortableTaskCard({ id, index: i, task: t, loadingAI, onUpdate, onRemove
           role="switch"
           aria-checked={!!t.track_time}
           onClick={() => onUpdate(i, { track_time: !t.track_time })}
-          className={`relative h-6 w-11 rounded-full transition-colors pressable ${
-            t.track_time ? "bg-primary" : "bg-background border border-border"
+          className={`relative h-7 w-12 rounded-full transition-colors pressable shrink-0 ${
+            t.track_time ? "bg-primary" : "bg-muted border border-border"
           }`}
           aria-label="Toggle time tracking for this task"
         >
           <span
-            className={`absolute top-0.5 h-5 w-5 rounded-full bg-white shadow transition-transform ${
-              t.track_time ? "translate-x-[22px]" : "translate-x-0.5"
+            className={`absolute top-1 h-5 w-5 rounded-full bg-white shadow-md transition-transform ${
+              t.track_time ? "translate-x-[26px]" : "translate-x-1"
             }`}
           />
         </button>
