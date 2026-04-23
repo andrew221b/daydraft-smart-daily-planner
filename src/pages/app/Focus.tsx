@@ -118,11 +118,18 @@ export default function Focus() {
     toast.success("+5 min added");
   };
 
-  // Auto-start time tracking when entering Focus, stop when leaving (only if started here)
-  const startedHereRef = useRef(false);
+  // Start time-tracking only if the user opted in for THIS task during planning.
+  // The choice is persisted per plan in localStorage (see Today.tsx).
   useEffect(() => {
     if (!block || !categories.length) return;
-    if (tracking) return; // honor existing session
+    if (tracking) return; // honor any existing session
+    let optedIn = false;
+    try {
+      const raw = localStorage.getItem(`dd_track_titles_${block.plan_id}`);
+      const titles: string[] = raw ? JSON.parse(raw) : [];
+      optedIn = titles.includes((block.title || "").trim().toLowerCase());
+    } catch {/* ignore */}
+    if (!optedIn) return;
     startedHereRef.current = true;
     startTracking(undefined, { source: "focus", blockId: block.id, note: block.title });
     // eslint-disable-next-line react-hooks/exhaustive-deps
