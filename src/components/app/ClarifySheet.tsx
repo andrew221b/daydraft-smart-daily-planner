@@ -273,9 +273,9 @@ export function ClarifySheet({ open, onOpenChange, rawInput, onConfirm, planDate
             </div>
           )}
           {hasPastFixed && (
-            <div className="mt-2 flex items-start gap-2 px-2.5 py-2 rounded-lg bg-amber-500/10 border border-amber-500/30">
-              <AlertTriangle className="h-3.5 w-3.5 text-amber-600 shrink-0 mt-0.5" />
-              <p className="text-[11px] text-amber-700 dark:text-amber-400 leading-snug">
+            <div className="mt-2 flex items-start gap-2 px-2.5 py-2 rounded-lg bg-destructive/10 border border-destructive/30">
+              <AlertTriangle className="h-3.5 w-3.5 text-destructive shrink-0 mt-0.5" />
+              <p className="text-[11px] text-destructive leading-snug">
                 {pastFixedIdxs.size === 1 ? "1 task is pinned to a time that's already passed." : `${pastFixedIdxs.size} tasks are pinned to times already passed.`} Update or clear the time.
               </p>
             </div>
