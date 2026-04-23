@@ -5,11 +5,12 @@ import { useAuth } from "@/hooks/useAuth";
 import { useProfile } from "@/hooks/useProfile";
 import { supabase } from "@/integrations/supabase/client";
 import { Block, todayDateStr } from "@/lib/daydraft";
-import { Sparkles, Clock, RotateCcw } from "lucide-react";
+import { Sparkles, Clock, RotateCcw, TrendingUp, Smile, Meh, Frown } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { useTimeTracker, fmtHM } from "@/hooks/useTimeTracker";
 import { toast } from "sonner";
 import { haptics } from "@/lib/haptics";
+import { Confetti } from "@/components/app/Confetti";
 
 export default function Recap() {
   const { user } = useAuth();
@@ -20,6 +21,9 @@ export default function Recap() {
   const { todayTotalSec, categories, refresh: refreshTracker } = useTimeTracker();
   const [backfilled, setBackfilled] = useState(false);
   const [carriedOver, setCarriedOver] = useState(false);
+  const [mood, setMood] = useState<"good" | "ok" | "bad" | null>(null);
+  const [lastWeekFocusMin, setLastWeekFocusMin] = useState<number | null>(null);
+  const [confettiFired, setConfettiFired] = useState(false);
 
   useEffect(() => {
     if (!user) return;
@@ -29,6 +33,22 @@ export default function Recap() {
       const { data: bs } = await supabase.from("blocks").select("*").eq("plan_id", p.id).order("position");
       const list = (bs || []) as Block[];
       setBlocks(list);
+      // Average completed deep_work min/day across last 7 days (excluding today)
+      const sevenAgo = new Date();
+      sevenAgo.setDate(sevenAgo.getDate() - 7);
+      const { data: prev } = await supabase
+        .from("blocks")
+        .select("duration_min, plans!inner(date)")
+        .eq("user_id", user.id)
+        .eq("kind", "task")
+        .eq("type", "deep_work")
+        .eq("completed", true)
+        .gte("plans.date", sevenAgo.toISOString().slice(0, 10))
+        .lt("plans.date", todayDateStr());
+      if (prev) {
+        const total = (prev as any[]).reduce((s, r) => s + (r.duration_min || 0), 0);
+        setLastWeekFocusMin(Math.round(total / 7));
+      }
       try {
         const { data } = await supabase.functions.invoke("generate-insight", {
           body: { blocks: list, energy_preference: profile?.energy_preference || "morning" },
@@ -45,6 +65,31 @@ export default function Recap() {
   const completedMin = tasks.filter(b => b.completed).reduce((s, b) => s + b.duration_min, 0);
   const eff = plannedMin ? Math.round((completedMin / plannedMin) * 100) : 0;
   const fh = Math.floor(focusMin / 60), fm = focusMin % 60;
+
+  // Fire confetti once when 100% of tasks are done
+  useEffect(() => {
+    if (tasks.length > 0 && done === tasks.length && !confettiFired) {
+      setConfettiFired(true);
+      haptics.notify("success");
+    }
+  }, [tasks.length, done, confettiFired]);
+
+  const weekDelta = lastWeekFocusMin != null && lastWeekFocusMin > 0
+    ? Math.round(((focusMin - lastWeekFocusMin) / lastWeekFocusMin) * 100)
+    : null;
+
+  const recordMood = (m: "good" | "ok" | "bad") => {
+    haptics.selection();
+    setMood(m);
+    if (user) {
+      supabase.from("quick_captures").insert({
+        user_id: user.id,
+        content: `[mood:${m}] ${todayDateStr()}`,
+        consumed: true,
+      } as any);
+    }
+    toast.success("Thanks — that helps tune your plans");
+  };
 
   // "Forgot to track?" — completed focus minutes vs tracked seconds today
   const completedFocusSec = tasks.filter(b => b.completed).reduce((s, b) => s + b.duration_min * 60, 0);
@@ -99,6 +144,7 @@ export default function Recap() {
 
   return (
     <Shell>
+      <Confetti fire={confettiFired} />
       <div className="relative">
         <div className="absolute inset-x-0 top-0 h-72 pointer-events-none" style={{ background: "var(--gradient-glow)" }} />
         <div className="relative px-6 pt-16">
@@ -109,6 +155,37 @@ export default function Recap() {
             <Stat label="Tasks done" value={`${done}/${tasks.length}`} />
             <Stat label="Focus time" value={`${fh}h ${fm}m`} />
             <Stat label="Efficiency" value={`${eff}%`} />
+          </div>
+
+          {weekDelta != null && (
+            <div className="mt-3 flex items-center justify-center gap-1.5 text-xs text-secondary-fg">
+              <TrendingUp className={`h-3.5 w-3.5 ${weekDelta >= 0 ? "text-success" : "text-destructive"}`} />
+              {weekDelta >= 0
+                ? <span><span className="text-success font-semibold">+{weekDelta}%</span> deep work vs last week's daily avg</span>
+                : <span><span className="text-destructive font-semibold">{weekDelta}%</span> vs last week's daily avg</span>}
+            </div>
+          )}
+
+          <div className="mt-6 rounded-2xl bg-surface border border-border p-4">
+            <div className="text-[11px] uppercase tracking-wider text-secondary-fg mb-2">How did today feel?</div>
+            <div className="flex gap-2">
+              {([
+                { k: "good" as const, Icon: Smile, label: "Great" },
+                { k: "ok" as const, Icon: Meh, label: "OK" },
+                { k: "bad" as const, Icon: Frown, label: "Rough" },
+              ]).map(({ k, Icon, label }) => (
+                <button
+                  key={k}
+                  onClick={() => recordMood(k)}
+                  className={`flex-1 flex flex-col items-center gap-1 py-2.5 rounded-xl border pressable ${
+                    mood === k ? "bg-primary/10 border-primary/40 text-primary" : "bg-background border-border text-secondary-fg"
+                  }`}
+                >
+                  <Icon className="h-5 w-5" />
+                  <span className="text-[11px] font-medium">{label}</span>
+                </button>
+              ))}
+            </div>
           </div>
 
           {showRecover && (
