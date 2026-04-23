@@ -213,23 +213,6 @@ export default function Today() {
             setInput(prev => prev ? block + "\n" + prev : block);
             toast.success(titles.length === 1 ? "Carried over" : `Carried over ${titles.length} tasks`);
           }} />
-          {yesterdayPreview && !input && (
-            <button
-              onClick={() => { setInput(yesterdayPreview); haptics.tap(); toast.success("Loaded yesterday's tasks"); }}
-              className="mb-3 w-full flex items-center justify-between gap-3 px-4 py-3 rounded-2xl border border-primary/30 bg-primary/5 pressable text-left"
-            >
-              <div className="flex items-center gap-2 min-w-0">
-                <RotateCw className="h-4 w-4 text-primary shrink-0" />
-                <div className="min-w-0">
-                  <div className="text-sm font-medium">Plan like yesterday</div>
-                  <div className="text-xs text-secondary-fg truncate">
-                    {yesterdayPreview.split(/\r?\n/).filter(Boolean).slice(0, 3).join(" · ")}
-                  </div>
-                </div>
-              </div>
-              <span className="text-xs font-semibold text-primary shrink-0">Use →</span>
-            </button>
-          )}
           <Textarea
             data-tour="today-input"
             value={input} onChange={e => setInput(e.target.value)} placeholder={DEFAULT_PLACEHOLDER}
