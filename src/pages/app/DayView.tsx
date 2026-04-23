@@ -372,7 +372,7 @@ export default function DayView() {
         )}
       </div>
 
-      {firstUnfinishedTask && (
+      {!planMissing && !isFuture && firstUnfinishedTask && (
         <div className="px-5 mt-3">
           <button onClick={replanRest} disabled={replanning}
             className="w-full inline-flex items-center justify-center gap-2 px-3 py-2 rounded-full bg-surface border border-border text-xs text-secondary-fg pressable hover:text-primary hover:border-primary/30">
@@ -382,6 +382,7 @@ export default function DayView() {
         </div>
       )}
 
+      {!planMissing && (
       <div className="px-5 mt-6">
         {loading && <SkeletonBlock count={4} />}
         {!loading && (
