@@ -10,6 +10,16 @@ import { useTimeTracker, fmtHMS } from "@/hooks/useTimeTracker";
 import { haptics } from "@/lib/haptics";
 import { PreflightSheet } from "@/components/app/PreflightSheet";
 import { QuickCaptureButton } from "@/components/app/QuickCapture";
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+} from "@/components/ui/alert-dialog";
 
 type AIHelp = {
   substeps: string[];
@@ -37,6 +47,7 @@ export default function Focus() {
   const [armed, setArmed] = useState(false);
   const [extended, setExtended] = useState(false);
   const startedHereRef = useRef(false);
+  const [confirmSkipOpen, setConfirmSkipOpen] = useState(false);
 
   useEffect(() => {
     if (!blockId || !user) return;
