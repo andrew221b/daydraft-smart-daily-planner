@@ -90,13 +90,10 @@ export default function Recap() {
   const recordMood = (m: "good" | "ok" | "bad") => {
     haptics.selection();
     setMood(m);
-    if (user) {
-      supabase.from("quick_captures").insert({
-        user_id: user.id,
-        content: `[mood:${m}] ${viewDate}`,
-        consumed: true,
-      } as any);
-    }
+    // Mood is intentionally local-only: storing it as a `quick_capture` polluted
+    // the inbox with `[mood:*]` pseudo-tasks. Until there's a dedicated table,
+    // keep moods on-device — they're used for nothing on the backend yet.
+    try { localStorage.setItem(`dd_mood_${viewDate}`, m); } catch {/* ignore */}
     toast.success("Thanks — that helps tune your plans");
   };
 
