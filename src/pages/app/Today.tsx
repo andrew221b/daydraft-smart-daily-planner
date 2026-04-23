@@ -63,7 +63,13 @@ export default function Today() {
     })();
   }, [user?.id]);
 
-  // Tour can be started manually from Settings — auto-starting it intercepts clicks.
+  // Auto-start tour ONCE for new users (after onboarding). `tour.start` is a no-op if `tour_seen.today` is true.
+  useEffect(() => {
+    if (!profile?.onboarded) return;
+    if (profile.tour_seen && (profile.tour_seen as any).today) return;
+    const t = setTimeout(() => tour.start(TOUR_TODAY), 800);
+    return () => clearTimeout(t);
+  }, [profile?.onboarded, profile?.tour_seen]);
 
   const useYesterday = async () => {
     if (!user) return;
