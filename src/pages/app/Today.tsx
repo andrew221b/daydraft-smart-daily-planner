@@ -259,15 +259,46 @@ export default function Today() {
         </div>
 
         {hasToday && (
-          <button onClick={() => nav("/today/plan")} className="mt-4 w-full text-left text-sm text-primary hover:underline">
-            View today's existing plan →
+          <button onClick={() => nav(planDate === todayDateStr() ? "/today/plan" : `/today/plan?date=${planDate}`)} className="mt-4 w-full text-left text-sm text-primary hover:underline">
+            View existing plan for {friendlyDateFor(parseDateStr(planDate))} →
           </button>
         )}
 
         <div className="mt-8">
+          <div className="flex items-center justify-between mb-2 px-1">
+            <span className="text-[11px] text-secondary-fg uppercase tracking-wider">Plan for</span>
+            <Popover open={datePopoverOpen} onOpenChange={setDatePopoverOpen}>
+              <PopoverTrigger asChild>
+                <button
+                  className={cn(
+                    "inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full border text-xs pressable",
+                    planDate === todayDateStr()
+                      ? "bg-surface border-border text-secondary-fg"
+                      : "bg-primary/10 border-primary/30 text-primary"
+                  )}
+                >
+                  <CalendarDays className="h-3.5 w-3.5" />
+                  {friendlyDateFor(parseDateStr(planDate))}
+                </button>
+              </PopoverTrigger>
+              <PopoverContent className="w-auto p-0" align="end">
+                <Calendar
+                  mode="single"
+                  selected={parseDateStr(planDate)}
+                  onSelect={(d) => { if (d) { setPlanDate(dateStr(d)); setDatePopoverOpen(false); } }}
+                  disabled={(d) => {
+                    const today = new Date(); today.setHours(0,0,0,0);
+                    return d < today;
+                  }}
+                  initialFocus
+                  className={cn("p-3 pointer-events-auto")}
+                />
+              </PopoverContent>
+            </Popover>
+          </div>
           <Button data-tour="today-plan" onClick={openClarify} disabled={busy} className="w-full h-13 py-3.5 rounded-xl text-primary-foreground text-base font-medium pressable shadow-glow"
             style={{ background: "var(--gradient-primary)" }}>
-            Plan My Day <ArrowRight className="h-4 w-4" />
+            {planDate === todayDateStr() ? "Plan My Day" : `Plan ${friendlyDateFor(parseDateStr(planDate))}`} <ArrowRight className="h-4 w-4" />
           </Button>
           <p className="text-xs text-secondary-fg text-center mt-2">
             Next: confirm AI time estimates · pin meetings · then auto-schedule
