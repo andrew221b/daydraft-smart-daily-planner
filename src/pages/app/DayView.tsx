@@ -54,8 +54,13 @@ export default function DayView() {
   const { profile } = useProfile();
   const nav = useNavigate();
   const tour = useTour();
+  const [searchParams] = useSearchParams();
+  const viewDate = searchParams.get("date") || todayDateStr();
+  const isFuture = isFutureDateStr(viewDate);
+  const isToday = viewDate === todayDateStr();
   const [plan, setPlan] = useState<{ id: string; ai_summary: string | null; ai_subtext: string | null } | null>(null);
   const [blocks, setBlocks] = useState<ExBlock[]>([]);
+  const [planMissing, setPlanMissing] = useState(false);
   const [editing, setEditing] = useState(false);
   const [now, setNow] = useState(new Date());
   const [reasoningBlock, setReasoningBlock] = useState<ExBlock | null>(null);
@@ -89,15 +94,23 @@ export default function DayView() {
     if (!user) return;
     (async () => {
       setLoading(true);
+      setPlanMissing(false);
       const { data: p } = await supabase.from("plans").select("id, ai_summary, ai_subtext")
-        .eq("user_id", user.id).eq("date", todayDateStr()).maybeSingle();
-      if (!p) { nav("/today"); return; }
+        .eq("user_id", user.id).eq("date", viewDate).maybeSingle();
+      if (!p) {
+        // No silent redirect — show an empty state so the user understands what happened.
+        setPlan(null);
+        setBlocks([]);
+        setPlanMissing(true);
+        setLoading(false);
+        return;
+      }
       setPlan(p);
       const { data: bs } = await supabase.from("blocks").select("*").eq("plan_id", p.id).order("position");
       setBlocks((bs || []) as ExBlock[]);
       setLoading(false);
     })();
-  }, [user?.id]);
+  }, [user?.id, viewDate]);
 
   const removeBlock = async (id: string) => {
     // Universal undo: snapshot, delete, offer 5s undo.
