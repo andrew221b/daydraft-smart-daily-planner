@@ -36,6 +36,7 @@ export default function Focus() {
   const [preflightOpen, setPreflightOpen] = useState(false);
   const [armed, setArmed] = useState(false);
   const [extended, setExtended] = useState(false);
+  const startedHereRef = useRef(false);
 
   useEffect(() => {
     if (!blockId || !user) return;
