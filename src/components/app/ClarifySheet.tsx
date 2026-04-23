@@ -401,14 +401,14 @@ function SortableTaskCard({ id, index: i, task: t, loadingAI, onUpdate, onRemove
           role="switch"
           aria-checked={!!t.track_time}
           onClick={() => onUpdate(i, { track_time: !t.track_time })}
-          className={`relative h-6 w-11 rounded-full transition-colors pressable ${
-            t.track_time ? "bg-primary" : "bg-background border border-border"
+          className={`relative h-7 w-12 rounded-full transition-colors pressable shrink-0 ${
+            t.track_time ? "bg-primary" : "bg-muted border border-border"
           }`}
           aria-label="Toggle time tracking for this task"
         >
           <span
-            className={`absolute top-0.5 h-5 w-5 rounded-full bg-white shadow transition-transform ${
-              t.track_time ? "translate-x-[22px]" : "translate-x-0.5"
+            className={`absolute top-1 h-5 w-5 rounded-full bg-white shadow-md transition-transform ${
+              t.track_time ? "translate-x-[26px]" : "translate-x-1"
             }`}
           />
         </button>
