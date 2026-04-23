@@ -38,6 +38,7 @@ export default function Today() {
   const [input, setInput] = useState("");
   const [busy, setBusy] = useState(false);
   const [hasPlanForDate, setHasPlanForDate] = useState(false);
+  const [existingSummary, setExistingSummary] = useState<string | null>(null);
   const [templates, setTemplates] = useState<{ id: string; name: string; raw_input: string }[]>([]);
   const [clarifyOpen, setClarifyOpen] = useState(false);
   // Date the user is planning for. Defaults to today; can be set to any future date.
@@ -49,10 +50,12 @@ export default function Today() {
     // A plan is "real" only if it has at least one block. An emptied plan
     // (user deleted every task) shouldn't show the "View existing plan" CTA.
     (async () => {
-      const { data: p } = await supabase.from("plans").select("id").eq("user_id", user.id).eq("date", planDate).maybeSingle();
-      if (!p) { setHasPlanForDate(false); return; }
+      const { data: p } = await supabase.from("plans").select("id, ai_summary").eq("user_id", user.id).eq("date", planDate).maybeSingle();
+      if (!p) { setHasPlanForDate(false); setExistingSummary(null); return; }
       const { count } = await supabase.from("blocks").select("id", { count: "exact", head: true }).eq("plan_id", p.id);
-      setHasPlanForDate((count ?? 0) > 0);
+      const has = (count ?? 0) > 0;
+      setHasPlanForDate(has);
+      setExistingSummary(has ? (p.ai_summary || null) : null);
     })();
     // Pull saved templates
     supabase.from("block_templates").select("id, name, raw_input").eq("user_id", user.id).order("created_at", { ascending: false })
@@ -316,10 +319,16 @@ export default function Today() {
         </div>
 
         {hasPlanForDate && (
-          <button onClick={() => nav(planDate === todayDateStr() ? "/today/plan" : `/today/plan?date=${planDate}`)} className="mt-4 w-full text-left text-sm text-primary hover:underline">
-            {planDate === todayDateStr()
-              ? "View today's existing plan →"
-              : `View existing plan for ${friendlyDateFor(parseDateStr(planDate))} →`}
+          <button
+            onClick={() => nav(planDate === todayDateStr() ? "/today/plan" : `/today/plan?date=${planDate}`)}
+            className="mt-4 w-full text-left rounded-xl bg-primary/5 border border-primary/20 px-3 py-2.5 pressable hover:border-primary/40 transition-colors"
+          >
+            <div className="text-[11px] uppercase tracking-wider text-primary font-semibold">
+              {planDate === todayDateStr() ? "Today's plan" : `Plan for ${friendlyDateFor(parseDateStr(planDate))}`}
+            </div>
+            <div className="text-sm text-foreground mt-0.5 truncate">
+              {existingSummary || "Open plan →"}
+            </div>
           </button>
         )}
 
