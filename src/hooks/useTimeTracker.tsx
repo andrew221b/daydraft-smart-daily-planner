@@ -60,14 +60,15 @@ export function TimeTrackerProvider({ children }: { children: ReactNode }) {
     setCategories((catsRes.data || []) as TimeCategory[]);
     let running = (runRes.data?.[0] as TimeEntry) || null;
     // Auto-close stale runs: anything still open after 8h is almost certainly
-    // a forgotten timer. Cap it at 8h from started_at and surface the recovery.
+    // a forgotten timer (e.g. user fell asleep). DROP it rather than crediting
+    // the user with hours they didn't actually work — false data is worse than
+    // missing data. We delete the entry entirely and notify on recovery.
     if (running) {
       const startedMs = new Date(running.started_at).getTime();
       const ageHours = (Date.now() - startedMs) / 3_600_000;
       if (ageHours > 8) {
-        const cappedEnd = new Date(startedMs + 8 * 3_600_000).toISOString();
-        await supabase.from("time_entries").update({ ended_at: cappedEnd }).eq("id", running.id);
-        toast("⏱ Closed a forgotten timer (capped at 8h)");
+        await supabase.from("time_entries").delete().eq("id", running.id);
+        toast("⏱ Dropped a forgotten timer (>8h). Log it manually if needed.", { duration: 5000 });
         running = null;
       }
     }

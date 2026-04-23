@@ -9,7 +9,7 @@ const corsHeaders = {
 serve(async (req) => {
   if (req.method === "OPTIONS") return new Response(null, { headers: corsHeaders });
   try {
-    const { raw_input, energy_preference, name, mode, start_time, clarified_tasks } = await req.json();
+    const { raw_input, energy_preference, name, mode, start_time, clarified_tasks, plan_date, now_iso, timezone } = await req.json();
     if (!raw_input || typeof raw_input !== "string") {
       return new Response(JSON.stringify({ error: "raw_input required" }), { status: 400, headers: { ...corsHeaders, "Content-Type": "application/json" } });
     }
@@ -55,7 +55,35 @@ serve(async (req) => {
     };
     const peak = peakMap[energy_preference] || peakMap.morning;
     const defaultStart = energy_preference === "night" ? 18 : 9;
-    const startHour = start_time ? start_time.split(":")[0] : String(defaultStart).padStart(2, "0");
+    // Compute local "now" in the user's timezone if provided.
+    const nowDate = now_iso ? new Date(now_iso) : new Date();
+    const todayLocal = (() => {
+      try {
+        return new Intl.DateTimeFormat("en-CA", { timeZone: timezone || "UTC" }).format(nowDate);
+      } catch { return nowDate.toISOString().slice(0, 10); }
+    })();
+    const isPlanningToday = !plan_date || plan_date === todayLocal;
+    const nowHHMM = (() => {
+      try {
+        return new Intl.DateTimeFormat("en-GB", { timeZone: timezone || "UTC", hour: "2-digit", minute: "2-digit", hour12: false }).format(nowDate);
+      } catch { return `${String(nowDate.getHours()).padStart(2,"0")}:${String(nowDate.getMinutes()).padStart(2,"0")}`; }
+    })();
+    // For today: never schedule before "now". Round up to the next 5-min mark.
+    let earliestStart: string;
+    if (isPlanningToday) {
+      const [hh, mm] = nowHHMM.split(":").map(Number);
+      const rounded = Math.ceil((mm + 1) / 5) * 5;
+      const eh = rounded >= 60 ? hh + 1 : hh;
+      const em = rounded >= 60 ? 0 : rounded;
+      earliestStart = `${String(Math.min(23, eh)).padStart(2, "0")}:${String(em).padStart(2, "0")}`;
+    } else {
+      earliestStart = start_time || `${String(defaultStart).padStart(2, "0")}:00`;
+    }
+    const startHour = earliestStart.split(":")[0];
+    // Hours remaining today (until 23:59).
+    const hoursLeftToday = isPlanningToday
+      ? Math.max(0, 23 - parseInt(nowHHMM.split(":")[0], 10) + (parseInt(nowHHMM.split(":")[1], 10) < 30 ? 0.5 : 0))
+      : 16;
 
     const isReplan = mode === "replan";
     const clarifiedHints = Array.isArray(clarified_tasks) && clarified_tasks.length ? `
@@ -84,12 +112,17 @@ FIXED calendar events you must schedule around (do not move, do not duplicate; e
 ${calendarEvents.map((e: any) => `- ${e.start_time} (${e.duration_min}m) ${e.title}`).join("\n")}` : "";
 
     const system = `You are DayDraft, an expert productivity planner. Build a realistic, energy-aware schedule from a raw task list.
+Context:
+- Current local time: ${nowHHMM} (${timezone || "UTC"}).
+- Planning date: ${plan_date || todayLocal} ${isPlanningToday ? "(TODAY)" : "(future date)"}.
+- Hours remaining: ~${hoursLeftToday.toFixed(1)}h.
 Rules:
-- Front-load deep work in the user's peak window (${peak}).
+- Front-load deep work in the user's peak window (${peak}) ONLY if it's still ahead.
 - Batch communication into 1-2 blocks, ideally after the peak.
-- Insert one 15-min break after ~2h of deep work, and a 60-min lunch around 12:00 (or 18:00 for night owls).
+- Insert one 15-min break after ~2h of deep work, and a 60-min lunch around 12:00 (or 18:00 for night owls) ONLY if it's still ahead.
 - Each task block: 25-90 min. Keep total day under 8 working hours.
-- Day starts around ${startHour}:00.${isReplan ? " This is a MID-DAY RE-PLAN — start now and only schedule what's left." : ""}
+- ${isPlanningToday ? `THIS IS TODAY. The first block MUST start at or after ${earliestStart}. NEVER schedule any block in the past. If the peak window has already passed, do deep work now anyway.` : `Day starts around ${startHour}:00.`}${isReplan ? " This is a MID-DAY RE-PLAN — start now and only schedule what's left." : ""}
+- If total estimated work exceeds the hours remaining, drop the lowest-priority items and mention it in the subtext.
 - Classify each task as deep_work, communication, or routine.
 - Use kind="task" for actual tasks, "break" for breaks, "lunch" for lunch.
 - Extract location hints from raw text (e.g. "gym at 2pm", "lunch at Blue Bottle Mission") and include a short location string.

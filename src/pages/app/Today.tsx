@@ -37,7 +37,7 @@ export default function Today() {
   const [upgradeReason, setUpgradeReason] = useState<"quota" | "feature" | "trial-banner">("feature");
   const [input, setInput] = useState("");
   const [busy, setBusy] = useState(false);
-  const [hasToday, setHasToday] = useState(false);
+  const [hasPlanForDate, setHasPlanForDate] = useState(false);
   const [templates, setTemplates] = useState<{ id: string; name: string; raw_input: string }[]>([]);
   const [clarifyOpen, setClarifyOpen] = useState(false);
   // Date the user is planning for. Defaults to today; can be set to any future date.
@@ -47,11 +47,14 @@ export default function Today() {
   useEffect(() => {
     if (!user) return;
     supabase.from("plans").select("id").eq("user_id", user.id).eq("date", planDate).maybeSingle()
-      .then(({ data }) => setHasToday(!!data));
+      .then(({ data }) => setHasPlanForDate(!!data));
     // Pull saved templates
     supabase.from("block_templates").select("id, name, raw_input").eq("user_id", user.id).order("created_at", { ascending: false })
       .then(({ data }) => setTemplates((data || []) as any));
-    // Pull unconsumed quick captures and auto-prepend
+    // Pull unconsumed quick captures and auto-prepend — ONLY when planning today.
+    // Captures are about "right now" intent; dropping them into tomorrow's plan
+    // silently would lose context.
+    if (planDate !== todayDateStr()) return;
     (async () => {
       const { data: caps } = await supabase.from("quick_captures").select("*").eq("user_id", user.id).eq("consumed", false);
       if (caps && caps.length) {
@@ -73,9 +76,11 @@ export default function Today() {
 
   const useYesterday = async () => {
     if (!user) return;
+    // Use the most recent plan strictly BEFORE the date we're planning for.
+    // This makes "Use yesterday's" sensible when planning a future day too.
     const { data } = await supabase.from("plans").select("raw_input").eq("user_id", user.id)
-      .lt("date", todayDateStr()).order("date", { ascending: false }).limit(1).maybeSingle();
-    if (data?.raw_input) { setInput(data.raw_input); toast.success("Loaded yesterday's tasks"); }
+      .lt("date", planDate).order("date", { ascending: false }).limit(1).maybeSingle();
+    if (data?.raw_input) { setInput(data.raw_input); toast.success("Loaded previous tasks"); }
     else toast("No previous tasks found");
   };
 
@@ -109,14 +114,24 @@ export default function Today() {
   const openClarify = async () => {
     if (!input.trim()) { toast.error("Add at least one task"); return; }
     if (!user || !profile) return;
-    try {
-      const { data: q } = await supabase.functions.invoke("check-plan-quota", { body: {} });
-      if (q && q.allowed === false) {
-        setUpgradeReason("quota");
-        setUpgradeOpen(true);
-        return;
+    // Quota only applies to today. Future plans are unmetered to encourage planning ahead.
+    if (planDate === todayDateStr()) {
+      try {
+        const { data: q } = await supabase.functions.invoke("check-plan-quota", { body: {} });
+        if (q && q.allowed === false) {
+          setUpgradeReason("quota");
+          setUpgradeOpen(true);
+          return;
+        }
+      } catch {/* fail open */}
+    }
+    // Warn if planning tomorrow while today is still un-planned (streak risk).
+    if (planDate !== todayDateStr()) {
+      const { data: todayPlan } = await supabase.from("plans").select("id").eq("user_id", user.id).eq("date", todayDateStr()).maybeSingle();
+      if (!todayPlan) {
+        toast("Heads up: you haven't planned today yet — your streak only counts today's plan.", { duration: 4500 });
       }
-    } catch {/* fail open */}
+    }
     setClarifyOpen(true);
   };
 
@@ -135,6 +150,9 @@ export default function Today() {
           energy_preference: profile.energy_preference,
           name: profile.display_name,
           clarified_tasks: clarified,
+          plan_date: planDate,
+          now_iso: new Date().toISOString(),
+          timezone: profile.timezone || Intl.DateTimeFormat().resolvedOptions().timeZone,
         },
       });
       await minWait;
@@ -174,8 +192,16 @@ export default function Today() {
         // Streak only counts plans for today; planning ahead doesn't bump it.
         if (planDate === todayDateStr()) {
           const res = await recordPlanToday();
-          if (res?.freezeUsed) toast("🧊 Streak freeze used — you're safe");
-          if (res?.milestone) toast.success(`🔥 ${res.milestone}-day streak! Incredible.`);
+          // Suppress duplicate streak toasts within the same day across page
+          // reloads. The hook's in-memory ref resets on refresh; we persist a
+          // marker so re-planning today doesn't spam the user.
+          const dayKey = `dd_streak_toast_${todayDateStr()}`;
+          const alreadyToasted = (() => { try { return localStorage.getItem(dayKey) === "1"; } catch { return false; } })();
+          if (!alreadyToasted) {
+            if (res?.freezeUsed) toast("🧊 Streak freeze used — you're safe");
+            if (res?.milestone) toast.success(`🔥 ${res.milestone}-day streak! Incredible.`);
+            try { localStorage.setItem(dayKey, "1"); } catch {/* ignore */}
+          }
         }
       } catch {/* ignore */}
       nav(planDate === todayDateStr() ? "/today/plan" : `/today/plan?date=${planDate}`);
@@ -258,7 +284,7 @@ export default function Today() {
           ))}
         </div>
 
-        {hasToday && (
+        {hasPlanForDate && (
           <button onClick={() => nav(planDate === todayDateStr() ? "/today/plan" : `/today/plan?date=${planDate}`)} className="mt-4 w-full text-left text-sm text-primary hover:underline">
             View existing plan for {friendlyDateFor(parseDateStr(planDate))} →
           </button>

@@ -229,6 +229,23 @@ export function ClarifySheet({ open, onOpenChange, rawInput, onConfirm, planDate
   const capH = Math.floor(capacityMin / 60);
   const capM = capacityMin % 60;
 
+  // Detect tasks pinned to a time that's already in the past (today only).
+  const pastFixedIdxs = useMemo(() => {
+    const today = new Date();
+    const y = today.getFullYear(), mo = today.getMonth(), d = today.getDate();
+    const todayKey = `${y}-${String(mo+1).padStart(2,"0")}-${String(d).padStart(2,"0")}`;
+    if (planDate && planDate !== todayKey) return new Set<number>();
+    const nowMin = today.getHours() * 60 + today.getMinutes();
+    const out = new Set<number>();
+    tasks.forEach((t, i) => {
+      if (!t.fixed_time) return;
+      const [h, m] = t.fixed_time.split(":").map(Number);
+      if (Number.isFinite(h) && Number.isFinite(m) && h * 60 + m < nowMin) out.add(i);
+    });
+    return out;
+  }, [tasks, planDate, open]);
+  const hasPastFixed = pastFixedIdxs.size > 0;
+
   return (
     <Sheet open={open} onOpenChange={onOpenChange}>
       <SheetContent side="bottom" className="rounded-t-3xl max-h-[94vh] overflow-y-auto p-0 border-border">
@@ -251,7 +268,15 @@ export function ClarifySheet({ open, onOpenChange, rawInput, onConfirm, planDate
               <AlertTriangle className="h-3.5 w-3.5 text-destructive shrink-0 mt-0.5" />
               <p className="text-[11px] text-destructive leading-snug">
                 Only <span className="font-semibold">{capH > 0 ? `${capH}h ` : ""}{capM}m</span> left
-                {planDate ? "" : " today"}. Trim tasks or move some to tomorrow.
+                {(!planDate) ? " today" : ""}. Trim tasks or move some to tomorrow.
+              </p>
+            </div>
+          )}
+          {hasPastFixed && (
+            <div className="mt-2 flex items-start gap-2 px-2.5 py-2 rounded-lg bg-destructive/10 border border-destructive/30">
+              <AlertTriangle className="h-3.5 w-3.5 text-destructive shrink-0 mt-0.5" />
+              <p className="text-[11px] text-destructive leading-snug">
+                {pastFixedIdxs.size === 1 ? "1 task is pinned to a time that's already passed." : `${pastFixedIdxs.size} tasks are pinned to times already passed.`} Update or clear the time.
               </p>
             </div>
           )}
@@ -289,11 +314,11 @@ export function ClarifySheet({ open, onOpenChange, rawInput, onConfirm, planDate
                 tasks.map(({ ai_estimate_min, ai_reason, ai_links, ai_should_split, ai_split_into, ...rest }) => rest),
               )
             }
-            disabled={tasks.length === 0}
+            disabled={tasks.length === 0 || hasPastFixed}
             className="w-full h-12 rounded-xl text-primary-foreground text-base font-medium pressable shadow-glow"
             style={{ background: "var(--gradient-primary)" }}
           >
-            Plan my day <Sparkles className="h-4 w-4 ml-1" />
+            {hasPastFixed ? "Fix past times to continue" : <>Plan my day <Sparkles className="h-4 w-4 ml-1" /></>}
           </Button>
         </div>
       </SheetContent>
