@@ -59,6 +59,7 @@ export default function Focus() {
     setTotal(1);
     setShowCheck(false);
     setExtended(false);
+    setExtendedMin(0);
     setArmed(false);
     setHelp(null);
     setHelpOpen(false);
@@ -77,9 +78,10 @@ export default function Focus() {
         .eq("kind", "task").eq("completed", false).eq("is_calendar_event", false)
         .gt("position", data.position).order("position").limit(1);
       setNext((rest?.[0] as Block) || null);
-      // Show preflight on first visit per session (only on initial entry —
-      // skip when transitioning between focus blocks).
-      if (!sessionStorage.getItem("dd_preflight_seen") && !sessionStorage.getItem("dd_focus_active")) {
+      // Show preflight on first visit per session — unless the user opted out.
+      // Skip on intra-session block transitions to avoid nagging.
+      const optedOut = (() => { try { return localStorage.getItem("dd_preflight_disabled") === "1"; } catch { return false; } })();
+      if (!optedOut && !sessionStorage.getItem("dd_preflight_seen") && !sessionStorage.getItem("dd_focus_active")) {
         setPreflightOpen(true);
       } else {
         setArmed(true);
@@ -124,12 +126,19 @@ export default function Focus() {
     // eslint-disable-next-line
   }, [remaining]);
 
+  const EXTEND_CAP_MIN = 60; // hard cap on cumulative extensions per block
+  const [extendedMin, setExtendedMin] = useState(0);
   const extendFiveMin = () => {
+    if (extendedMin + 5 > EXTEND_CAP_MIN) {
+      toast("Already extended an hour. Wrap up or mark complete.", { duration: 3500 });
+      return;
+    }
     setRemaining(r => r + 5 * 60);
     setTotal(t => t + 5 * 60);
+    setExtendedMin(m => m + 5);
     setExtended(true);
     haptics.tap();
-    toast.success("+5 min added");
+    toast.success(`+5 min · ${extendedMin + 5}/${EXTEND_CAP_MIN}m extended`);
   };
 
   // Start time-tracking only if the user opted in for THIS task during planning.
@@ -189,7 +198,14 @@ export default function Focus() {
     if (!block) return;
     haptics.notify("success");
     setShowCheck(true);
-    await supabase.from("blocks").update({ completed: true }).eq("id", block.id);
+    // Persist completion BEFORE navigating so a flaky network can't leave the
+    // block stuck as incomplete after we've already advanced the user.
+    const { error } = await supabase.from("blocks").update({ completed: true }).eq("id", block.id);
+    if (error) {
+      setShowCheck(false);
+      toast.error("Couldn't save — try again");
+      return;
+    }
     if (startedHereRef.current && tracking) {
       try { await stopTracking(); } catch {/* ignore */}
       startedHereRef.current = false;
@@ -197,7 +213,7 @@ export default function Focus() {
     setTimeout(() => {
       if (next) nav(`/focus/${next.id}`);
       else nav("/recap");
-    }, 800);
+    }, 600);
   };
 
   const skip = async () => {
@@ -298,7 +314,14 @@ export default function Focus() {
         </div>
 
         <div className="flex items-center gap-3 mt-14 w-full">
-          <button onClick={extendFiveMin} className="h-12 px-3 rounded-xl bg-surface border border-border text-sm font-medium pressable flex items-center gap-1.5">
+          <button
+            onClick={extendFiveMin}
+            className={`h-12 px-3 rounded-xl text-sm font-medium pressable flex items-center gap-1.5 transition-colors ${
+              timeUp
+                ? "bg-primary/15 border-2 border-primary/50 text-primary shadow-glow"
+                : "bg-surface border border-border"
+            }`}
+          >
             <Plus className="h-3.5 w-3.5" /> 5 min
           </button>
           <button onClick={complete} className="flex-1 h-13 py-3 rounded-xl bg-primary text-primary-foreground font-medium pressable shadow-glow flex items-center justify-center gap-2"
@@ -337,7 +360,15 @@ export default function Focus() {
         }`}</style>
 
         <div className="mt-auto pt-10 text-secondary-fg text-[13px]">
-          {next ? <>Next up: <span className="text-foreground">{next.title}</span></> : "Last block — finish strong."}
+          {next ? (
+            <>Next up: <span className="text-foreground">{next.title}</span></>
+          ) : block.kind === "task" ? (
+            "Last block — finish strong."
+          ) : block.kind === "lunch" ? (
+            "Enjoy your lunch."
+          ) : (
+            "Take a real break."
+          )}
         </div>
 
         {/* AI Assistant panel */}

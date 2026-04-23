@@ -20,6 +20,7 @@ export default function Auth() {
   const [name, setName] = useState("");
   const [busy, setBusy] = useState(false);
   const [awaitingConfirmation, setAwaitingConfirmation] = useState(false);
+  const [confirmedFor, setConfirmedFor] = useState<string>("");
   const [resending, setResending] = useState(false);
   const nav = useNavigate();
   const stored = typeof window !== "undefined" ? getStoredPasskey() : null;
@@ -53,6 +54,7 @@ export default function Auth() {
           nav("/onboarding");
         } else {
           setAwaitingConfirmation(true);
+          setConfirmedFor(email);
           toast.success("Check your email to confirm your account");
         }
       } else {
@@ -125,7 +127,7 @@ export default function Auth() {
           </h1>
           <p className="text-secondary-fg mt-2">
             {awaitingConfirmation
-              ? `We sent a confirmation link to ${email}. Open it to finish creating your account.`
+              ? `We sent a confirmation link to ${confirmedFor || email}. Open it to finish creating your account.`
               : mode === "signup"
                 ? "Turn raw lists into focused, intelligent schedules."
                 : "Pick up where you left off."}
@@ -159,7 +161,21 @@ export default function Auth() {
                 {mode === "signup" && (
                   <Input value={name} onChange={e => setName(e.target.value)} placeholder="Your name" className="h-12 bg-surface border-border rounded-xl" />
                 )}
-                <Input type="email" required value={email} onChange={e => setEmail(e.target.value)} placeholder="Email" className="h-12 bg-surface border-border rounded-xl" />
+                <Input
+                  type="email"
+                  required
+                  value={email}
+                  onChange={e => {
+                    setEmail(e.target.value);
+                    // If the user changes the email after a pending confirmation,
+                    // hide the stale "Check your email at <old>" panel.
+                    if (awaitingConfirmation && e.target.value !== confirmedFor) {
+                      setAwaitingConfirmation(false);
+                    }
+                  }}
+                  placeholder="Email"
+                  className="h-12 bg-surface border-border rounded-xl"
+                />
                 <Input type="password" required minLength={6} value={pw} onChange={e => setPw(e.target.value)} placeholder="Password" className="h-12 bg-surface border-border rounded-xl" />
                 <Button type="submit" disabled={busy} className="w-full h-12 rounded-xl bg-primary text-primary-foreground hover:bg-primary/90 pressable text-base font-medium shadow-glow">
                   {busy ? "..." : mode === "signup" ? "Create account" : "Sign in"}

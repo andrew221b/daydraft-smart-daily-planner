@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { useNavigate } from "react-router-dom";
 import { Button } from "@/components/ui/button";
 import { Blobs } from "@/components/app/Blobs";
@@ -14,11 +14,28 @@ const energies = [
   { key: "night" as const, emoji: "🌙", title: "Night owl", sub: "Peak 7pm – 11pm" },
 ];
 
+const PROGRESS_KEY = "dd_onboarding_progress";
+
 export default function Onboarding() {
-  const [step, setStep] = useState(0);
-  const [pick, setPick] = useState<"morning" | "midday" | "night">("morning");
+  // Restore in-progress onboarding so refresh mid-flow doesn't lose the user.
+  const initial = (() => {
+    try {
+      const raw = sessionStorage.getItem(PROGRESS_KEY);
+      if (!raw) return { step: 0, pick: "morning" as const };
+      const p = JSON.parse(raw);
+      const step = [0,1,2].includes(p.step) ? p.step : 0;
+      const pick = ["morning","midday","night"].includes(p.pick) ? p.pick : "morning";
+      return { step, pick };
+    } catch { return { step: 0, pick: "morning" as const }; }
+  })();
+  const [step, setStep] = useState<number>(initial.step);
+  const [pick, setPick] = useState<"morning" | "midday" | "night">(initial.pick);
   const { update } = useProfile();
   const nav = useNavigate();
+
+  useEffect(() => {
+    try { sessionStorage.setItem(PROGRESS_KEY, JSON.stringify({ step, pick })); } catch {/* ignore */}
+  }, [step, pick]);
 
   const finish = async (notif: boolean) => {
     let enabled = false;
@@ -38,6 +55,7 @@ export default function Onboarding() {
       try { return Intl.DateTimeFormat().resolvedOptions().timeZone; } catch { return "UTC"; }
     })();
     await update({ energy_preference: pick, notifications_enabled: enabled, onboarded: true, timezone: tz });
+    try { sessionStorage.removeItem(PROGRESS_KEY); } catch {/* ignore */}
     nav("/today");
   };
 

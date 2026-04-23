@@ -26,9 +26,20 @@ export const typeLabel = (t: BlockType) =>
 
 export const fmtTime = (hhmm: string) => {
   const [h, m] = hhmm.split(":").map(Number);
-  const period = h >= 12 ? "pm" : "am";
-  const hr = ((h + 11) % 12) + 1;
-  return m === 0 ? `${hr}${period}` : `${hr}:${String(m).padStart(2, "0")}${period}`;
+  if (!Number.isFinite(h) || !Number.isFinite(m)) return hhmm;
+  // Locale-aware: respects 12h vs 24h preference of the user's region
+  // (e.g. en-US -> "9am", en-GB -> "09:00", de-DE -> "09:00").
+  try {
+    const d = new Date();
+    d.setHours(h, m, 0, 0);
+    return d.toLocaleTimeString(undefined, { hour: "numeric", minute: m === 0 ? undefined : "2-digit" })
+      .replace(/\s/g, "")
+      .toLowerCase();
+  } catch {
+    const period = h >= 12 ? "pm" : "am";
+    const hr = ((h + 11) % 12) + 1;
+    return m === 0 ? `${hr}${period}` : `${hr}:${String(m).padStart(2, "0")}${period}`;
+  }
 };
 
 // Local-date YYYY-MM-DD (avoid UTC drift around midnight).

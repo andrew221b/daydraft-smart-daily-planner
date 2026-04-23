@@ -1,7 +1,7 @@
 import { useState } from "react";
 import { Sheet, SheetContent, SheetHeader, SheetTitle } from "@/components/ui/sheet";
 import { Button } from "@/components/ui/button";
-import { BellOff, Droplet, X as XIcon, Check } from "lucide-react";
+import { BellOff, Droplet, X as XIcon, Check, EyeOff } from "lucide-react";
 import { haptics } from "@/lib/haptics";
 
 /**
@@ -18,6 +18,7 @@ export const PreflightSheet = ({
   onStart: () => void;
 }) => {
   const [checks, setChecks] = useState({ dnd: false, water: false, tabs: false });
+  const [hideForever, setHideForever] = useState(false);
   const items = [
     { key: "dnd" as const, Icon: BellOff, label: "Phone on Do Not Disturb" },
     { key: "water" as const, Icon: Droplet, label: "Water within reach" },
@@ -28,6 +29,14 @@ export const PreflightSheet = ({
   const toggle = (k: keyof typeof checks) => {
     haptics.selection();
     setChecks(c => ({ ...c, [k]: !c[k] }));
+  };
+
+  const startWithPref = () => {
+    if (hideForever) {
+      try { localStorage.setItem("dd_preflight_disabled", "1"); } catch {/* ignore */}
+    }
+    haptics.impact("medium");
+    onStart();
   };
 
   return (
@@ -59,12 +68,20 @@ export const PreflightSheet = ({
         </div>
         <div className="mt-5 space-y-2 pb-2">
           <Button
-            onClick={() => { haptics.impact("medium"); onStart(); }}
+            onClick={startWithPref}
             className="w-full h-12 rounded-xl text-primary-foreground font-medium pressable shadow-glow"
             style={{ background: "var(--gradient-primary)" }}
           >
             {allChecked ? "Let's go" : "Start anyway"}
           </Button>
+          <button
+            type="button"
+            onClick={() => setHideForever(v => !v)}
+            className="w-full inline-flex items-center justify-center gap-1.5 text-secondary-fg text-xs py-1 hover:text-foreground"
+          >
+            <EyeOff className="h-3 w-3" />
+            {hideForever ? "Won't show again" : "Don't show this again"}
+          </button>
           <button
             onClick={() => onOpenChange(false)}
             className="w-full text-secondary-fg text-sm py-2 hover:text-foreground"

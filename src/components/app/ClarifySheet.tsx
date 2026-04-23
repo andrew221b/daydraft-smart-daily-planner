@@ -78,12 +78,14 @@ const STEP = 5;
 const MIN = 5;
 const MAX = 240;
 
-// Best-effort local fallback: split by newlines, semicolons, bullets, and obvious " and "/" и "/" plus " connectors.
-// Only used while the AI splitter is loading or if it fails.
+// Best-effort local fallback: split by newlines, semicolons, and bullets.
+// We DO NOT split on " and "/" plus " etc. — those connectors live inside
+// real task names ("John and Bob meeting", "Pick up Anna and Mark") and
+// splitting on them mangles titles. The AI splitter handles natural-language
+// task separation server-side; this is purely a holding fallback.
 function localSplit(input: string): string[] {
   return input
     .split(/\r?\n|;|•|(?:^|\s)[-*]\s+|(?:^|\s)\d+[.)]\s+/g)
-    .flatMap(s => s.split(/\s+(?:and|plus|then|also|и|плюс|потом|также|et|y)\s+/i))
     .map(s => s.trim().replace(/^[,.\s]+|[,.\s]+$/g, ""))
     .filter(Boolean);
 }

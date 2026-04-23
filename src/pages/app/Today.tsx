@@ -271,7 +271,7 @@ export default function Today() {
         )}
 
         <div className="mt-6 relative">
-          <SpilloverChips onCarryOver={(titles) => {
+          <SpilloverChips planDate={planDate} onCarryOver={(titles) => {
             const block = titles.join("\n");
             setInput(prev => prev ? block + "\n" + prev : block);
             toast.success(titles.length === 1 ? "Carried over" : `Carried over ${titles.length} tasks`);
@@ -303,7 +303,9 @@ export default function Today() {
 
         {hasPlanForDate && (
           <button onClick={() => nav(planDate === todayDateStr() ? "/today/plan" : `/today/plan?date=${planDate}`)} className="mt-4 w-full text-left text-sm text-primary hover:underline">
-            View existing plan for {friendlyDateFor(parseDateStr(planDate))} →
+            {planDate === todayDateStr()
+              ? "View today's existing plan →"
+              : `View existing plan for ${friendlyDateFor(parseDateStr(planDate))} →`}
           </button>
         )}
 

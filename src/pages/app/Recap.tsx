@@ -83,6 +83,15 @@ export default function Recap() {
     }
   }, [tasks.length, done, confettiFired, viewDate]);
 
+  // Restore previously recorded mood for this day (local-only).
+  useEffect(() => {
+    try {
+      const m = localStorage.getItem(`dd_mood_${viewDate}`);
+      if (m === "good" || m === "ok" || m === "bad") setMood(m);
+      else setMood(null);
+    } catch {/* ignore */}
+  }, [viewDate]);
+
   const weekDelta = lastWeekFocusMin != null && lastWeekFocusMin > 0
     ? Math.round(((focusMin - lastWeekFocusMin) / lastWeekFocusMin) * 100)
     : null;
@@ -90,13 +99,10 @@ export default function Recap() {
   const recordMood = (m: "good" | "ok" | "bad") => {
     haptics.selection();
     setMood(m);
-    if (user) {
-      supabase.from("quick_captures").insert({
-        user_id: user.id,
-        content: `[mood:${m}] ${viewDate}`,
-        consumed: true,
-      } as any);
-    }
+    // Mood is intentionally local-only: storing it as a `quick_capture` polluted
+    // the inbox with `[mood:*]` pseudo-tasks. Until there's a dedicated table,
+    // keep moods on-device — they're used for nothing on the backend yet.
+    try { localStorage.setItem(`dd_mood_${viewDate}`, m); } catch {/* ignore */}
     toast.success("Thanks — that helps tune your plans");
   };
 
@@ -148,11 +154,27 @@ export default function Recap() {
       content: `[for:${targetDate}] ${b.title}`,
       consumed: false,
     }));
-    const { error } = await supabase.from("quick_captures").insert(rows as any);
+    const { data: inserted, error } = await supabase
+      .from("quick_captures")
+      .insert(rows as any)
+      .select("id");
     if (error) { toast.error(error.message); return; }
     haptics.notify("success");
     setCarriedOver(true);
-    toast.success(`Moved ${unfinished.length} to ${friendlyDateFor(next).toLowerCase()}'s inbox`);
+    const ids = (inserted || []).map((r: any) => r.id).filter(Boolean);
+    // Universal undo — easy to mis-fire from the recap.
+    toast.success(`Moved ${unfinished.length} to ${friendlyDateFor(next).toLowerCase()}'s inbox`, {
+      action: {
+        label: "Undo",
+        onClick: async () => {
+          if (!ids.length) return;
+          await supabase.from("quick_captures").delete().in("id", ids);
+          setCarriedOver(false);
+          toast("Carry-over undone");
+        },
+      },
+      duration: 6000,
+    });
   };
 
   return (
