@@ -11,6 +11,16 @@ import { SortableContext, arrayMove, verticalListSortingStrategy } from "@dnd-ki
 import { SortableBlock } from "@/components/app/SortableBlock";
 import { SwipeableBlock } from "@/components/app/SwipeableBlock";
 import { Sheet, SheetContent, SheetHeader, SheetTitle } from "@/components/ui/sheet";
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+} from "@/components/ui/alert-dialog";
 import { useProfile } from "@/hooks/useProfile";
 import { toast } from "sonner";
 import { useTour, TOUR_DAYVIEW } from "@/components/app/Tour";
@@ -56,6 +66,7 @@ export default function DayView() {
   const [newTitle, setNewTitle] = useState("");
   const [newKind, setNewKind] = useState<"task" | "break">("task");
   const [newDuration, setNewDuration] = useState(30);
+  const [confirmRemoveId, setConfirmRemoveId] = useState<string | null>(null);
 
   const sensors = useSensors(
     useSensor(PointerSensor, { activationConstraint: { distance: 6 } }),
