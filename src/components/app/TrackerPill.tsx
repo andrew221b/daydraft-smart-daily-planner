@@ -506,7 +506,7 @@ export function TrackerSheet({ open, onOpenChange }: { open: boolean; onOpenChan
                 const stat = periodCatStats.get(c.id);
                 const periodSec = stat?.sec || 0;
                 return (
-                  <SwipeRow key={c.id} disabled={c.is_default || isActive || editingCat === c.id} onDelete={() => deleteCategory(c.id)}>
+                  <SwipeRow key={c.id} disabled={c.is_default || isActive || editingCat === c.id} onDelete={() => setConfirmDeleteCat(c.id)}>
                   <div className={`rounded-2xl border transition-colors ${isActive ? "border-primary/60 bg-primary/5 shadow-[0_0_0_3px_hsl(var(--primary)/0.08)]" : "border-border bg-surface"} overflow-hidden`}>
                     <div className="flex items-center gap-2 px-3 py-2.5">
                       {editingCat === c.id ? (
