@@ -360,6 +360,30 @@ function SortableTaskCard({ id, index: i, task: t, loadingAI, onUpdate, onRemove
         </div>
       </div>
 
+      {/* Row 2b — track time toggle */}
+      <div className="mt-2 flex items-center justify-between gap-2 pl-7">
+        <div className="flex items-center gap-1.5 text-[12px] text-secondary-fg">
+          <Timer className="h-3.5 w-3.5" />
+          <span>Track time</span>
+        </div>
+        <button
+          type="button"
+          role="switch"
+          aria-checked={!!t.track_time}
+          onClick={() => onUpdate(i, { track_time: !t.track_time })}
+          className={`relative h-6 w-11 rounded-full transition-colors pressable ${
+            t.track_time ? "bg-primary" : "bg-background border border-border"
+          }`}
+          aria-label="Toggle time tracking for this task"
+        >
+          <span
+            className={`absolute top-0.5 h-5 w-5 rounded-full bg-white shadow transition-transform ${
+              t.track_time ? "translate-x-[22px]" : "translate-x-0.5"
+            }`}
+          />
+        </button>
+      </div>
+
       {/* Row 3 — More toggle, only if there are extras */}
       {hasExtras && (
         <button
