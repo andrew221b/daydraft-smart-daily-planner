@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { forwardRef, useEffect, useState } from "react";
 import { Sheet, SheetContent, SheetHeader, SheetTitle } from "@/components/ui/sheet";
 import { useStreak } from "@/hooks/useStreak";
 import { useAuth } from "@/hooks/useAuth";
@@ -176,10 +176,13 @@ export const StreakSheet = ({ open, onOpenChange }: { open: boolean; onOpenChang
   );
 };
 
-const Stat = ({ label, value, sub, highlight }: { label: string; value: string; sub: string; highlight?: boolean }) => (
-  <div className={`rounded-2xl border p-3 text-center ${highlight ? "border-primary/40 bg-primary/5 shadow-glow" : "border-border bg-surface"}`}>
-    <div className={`text-2xl font-semibold ${highlight ? "text-primary" : "text-foreground"}`}>{value}</div>
-    <div className="text-[10px] text-secondary-fg uppercase tracking-wide mt-1">{label}</div>
-    <div className="text-[10px] text-secondary-fg/70">{sub}</div>
-  </div>
+const Stat = forwardRef<HTMLDivElement, { label: string; value: string; sub: string; highlight?: boolean }>(
+  ({ label, value, sub, highlight }, ref) => (
+    <div ref={ref} className={`rounded-2xl border p-3 text-center ${highlight ? "border-primary/40 bg-primary/5 shadow-glow" : "border-border bg-surface"}`}>
+      <div className={`text-2xl font-semibold ${highlight ? "text-primary" : "text-foreground"}`}>{value}</div>
+      <div className="text-[10px] text-secondary-fg uppercase tracking-wide mt-1">{label}</div>
+      <div className="text-[10px] text-secondary-fg/70">{sub}</div>
+    </div>
+  )
 );
+Stat.displayName = "Stat";
