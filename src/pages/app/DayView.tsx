@@ -4,7 +4,7 @@ import { Shell } from "@/components/app/Shell";
 import { useAuth } from "@/hooks/useAuth";
 import { supabase } from "@/integrations/supabase/client";
 import { Block, fmtTime, todayDateStr, parseDateStr, friendlyDateFor, isFutureDateStr } from "@/lib/daydraft";
-import { ChevronLeft, Sparkles, Play, RefreshCw, Plus, Minus, Coffee, ChevronDown, Zap, CalendarDays } from "lucide-react";
+import { ChevronLeft, Sparkles, Play, RefreshCw, Plus, Minus, Coffee, ChevronDown, Zap, CalendarDays, Trash2 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { DndContext, closestCenter, PointerSensor, TouchSensor, useSensor, useSensors, DragEndEvent } from "@dnd-kit/core";
 import { SortableContext, arrayMove, verticalListSortingStrategy } from "@dnd-kit/sortable";
@@ -72,6 +72,7 @@ export default function DayView() {
   const [newKind, setNewKind] = useState<"task" | "break">("task");
   const [newDuration, setNewDuration] = useState(30);
   const [confirmRemoveId, setConfirmRemoveId] = useState<string | null>(null);
+  const [confirmDeletePlan, setConfirmDeletePlan] = useState(false);
 
   const sensors = useSensors(
     useSensor(PointerSensor, { activationConstraint: { distance: 6 } }),
@@ -382,6 +383,18 @@ export default function DayView() {
         </div>
       )}
 
+      {!planMissing && plan && (
+        <div className="px-5 mt-2">
+          <button
+            onClick={() => setConfirmDeletePlan(true)}
+            className="w-full inline-flex items-center justify-center gap-2 px-3 py-2 rounded-full bg-surface border border-border text-xs text-secondary-fg pressable hover:text-destructive hover:border-destructive/30"
+          >
+            <Trash2 className="h-3.5 w-3.5" />
+            Delete plan
+          </button>
+        </div>
+      )}
+
       {!planMissing && (
       <div className="px-5 mt-6">
         {loading && <SkeletonBlock count={4} />}
@@ -599,6 +612,30 @@ export default function DayView() {
                 if (id) removeBlock(id);
               }}
             >Delete</AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
+      <AlertDialog open={confirmDeletePlan} onOpenChange={setConfirmDeletePlan}>
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>Delete entire plan?</AlertDialogTitle>
+            <AlertDialogDescription>
+              The plan for {friendlyDateFor(parseDateStr(viewDate))} and all its blocks will be removed. You can re-plan from scratch afterwards.
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel>Cancel</AlertDialogCancel>
+            <AlertDialogAction
+              className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
+              onClick={async () => {
+                if (!plan) return;
+                setConfirmDeletePlan(false);
+                await supabase.from("blocks").delete().eq("plan_id", plan.id);
+                await supabase.from("plans").delete().eq("id", plan.id);
+                toast.success("Plan deleted");
+                nav(isToday ? "/today" : `/today?date=${viewDate}`);
+              }}
+            >Delete plan</AlertDialogAction>
           </AlertDialogFooter>
         </AlertDialogContent>
       </AlertDialog>
