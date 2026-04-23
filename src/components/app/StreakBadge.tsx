@@ -29,7 +29,7 @@ export const StreakBadge = () => {
         <span className={`text-xs font-semibold ${active ? "text-primary" : "text-secondary-fg"}`}>{count}</span>
         {atRisk && (
           <span
-            className="absolute -top-0.5 -right-0.5 h-2 w-2 rounded-full bg-amber-500 ring-2 ring-background animate-pulse"
+            className="absolute -top-0.5 -right-0.5 h-2 w-2 rounded-full ring-2 ring-background animate-pulse bg-destructive"
             aria-hidden="true"
           />
         )}
