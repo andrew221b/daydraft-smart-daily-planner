@@ -1,5 +1,5 @@
 import { useEffect, useState } from "react";
-import { useNavigate } from "react-router-dom";
+import { useNavigate, useSearchParams } from "react-router-dom";
 import { Shell } from "@/components/app/Shell";
 import { useAuth } from "@/hooks/useAuth";
 import { useProfile } from "@/hooks/useProfile";
@@ -16,6 +16,8 @@ export default function Recap() {
   const { user } = useAuth();
   const { profile } = useProfile();
   const nav = useNavigate();
+  const [searchParams] = useSearchParams();
+  const viewDate = searchParams.get("date") || todayDateStr();
   const [blocks, setBlocks] = useState<Block[]>([]);
   const [insight, setInsight] = useState<string | null>(null);
   const { todayTotalSec, categories, refresh: refreshTracker } = useTimeTracker();
@@ -28,8 +30,8 @@ export default function Recap() {
   useEffect(() => {
     if (!user) return;
     (async () => {
-      const { data: p } = await supabase.from("plans").select("id").eq("user_id", user.id).eq("date", todayDateStr()).maybeSingle();
-      if (!p) { nav("/today"); return; }
+      const { data: p } = await supabase.from("plans").select("id").eq("user_id", user.id).eq("date", viewDate).maybeSingle();
+      if (!p) { nav(viewDate === todayDateStr() ? "/today" : `/today/plan?date=${viewDate}`); return; }
       const { data: bs } = await supabase.from("blocks").select("*").eq("plan_id", p.id).order("position");
       const list = (bs || []) as Block[];
       setBlocks(list);
@@ -56,7 +58,7 @@ export default function Recap() {
         if (data?.insight) setInsight(data.insight);
       } catch {/* ignore */}
     })();
-  }, [user?.id, profile?.energy_preference]);
+  }, [user?.id, profile?.energy_preference, viewDate]);
 
   const tasks = blocks.filter(b => b.kind === "task");
   const done = tasks.filter(b => b.completed).length;
