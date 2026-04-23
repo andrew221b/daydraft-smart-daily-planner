@@ -7,7 +7,7 @@ import { useProfile } from "@/hooks/useProfile";
 import { useAuth } from "@/hooks/useAuth";
 import { greeting, friendlyDate, peakWindow, todayDateStr } from "@/lib/daydraft";
 import { supabase } from "@/integrations/supabase/client";
-import { Mic, Sparkles, Zap, ArrowRight, RotateCw } from "lucide-react";
+import { Mic, Sparkles, Zap, ArrowRight } from "lucide-react";
 import { toast } from "sonner";
 import { SpilloverChips } from "@/components/app/SpilloverChips";
 import { StreakBadge } from "@/components/app/StreakBadge";
@@ -43,16 +43,11 @@ export default function Today() {
   const [hasToday, setHasToday] = useState(false);
   const [templates, setTemplates] = useState<{ id: string; name: string; raw_input: string }[]>([]);
   const [clarifyOpen, setClarifyOpen] = useState(false);
-  const [yesterdayPreview, setYesterdayPreview] = useState<string | null>(null);
 
   useEffect(() => {
     if (!user) return;
     supabase.from("plans").select("id").eq("user_id", user.id).eq("date", todayDateStr()).maybeSingle()
       .then(({ data }) => setHasToday(!!data));
-    // Pull yesterday's plan for the "Plan like yesterday" card
-    supabase.from("plans").select("raw_input").eq("user_id", user.id)
-      .lt("date", todayDateStr()).order("date", { ascending: false }).limit(1).maybeSingle()
-      .then(({ data }) => { if (data?.raw_input) setYesterdayPreview(data.raw_input); });
     // Pull saved templates
     supabase.from("block_templates").select("id, name, raw_input").eq("user_id", user.id).order("created_at", { ascending: false })
       .then(({ data }) => setTemplates((data || []) as any));
@@ -68,12 +63,7 @@ export default function Today() {
     })();
   }, [user?.id]);
 
-  // Auto-start tour on first visit (after profile is loaded).
-  useEffect(() => {
-    if (!profile?.onboarded) return;
-    const t = setTimeout(() => tour.start(TOUR_TODAY), 600);
-    return () => clearTimeout(t);
-  }, [profile?.onboarded]);
+  // Tour can be started manually from Settings — auto-starting it intercepts clicks.
 
   const useYesterday = async () => {
     if (!user) return;
