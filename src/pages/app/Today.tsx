@@ -44,6 +44,8 @@ export default function Today() {
   // Date the user is planning for. Defaults to today; can be set to any future date.
   const [planDate, setPlanDate] = useState<string>(todayDateStr());
   const [datePopoverOpen, setDatePopoverOpen] = useState(false);
+  // Captures previewed into the textarea — consumed only after a successful plan.
+  const [pendingCaptureIds, setPendingCaptureIds] = useState<string[]>([]);
 
   useEffect(() => {
     if (!user) return;
@@ -61,12 +63,13 @@ export default function Today() {
     supabase.from("block_templates").select("id, name, raw_input").eq("user_id", user.id).order("created_at", { ascending: false })
       .then(({ data }) => setTemplates((data || []) as any));
     // Pull unconsumed quick captures matching the day being planned.
-    // - Untagged captures and `[today]` -> consumed only when planning TODAY.
-    // - `[for:YYYY-MM-DD] ...` -> consumed only when planning that exact date
-    //   (used by Recap "carry over" so unfinished tasks don't leak into other plans).
+    // IMPORTANT: we only PREVIEW them in the textarea here — we do NOT
+    // mark them consumed yet. They get consumed inside `plan()` once the
+    // user actually creates a plan. Otherwise abandoning the screen would
+    // silently swallow the user's notes forever.
     (async () => {
       const { data: caps } = await supabase.from("quick_captures").select("*").eq("user_id", user.id).eq("consumed", false);
-      if (!caps || !caps.length) return;
+      if (!caps || !caps.length) { setPendingCaptureIds([]); return; }
       const matching = caps.filter((c: any) => {
         const content: string = c.content || "";
         const forMatch = content.match(/^\[for:(\d{4}-\d{2}-\d{2})\]\s*/);
@@ -74,14 +77,13 @@ export default function Today() {
         // Untagged or [today] — only valid when planning today.
         return planDate === todayDateStr();
       });
-      if (!matching.length) return;
+      if (!matching.length) { setPendingCaptureIds([]); return; }
       const block = matching.map((c: any) => (c.content || "")
         .replace(/^\[today\]\s*/, "")
         .replace(/^\[for:\d{4}-\d{2}-\d{2}\]\s*/, "")
       ).join("\n");
       setInput(prev => prev ? block + "\n" + prev : block);
-      await supabase.from("quick_captures").update({ consumed: true } as any)
-        .in("id", matching.map((c: any) => c.id));
+      setPendingCaptureIds(matching.map((c: any) => c.id));
       toast(`📥 Added ${matching.length} from quick capture`);
     })();
   }, [user?.id, planDate]);
@@ -210,6 +212,14 @@ export default function Today() {
         location_lng: b.location_lng ?? null,
       }));
       if (blocks.length) await supabase.from("blocks").insert(blocks);
+      // Now that a plan exists, mark previewed captures as consumed.
+      if (pendingCaptureIds.length) {
+        try {
+          await supabase.from("quick_captures").update({ consumed: true } as any)
+            .in("id", pendingCaptureIds);
+        } catch {/* ignore */}
+        setPendingCaptureIds([]);
+      }
       // Persist user's per-task time-tracking choices for Focus to read.
       // We key by normalized title within the plan, since AI may rename
       // blocks slightly when scheduling.
