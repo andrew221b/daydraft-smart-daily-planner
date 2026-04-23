@@ -278,6 +278,8 @@ export default function Recap() {
               Done for today
             </button>
           </div>
+          </>
+          )}
         </div>
       </div>
     </Shell>
