@@ -298,6 +298,25 @@ export default function Focus() {
         <button onClick={skip} className="mt-3 text-secondary-fg text-xs hover:text-foreground inline-flex items-center gap-1">
           Skip block <ChevronRight className="h-3 w-3" />
         </button>
+        {!tracking && armed && categories.length > 0 && (
+          <button
+            onClick={() => {
+              startedHereRef.current = true;
+              startTracking(undefined, { source: "focus", blockId: block.id, note: block.title });
+            }}
+            className="mt-3 inline-flex items-center gap-1.5 px-3 py-1.5 rounded-full bg-surface border border-border text-[12px] text-secondary-fg hover:text-foreground pressable"
+          >
+            <Timer className="h-3.5 w-3.5" /> Start tracking
+          </button>
+        )}
+        {tracking && startedHereRef.current && (
+          <button
+            onClick={() => { stopTracking(); startedHereRef.current = false; }}
+            className="mt-3 inline-flex items-center gap-1.5 px-3 py-1.5 rounded-full bg-surface border border-border text-[12px] text-secondary-fg hover:text-foreground pressable"
+          >
+            <Square className="h-3.5 w-3.5" /> Stop tracking
+          </button>
+        )}
         <style>{`@keyframes breathe {
           0%, 100% { transform: scale(0.92); opacity: 0.55; }
           50% { transform: scale(1.05); opacity: 0.95; }
