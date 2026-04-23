@@ -237,6 +237,7 @@ export default function DayView() {
     try {
       const remaining = blocks.filter(b => b.kind === "task" && !b.completed);
       const nowHM = `${String(now.getHours()).padStart(2,"0")}:${String(now.getMinutes()).padStart(2,"0")}`;
+      const tz = profile?.timezone || Intl.DateTimeFormat().resolvedOptions().timeZone;
       const { data, error } = await supabase.functions.invoke("generate-plan", {
         body: {
           raw_input: remaining.map(b => `${b.title} (${b.duration_min}m)`).join("\n"),
@@ -244,6 +245,9 @@ export default function DayView() {
           name: profile?.display_name,
           mode: "replan",
           start_time: nowHM,
+          plan_date: viewDate,
+          now_iso: new Date().toISOString(),
+          timezone: tz,
         },
       });
       if (error) throw error;

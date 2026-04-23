@@ -57,18 +57,29 @@ export default function Today() {
     // Pull saved templates
     supabase.from("block_templates").select("id, name, raw_input").eq("user_id", user.id).order("created_at", { ascending: false })
       .then(({ data }) => setTemplates((data || []) as any));
-    // Pull unconsumed quick captures and auto-prepend — ONLY when planning today.
-    // Captures are about "right now" intent; dropping them into tomorrow's plan
-    // silently would lose context.
-    if (planDate !== todayDateStr()) return;
+    // Pull unconsumed quick captures matching the day being planned.
+    // - Untagged captures and `[today]` -> consumed only when planning TODAY.
+    // - `[for:YYYY-MM-DD] ...` -> consumed only when planning that exact date
+    //   (used by Recap "carry over" so unfinished tasks don't leak into other plans).
     (async () => {
       const { data: caps } = await supabase.from("quick_captures").select("*").eq("user_id", user.id).eq("consumed", false);
-      if (caps && caps.length) {
-        const block = caps.map((c: any) => (c.content || "").replace(/^\[today\]\s*/, "")).join("\n");
-        setInput(prev => prev ? block + "\n" + prev : block);
-        await supabase.from("quick_captures").update({ consumed: true } as any).eq("user_id", user.id).eq("consumed", false);
-        toast(`📥 Added ${caps.length} from quick capture`);
-      }
+      if (!caps || !caps.length) return;
+      const matching = caps.filter((c: any) => {
+        const content: string = c.content || "";
+        const forMatch = content.match(/^\[for:(\d{4}-\d{2}-\d{2})\]\s*/);
+        if (forMatch) return forMatch[1] === planDate;
+        // Untagged or [today] — only valid when planning today.
+        return planDate === todayDateStr();
+      });
+      if (!matching.length) return;
+      const block = matching.map((c: any) => (c.content || "")
+        .replace(/^\[today\]\s*/, "")
+        .replace(/^\[for:\d{4}-\d{2}-\d{2}\]\s*/, "")
+      ).join("\n");
+      setInput(prev => prev ? block + "\n" + prev : block);
+      await supabase.from("quick_captures").update({ consumed: true } as any)
+        .in("id", matching.map((c: any) => c.id));
+      toast(`📥 Added ${matching.length} from quick capture`);
     })();
   }, [user?.id, planDate]);
 

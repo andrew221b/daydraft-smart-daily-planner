@@ -34,7 +34,10 @@ export default function Onboarding() {
         if (e?.message && !/VAPID|configured/i.test(e.message)) toast(e.message);
       }
     }
-    await update({ energy_preference: pick, notifications_enabled: enabled, onboarded: true });
+    const tz = (() => {
+      try { return Intl.DateTimeFormat().resolvedOptions().timeZone; } catch { return "UTC"; }
+    })();
+    await update({ energy_preference: pick, notifications_enabled: enabled, onboarded: true, timezone: tz });
     nav("/today");
   };
 

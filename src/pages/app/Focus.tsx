@@ -71,8 +71,11 @@ export default function Focus() {
       setBlock(data as Block);
       setTotal(data.duration_min * 60);
       setRemaining(data.duration_min * 60);
+      // Match DayView's "Start" button: skip calendar events the user can't act on
+      // inside Focus mode. Otherwise the "Next" jump lands on a non-actionable item.
       const { data: rest } = await supabase.from("blocks").select("*").eq("plan_id", data.plan_id)
-        .eq("kind", "task").eq("completed", false).gt("position", data.position).order("position").limit(1);
+        .eq("kind", "task").eq("completed", false).eq("is_calendar_event", false)
+        .gt("position", data.position).order("position").limit(1);
       setNext((rest?.[0] as Block) || null);
       // Show preflight on first visit per session (only on initial entry —
       // skip when transitioning between focus blocks).
