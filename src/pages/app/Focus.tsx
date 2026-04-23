@@ -137,7 +137,9 @@ export default function Focus() {
 
   useEffect(() => {
     return () => {
+      // Stop tracking on unmount (leaving Focus entirely)
       if (startedHereRef.current && tracking) stopTracking();
+      sessionStorage.removeItem("dd_focus_active");
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
