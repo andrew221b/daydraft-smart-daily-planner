@@ -306,7 +306,7 @@ export default function Focus() {
             <QuickCaptureButton variant="icon" />
           </div>
         </div>
-        <button onClick={skip} className="mt-3 text-secondary-fg text-xs hover:text-foreground inline-flex items-center gap-1">
+        <button onClick={() => setConfirmSkipOpen(true)} className="mt-3 text-secondary-fg text-xs hover:text-foreground inline-flex items-center gap-1">
           Skip block <ChevronRight className="h-3 w-3" />
         </button>
         {!tracking && armed && categories.length > 0 && (
