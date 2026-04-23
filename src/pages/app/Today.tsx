@@ -7,7 +7,7 @@ import { useProfile } from "@/hooks/useProfile";
 import { useAuth } from "@/hooks/useAuth";
 import { greeting, friendlyDate, peakWindow, todayDateStr } from "@/lib/daydraft";
 import { supabase } from "@/integrations/supabase/client";
-import { Mic, Sparkles, Zap, ArrowRight } from "lucide-react";
+import { Mic, Sparkles, Zap, ArrowRight, RotateCw } from "lucide-react";
 import { toast } from "sonner";
 import { SpilloverChips } from "@/components/app/SpilloverChips";
 import { StreakBadge } from "@/components/app/StreakBadge";
@@ -20,9 +20,18 @@ import { QuickCaptureButton } from "@/components/app/QuickCapture";
 import { useTour, TOUR_TODAY } from "@/components/app/Tour";
 import { haptics } from "@/lib/haptics";
 
-const placeholder = `Drop your tasks here...
+const PLACEHOLDERS = [
+  "Finish Q4 deck 1h\nCall mom 15min\nReply to Alex\n30min gym",
+  "Ship PR review\nDeep work on roadmap 90m\nLunch with Sam at 1pm\nInbox zero",
+  "Write blog post 45m\nDoctor at 3pm\nPlan sprint 1h\nWalk the dog 20min",
+  "Study for exam 2h\nGroceries\nMeditate 10m\nLaundry",
+];
 
-e.g. Write proposal, Reply to Alex, Fix login bug, Team standup, Review contracts`;
+// Detect typed durations (30m, 1h, 90min) so the user gets visual confirmation.
+const DURATION_RE = /\b(\d+)\s*(h|hr|hour|hrs|hours|m|min|mins|minutes)\b/gi;
+const countTasks = (s: string) =>
+  s.split(/\r?\n/).map(l => l.trim()).filter(Boolean).length;
+const countDurations = (s: string) => (s.match(DURATION_RE) || []).length;
 
 export default function Today() {
   const { profile } = useProfile();
@@ -38,11 +47,26 @@ export default function Today() {
   const [hasToday, setHasToday] = useState(false);
   const [templates, setTemplates] = useState<{ id: string; name: string; raw_input: string }[]>([]);
   const [clarifyOpen, setClarifyOpen] = useState(false);
+  const [placeholderIdx, setPlaceholderIdx] = useState(0);
+  const [yesterdayPreview, setYesterdayPreview] = useState<string | null>(null);
+
+  // Rotate placeholder examples every 4s while empty.
+  useEffect(() => {
+    if (input) return;
+    const t = setInterval(() => {
+      setPlaceholderIdx(i => (i + 1) % PLACEHOLDERS.length);
+    }, 4000);
+    return () => clearInterval(t);
+  }, [input]);
 
   useEffect(() => {
     if (!user) return;
     supabase.from("plans").select("id").eq("user_id", user.id).eq("date", todayDateStr()).maybeSingle()
       .then(({ data }) => setHasToday(!!data));
+    // Pull yesterday's plan for the "Plan like yesterday" card
+    supabase.from("plans").select("raw_input").eq("user_id", user.id)
+      .lt("date", todayDateStr()).order("date", { ascending: false }).limit(1).maybeSingle()
+      .then(({ data }) => { if (data?.raw_input) setYesterdayPreview(data.raw_input); });
     // Pull saved templates
     supabase.from("block_templates").select("id, name, raw_input").eq("user_id", user.id).order("created_at", { ascending: false })
       .then(({ data }) => setTemplates((data || []) as any));
@@ -213,16 +237,43 @@ export default function Today() {
             setInput(prev => prev ? block + "\n" + prev : block);
             toast.success(titles.length === 1 ? "Carried over" : `Carried over ${titles.length} tasks`);
           }} />
+          {yesterdayPreview && !input && (
+            <button
+              onClick={() => { setInput(yesterdayPreview); haptics.tap(); toast.success("Loaded yesterday's tasks"); }}
+              className="mb-3 w-full flex items-center justify-between gap-3 px-4 py-3 rounded-2xl border border-primary/30 bg-primary/5 pressable text-left"
+            >
+              <div className="flex items-center gap-2 min-w-0">
+                <RotateCw className="h-4 w-4 text-primary shrink-0" />
+                <div className="min-w-0">
+                  <div className="text-sm font-medium">Plan like yesterday</div>
+                  <div className="text-xs text-secondary-fg truncate">
+                    {yesterdayPreview.split(/\r?\n/).filter(Boolean).slice(0, 3).join(" · ")}
+                  </div>
+                </div>
+              </div>
+              <span className="text-xs font-semibold text-primary shrink-0">Use →</span>
+            </button>
+          )}
           <Textarea
             data-tour="today-input"
-            value={input} onChange={e => setInput(e.target.value)} placeholder={placeholder}
+            value={input} onChange={e => setInput(e.target.value)} placeholder={PLACEHOLDERS[placeholderIdx]}
             className="min-h-[200px] bg-surface border-border rounded-[20px] p-4 text-base leading-relaxed resize-none focus-visible:ring-primary/40 focus-visible:ring-offset-0 focus-visible:border-primary/40 transition-all" />
+          {input.trim() && (
+            <div className="absolute bottom-3 right-4 inline-flex items-center gap-2 px-2.5 py-1 rounded-full bg-background/80 backdrop-blur border border-border text-[11px] text-secondary-fg pointer-events-none">
+              <span className="text-foreground font-medium tabular-nums">{countTasks(input)}</span>
+              {countTasks(input) === 1 ? "task" : "tasks"}
+              {countDurations(input) > 0 && (
+                <span className="text-primary">· {countDurations(input)} timed</span>
+              )}
+            </div>
+          )}
         </div>
 
         <div className="flex gap-2 mt-3 overflow-x-auto pb-1">
           <QuickCaptureButton variant="chip" className="" />
-          <button data-tour="today-voice" onClick={voice} className="shrink-0 inline-flex items-center gap-1.5 px-3 py-2 rounded-full bg-surface border border-border text-xs text-secondary-fg pressable hover:text-foreground">
-            <Mic className="h-3.5 w-3.5" /> Voice
+          <button data-tour="today-voice" onClick={voice}
+            className="shrink-0 inline-flex items-center gap-1.5 px-3 py-2 rounded-full bg-primary/10 border border-primary/30 text-xs font-medium text-primary pressable hover:bg-primary/15">
+            <Mic className="h-3.5 w-3.5" fill="currentColor" /> Voice
           </button>
           <button data-tour="today-yesterday" onClick={useYesterday} className="shrink-0 inline-flex items-center gap-1.5 px-3 py-2 rounded-full bg-surface border border-border text-xs text-secondary-fg pressable hover:text-foreground">
             <Sparkles className="h-3.5 w-3.5" /> Use yesterday's
