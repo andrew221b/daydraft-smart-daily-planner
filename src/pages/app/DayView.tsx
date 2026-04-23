@@ -414,23 +414,14 @@ export default function DayView() {
         <DndContext sensors={sensors} collisionDetection={closestCenter} onDragEnd={onDragEnd}>
           <SortableContext items={upcomingBlocks.map(b => b.id)} strategy={verticalListSortingStrategy}>
             <div className="space-y-3 relative">
-              {/* Energy peak band (subtle vertical highlight) */}
-              <div
-                className="absolute left-12 right-0 rounded-2xl pointer-events-none"
-                style={{
-                  background: "linear-gradient(180deg, hsl(var(--primary) / 0.08), hsl(var(--primary) / 0.0))",
-                  top: 0,
-                  // approx — visual only
-                  height: "100%",
-                  opacity: 0.0,
-                }}
-              />
               {upcomingBlocks.map((b, i) => {
                 const [h, m] = b.start_time.split(":").map(Number);
                 const blockMin = h * 60 + m;
                 const inEnergyZone = b.kind === "task" && b.type === "deep_work" &&
                   blockMin >= energyRange[0] && blockMin < energyRange[1];
-                const showNowLine = !editing && (i === 0
+                // NowLine is only meaningful for TODAY. For past/future days
+                // there is no "now" relative to that schedule.
+                const showNowLine = isToday && !editing && (i === 0
                   ? nowMinutes < blockMin && nowMinutes > 6 * 60
                   : nowMinutes >= (() => { const [ph, pm] = upcomingBlocks[i-1].start_time.split(":").map(Number); return ph*60+pm; })()
                     && nowMinutes < blockMin);

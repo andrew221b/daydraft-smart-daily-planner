@@ -39,7 +39,8 @@ export default function Recap() {
       const { data: bs } = await supabase.from("blocks").select("*").eq("plan_id", p.id).order("position");
       const list = (bs || []) as Block[];
       setBlocks(list);
-      // Average completed deep_work min/day across last 7 days (excluding today)
+      // Average completed deep_work min/day across last 7 days (excluding today).
+      // Local date — UTC slice would shift a day in negative-UTC timezones.
       const sevenAgo = new Date();
       sevenAgo.setDate(sevenAgo.getDate() - 7);
       const { data: prev } = await supabase
@@ -49,7 +50,7 @@ export default function Recap() {
         .eq("kind", "task")
         .eq("type", "deep_work")
         .eq("completed", true)
-        .gte("plans.date", sevenAgo.toISOString().slice(0, 10))
+        .gte("plans.date", dateStr(sevenAgo))
         .lt("plans.date", todayDateStr());
       if (prev) {
         const total = (prev as any[]).reduce((s, r) => s + (r.duration_min || 0), 0);
@@ -289,22 +290,20 @@ export default function Recap() {
           <div className="mt-10 space-y-3">
             <Button
               onClick={() => {
-                // Send the user to plan the day AFTER the one they're recapping,
-                // not blindly to today's planner. This makes "Plan Tomorrow" do
-                // the obvious thing whether they're on today's recap or browsing
-                // a past day's recap.
-                const base = new Date(parseDateStr(viewDate));
-                base.setDate(base.getDate() + 1);
-                const target = dateStr(base);
-                nav(target === todayDateStr() ? "/today" : `/today?date=${target}`);
+                // For today's recap → plan tomorrow.
+                // For a past recap → plan today (their next actionable day),
+                // not the day-after-the-past-recap (which is also in the past).
+                const isToday = viewDate === todayDateStr();
+                if (isToday) {
+                  const tomorrow = new Date(); tomorrow.setDate(tomorrow.getDate() + 1);
+                  nav(`/today?date=${dateStr(tomorrow)}`);
+                } else {
+                  nav("/today");
+                }
               }}
               className="w-full h-13 py-3.5 rounded-xl text-primary-foreground text-base font-medium pressable shadow-glow"
               style={{ background: "var(--gradient-primary)" }}>
-              Plan {(() => {
-                const base = new Date(parseDateStr(viewDate));
-                base.setDate(base.getDate() + 1);
-                return friendlyDateFor(base);
-              })()}
+              {viewDate === todayDateStr() ? "Plan tomorrow" : "Plan today"}
             </Button>
             <button onClick={() => nav("/recap/week")} className="w-full text-primary text-sm hover:underline">
               See your week →

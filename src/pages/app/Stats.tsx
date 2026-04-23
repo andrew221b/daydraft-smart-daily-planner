@@ -3,6 +3,7 @@ import { Shell } from "@/components/app/Shell";
 import { useAuth } from "@/hooks/useAuth";
 import { supabase } from "@/integrations/supabase/client";
 import { useTimeTracker, fmtHM } from "@/hooks/useTimeTracker";
+import { dateStr } from "@/lib/daydraft";
 
 export default function Stats() {
   const { user } = useAuth();
@@ -16,8 +17,9 @@ export default function Stats() {
     if (!user) return;
     (async () => {
       const since = new Date(); since.setDate(since.getDate() - 6);
+      // Local date — UTC would shift the window in negative-offset timezones.
       const { data: ps } = await supabase.from("plans").select("id,date").eq("user_id", user.id)
-        .gte("date", since.toISOString().slice(0,10)).order("date");
+        .gte("date", dateStr(since)).order("date");
       const planIds = (ps || []).map(p => p.id);
       const { data: bs } = planIds.length
         ? await supabase.from("blocks").select("*").in("plan_id", planIds)

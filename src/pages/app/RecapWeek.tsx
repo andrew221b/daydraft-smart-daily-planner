@@ -4,11 +4,12 @@ import { Shell } from "@/components/app/Shell";
 import { useAuth } from "@/hooks/useAuth";
 import { useStreak } from "@/hooks/useStreak";
 import { supabase } from "@/integrations/supabase/client";
-import { Block } from "@/lib/daydraft";
+import { Block, dateStr } from "@/lib/daydraft";
 import { Flame, Target, Clock, Trophy, ArrowRight } from "lucide-react";
 import { Button } from "@/components/ui/button";
 
-const dateKey = (d: Date) => d.toISOString().slice(0, 10);
+// Local date key — UTC slice would shift bars a day in negative offsets.
+const dateKey = (d: Date) => dateStr(d);
 
 export default function RecapWeek() {
   const { user } = useAuth();
