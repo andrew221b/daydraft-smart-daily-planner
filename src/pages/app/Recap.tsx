@@ -4,7 +4,7 @@ import { Shell } from "@/components/app/Shell";
 import { useAuth } from "@/hooks/useAuth";
 import { useProfile } from "@/hooks/useProfile";
 import { supabase } from "@/integrations/supabase/client";
-import { Block, todayDateStr } from "@/lib/daydraft";
+import { Block, todayDateStr, parseDateStr, friendlyDateFor, dateStr } from "@/lib/daydraft";
 import { Sparkles, Clock, RotateCcw, TrendingUp, Smile, Meh, Frown } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { useTimeTracker, fmtHM } from "@/hooks/useTimeTracker";
@@ -31,7 +31,11 @@ export default function Recap() {
     if (!user) return;
     (async () => {
       const { data: p } = await supabase.from("plans").select("id").eq("user_id", user.id).eq("date", viewDate).maybeSingle();
-      if (!p) { nav(viewDate === todayDateStr() ? "/today" : `/today/plan?date=${viewDate}`); return; }
+      if (!p) {
+        // Don't silently bounce — show empty state so the user can act intentionally.
+        setBlocks([]);
+        return;
+      }
       const { data: bs } = await supabase.from("blocks").select("*").eq("plan_id", p.id).order("position");
       const list = (bs || []) as Block[];
       setBlocks(list);
@@ -86,7 +90,7 @@ export default function Recap() {
     if (user) {
       supabase.from("quick_captures").insert({
         user_id: user.id,
-        content: `[mood:${m}] ${todayDateStr()}`,
+        content: `[mood:${m}] ${viewDate}`,
         consumed: true,
       } as any);
     }
@@ -132,16 +136,20 @@ export default function Recap() {
   const unfinished = tasks.filter(b => !b.completed);
   const carryOver = async () => {
     if (!user || unfinished.length === 0) return;
+    // Tag with the target date so Today.tsx only consumes captures meant for
+    // the day being planned — prevents leaking into unrelated future plans.
+    const next = new Date(parseDateStr(viewDate)); next.setDate(next.getDate() + 1);
+    const targetDate = dateStr(next);
     const rows = unfinished.map(b => ({
       user_id: user.id,
-      content: b.title,
+      content: `[for:${targetDate}] ${b.title}`,
       consumed: false,
     }));
     const { error } = await supabase.from("quick_captures").insert(rows as any);
     if (error) { toast.error(error.message); return; }
     haptics.notify("success");
     setCarriedOver(true);
-    toast.success(`Moved ${unfinished.length} to tomorrow's inbox`);
+    toast.success(`Moved ${unfinished.length} to ${friendlyDateFor(next).toLowerCase()}'s inbox`);
   };
 
   return (
@@ -150,8 +158,25 @@ export default function Recap() {
       <div className="relative">
         <div className="absolute inset-x-0 top-0 h-72 pointer-events-none" style={{ background: "var(--gradient-glow)" }} />
         <div className="relative px-6 pt-16">
-          <h1 className="text-[34px] font-semibold leading-tight">Day complete.</h1>
-          <p className="text-secondary-fg mt-1">{new Date().toLocaleDateString(undefined, { weekday: "long", month: "long", day: "numeric" })}</p>
+          <h1 className="text-[34px] font-semibold leading-tight">
+            {viewDate === todayDateStr() ? "Day complete." : `Recap · ${friendlyDateFor(parseDateStr(viewDate))}`}
+          </h1>
+          <p className="text-secondary-fg mt-1">{parseDateStr(viewDate).toLocaleDateString(undefined, { weekday: "long", month: "long", day: "numeric" })}</p>
+
+          {tasks.length === 0 && (
+            <div className="mt-8 rounded-2xl bg-surface-elevated border border-border shadow-card p-6 text-center">
+              <div className="text-sm font-medium">Nothing to recap yet</div>
+              <p className="text-xs text-secondary-fg mt-1">No plan exists for this day.</p>
+              <Button onClick={() => nav(viewDate === todayDateStr() ? "/today" : `/today?date=${viewDate}`)}
+                className="mt-4 h-10 px-5 rounded-xl text-primary-foreground text-sm font-medium pressable shadow-glow"
+                style={{ background: "var(--gradient-primary)" }}>
+                Open planner
+              </Button>
+            </div>
+          )}
+
+          {tasks.length > 0 && (
+          <>
 
           <div className="grid grid-cols-3 gap-3 mt-8">
             <Stat label="Tasks done" value={`${done}/${tasks.length}`} />

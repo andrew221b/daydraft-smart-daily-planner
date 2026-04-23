@@ -2,11 +2,14 @@ import { useEffect, useState } from "react";
 import { Shell } from "@/components/app/Shell";
 import { useAuth } from "@/hooks/useAuth";
 import { supabase } from "@/integrations/supabase/client";
+import { parseDateStr } from "@/lib/daydraft";
+import { useNavigate } from "react-router-dom";
 
 interface PlanRow { id: string; date: string; ai_summary: string | null; }
 
 export default function History() {
   const { user } = useAuth();
+  const nav = useNavigate();
   const [plans, setPlans] = useState<PlanRow[]>([]);
   useEffect(() => {
     if (!user) return;
@@ -16,7 +19,9 @@ export default function History() {
 
   const groups: Record<string, PlanRow[]> = {};
   plans.forEach(p => {
-    const d = new Date(p.date);
+    // Parse YYYY-MM-DD as a LOCAL date — `new Date("2026-04-23")` is UTC and
+    // drifts a day in negative timezones.
+    const d = parseDateStr(p.date);
     const start = new Date(d); start.setDate(d.getDate() - d.getDay());
     const key = `Week of ${start.toLocaleDateString(undefined, { month: "short", day: "numeric" })}`;
     (groups[key] ||= []).push(p);
@@ -33,10 +38,14 @@ export default function History() {
               <div className="text-[11px] text-secondary-fg uppercase tracking-wider mb-2">{w}</div>
               <div className="space-y-2">
                 {items.map(p => (
-                  <div key={p.id} className="rounded-2xl bg-surface border border-border p-4 shadow-card">
-                    <div className="text-xs text-secondary-fg">{new Date(p.date).toLocaleDateString(undefined, { weekday: "long", month: "long", day: "numeric" })}</div>
+                  <button
+                    key={p.id}
+                    onClick={() => nav(`/today/plan?date=${p.date}`)}
+                    className="w-full text-left rounded-2xl bg-surface border border-border p-4 shadow-card pressable hover:border-primary/30"
+                  >
+                    <div className="text-xs text-secondary-fg">{parseDateStr(p.date).toLocaleDateString(undefined, { weekday: "long", month: "long", day: "numeric" })}</div>
                     <div className="mt-1 text-[15px]">{p.ai_summary || "Untitled day"}</div>
-                  </div>
+                  </button>
                 ))}
               </div>
             </div>

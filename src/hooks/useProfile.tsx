@@ -39,6 +39,16 @@ export function ProfileProvider({ children }: { children: ReactNode }) {
     const { data } = await supabase.from("profiles").select("*").eq("id", user.id).maybeSingle();
     setProfile(data as Profile | null);
     setLoading(false);
+    // Auto-sync timezone on every session: server defaults to 'UTC' and many old
+    // accounts were stamped UTC, which corrupts daily nudges and AI planning.
+    // Fire-and-forget; ignore errors.
+    try {
+      const localTz = Intl.DateTimeFormat().resolvedOptions().timeZone;
+      if (localTz && data && (data as any).timezone !== localTz) {
+        await supabase.from("profiles").update({ timezone: localTz }).eq("id", user.id);
+        setProfile({ ...(data as Profile), timezone: localTz });
+      }
+    } catch {/* ignore */}
   };
   useEffect(() => { refresh(); }, [user?.id]);
 
