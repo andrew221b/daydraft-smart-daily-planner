@@ -495,8 +495,9 @@ export default function DayView() {
           </div>
         )}
       </div>
+      )}
 
-      {firstUnfinishedTask && (
+      {!planMissing && !isFuture && firstUnfinishedTask && (
         <div className="fixed bottom-24 left-1/2 -translate-x-1/2 w-full max-w-[390px] px-5 z-30">
           <Button onClick={() => nav(`/focus/${firstUnfinishedTask.id}`)}
             className="w-full h-13 py-3.5 rounded-xl text-primary-foreground text-base font-medium pressable shadow-glow"
@@ -505,11 +506,19 @@ export default function DayView() {
           </Button>
         </div>
       )}
-      {!firstUnfinishedTask && totalTasks > 0 && (
+      {!planMissing && !isFuture && !firstUnfinishedTask && totalTasks > 0 && (
         <div className="fixed bottom-24 left-1/2 -translate-x-1/2 w-full max-w-[390px] px-5 z-30">
-          <Button onClick={() => nav("/recap")} className="w-full h-13 py-3.5 rounded-xl bg-success text-success-foreground hover:bg-success/90 text-base font-medium pressable">
+          <Button onClick={() => nav(isToday ? "/recap" : `/recap?date=${viewDate}`)} className="w-full h-13 py-3.5 rounded-xl bg-success text-success-foreground hover:bg-success/90 text-base font-medium pressable">
             See Today's Recap →
           </Button>
+        </div>
+      )}
+      {!planMissing && isFuture && totalTasks > 0 && (
+        <div className="fixed bottom-24 left-1/2 -translate-x-1/2 w-full max-w-[390px] px-5 z-30">
+          <div className="w-full h-13 py-3.5 rounded-xl bg-surface border border-border text-center text-xs text-secondary-fg flex items-center justify-center gap-1.5">
+            <CalendarDays className="h-3.5 w-3.5" />
+            Preview · starts {friendlyDateFor(parseDateStr(viewDate))}
+          </div>
         </div>
       )}
 
