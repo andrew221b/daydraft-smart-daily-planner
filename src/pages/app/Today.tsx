@@ -20,12 +20,8 @@ import { QuickCaptureButton } from "@/components/app/QuickCapture";
 import { useTour, TOUR_TODAY } from "@/components/app/Tour";
 import { haptics } from "@/lib/haptics";
 
-const PLACEHOLDERS = [
-  "Finish Q4 deck 1h\nCall mom 15min\nReply to Alex\n30min gym",
-  "Ship PR review\nDeep work on roadmap 90m\nLunch with Sam at 1pm\nInbox zero",
-  "Write blog post 45m\nDoctor at 3pm\nPlan sprint 1h\nWalk the dog 20min",
-  "Study for exam 2h\nGroceries\nMeditate 10m\nLaundry",
-];
+const DEFAULT_PLACEHOLDER =
+  "What do you want to get done today? List your tasks, one per line.";
 
 // Detect typed durations (30m, 1h, 90min) so the user gets visual confirmation.
 const DURATION_RE = /\b(\d+)\s*(h|hr|hour|hrs|hours|m|min|mins|minutes)\b/gi;
@@ -47,17 +43,7 @@ export default function Today() {
   const [hasToday, setHasToday] = useState(false);
   const [templates, setTemplates] = useState<{ id: string; name: string; raw_input: string }[]>([]);
   const [clarifyOpen, setClarifyOpen] = useState(false);
-  const [placeholderIdx, setPlaceholderIdx] = useState(0);
   const [yesterdayPreview, setYesterdayPreview] = useState<string | null>(null);
-
-  // Rotate placeholder examples every 4s while empty.
-  useEffect(() => {
-    if (input) return;
-    const t = setInterval(() => {
-      setPlaceholderIdx(i => (i + 1) % PLACEHOLDERS.length);
-    }, 4000);
-    return () => clearInterval(t);
-  }, [input]);
 
   useEffect(() => {
     if (!user) return;
@@ -256,7 +242,7 @@ export default function Today() {
           )}
           <Textarea
             data-tour="today-input"
-            value={input} onChange={e => setInput(e.target.value)} placeholder={PLACEHOLDERS[placeholderIdx]}
+            value={input} onChange={e => setInput(e.target.value)} placeholder={DEFAULT_PLACEHOLDER}
             className="min-h-[200px] bg-surface border-border rounded-[20px] p-4 text-base leading-relaxed resize-none focus-visible:ring-primary/40 focus-visible:ring-offset-0 focus-visible:border-primary/40 transition-all" />
           {input.trim() && (
             <div className="absolute bottom-3 right-4 inline-flex items-center gap-2 px-2.5 py-1 rounded-full bg-background/80 backdrop-blur border border-border text-[11px] text-secondary-fg pointer-events-none">
@@ -272,8 +258,8 @@ export default function Today() {
         <div className="flex gap-2 mt-3 overflow-x-auto pb-1">
           <QuickCaptureButton variant="chip" className="" />
           <button data-tour="today-voice" onClick={voice}
-            className="shrink-0 inline-flex items-center gap-1.5 px-3 py-2 rounded-full bg-primary/10 border border-primary/30 text-xs font-medium text-primary pressable hover:bg-primary/15">
-            <Mic className="h-3.5 w-3.5" fill="currentColor" /> Voice
+            className="shrink-0 inline-flex items-center gap-1.5 px-3 py-2 rounded-full bg-surface border border-border text-xs text-secondary-fg pressable hover:text-foreground">
+            <Mic className="h-3.5 w-3.5" /> Voice
           </button>
           <button data-tour="today-yesterday" onClick={useYesterday} className="shrink-0 inline-flex items-center gap-1.5 px-3 py-2 rounded-full bg-surface border border-border text-xs text-secondary-fg pressable hover:text-foreground">
             <Sparkles className="h-3.5 w-3.5" /> Use yesterday's
