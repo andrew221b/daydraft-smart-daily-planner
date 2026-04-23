@@ -1,10 +1,10 @@
 import { useEffect, useState } from "react";
-import { useNavigate } from "react-router-dom";
+import { useNavigate, useSearchParams } from "react-router-dom";
 import { Shell } from "@/components/app/Shell";
 import { useAuth } from "@/hooks/useAuth";
 import { supabase } from "@/integrations/supabase/client";
-import { Block, fmtTime, todayDateStr } from "@/lib/daydraft";
-import { ChevronLeft, Sparkles, Play, RefreshCw, Plus, Minus, Coffee, ChevronDown, Zap } from "lucide-react";
+import { Block, fmtTime, todayDateStr, parseDateStr, friendlyDateFor, isFutureDateStr } from "@/lib/daydraft";
+import { ChevronLeft, Sparkles, Play, RefreshCw, Plus, Minus, Coffee, ChevronDown, Zap, CalendarDays } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { DndContext, closestCenter, PointerSensor, TouchSensor, useSensor, useSensors, DragEndEvent } from "@dnd-kit/core";
 import { SortableContext, arrayMove, verticalListSortingStrategy } from "@dnd-kit/sortable";
@@ -54,8 +54,13 @@ export default function DayView() {
   const { profile } = useProfile();
   const nav = useNavigate();
   const tour = useTour();
+  const [searchParams] = useSearchParams();
+  const viewDate = searchParams.get("date") || todayDateStr();
+  const isFuture = isFutureDateStr(viewDate);
+  const isToday = viewDate === todayDateStr();
   const [plan, setPlan] = useState<{ id: string; ai_summary: string | null; ai_subtext: string | null } | null>(null);
   const [blocks, setBlocks] = useState<ExBlock[]>([]);
+  const [planMissing, setPlanMissing] = useState(false);
   const [editing, setEditing] = useState(false);
   const [now, setNow] = useState(new Date());
   const [reasoningBlock, setReasoningBlock] = useState<ExBlock | null>(null);
@@ -89,15 +94,23 @@ export default function DayView() {
     if (!user) return;
     (async () => {
       setLoading(true);
+      setPlanMissing(false);
       const { data: p } = await supabase.from("plans").select("id, ai_summary, ai_subtext")
-        .eq("user_id", user.id).eq("date", todayDateStr()).maybeSingle();
-      if (!p) { nav("/today"); return; }
+        .eq("user_id", user.id).eq("date", viewDate).maybeSingle();
+      if (!p) {
+        // No silent redirect — show an empty state so the user understands what happened.
+        setPlan(null);
+        setBlocks([]);
+        setPlanMissing(true);
+        setLoading(false);
+        return;
+      }
       setPlan(p);
       const { data: bs } = await supabase.from("blocks").select("*").eq("plan_id", p.id).order("position");
       setBlocks((bs || []) as ExBlock[]);
       setLoading(false);
     })();
-  }, [user?.id]);
+  }, [user?.id, viewDate]);
 
   const removeBlock = async (id: string) => {
     // Universal undo: snapshot, delete, offer 5s undo.
@@ -308,15 +321,36 @@ export default function DayView() {
           <ChevronLeft className="h-5 w-5" />
         </button>
         <div className="text-center">
-          <h1 className="text-[22px] font-semibold leading-tight">Today's Plan</h1>
+          <h1 className="text-[22px] font-semibold leading-tight">
+            {isToday ? "Today's Plan" : `Plan · ${friendlyDateFor(parseDateStr(viewDate))}`}
+          </h1>
           <div className="mt-0.5"><ContextStrip meetings={meetings} /></div>
         </div>
-        <button onClick={() => setEditing(e => !e)} className="text-sm text-primary font-medium px-2">
+        <button onClick={() => setEditing(e => !e)} disabled={planMissing} className="text-sm text-primary font-medium px-2 disabled:opacity-30">
           {editing ? "Done" : "Edit"}
         </button>
       </div>
 
       <div className="px-5 mt-5">
+        {planMissing && (
+          <div className="rounded-2xl bg-surface-elevated border border-border shadow-card p-6 text-center">
+            <CalendarDays className="h-6 w-6 mx-auto text-secondary-fg mb-2" />
+            <div className="text-sm font-medium">
+              {isFuture ? `No plan for ${friendlyDateFor(parseDateStr(viewDate))} yet`
+                : isToday ? "No plan for today yet"
+                : `No plan for ${friendlyDateFor(parseDateStr(viewDate))}`}
+            </div>
+            <p className="text-xs text-secondary-fg mt-1">
+              {isToday || isFuture ? "Head back to the planner to draft one." : "This day was never planned."}
+            </p>
+            <Button onClick={() => nav(isToday ? "/today" : `/today?date=${viewDate}`)}
+              className="mt-4 h-10 px-5 rounded-xl text-primary-foreground text-sm font-medium pressable shadow-glow"
+              style={{ background: "var(--gradient-primary)" }}>
+              Open planner
+            </Button>
+          </div>
+        )}
+        {!planMissing && (
         <div className="rounded-2xl bg-surface-elevated border border-border shadow-card p-4 relative overflow-hidden">
           <div className="absolute left-0 top-3 bottom-3 w-[3px] rounded-r-full bg-primary" />
           <div className="pl-3">
@@ -335,9 +369,10 @@ export default function DayView() {
             )}
           </div>
         </div>
+        )}
       </div>
 
-      {firstUnfinishedTask && (
+      {!planMissing && !isFuture && firstUnfinishedTask && (
         <div className="px-5 mt-3">
           <button onClick={replanRest} disabled={replanning}
             className="w-full inline-flex items-center justify-center gap-2 px-3 py-2 rounded-full bg-surface border border-border text-xs text-secondary-fg pressable hover:text-primary hover:border-primary/30">
@@ -347,6 +382,7 @@ export default function DayView() {
         </div>
       )}
 
+      {!planMissing && (
       <div className="px-5 mt-6">
         {loading && <SkeletonBlock count={4} />}
         {!loading && (
@@ -459,8 +495,9 @@ export default function DayView() {
           </div>
         )}
       </div>
+      )}
 
-      {firstUnfinishedTask && (
+      {!planMissing && !isFuture && firstUnfinishedTask && (
         <div className="fixed bottom-24 left-1/2 -translate-x-1/2 w-full max-w-[390px] px-5 z-30">
           <Button onClick={() => nav(`/focus/${firstUnfinishedTask.id}`)}
             className="w-full h-13 py-3.5 rounded-xl text-primary-foreground text-base font-medium pressable shadow-glow"
@@ -469,11 +506,19 @@ export default function DayView() {
           </Button>
         </div>
       )}
-      {!firstUnfinishedTask && totalTasks > 0 && (
+      {!planMissing && !isFuture && !firstUnfinishedTask && totalTasks > 0 && (
         <div className="fixed bottom-24 left-1/2 -translate-x-1/2 w-full max-w-[390px] px-5 z-30">
-          <Button onClick={() => nav("/recap")} className="w-full h-13 py-3.5 rounded-xl bg-success text-success-foreground hover:bg-success/90 text-base font-medium pressable">
+          <Button onClick={() => nav(isToday ? "/recap" : `/recap?date=${viewDate}`)} className="w-full h-13 py-3.5 rounded-xl bg-success text-success-foreground hover:bg-success/90 text-base font-medium pressable">
             See Today's Recap →
           </Button>
+        </div>
+      )}
+      {!planMissing && isFuture && totalTasks > 0 && (
+        <div className="fixed bottom-24 left-1/2 -translate-x-1/2 w-full max-w-[390px] px-5 z-30">
+          <div className="w-full h-13 py-3.5 rounded-xl bg-surface border border-border text-center text-xs text-secondary-fg flex items-center justify-center gap-1.5">
+            <CalendarDays className="h-3.5 w-3.5" />
+            Preview · starts {friendlyDateFor(parseDateStr(viewDate))}
+          </div>
         </div>
       )}
 

@@ -5,9 +5,12 @@ import { Textarea } from "@/components/ui/textarea";
 import { Button } from "@/components/ui/button";
 import { useProfile } from "@/hooks/useProfile";
 import { useAuth } from "@/hooks/useAuth";
-import { greeting, friendlyDate, peakWindow, todayDateStr } from "@/lib/daydraft";
 import { supabase } from "@/integrations/supabase/client";
-import { Mic, Sparkles, Zap, ArrowRight } from "lucide-react";
+import { greeting, friendlyDate, peakWindow, todayDateStr, dateStr, parseDateStr, isFutureDateStr, friendlyDateFor } from "@/lib/daydraft";
+import { Mic, Sparkles, Zap, ArrowRight, CalendarDays } from "lucide-react";
+import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
+import { Calendar } from "@/components/ui/calendar";
+import { cn } from "@/lib/utils";
 import { toast } from "sonner";
 import { SpilloverChips } from "@/components/app/SpilloverChips";
 import { StreakBadge } from "@/components/app/StreakBadge";
@@ -37,10 +40,13 @@ export default function Today() {
   const [hasToday, setHasToday] = useState(false);
   const [templates, setTemplates] = useState<{ id: string; name: string; raw_input: string }[]>([]);
   const [clarifyOpen, setClarifyOpen] = useState(false);
+  // Date the user is planning for. Defaults to today; can be set to any future date.
+  const [planDate, setPlanDate] = useState<string>(todayDateStr());
+  const [datePopoverOpen, setDatePopoverOpen] = useState(false);
 
   useEffect(() => {
     if (!user) return;
-    supabase.from("plans").select("id").eq("user_id", user.id).eq("date", todayDateStr()).maybeSingle()
+    supabase.from("plans").select("id").eq("user_id", user.id).eq("date", planDate).maybeSingle()
       .then(({ data }) => setHasToday(!!data));
     // Pull saved templates
     supabase.from("block_templates").select("id, name, raw_input").eq("user_id", user.id).order("created_at", { ascending: false })
@@ -55,7 +61,7 @@ export default function Today() {
         toast(`📥 Added ${caps.length} from quick capture`);
       }
     })();
-  }, [user?.id]);
+  }, [user?.id, planDate]);
 
   // Auto-start tour ONCE for new users (after onboarding). `tour.start` is a no-op if `tour_seen.today` is true.
   useEffect(() => {
@@ -135,10 +141,9 @@ export default function Today() {
       if (error) throw error;
       if (data?.error) throw new Error(data.error);
 
-      // upsert plan
-      const today = todayDateStr();
+      // upsert plan for the chosen date (today by default, can be a future date)
       const { data: planRow, error: planErr } = await supabase.from("plans").upsert({
-        user_id: user.id, date: today, raw_input: input, ai_summary: data.summary, ai_subtext: data.subtext,
+        user_id: user.id, date: planDate, raw_input: input, ai_summary: data.summary, ai_subtext: data.subtext,
       }, { onConflict: "user_id,date" }).select().single();
       if (planErr) throw planErr;
 
@@ -166,14 +171,17 @@ export default function Today() {
         );
       } catch {/* ignore */}
       try {
-        const res = await recordPlanToday();
-        if (res?.freezeUsed) toast("🧊 Streak freeze used — you're safe");
-        if (res?.milestone) toast.success(`🔥 ${res.milestone}-day streak! Incredible.`);
+        // Streak only counts plans for today; planning ahead doesn't bump it.
+        if (planDate === todayDateStr()) {
+          const res = await recordPlanToday();
+          if (res?.freezeUsed) toast("🧊 Streak freeze used — you're safe");
+          if (res?.milestone) toast.success(`🔥 ${res.milestone}-day streak! Incredible.`);
+        }
       } catch {/* ignore */}
-      nav("/today/plan");
+      nav(planDate === todayDateStr() ? "/today/plan" : `/today/plan?date=${planDate}`);
     } catch (e: any) {
       toast.error(e.message || "Planning failed");
-      nav("/today");
+      nav(planDate === todayDateStr() ? "/today" : `/today?date=${planDate}`);
     } finally { setBusy(false); }
   };
 
@@ -251,15 +259,46 @@ export default function Today() {
         </div>
 
         {hasToday && (
-          <button onClick={() => nav("/today/plan")} className="mt-4 w-full text-left text-sm text-primary hover:underline">
-            View today's existing plan →
+          <button onClick={() => nav(planDate === todayDateStr() ? "/today/plan" : `/today/plan?date=${planDate}`)} className="mt-4 w-full text-left text-sm text-primary hover:underline">
+            View existing plan for {friendlyDateFor(parseDateStr(planDate))} →
           </button>
         )}
 
         <div className="mt-8">
+          <div className="flex items-center justify-between mb-2 px-1">
+            <span className="text-[11px] text-secondary-fg uppercase tracking-wider">Plan for</span>
+            <Popover open={datePopoverOpen} onOpenChange={setDatePopoverOpen}>
+              <PopoverTrigger asChild>
+                <button
+                  className={cn(
+                    "inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full border text-xs pressable",
+                    planDate === todayDateStr()
+                      ? "bg-surface border-border text-secondary-fg"
+                      : "bg-primary/10 border-primary/30 text-primary"
+                  )}
+                >
+                  <CalendarDays className="h-3.5 w-3.5" />
+                  {friendlyDateFor(parseDateStr(planDate))}
+                </button>
+              </PopoverTrigger>
+              <PopoverContent className="w-auto p-0" align="end">
+                <Calendar
+                  mode="single"
+                  selected={parseDateStr(planDate)}
+                  onSelect={(d) => { if (d) { setPlanDate(dateStr(d)); setDatePopoverOpen(false); } }}
+                  disabled={(d) => {
+                    const today = new Date(); today.setHours(0,0,0,0);
+                    return d < today;
+                  }}
+                  initialFocus
+                  className={cn("p-3 pointer-events-auto")}
+                />
+              </PopoverContent>
+            </Popover>
+          </div>
           <Button data-tour="today-plan" onClick={openClarify} disabled={busy} className="w-full h-13 py-3.5 rounded-xl text-primary-foreground text-base font-medium pressable shadow-glow"
             style={{ background: "var(--gradient-primary)" }}>
-            Plan My Day <ArrowRight className="h-4 w-4" />
+            {planDate === todayDateStr() ? "Plan My Day" : `Plan ${friendlyDateFor(parseDateStr(planDate))}`} <ArrowRight className="h-4 w-4" />
           </Button>
           <p className="text-xs text-secondary-fg text-center mt-2">
             Next: confirm AI time estimates · pin meetings · then auto-schedule
