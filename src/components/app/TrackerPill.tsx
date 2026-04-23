@@ -10,6 +10,16 @@ import jsPDF from "jspdf";
 import autoTable from "jspdf-autotable";
 import { useEntitlement } from "@/hooks/useEntitlement";
 import { UpgradeSheet } from "@/components/app/UpgradeSheet";
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+} from "@/components/ui/alert-dialog";
 
 type Entry = {
   id: string;
@@ -48,6 +58,7 @@ export function TrackerSheet({ open, onOpenChange }: { open: boolean; onOpenChan
   const [selectedCat, setSelectedCat] = useState<string | null>(null);
   const [exporting, setExporting] = useState(false);
   const [manualForCat, setManualForCat] = useState<string | null>(null);
+  const [confirmDeleteCat, setConfirmDeleteCat] = useState<string | null>(null);
 
   const activeCat = categories.find(c => c.id === active?.category_id);
   const catMap = useMemo(() => new Map(categories.map(c => [c.id, c])), [categories]);
