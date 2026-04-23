@@ -209,10 +209,20 @@ export function TimeTrackerProvider({ children }: { children: ReactNode }) {
     if (error) { toast.error(error.message); return; }
     const m = Math.round(durationSec / 60);
     toast.success(`Logged ${m < 60 ? `${m}m` : `${Math.floor(m/60)}h ${m%60}m`}`);
-    await refresh();
+    // Incremental update — avoids a full week-of-entries SELECT for every add.
+    // We add to today/week totals using the actual overlap with today.
+    const startOfToday = new Date(); startOfToday.setHours(0,0,0,0);
+    const startMs = start.getTime();
+    const endMs = end.getTime();
+    const overlapStart = Math.max(startMs, startOfToday.getTime());
+    const todayDelta = Math.max(0, (endMs - overlapStart) / 1000);
+    setWeekTotalSec(t => t + durationSec);
+    setTodayTotalSec(t => t + todayDelta);
   };
 
   const deleteEntry: Ctx["deleteEntry"] = async (id) => {
+    // We don't have the entry locally to subtract precisely, so refresh.
+    // Deletion is rare compared to add; the cost is acceptable.
     const { error } = await supabase.from("time_entries").delete().eq("id", id);
     if (error) { toast.error(error.message); return; }
     await refresh();

@@ -303,7 +303,9 @@ export default function Today() {
 
         {hasPlanForDate && (
           <button onClick={() => nav(planDate === todayDateStr() ? "/today/plan" : `/today/plan?date=${planDate}`)} className="mt-4 w-full text-left text-sm text-primary hover:underline">
-            View existing plan for {friendlyDateFor(parseDateStr(planDate))} →
+            {planDate === todayDateStr()
+              ? "View today's existing plan →"
+              : `View existing plan for ${friendlyDateFor(parseDateStr(planDate))} →`}
           </button>
         )}
 
