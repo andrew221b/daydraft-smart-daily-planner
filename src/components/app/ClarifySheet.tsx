@@ -75,13 +75,24 @@ const STEP = 5;
 const MIN = 5;
 const MAX = 240;
 
+// Best-effort local fallback: split by newlines, semicolons, bullets, and obvious " and "/" и "/" plus " connectors.
+// Only used while the AI splitter is loading or if it fails.
+function localSplit(input: string): string[] {
+  return input
+    .split(/\r?\n|;|•|(?:^|\s)[-*]\s+|(?:^|\s)\d+[.)]\s+/g)
+    .flatMap(s => s.split(/\s+(?:and|plus|then|also|и|плюс|потом|также|et|y)\s+/i))
+    .map(s => s.trim().replace(/^[,.\s]+|[,.\s]+$/g, ""))
+    .filter(Boolean);
+}
+
 export function ClarifySheet({ open, onOpenChange, rawInput, onConfirm }: Props) {
   const initial = useMemo(
-    () => rawInput.split(/\r?\n/).map(l => l.trim()).filter(Boolean).map(parseLine),
+    () => localSplit(rawInput).map(parseLine),
     [rawInput],
   );
   const [tasks, setTasks] = useState<Row[]>(initial);
   const [loadingAI, setLoadingAI] = useState(false);
+  const [splitting, setSplitting] = useState(false);
   const sensors = useSensors(
     useSensor(PointerSensor, { activationConstraint: { distance: 6 } }),
     useSensor(TouchSensor, { activationConstraint: { delay: 200, tolerance: 8 } }),
@@ -90,9 +101,32 @@ export function ClarifySheet({ open, onOpenChange, rawInput, onConfirm }: Props)
   useEffect(() => {
     if (!open) return;
     setTasks(initial);
-    if (initial.length > 0) fetchSuggestions(initial);
+    splitWithAI(rawInput, initial);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [open, rawInput]);
+
+  const splitWithAI = async (raw: string, fallback: Row[]) => {
+    if (!raw.trim()) return;
+    setSplitting(true);
+    try {
+      const { data, error } = await supabase.functions.invoke("split-tasks", {
+        body: { raw_input: raw },
+      });
+      if (error) throw error;
+      const split: string[] = Array.isArray(data?.tasks) ? data.tasks : [];
+      const rows = split.map(parseLine);
+      // Only swap if AI returned something meaningful
+      const next = rows.length > 0 ? rows : fallback;
+      setTasks(next);
+      if (next.length > 0) fetchSuggestions(next);
+    } catch (e) {
+      console.error("split-tasks failed", e);
+      // keep fallback rows, still try to estimate them
+      if (fallback.length > 0) fetchSuggestions(fallback);
+    } finally {
+      setSplitting(false);
+    }
+  };
 
   const fetchSuggestions = async (rows: Row[]) => {
     setLoadingAI(true);
@@ -181,10 +215,10 @@ export function ClarifySheet({ open, onOpenChange, rawInput, onConfirm }: Props)
           <SheetHeader className="text-left">
             <SheetTitle className="flex items-center gap-2 text-xl">
               Review tasks
-              {loadingAI && <Loader2 className="h-4 w-4 animate-spin text-primary" />}
+              {(loadingAI || splitting) && <Loader2 className="h-4 w-4 animate-spin text-primary" />}
             </SheetTitle>
             <SheetDescription className="text-xs">
-              Drag to reorder · top = highest priority ·{" "}
+              {splitting ? "AI is splitting your tasks…" : "Drag to reorder · top = highest priority"} ·{" "}
               <span className="text-primary font-medium">
                 {hours > 0 ? `${hours}h ` : ""}{mins}m total
               </span>
