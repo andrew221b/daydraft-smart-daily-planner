@@ -139,6 +139,26 @@ export function TimeTrackerProvider({ children }: { children: ReactNode }) {
     toast.success(`Tracked ${m < 60 ? `${m}m` : `${Math.floor(m/60)}h ${m%60}m`}`);
   };
 
+  // Sweep stale per-plan localStorage opt-in keys (from Today.tsx ClarifySheet)
+  // once per session. Without this, every plan permanently leaves a key behind
+  // and storage grows forever.
+  useEffect(() => {
+    try {
+      if (sessionStorage.getItem("dd_track_titles_swept")) return;
+      const keepCount = 30;
+      const keys: string[] = [];
+      for (let i = 0; i < localStorage.length; i++) {
+        const k = localStorage.key(i);
+        if (k && k.startsWith("dd_track_titles_")) keys.push(k);
+      }
+      if (keys.length > keepCount) {
+        // Drop oldest by string sort (UUIDs aren't dated, so we just trim arbitrary excess).
+        keys.sort().slice(0, keys.length - keepCount).forEach(k => localStorage.removeItem(k));
+      }
+      sessionStorage.setItem("dd_track_titles_swept", "1");
+    } catch {/* ignore */}
+  }, []);
+
   const switchCategory: Ctx["switchCategory"] = async (categoryId) => {
     if (!active) { await start(categoryId); return; }
     if (active.category_id === categoryId) return;
