@@ -93,11 +93,25 @@ export default function Today() {
 
   const useYesterday = async () => {
     if (!user) return;
-    // Use the most recent plan strictly BEFORE the date we're planning for.
-    // This makes "Use yesterday's" sensible when planning a future day too.
-    const { data } = await supabase.from("plans").select("raw_input").eq("user_id", user.id)
-      .lt("date", planDate).order("date", { ascending: false }).limit(1).maybeSingle();
-    if (data?.raw_input) { setInput(data.raw_input); toast.success("Loaded previous tasks"); }
+    // Use the most recent plan strictly BEFORE the date we're planning for
+    // *that actually had tasks*. Skip planless `raw_input` shells (which can
+    // happen after a failed AI generation) and strip any `[for:..]` /
+    // `[today]` quick-capture markers that were injected last time — those
+    // pollute the textarea otherwise.
+    const { data } = await supabase
+      .from("plans")
+      .select("raw_input, blocks!inner(id)")
+      .eq("user_id", user.id)
+      .lt("date", planDate)
+      .order("date", { ascending: false })
+      .limit(1)
+      .maybeSingle();
+    const raw = (data?.raw_input || "")
+      .split(/\r?\n/)
+      .map(line => line.replace(/^\[(today|for:\d{4}-\d{2}-\d{2})\]\s*/i, "").trim())
+      .filter(Boolean)
+      .join("\n");
+    if (raw) { setInput(raw); toast.success("Loaded previous tasks"); }
     else toast("No previous tasks found");
   };
 
