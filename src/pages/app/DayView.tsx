@@ -452,7 +452,7 @@ export default function DayView() {
             {!collapseDone && (
               <div className="space-y-3 mt-3 opacity-70">
                 {completedBlocks.map(b => (
-                  <SortableBlock key={b.id} block={b} editing={false} onRemove={removeBlock} onInfo={setReasoningBlock} />
+                  <SortableBlock key={b.id} block={b} editing={false} onRemove={(id) => setConfirmRemoveId(id)} onInfo={setReasoningBlock} />
                 ))}
               </div>
             )}
