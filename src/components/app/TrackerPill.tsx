@@ -10,6 +10,16 @@ import jsPDF from "jspdf";
 import autoTable from "jspdf-autotable";
 import { useEntitlement } from "@/hooks/useEntitlement";
 import { UpgradeSheet } from "@/components/app/UpgradeSheet";
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+} from "@/components/ui/alert-dialog";
 
 type Entry = {
   id: string;
@@ -48,6 +58,7 @@ export function TrackerSheet({ open, onOpenChange }: { open: boolean; onOpenChan
   const [selectedCat, setSelectedCat] = useState<string | null>(null);
   const [exporting, setExporting] = useState(false);
   const [manualForCat, setManualForCat] = useState<string | null>(null);
+  const [confirmDeleteCat, setConfirmDeleteCat] = useState<string | null>(null);
 
   const activeCat = categories.find(c => c.id === active?.category_id);
   const catMap = useMemo(() => new Map(categories.map(c => [c.id, c])), [categories]);
@@ -495,7 +506,7 @@ export function TrackerSheet({ open, onOpenChange }: { open: boolean; onOpenChan
                 const stat = periodCatStats.get(c.id);
                 const periodSec = stat?.sec || 0;
                 return (
-                  <SwipeRow key={c.id} disabled={c.is_default || isActive || editingCat === c.id} onDelete={() => deleteCategory(c.id)}>
+                  <SwipeRow key={c.id} disabled={c.is_default || isActive || editingCat === c.id} onDelete={() => setConfirmDeleteCat(c.id)}>
                   <div className={`rounded-2xl border transition-colors ${isActive ? "border-primary/60 bg-primary/5 shadow-[0_0_0_3px_hsl(var(--primary)/0.08)]" : "border-border bg-surface"} overflow-hidden`}>
                     <div className="flex items-center gap-2 px-3 py-2.5">
                       {editingCat === c.id ? (
@@ -717,6 +728,32 @@ export function TrackerSheet({ open, onOpenChange }: { open: boolean; onOpenChan
       </SheetContent>
     </Sheet>
     <UpgradeSheet open={upgradeOpen} onOpenChange={setUpgradeOpen} reason="quota" />
+    <AlertDialog open={!!confirmDeleteCat} onOpenChange={(v) => { if (!v) setConfirmDeleteCat(null); }}>
+      <AlertDialogContent>
+        <AlertDialogHeader>
+          <AlertDialogTitle>Delete this category?</AlertDialogTitle>
+          <AlertDialogDescription>
+            {(() => {
+              const n = categories.find(c => c.id === confirmDeleteCat)?.name;
+              return n
+                ? `"${n}" will be removed. Time entries logged under it will be unassigned.`
+                : "This category will be removed.";
+            })()}
+          </AlertDialogDescription>
+        </AlertDialogHeader>
+        <AlertDialogFooter>
+          <AlertDialogCancel>Cancel</AlertDialogCancel>
+          <AlertDialogAction
+            className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
+            onClick={() => {
+              const id = confirmDeleteCat;
+              setConfirmDeleteCat(null);
+              if (id) deleteCategory(id);
+            }}
+          >Delete</AlertDialogAction>
+        </AlertDialogFooter>
+      </AlertDialogContent>
+    </AlertDialog>
     </>
   );
 }
