@@ -192,8 +192,16 @@ export default function Today() {
         // Streak only counts plans for today; planning ahead doesn't bump it.
         if (planDate === todayDateStr()) {
           const res = await recordPlanToday();
-          if (res?.freezeUsed) toast("🧊 Streak freeze used — you're safe");
-          if (res?.milestone) toast.success(`🔥 ${res.milestone}-day streak! Incredible.`);
+          // Suppress duplicate streak toasts within the same day across page
+          // reloads. The hook's in-memory ref resets on refresh; we persist a
+          // marker so re-planning today doesn't spam the user.
+          const dayKey = `dd_streak_toast_${todayDateStr()}`;
+          const alreadyToasted = (() => { try { return localStorage.getItem(dayKey) === "1"; } catch { return false; } })();
+          if (!alreadyToasted) {
+            if (res?.freezeUsed) toast("🧊 Streak freeze used — you're safe");
+            if (res?.milestone) toast.success(`🔥 ${res.milestone}-day streak! Incredible.`);
+            try { localStorage.setItem(dayKey, "1"); } catch {/* ignore */}
+          }
         }
       } catch {/* ignore */}
       nav(planDate === todayDateStr() ? "/today/plan" : `/today/plan?date=${planDate}`);
