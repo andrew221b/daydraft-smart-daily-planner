@@ -10,6 +10,16 @@ import { useTimeTracker, fmtHMS } from "@/hooks/useTimeTracker";
 import { haptics } from "@/lib/haptics";
 import { PreflightSheet } from "@/components/app/PreflightSheet";
 import { QuickCaptureButton } from "@/components/app/QuickCapture";
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+} from "@/components/ui/alert-dialog";
 
 type AIHelp = {
   substeps: string[];
@@ -37,6 +47,7 @@ export default function Focus() {
   const [armed, setArmed] = useState(false);
   const [extended, setExtended] = useState(false);
   const startedHereRef = useRef(false);
+  const [confirmSkipOpen, setConfirmSkipOpen] = useState(false);
 
   useEffect(() => {
     if (!blockId || !user) return;
@@ -295,7 +306,7 @@ export default function Focus() {
             <QuickCaptureButton variant="icon" />
           </div>
         </div>
-        <button onClick={skip} className="mt-3 text-secondary-fg text-xs hover:text-foreground inline-flex items-center gap-1">
+        <button onClick={() => setConfirmSkipOpen(true)} className="mt-3 text-secondary-fg text-xs hover:text-foreground inline-flex items-center gap-1">
           Skip block <ChevronRight className="h-3 w-3" />
         </button>
         {!tracking && armed && categories.length > 0 && (
@@ -446,6 +457,20 @@ export default function Focus() {
         </div>
       </div>
       <PreflightSheet open={preflightOpen} onOpenChange={(v) => { if (!v) dismissPreflight(); }} onStart={dismissPreflight} />
+      <AlertDialog open={confirmSkipOpen} onOpenChange={setConfirmSkipOpen}>
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>Skip this block?</AlertDialogTitle>
+            <AlertDialogDescription>
+              "{block?.title}" will be marked as done and you'll move to the next block. This can't be undone.
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel>Cancel</AlertDialogCancel>
+            <AlertDialogAction onClick={() => { setConfirmSkipOpen(false); skip(); }}>Skip</AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
     </div>
   );
 }

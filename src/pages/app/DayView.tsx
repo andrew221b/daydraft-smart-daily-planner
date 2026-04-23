@@ -11,6 +11,16 @@ import { SortableContext, arrayMove, verticalListSortingStrategy } from "@dnd-ki
 import { SortableBlock } from "@/components/app/SortableBlock";
 import { SwipeableBlock } from "@/components/app/SwipeableBlock";
 import { Sheet, SheetContent, SheetHeader, SheetTitle } from "@/components/ui/sheet";
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+} from "@/components/ui/alert-dialog";
 import { useProfile } from "@/hooks/useProfile";
 import { toast } from "sonner";
 import { useTour, TOUR_DAYVIEW } from "@/components/app/Tour";
@@ -56,6 +66,7 @@ export default function DayView() {
   const [newTitle, setNewTitle] = useState("");
   const [newKind, setNewKind] = useState<"task" | "break">("task");
   const [newDuration, setNewDuration] = useState(30);
+  const [confirmRemoveId, setConfirmRemoveId] = useState<string | null>(null);
 
   const sensors = useSensors(
     useSensor(PointerSensor, { activationConstraint: { distance: 6 } }),
@@ -390,7 +401,7 @@ export default function DayView() {
                       onComplete={() => completeBlock(b.id)}
                       onDelete={() => removeBlock(b.id)}
                     >
-                      <SortableBlock block={b} editing={editing} onRemove={removeBlock} onInfo={setReasoningBlock} />
+                      <SortableBlock block={b} editing={editing} onRemove={(id) => setConfirmRemoveId(id)} onInfo={setReasoningBlock} />
                     </SwipeableBlock>
                     {editing && !b.is_calendar_event && (
                       <div className="ml-12 mt-1.5 flex items-center gap-2 text-[11px] text-secondary-fg">
@@ -441,7 +452,7 @@ export default function DayView() {
             {!collapseDone && (
               <div className="space-y-3 mt-3 opacity-70">
                 {completedBlocks.map(b => (
-                  <SortableBlock key={b.id} block={b} editing={false} onRemove={removeBlock} onInfo={setReasoningBlock} />
+                  <SortableBlock key={b.id} block={b} editing={false} onRemove={(id) => setConfirmRemoveId(id)} onInfo={setReasoningBlock} />
                 ))}
               </div>
             )}
@@ -522,6 +533,30 @@ export default function DayView() {
           </div>
         </SheetContent>
       </Sheet>
+      <AlertDialog open={!!confirmRemoveId} onOpenChange={(v) => { if (!v) setConfirmRemoveId(null); }}>
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>Delete this block?</AlertDialogTitle>
+            <AlertDialogDescription>
+              {(() => {
+                const t = blocks.find(b => b.id === confirmRemoveId)?.title;
+                return t ? `"${t}" will be removed from today's plan. You'll have a few seconds to undo.` : "This block will be removed from today's plan.";
+              })()}
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel>Cancel</AlertDialogCancel>
+            <AlertDialogAction
+              className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
+              onClick={() => {
+                const id = confirmRemoveId;
+                setConfirmRemoveId(null);
+                if (id) removeBlock(id);
+              }}
+            >Delete</AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
     </Shell>
   );
 }
