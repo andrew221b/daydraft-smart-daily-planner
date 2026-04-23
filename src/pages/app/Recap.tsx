@@ -83,6 +83,15 @@ export default function Recap() {
     }
   }, [tasks.length, done, confettiFired, viewDate]);
 
+  // Restore previously recorded mood for this day (local-only).
+  useEffect(() => {
+    try {
+      const m = localStorage.getItem(`dd_mood_${viewDate}`);
+      if (m === "good" || m === "ok" || m === "bad") setMood(m);
+      else setMood(null);
+    } catch {/* ignore */}
+  }, [viewDate]);
+
   const weekDelta = lastWeekFocusMin != null && lastWeekFocusMin > 0
     ? Math.round(((focusMin - lastWeekFocusMin) / lastWeekFocusMin) * 100)
     : null;
@@ -145,11 +154,27 @@ export default function Recap() {
       content: `[for:${targetDate}] ${b.title}`,
       consumed: false,
     }));
-    const { error } = await supabase.from("quick_captures").insert(rows as any);
+    const { data: inserted, error } = await supabase
+      .from("quick_captures")
+      .insert(rows as any)
+      .select("id");
     if (error) { toast.error(error.message); return; }
     haptics.notify("success");
     setCarriedOver(true);
-    toast.success(`Moved ${unfinished.length} to ${friendlyDateFor(next).toLowerCase()}'s inbox`);
+    const ids = (inserted || []).map((r: any) => r.id).filter(Boolean);
+    // Universal undo — easy to mis-fire from the recap.
+    toast.success(`Moved ${unfinished.length} to ${friendlyDateFor(next).toLowerCase()}'s inbox`, {
+      action: {
+        label: "Undo",
+        onClick: async () => {
+          if (!ids.length) return;
+          await supabase.from("quick_captures").delete().in("id", ids);
+          setCarriedOver(false);
+          toast("Carry-over undone");
+        },
+      },
+      duration: 6000,
+    });
   };
 
   return (
