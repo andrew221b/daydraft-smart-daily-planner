@@ -615,6 +615,30 @@ export default function DayView() {
           </AlertDialogFooter>
         </AlertDialogContent>
       </AlertDialog>
+      <AlertDialog open={confirmDeletePlan} onOpenChange={setConfirmDeletePlan}>
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>Delete entire plan?</AlertDialogTitle>
+            <AlertDialogDescription>
+              The plan for {friendlyDateFor(parseDateStr(viewDate))} and all its blocks will be removed. You can re-plan from scratch afterwards.
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel>Cancel</AlertDialogCancel>
+            <AlertDialogAction
+              className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
+              onClick={async () => {
+                if (!plan) return;
+                setConfirmDeletePlan(false);
+                await supabase.from("blocks").delete().eq("plan_id", plan.id);
+                await supabase.from("plans").delete().eq("id", plan.id);
+                toast.success("Plan deleted");
+                nav(isToday ? "/today" : `/today?date=${viewDate}`);
+              }}
+            >Delete plan</AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
     </Shell>
   );
 }
