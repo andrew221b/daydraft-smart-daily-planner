@@ -72,13 +72,16 @@ export default function Recap() {
   const eff = plannedMin ? Math.round((completedMin / plannedMin) * 100) : 0;
   const fh = Math.floor(focusMin / 60), fm = focusMin % 60;
 
-  // Fire confetti once when 100% of tasks are done
+  // Fire confetti once when 100% of tasks are done — only on today's recap.
+  // Past days are always "100% done in retrospect"; we don't want a celebration
+  // every time the user browses history.
   useEffect(() => {
+    if (viewDate !== todayDateStr()) return;
     if (tasks.length > 0 && done === tasks.length && !confettiFired) {
       setConfettiFired(true);
       haptics.notify("success");
     }
-  }, [tasks.length, done, confettiFired]);
+  }, [tasks.length, done, confettiFired, viewDate]);
 
   const weekDelta = lastWeekFocusMin != null && lastWeekFocusMin > 0
     ? Math.round(((focusMin - lastWeekFocusMin) / lastWeekFocusMin) * 100)
@@ -267,9 +270,24 @@ export default function Recap() {
           </div>
 
           <div className="mt-10 space-y-3">
-            <Button onClick={() => nav("/today")} className="w-full h-13 py-3.5 rounded-xl text-primary-foreground text-base font-medium pressable shadow-glow"
+            <Button
+              onClick={() => {
+                // Send the user to plan the day AFTER the one they're recapping,
+                // not blindly to today's planner. This makes "Plan Tomorrow" do
+                // the obvious thing whether they're on today's recap or browsing
+                // a past day's recap.
+                const base = new Date(parseDateStr(viewDate));
+                base.setDate(base.getDate() + 1);
+                const target = dateStr(base);
+                nav(target === todayDateStr() ? "/today" : `/today?date=${target}`);
+              }}
+              className="w-full h-13 py-3.5 rounded-xl text-primary-foreground text-base font-medium pressable shadow-glow"
               style={{ background: "var(--gradient-primary)" }}>
-              Plan Tomorrow
+              Plan {(() => {
+                const base = new Date(parseDateStr(viewDate));
+                base.setDate(base.getDate() + 1);
+                return friendlyDateFor(base);
+              })()}
             </Button>
             <button onClick={() => nav("/recap/week")} className="w-full text-primary text-sm hover:underline">
               See your week →
