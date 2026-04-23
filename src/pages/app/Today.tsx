@@ -5,9 +5,12 @@ import { Textarea } from "@/components/ui/textarea";
 import { Button } from "@/components/ui/button";
 import { useProfile } from "@/hooks/useProfile";
 import { useAuth } from "@/hooks/useAuth";
-import { greeting, friendlyDate, peakWindow, todayDateStr } from "@/lib/daydraft";
 import { supabase } from "@/integrations/supabase/client";
-import { Mic, Sparkles, Zap, ArrowRight } from "lucide-react";
+import { greeting, friendlyDate, peakWindow, todayDateStr, dateStr, parseDateStr, isFutureDateStr, friendlyDateFor } from "@/lib/daydraft";
+import { Mic, Sparkles, Zap, ArrowRight, CalendarDays } from "lucide-react";
+import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
+import { Calendar } from "@/components/ui/calendar";
+import { cn } from "@/lib/utils";
 import { toast } from "sonner";
 import { SpilloverChips } from "@/components/app/SpilloverChips";
 import { StreakBadge } from "@/components/app/StreakBadge";
@@ -37,10 +40,13 @@ export default function Today() {
   const [hasToday, setHasToday] = useState(false);
   const [templates, setTemplates] = useState<{ id: string; name: string; raw_input: string }[]>([]);
   const [clarifyOpen, setClarifyOpen] = useState(false);
+  // Date the user is planning for. Defaults to today; can be set to any future date.
+  const [planDate, setPlanDate] = useState<string>(todayDateStr());
+  const [datePopoverOpen, setDatePopoverOpen] = useState(false);
 
   useEffect(() => {
     if (!user) return;
-    supabase.from("plans").select("id").eq("user_id", user.id).eq("date", todayDateStr()).maybeSingle()
+    supabase.from("plans").select("id").eq("user_id", user.id).eq("date", planDate).maybeSingle()
       .then(({ data }) => setHasToday(!!data));
     // Pull saved templates
     supabase.from("block_templates").select("id, name, raw_input").eq("user_id", user.id).order("created_at", { ascending: false })
@@ -55,7 +61,7 @@ export default function Today() {
         toast(`📥 Added ${caps.length} from quick capture`);
       }
     })();
-  }, [user?.id]);
+  }, [user?.id, planDate]);
 
   // Auto-start tour ONCE for new users (after onboarding). `tour.start` is a no-op if `tour_seen.today` is true.
   useEffect(() => {
