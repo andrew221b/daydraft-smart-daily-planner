@@ -332,6 +332,25 @@ export default function DayView() {
       </div>
 
       <div className="px-5 mt-5">
+        {planMissing && (
+          <div className="rounded-2xl bg-surface-elevated border border-border shadow-card p-6 text-center">
+            <CalendarDays className="h-6 w-6 mx-auto text-secondary-fg mb-2" />
+            <div className="text-sm font-medium">
+              {isFuture ? `No plan for ${friendlyDateFor(parseDateStr(viewDate))} yet`
+                : isToday ? "No plan for today yet"
+                : `No plan for ${friendlyDateFor(parseDateStr(viewDate))}`}
+            </div>
+            <p className="text-xs text-secondary-fg mt-1">
+              {isToday || isFuture ? "Head back to the planner to draft one." : "This day was never planned."}
+            </p>
+            <Button onClick={() => nav(isToday ? "/today" : `/today?date=${viewDate}`)}
+              className="mt-4 h-10 px-5 rounded-xl text-primary-foreground text-sm font-medium pressable shadow-glow"
+              style={{ background: "var(--gradient-primary)" }}>
+              Open planner
+            </Button>
+          </div>
+        )}
+        {!planMissing && (
         <div className="rounded-2xl bg-surface-elevated border border-border shadow-card p-4 relative overflow-hidden">
           <div className="absolute left-0 top-3 bottom-3 w-[3px] rounded-r-full bg-primary" />
           <div className="pl-3">
@@ -350,6 +369,7 @@ export default function DayView() {
             )}
           </div>
         </div>
+        )}
       </div>
 
       {firstUnfinishedTask && (
