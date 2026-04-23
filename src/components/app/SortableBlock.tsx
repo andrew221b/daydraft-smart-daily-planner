@@ -26,9 +26,9 @@ export const SortableBlock = ({
       <div className={`flex-1 rounded-2xl border shadow-card p-4 ${block.completed ? "opacity-50" : ""} ${isCal ? "bg-surface-elevated/60 border-border/60" : "bg-surface border-border"}`}>
         <div className="flex items-start justify-between gap-2">
           <div className="flex-1 min-w-0">
-            <div className="font-medium text-[15px] leading-snug flex items-center gap-1.5">
+            <div className="font-medium text-[15px] leading-snug flex items-center gap-1.5 min-w-0">
               {isCal && <Calendar className="h-3.5 w-3.5 text-secondary-fg shrink-0" />}
-              <span className="truncate">{block.title}</span>
+              <span className="truncate min-w-0">{block.title}</span>
             </div>
             <div className="flex items-center gap-2 mt-2 flex-wrap">
               <span className="text-xs px-2 py-0.5 rounded-full bg-surface-elevated text-secondary-fg">{block.duration_min} min</span>
