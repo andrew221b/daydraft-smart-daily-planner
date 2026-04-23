@@ -1,6 +1,7 @@
 import { useEffect, useState, useCallback } from "react";
 import { supabase } from "@/integrations/supabase/client";
 import { useAuth } from "./useAuth";
+import { dateStr } from "@/lib/daydraft";
 
 export type Tier = "free" | "trial" | "pro";
 
@@ -43,10 +44,12 @@ export const useEntitlement = () => {
       currentPeriodEnd: sub?.current_period_end ?? null,
     });
 
-    // Quota: count distinct plan dates in last 7 days
+    // Quota: count distinct plan dates in last 7 days (use local date key
+    // so users in negative-UTC timezones don't see their quota reset a day
+    // late).
     const since = new Date(); since.setDate(since.getDate() - 6);
     const { data: plans } = await supabase.from("plans").select("date")
-      .eq("user_id", user.id).gte("date", since.toISOString().slice(0, 10));
+      .eq("user_id", user.id).gte("date", dateStr(since));
     const uniq = new Set((plans || []).map((p: any) => p.date));
     setPlanQuotaUsed(uniq.size);
     setLoading(false);

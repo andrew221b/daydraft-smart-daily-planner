@@ -1,7 +1,7 @@
 import { useEffect, useState, useCallback, useRef } from "react";
 import { supabase } from "@/integrations/supabase/client";
 import { useAuth } from "./useAuth";
-import { todayDateStr } from "@/lib/daydraft";
+import { todayDateStr, dateStr } from "@/lib/daydraft";
 
 export interface Streak {
   user_id: string;
@@ -39,7 +39,8 @@ export const useStreak = () => {
       const next = new Date(); next.setDate(next.getDate() + 7);
       const { data: upd } = await supabase.from("streaks").update({
         freezes_remaining: 1,
-        freeze_resets_at: next.toISOString().slice(0, 10),
+        // Local date key — UTC slice would drift a day in negative offsets.
+        freeze_resets_at: dateStr(next),
       }).eq("user_id", user.id).select().maybeSingle();
       if (upd) data = upd;
     }
@@ -113,10 +114,11 @@ export const useStreak = () => {
     const gap = daysBetween(streak.last_planned_date, today);
     // Only valid when exactly one day was missed (yesterday was skipped).
     if (gap !== 2) return false;
+    const yesterday = new Date(); yesterday.setDate(yesterday.getDate() - 1);
     const { data: upd } = await supabase.from("streaks").update({
       freezes_remaining: streak.freezes_remaining - 1,
       // Pretend yesterday was planned so today can continue the streak naturally.
-      last_planned_date: new Date(Date.now() - 86400000).toISOString().slice(0, 10),
+      last_planned_date: dateStr(yesterday),
     }).eq("user_id", user.id).select().maybeSingle();
     if (upd) setStreak(upd as Streak);
     return true;

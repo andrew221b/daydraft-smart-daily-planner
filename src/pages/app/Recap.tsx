@@ -39,7 +39,8 @@ export default function Recap() {
       const { data: bs } = await supabase.from("blocks").select("*").eq("plan_id", p.id).order("position");
       const list = (bs || []) as Block[];
       setBlocks(list);
-      // Average completed deep_work min/day across last 7 days (excluding today)
+      // Average completed deep_work min/day across last 7 days (excluding today).
+      // Local date — UTC slice would shift a day in negative-UTC timezones.
       const sevenAgo = new Date();
       sevenAgo.setDate(sevenAgo.getDate() - 7);
       const { data: prev } = await supabase
@@ -49,7 +50,7 @@ export default function Recap() {
         .eq("kind", "task")
         .eq("type", "deep_work")
         .eq("completed", true)
-        .gte("plans.date", sevenAgo.toISOString().slice(0, 10))
+        .gte("plans.date", dateStr(sevenAgo))
         .lt("plans.date", todayDateStr());
       if (prev) {
         const total = (prev as any[]).reduce((s, r) => s + (r.duration_min || 0), 0);

@@ -6,12 +6,14 @@ import { supabase } from "@/integrations/supabase/client";
 import { Flame, Snowflake, Trophy, Share2, RotateCcw } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { toast } from "sonner";
-import { todayDateStr } from "@/lib/daydraft";
+import { todayDateStr, dateStr } from "@/lib/daydraft";
 import { haptics } from "@/lib/haptics";
 
 const WEEKS = 12;
 
-const dateKey = (d: Date) => d.toISOString().slice(0, 10);
+// Use LOCAL date key so the calendar grid lines up with the user's actual
+// calendar (toISOString() drifts a day in non-UTC timezones).
+const dateKey = (d: Date) => dateStr(d);
 
 export const StreakSheet = ({ open, onOpenChange }: { open: boolean; onOpenChange: (v: boolean) => void }) => {
   const { streak, restoreWithFreeze } = useStreak();
