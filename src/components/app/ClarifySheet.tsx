@@ -23,6 +23,7 @@ export type ClarifiedTask = {
   priority: "high" | "medium" | "low";
   fixed_time?: string; // HH:MM
   notes?: string;
+  track_time?: boolean; // user opted-in to time-tracking for this task
 };
 
 type Row = ClarifiedTask & {
