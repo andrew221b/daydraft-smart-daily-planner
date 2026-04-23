@@ -46,8 +46,14 @@ export default function Today() {
 
   useEffect(() => {
     if (!user) return;
-    supabase.from("plans").select("id").eq("user_id", user.id).eq("date", planDate).maybeSingle()
-      .then(({ data }) => setHasPlanForDate(!!data));
+    // A plan is "real" only if it has at least one block. An emptied plan
+    // (user deleted every task) shouldn't show the "View existing plan" CTA.
+    (async () => {
+      const { data: p } = await supabase.from("plans").select("id").eq("user_id", user.id).eq("date", planDate).maybeSingle();
+      if (!p) { setHasPlanForDate(false); return; }
+      const { count } = await supabase.from("blocks").select("id", { count: "exact", head: true }).eq("plan_id", p.id);
+      setHasPlanForDate((count ?? 0) > 0);
+    })();
     // Pull saved templates
     supabase.from("block_templates").select("id, name, raw_input").eq("user_id", user.id).order("created_at", { ascending: false })
       .then(({ data }) => setTemplates((data || []) as any));
