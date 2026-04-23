@@ -7,7 +7,7 @@ import { useProfile } from "@/hooks/useProfile";
 import { useAuth } from "@/hooks/useAuth";
 import { greeting, friendlyDate, peakWindow, todayDateStr } from "@/lib/daydraft";
 import { supabase } from "@/integrations/supabase/client";
-import { Mic, Sparkles, Zap, ArrowRight, RotateCw } from "lucide-react";
+import { Mic, Sparkles, Zap, ArrowRight } from "lucide-react";
 import { toast } from "sonner";
 import { SpilloverChips } from "@/components/app/SpilloverChips";
 import { StreakBadge } from "@/components/app/StreakBadge";
@@ -43,16 +43,11 @@ export default function Today() {
   const [hasToday, setHasToday] = useState(false);
   const [templates, setTemplates] = useState<{ id: string; name: string; raw_input: string }[]>([]);
   const [clarifyOpen, setClarifyOpen] = useState(false);
-  const [yesterdayPreview, setYesterdayPreview] = useState<string | null>(null);
 
   useEffect(() => {
     if (!user) return;
     supabase.from("plans").select("id").eq("user_id", user.id).eq("date", todayDateStr()).maybeSingle()
       .then(({ data }) => setHasToday(!!data));
-    // Pull yesterday's plan for the "Plan like yesterday" card
-    supabase.from("plans").select("raw_input").eq("user_id", user.id)
-      .lt("date", todayDateStr()).order("date", { ascending: false }).limit(1).maybeSingle()
-      .then(({ data }) => { if (data?.raw_input) setYesterdayPreview(data.raw_input); });
     // Pull saved templates
     supabase.from("block_templates").select("id, name, raw_input").eq("user_id", user.id).order("created_at", { ascending: false })
       .then(({ data }) => setTemplates((data || []) as any));
@@ -68,12 +63,7 @@ export default function Today() {
     })();
   }, [user?.id]);
 
-  // Auto-start tour on first visit (after profile is loaded).
-  useEffect(() => {
-    if (!profile?.onboarded) return;
-    const t = setTimeout(() => tour.start(TOUR_TODAY), 600);
-    return () => clearTimeout(t);
-  }, [profile?.onboarded]);
+  // Tour can be started manually from Settings — auto-starting it intercepts clicks.
 
   const useYesterday = async () => {
     if (!user) return;
@@ -223,23 +213,6 @@ export default function Today() {
             setInput(prev => prev ? block + "\n" + prev : block);
             toast.success(titles.length === 1 ? "Carried over" : `Carried over ${titles.length} tasks`);
           }} />
-          {yesterdayPreview && !input && (
-            <button
-              onClick={() => { setInput(yesterdayPreview); haptics.tap(); toast.success("Loaded yesterday's tasks"); }}
-              className="mb-3 w-full flex items-center justify-between gap-3 px-4 py-3 rounded-2xl border border-primary/30 bg-primary/5 pressable text-left"
-            >
-              <div className="flex items-center gap-2 min-w-0">
-                <RotateCw className="h-4 w-4 text-primary shrink-0" />
-                <div className="min-w-0">
-                  <div className="text-sm font-medium">Plan like yesterday</div>
-                  <div className="text-xs text-secondary-fg truncate">
-                    {yesterdayPreview.split(/\r?\n/).filter(Boolean).slice(0, 3).join(" · ")}
-                  </div>
-                </div>
-              </div>
-              <span className="text-xs font-semibold text-primary shrink-0">Use →</span>
-            </button>
-          )}
           <Textarea
             data-tour="today-input"
             value={input} onChange={e => setInput(e.target.value)} placeholder={DEFAULT_PLACEHOLDER}
