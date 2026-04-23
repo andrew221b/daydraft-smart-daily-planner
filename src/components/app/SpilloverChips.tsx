@@ -1,33 +1,48 @@
 import { useEffect, useState } from "react";
 import { supabase } from "@/integrations/supabase/client";
 import { useAuth } from "@/hooks/useAuth";
-import { todayDateStr } from "@/lib/daydraft";
+import { dateStr, parseDateStr } from "@/lib/daydraft";
 import { X, RotateCcw } from "lucide-react";
 
 interface SpilloverProps {
   onCarryOver: (titles: string[]) => void;
+  /** The date being planned (YYYY-MM-DD). Spillover always pulls from the
+   *  most recent plan strictly BEFORE this date — not "yesterday from now". */
+  planDate: string;
 }
 
-export const SpilloverChips = ({ onCarryOver }: SpilloverProps) => {
+export const SpilloverChips = ({ onCarryOver, planDate }: SpilloverProps) => {
   const { user } = useAuth();
   const [titles, setTitles] = useState<string[]>([]);
+  const [sourceLabel, setSourceLabel] = useState<string>("yesterday");
   const [dismissed, setDismissed] = useState(false);
 
   useEffect(() => {
     if (!user) return;
+    setDismissed(false);
     (async () => {
       const { data: plan } = await supabase
-        .from("plans").select("id")
-        .eq("user_id", user.id).lt("date", todayDateStr())
+        .from("plans").select("id, date")
+        .eq("user_id", user.id).lt("date", planDate)
         .order("date", { ascending: false }).limit(1).maybeSingle();
-      if (!plan) return;
+      if (!plan) { setTitles([]); return; }
       const { data: blocks } = await supabase
         .from("blocks").select("title, kind, completed")
         .eq("plan_id", plan.id).eq("completed", false).eq("kind", "task");
       const list = (blocks || []).map(b => b.title).filter(Boolean);
       setTitles(list);
+      // Compute a friendly label: "yesterday" only if the previous plan was
+      // literally the day before; otherwise show its date so the user knows
+      // those tasks are stale (e.g. from last week).
+      try {
+        const prev = parseDateStr(plan.date);
+        const target = parseDateStr(planDate);
+        const dayBefore = new Date(target); dayBefore.setDate(dayBefore.getDate() - 1);
+        if (dateStr(prev) === dateStr(dayBefore)) setSourceLabel("yesterday");
+        else setSourceLabel(prev.toLocaleDateString(undefined, { month: "short", day: "numeric" }));
+      } catch { setSourceLabel("a previous day"); }
     })();
-  }, [user?.id]);
+  }, [user?.id, planDate]);
 
   if (dismissed || titles.length === 0) return null;
 
@@ -35,7 +50,7 @@ export const SpilloverChips = ({ onCarryOver }: SpilloverProps) => {
     <div className="mb-3 rounded-2xl bg-surface border border-border p-3">
       <div className="flex items-center justify-between mb-2">
         <div className="text-xs text-secondary-fg">
-          <span className="text-foreground font-medium">{titles.length} unfinished</span> from yesterday
+          <span className="text-foreground font-medium">{titles.length} unfinished</span> from {sourceLabel}
         </div>
         <div className="flex items-center gap-2">
           <button onClick={() => onCarryOver(titles)}

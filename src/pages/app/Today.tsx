@@ -271,7 +271,7 @@ export default function Today() {
         )}
 
         <div className="mt-6 relative">
-          <SpilloverChips onCarryOver={(titles) => {
+          <SpilloverChips planDate={planDate} onCarryOver={(titles) => {
             const block = titles.join("\n");
             setInput(prev => prev ? block + "\n" + prev : block);
             toast.success(titles.length === 1 ? "Carried over" : `Carried over ${titles.length} tasks`);
