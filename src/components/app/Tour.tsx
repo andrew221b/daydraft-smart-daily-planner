@@ -152,8 +152,9 @@ function TourOverlay({ rect, step, index, total, onNext, onSkip }: {
 
   return (
     <div className="fixed inset-0 z-[100] pointer-events-none" aria-live="polite">
-      {/* Dim layer with cut-out using SVG mask */}
-      <svg width="100%" height="100%" className="absolute inset-0 pointer-events-auto" onClick={onNext}>
+      {/* Dim layer with cut-out using SVG mask. Clicking the dim area dismisses the tour
+          so users are never trapped if a target moves or rendering glitches. */}
+      <svg width="100%" height="100%" className="absolute inset-0 pointer-events-auto" onClick={onSkip}>
         <defs>
           <mask id="tour-mask">
             <rect width="100%" height="100%" fill="white" />
