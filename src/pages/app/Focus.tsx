@@ -457,6 +457,20 @@ export default function Focus() {
         </div>
       </div>
       <PreflightSheet open={preflightOpen} onOpenChange={(v) => { if (!v) dismissPreflight(); }} onStart={dismissPreflight} />
+      <AlertDialog open={confirmSkipOpen} onOpenChange={setConfirmSkipOpen}>
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>Skip this block?</AlertDialogTitle>
+            <AlertDialogDescription>
+              "{block?.title}" will be marked as done and you'll move to the next block. This can't be undone.
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel>Cancel</AlertDialogCancel>
+            <AlertDialogAction onClick={() => { setConfirmSkipOpen(false); skip(); }}>Skip</AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
     </div>
   );
 }
