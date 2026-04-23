@@ -728,6 +728,32 @@ export function TrackerSheet({ open, onOpenChange }: { open: boolean; onOpenChan
       </SheetContent>
     </Sheet>
     <UpgradeSheet open={upgradeOpen} onOpenChange={setUpgradeOpen} reason="quota" />
+    <AlertDialog open={!!confirmDeleteCat} onOpenChange={(v) => { if (!v) setConfirmDeleteCat(null); }}>
+      <AlertDialogContent>
+        <AlertDialogHeader>
+          <AlertDialogTitle>Delete this category?</AlertDialogTitle>
+          <AlertDialogDescription>
+            {(() => {
+              const n = categories.find(c => c.id === confirmDeleteCat)?.name;
+              return n
+                ? `"${n}" will be removed. Time entries logged under it will be unassigned.`
+                : "This category will be removed.";
+            })()}
+          </AlertDialogDescription>
+        </AlertDialogHeader>
+        <AlertDialogFooter>
+          <AlertDialogCancel>Cancel</AlertDialogCancel>
+          <AlertDialogAction
+            className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
+            onClick={() => {
+              const id = confirmDeleteCat;
+              setConfirmDeleteCat(null);
+              if (id) deleteCategory(id);
+            }}
+          >Delete</AlertDialogAction>
+        </AlertDialogFooter>
+      </AlertDialogContent>
+    </AlertDialog>
     </>
   );
 }
