@@ -401,7 +401,7 @@ export default function DayView() {
                       onComplete={() => completeBlock(b.id)}
                       onDelete={() => removeBlock(b.id)}
                     >
-                      <SortableBlock block={b} editing={editing} onRemove={removeBlock} onInfo={setReasoningBlock} />
+                      <SortableBlock block={b} editing={editing} onRemove={(id) => setConfirmRemoveId(id)} onInfo={setReasoningBlock} />
                     </SwipeableBlock>
                     {editing && !b.is_calendar_event && (
                       <div className="ml-12 mt-1.5 flex items-center gap-2 text-[11px] text-secondary-fg">
