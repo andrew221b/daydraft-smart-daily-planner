@@ -321,10 +321,12 @@ export default function DayView() {
           <ChevronLeft className="h-5 w-5" />
         </button>
         <div className="text-center">
-          <h1 className="text-[22px] font-semibold leading-tight">Today's Plan</h1>
+          <h1 className="text-[22px] font-semibold leading-tight">
+            {isToday ? "Today's Plan" : `Plan · ${friendlyDateFor(parseDateStr(viewDate))}`}
+          </h1>
           <div className="mt-0.5"><ContextStrip meetings={meetings} /></div>
         </div>
-        <button onClick={() => setEditing(e => !e)} className="text-sm text-primary font-medium px-2">
+        <button onClick={() => setEditing(e => !e)} disabled={planMissing} className="text-sm text-primary font-medium px-2 disabled:opacity-30">
           {editing ? "Done" : "Edit"}
         </button>
       </div>
