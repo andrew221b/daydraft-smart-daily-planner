@@ -363,8 +363,10 @@ export function TrackerSheet({ open, onOpenChange }: { open: boolean; onOpenChan
           <SheetHeader className="text-left">
             <SheetTitle className="text-xl pr-8">Time tracker</SheetTitle>
             <SheetDescription className="text-xs">
+              {/* When a session is active, the hero stopwatch below is the
+                  source of truth — duplicating it here just confused users. */}
               {active
-                ? <>Tracking <span className="text-foreground font-medium">{activeCat?.name}</span> · <span className="font-mono tabular-nums">{fmtHMS(elapsedSec)}</span></>
+                ? <span className="opacity-0 select-none">.</span>
                 : <>{headerLabel}: <span className="text-foreground font-medium">{fmtHM(headerTotalSec)}</span></>}
             </SheetDescription>
           </SheetHeader>
