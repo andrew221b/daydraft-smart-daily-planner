@@ -567,12 +567,26 @@ export default function Focus() {
           <AlertDialogHeader>
             <AlertDialogTitle>Skip this block?</AlertDialogTitle>
             <AlertDialogDescription>
-              "{block?.title}" will be marked as done and you'll move to the next block. This can't be undone.
+              "{block?.title}" stays open (not completed) and you'll move on. Any tracker time started here is dropped.
             </AlertDialogDescription>
           </AlertDialogHeader>
           <AlertDialogFooter>
             <AlertDialogCancel>Cancel</AlertDialogCancel>
             <AlertDialogAction onClick={() => { setConfirmSkipOpen(false); skip(); }}>Skip</AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
+      <AlertDialog open={confirmCancelOpen} onOpenChange={setConfirmCancelOpen}>
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>Leave focus?</AlertDialogTitle>
+            <AlertDialogDescription>
+              You're tracking time. Leaving will discard this session — the block stays as it was.
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel>Stay</AlertDialogCancel>
+            <AlertDialogAction onClick={() => { setConfirmCancelOpen(false); cancel(); }}>Leave</AlertDialogAction>
           </AlertDialogFooter>
         </AlertDialogContent>
       </AlertDialog>
