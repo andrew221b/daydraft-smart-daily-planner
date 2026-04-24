@@ -18,6 +18,7 @@ import RecapWeek from "./pages/app/RecapWeek";
 import History from "./pages/app/History";
 import Stats from "./pages/app/Stats";
 import Settings from "./pages/app/Settings";
+import Tracker from "./pages/app/Tracker";
 import ForgotPassword from "./pages/app/ForgotPassword";
 import ResetPassword from "./pages/app/ResetPassword";
 import Privacy from "./pages/legal/Privacy";
@@ -67,6 +68,7 @@ const App = () => (
             <Route path="/today/planning" element={<RequireAuth><Planning /></RequireAuth>} />
             <Route path="/today/plan" element={<RequireAuth><DayView /></RequireAuth>} />
             <Route path="/focus/:blockId" element={<RequireAuth><Focus /></RequireAuth>} />
+            <Route path="/tracker" element={<RequireAuth><Tracker /></RequireAuth>} />
             <Route path="/recap" element={<RequireAuth><Recap /></RequireAuth>} />
             <Route path="/recap/week" element={<RequireAuth><RecapWeek /></RequireAuth>} />
             <Route path="/history" element={<RequireAuth><History /></RequireAuth>} />

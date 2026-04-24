@@ -2,10 +2,9 @@ import { useEffect, useMemo, useState } from "react";
 import { useNavigate } from "react-router-dom";
 import { Shell } from "@/components/app/Shell";
 import { useAuth } from "@/hooks/useAuth";
-import { useStreak } from "@/hooks/useStreak";
 import { supabase } from "@/integrations/supabase/client";
 import { Block, dateStr } from "@/lib/daydraft";
-import { Flame, Target, Clock, Trophy, ArrowRight } from "lucide-react";
+import { CalendarDays, Target, Clock, Trophy, ArrowRight } from "lucide-react";
 import { Button } from "@/components/ui/button";
 
 // Local date key — UTC slice would shift bars a day in negative offsets.
@@ -13,7 +12,6 @@ const dateKey = (d: Date) => dateStr(d);
 
 export default function RecapWeek() {
   const { user } = useAuth();
-  const { streak } = useStreak();
   const nav = useNavigate();
   const [blocks, setBlocks] = useState<Block[]>([]);
   const [planDays, setPlanDays] = useState<string[]>([]);
@@ -59,7 +57,7 @@ export default function RecapWeek() {
             <Card icon={<Clock className="h-4 w-4" />} label="Focus time" value={`${fh}h ${fm}m`} />
             <Card icon={<Target className="h-4 w-4" />} label="Completion" value={`${stats.completionPct}%`} sub={`${stats.done}/${stats.planned}`} />
             <Card icon={<Trophy className="h-4 w-4" />} label="Top category" value={stats.topLabel} />
-            <Card icon={<Flame className="h-4 w-4" />} label="Streak" value={`${streak?.current_streak ?? 0} days`} sub={`Best ${streak?.longest_streak ?? 0}`} />
+            <Card icon={<CalendarDays className="h-4 w-4" />} label="Days planned" value={`${planDays.length}/7`} sub={planDays.length === 7 ? "Every day" : "this week"} />
           </div>
 
           <div className="mt-8">

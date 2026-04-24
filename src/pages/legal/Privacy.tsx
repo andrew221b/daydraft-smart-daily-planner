@@ -8,7 +8,7 @@ export default function Privacy() {
       <h2>1. Data we collect</h2>
       <ul className="list-disc pl-5 space-y-1">
         <li><strong>Account data:</strong> email address, display name, password (hashed).</li>
-        <li><strong>Productivity data:</strong> tasks, plans, time entries, focus sessions, streaks — all stored encrypted at rest.</li>
+        <li><strong>Productivity data:</strong> tasks, plans, time entries, focus sessions — all stored encrypted at rest.</li>
         <li><strong>Optional:</strong> Google Calendar tokens (only if you connect calendar), push notification subscriptions (only if you enable nudges).</li>
         <li><strong>Diagnostic:</strong> minimal error logs without personal content.</li>
       </ul>

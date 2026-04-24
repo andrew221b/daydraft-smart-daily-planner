@@ -228,7 +228,7 @@ export const TOUR_TODAY: TourFlow = {
     {
       id: "inbox",
       selector: "[data-tour='today-inbox']",
-      title: "Inbox for stray thoughts",
+      title: "Capture stray thoughts",
       body: "Got an idea mid-day? Tap here. It'll show up automatically on your next plan.",
       placement: "top",
     },

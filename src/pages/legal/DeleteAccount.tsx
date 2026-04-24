@@ -26,7 +26,7 @@ export default function DeleteAccount() {
       await supabase.from("time_categories").delete().eq("user_id", user.id);
       await supabase.from("block_templates").delete().eq("user_id", user.id);
       await supabase.from("quick_captures").delete().eq("user_id", user.id);
-      await supabase.from("streaks").delete().eq("user_id", user.id);
+      // streaks table is no longer surfaced in-app; rows (if any) are left.
       await supabase.from("user_patterns").delete().eq("user_id", user.id);
       await supabase.from("push_subscriptions").delete().eq("user_id", user.id);
       await supabase.from("calendar_tokens").delete().eq("user_id", user.id);
@@ -49,7 +49,7 @@ export default function DeleteAccount() {
       <ul className="list-disc pl-5 space-y-1">
         <li>All your tasks, plans, and daily blocks</li>
         <li>Time tracking entries and categories</li>
-        <li>Streaks, statistics, and recaps</li>
+        <li>Statistics and recaps</li>
         <li>Templates, quick captures, and notification subscriptions</li>
         <li>Connected calendar tokens and subscription records</li>
         <li>Your profile</li>

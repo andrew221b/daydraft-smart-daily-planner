@@ -72,13 +72,13 @@ export function QuickCaptureButton({ className = "", variant = "icon" }: { class
       <button
         onClick={() => setOpen(true)}
         data-tour="today-inbox"
-        aria-label={`Inbox · ${pendingCount} pending`}
+        aria-label={`Capture · ${pendingCount} pending`}
         className={variant === "chip"
           ? `shrink-0 inline-flex items-center gap-1.5 px-3 py-2 rounded-full bg-surface border border-border text-xs text-secondary-fg pressable hover:text-foreground ${className}`
           : `relative h-10 w-10 rounded-full bg-surface-elevated border border-border flex items-center justify-center text-secondary-fg hover:text-foreground pressable ${className}`}
       >
         <Inbox className={variant === "chip" ? "h-3.5 w-3.5" : "h-4 w-4"} strokeWidth={2.2} />
-        {variant === "chip" && <span>Inbox</span>}
+        {variant === "chip" && <span>Capture</span>}
         {pendingCount > 0 && (
           variant === "chip"
             ? <span className="inline-flex min-w-[18px] h-[18px] px-1 rounded-full bg-primary/10 text-primary text-[10px] font-semibold items-center justify-center">{pendingCount > 99 ? "99+" : pendingCount}</span>
@@ -89,9 +89,9 @@ export function QuickCaptureButton({ className = "", variant = "icon" }: { class
       <Sheet open={open} onOpenChange={setOpen}>
         <SheetContent side="bottom" className="rounded-t-3xl border-border bg-surface-elevated max-h-[90vh] overflow-y-auto">
           <SheetHeader className="text-left">
-            <SheetTitle className="text-xl">Inbox</SheetTitle>
+            <SheetTitle className="text-xl">Capture</SheetTitle>
             <SheetDescription className="text-xs">
-              Capture thoughts as they come. They'll appear on your next plan automatically.
+              Jot thoughts as they come. They'll appear on your next plan automatically.
             </SheetDescription>
           </SheetHeader>
 
@@ -168,7 +168,7 @@ export function QuickCaptureButton({ className = "", variant = "icon" }: { class
           {items.length === 0 && (
             <div className="mt-8 text-center py-6">
               <Inbox className="h-8 w-8 text-secondary-fg/40 mx-auto mb-2" />
-              <p className="text-xs text-secondary-fg">No captured ideas yet.</p>
+              <p className="text-xs text-secondary-fg">Nothing captured yet.</p>
             </div>
           )}
         </SheetContent>
