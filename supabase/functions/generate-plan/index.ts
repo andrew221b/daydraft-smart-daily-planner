@@ -9,7 +9,7 @@ const corsHeaders = {
 serve(async (req) => {
   if (req.method === "OPTIONS") return new Response(null, { headers: corsHeaders });
   try {
-    const { raw_input, energy_preference, name, mode, start_time, clarified_tasks, plan_date, now_iso, timezone } = await req.json();
+    const { raw_input, energy_preference, name, mode, start_time, clarified_tasks, plan_date, now_iso, timezone, hours_already_committed } = await req.json();
     if (!raw_input || typeof raw_input !== "string") {
       return new Response(JSON.stringify({ error: "raw_input required" }), { status: 400, headers: { ...corsHeaders, "Content-Type": "application/json" } });
     }
@@ -86,6 +86,11 @@ serve(async (req) => {
       : 16;
 
     const isReplan = mode === "replan";
+    // Hours already accounted for elsewhere on the same date (completed
+    // blocks from earlier today, fixed calendar events, etc.). The AI must
+    // subtract this from the available window so it never over-promises.
+    const committed = Number(hours_already_committed) || 0;
+    const trueHoursLeft = Math.max(0, hoursLeftToday - committed);
     const clarifiedHints = Array.isArray(clarified_tasks) && clarified_tasks.length ? `
 
 USER-CLARIFIED TASKS (authoritative — DO NOT change titles, durations, or fixed times; use these instead of re-parsing raw_input):
@@ -115,14 +120,16 @@ ${calendarEvents.map((e: any) => `- ${e.start_time} (${e.duration_min}m) ${e.tit
 Context:
 - Current local time: ${nowHHMM} (${timezone || "UTC"}).
 - Planning date: ${plan_date || todayLocal} ${isPlanningToday ? "(TODAY)" : "(future date)"}.
-- Hours remaining: ~${hoursLeftToday.toFixed(1)}h.
+- Raw hours remaining in the day: ~${hoursLeftToday.toFixed(1)}h.
+- Hours already committed (completed work / fixed events): ~${committed.toFixed(1)}h.
+- Realistic hours you can plan into: ~${trueHoursLeft.toFixed(1)}h.
 Rules:
 - Front-load deep work in the user's peak window (${peak}) ONLY if it's still ahead.
 - Batch communication into 1-2 blocks, ideally after the peak.
 - Insert one 15-min break after ~2h of deep work, and a 60-min lunch around 12:00 (or 18:00 for night owls) ONLY if it's still ahead.
 - Each task block: 25-90 min. Keep total day under 8 working hours.
 - ${isPlanningToday ? `THIS IS TODAY. The first block MUST start at or after ${earliestStart}. NEVER schedule any block in the past. If the peak window has already passed, do deep work now anyway.` : `Day starts around ${startHour}:00.`}${isReplan ? " This is a MID-DAY RE-PLAN — start now and only schedule what's left." : ""}
-- If total estimated work exceeds the hours remaining, drop the lowest-priority items and mention it in the subtext.
+- HARD BUDGET: the sum of duration_min of all task blocks MUST NOT exceed ${Math.round(trueHoursLeft * 60)} minutes. If the user's input would exceed this, drop the lowest-priority items and START the subtext with "⚠️ Heads up: " followed by exactly which items got dropped and why (e.g. "⚠️ Heads up: dropped 'finish slides' — only ${trueHoursLeft.toFixed(1)}h left today.").
 - Classify each task as deep_work, communication, or routine.
 - Use kind="task" for actual tasks, "break" for breaks, "lunch" for lunch.
 - Extract location hints from raw text (e.g. "gym at 2pm", "lunch at Blue Bottle Mission") and include a short location string.
