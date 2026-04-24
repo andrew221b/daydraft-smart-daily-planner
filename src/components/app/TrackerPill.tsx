@@ -732,8 +732,7 @@ function TrackerInner({ embedded = false, onClose }: { embedded?: boolean; onClo
         <div className="px-5 pb-6 pt-2 text-[11px] text-secondary-fg text-center">
           Tracking runs in the background — close the app and it keeps counting.
         </div>
-      </SheetContent>
-    </Sheet>
+      </Wrapper>
     <UpgradeSheet open={upgradeOpen} onOpenChange={setUpgradeOpen} reason="quota" />
     <AlertDialog open={!!confirmDeleteCat} onOpenChange={(v) => { if (!v) setConfirmDeleteCat(null); }}>
       <AlertDialogContent>
@@ -762,6 +761,22 @@ function TrackerInner({ embedded = false, onClose }: { embedded?: boolean; onClo
       </AlertDialogContent>
     </AlertDialog>
     </>
+  );
+}
+
+/** Standalone full-screen tracker view used by the /tracker route. */
+export function TrackerView() {
+  return <TrackerInner embedded />;
+}
+
+/** Legacy bottom-sheet wrapper kept for any old callers. */
+export function TrackerSheet({ open, onOpenChange }: { open: boolean; onOpenChange: (v: boolean) => void }) {
+  return (
+    <Sheet open={open} onOpenChange={onOpenChange}>
+      <SheetContent side="bottom" className="rounded-t-3xl p-0 border-border max-h-[92vh] overflow-y-auto">
+        <TrackerInner onClose={() => onOpenChange(false)} />
+      </SheetContent>
+    </Sheet>
   );
 }
 
