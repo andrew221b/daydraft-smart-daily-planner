@@ -61,7 +61,7 @@ export const scheduleBlockReminders = (
   if (Notification.permission !== "granted") return;
 
   const now = Date.now();
-  blocks.forEach((b) => {
+  blocks.forEach((b: any) => {
     if (b.completed) return;
     if (b.kind !== "task" && b.kind !== "lunch" && b.kind !== "break") {
       // also skip calendar events — the user's calendar handles those.
