@@ -250,22 +250,7 @@ export default function Today() {
           JSON.stringify(trackTitles),
         );
       } catch {/* ignore */}
-      try {
-        // Streak only counts plans for today; planning ahead doesn't bump it.
-        if (planDate === todayDateStr()) {
-          const res = await recordPlanToday();
-          // Suppress duplicate streak toasts within the same day across page
-          // reloads. The hook's in-memory ref resets on refresh; we persist a
-          // marker so re-planning today doesn't spam the user.
-          const dayKey = `dd_streak_toast_${todayDateStr()}`;
-          const alreadyToasted = (() => { try { return localStorage.getItem(dayKey) === "1"; } catch { return false; } })();
-          if (!alreadyToasted) {
-            if (res?.freezeUsed) toast("🧊 Streak freeze used — you're safe");
-            if (res?.milestone) toast.success(`🔥 ${res.milestone}-day streak! Incredible.`);
-            try { localStorage.setItem(dayKey, "1"); } catch {/* ignore */}
-          }
-        }
-      } catch {/* ignore */}
+      // (streaks removed — planning no longer triggers a streak update)
       nav(planDate === todayDateStr() ? "/today/plan" : `/today/plan?date=${planDate}`);
     } catch (e: any) {
       toast.error(e.message || "Planning failed");
@@ -284,17 +269,14 @@ export default function Today() {
             <p className="text-secondary-fg text-sm mt-1">{friendlyDate()}</p>
           </div>
           <div className="flex items-center gap-2">
-            <div data-tour="today-streak"><StreakBadge /></div>
+            <ProBadge />
             <div className="h-10 w-10 rounded-full bg-surface-elevated border border-border flex items-center justify-center text-sm font-medium text-secondary-fg">
               {(profile?.display_name || "·").slice(0,1).toUpperCase()}
             </div>
           </div>
         </div>
 
-        <div className="mt-5 inline-flex items-center gap-2 px-3 py-1.5 rounded-full bg-primary/10 border border-primary/30 shadow-glow">
-          <Zap className="h-3.5 w-3.5 text-primary" fill="currentColor" />
-          <span className="text-xs font-medium text-primary">Peak hours: {peakWindow(profile?.energy_preference || "morning")}</span>
-        </div>
+        <TodayInsight />
 
         {showTrialBanner && (
           <button onClick={() => { setUpgradeReason("trial-banner"); setUpgradeOpen(true); }}
