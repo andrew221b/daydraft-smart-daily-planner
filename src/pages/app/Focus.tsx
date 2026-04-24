@@ -2,11 +2,16 @@ import { useEffect, useRef, useState } from "react";
 import { useNavigate, useParams } from "react-router-dom";
 import { supabase } from "@/integrations/supabase/client";
 import { Block } from "@/lib/daydraft";
-import { Check, ChevronRight, Minus, Plus, Sparkles, MapPin, ExternalLink, Loader2, Lightbulb, Copy, Phone, CalendarPlus, Mail, Timer, Square } from "lucide-react";
+import { Check, ChevronRight, Plus, Sparkles, MapPin, ExternalLink, Loader2, Lightbulb, Copy, Phone, CalendarPlus, Mail, Timer, Square, X } from "lucide-react";
 import { useAuth } from "@/hooks/useAuth";
 import { mapsUrl } from "@/lib/maps";
 import { toast } from "sonner";
 import { useTimeTracker, fmtHMS } from "@/hooks/useTimeTracker";
+import {
+  Popover,
+  PopoverContent,
+  PopoverTrigger,
+} from "@/components/ui/popover";
 import { haptics } from "@/lib/haptics";
 import { PreflightSheet } from "@/components/app/PreflightSheet";
 import { QuickCaptureButton } from "@/components/app/QuickCapture";
@@ -48,6 +53,11 @@ export default function Focus() {
   const [extended, setExtended] = useState(false);
   const startedHereRef = useRef(false);
   const [confirmSkipOpen, setConfirmSkipOpen] = useState(false);
+  const [confirmCancelOpen, setConfirmCancelOpen] = useState(false);
+  // Wall-clock when the timer actually started ticking (after preflight).
+  // Used to attribute REAL elapsed time to time_entries on complete().
+  const actualStartMsRef = useRef<number | null>(null);
+  const [catPickerOpen, setCatPickerOpen] = useState(false);
 
   useEffect(() => {
     if (!blockId || !user) return;
@@ -99,6 +109,13 @@ export default function Focus() {
     setPreflightOpen(false);
     setArmed(true);
   };
+
+  // Mark the wall-clock start the first time the timer is armed for this block.
+  useEffect(() => {
+    if (armed && !actualStartMsRef.current) {
+      actualStartMsRef.current = Date.now();
+    }
+  }, [armed]);
 
   useEffect(() => {
     if (!block || !armed) return;
@@ -202,6 +219,12 @@ export default function Focus() {
     if (!block) return;
     haptics.notify("success");
     setShowCheck(true);
+    // Compute REAL time spent (wall-clock from when the timer armed → now).
+    // This replaces the old behaviour where completion silently credited the
+    // user with the full estimate even if they pressed Complete after 30s.
+    const actualSec = actualStartMsRef.current
+      ? Math.max(0, Math.round((Date.now() - actualStartMsRef.current) / 1000))
+      : 0;
     // Persist completion BEFORE navigating so a flaky network can't leave the
     // block stuck as incomplete after we've already advanced the user.
     const { error } = await supabase.from("blocks").update({ completed: true }).eq("id", block.id);
@@ -210,6 +233,8 @@ export default function Focus() {
       toast.error("Couldn't save — try again");
       return;
     }
+    // Only credit time-tracker hours if the user EXPLICITLY tracked this block
+    // (started a timer for it). Otherwise we fabricate hours that never happened.
     if (startedHereRef.current && tracking) {
       try { await stopTracking(); } catch {/* ignore */}
       startedHereRef.current = false;
@@ -223,12 +248,30 @@ export default function Focus() {
   const skip = async () => {
     if (!block) return;
     haptics.impact("light");
-    await supabase.from("blocks").update({ completed: true }).eq("id", block.id);
+    // Skip means "I'm not doing this right now" — DO NOT mark complete and DO
+    // NOT bank tracker time. Just move on. The block stays open so it can be
+    // carried over or re-planned later.
     if (startedHereRef.current && tracking) {
-      try { await stopTracking(); } catch {/* ignore */}
+      // Drop the in-progress entry entirely — they didn't actually do the work.
+      try {
+        await supabase.from("time_entries").delete().eq("id", tracking.id);
+      } catch {/* ignore */}
       startedHereRef.current = false;
     }
-    if (next) nav(`/focus/${next.id}`); else nav("/recap");
+    if (next) nav(`/focus/${next.id}`); else nav("/today/plan");
+  };
+
+  // Cancel = leave focus mode without changing anything (no completion, no
+  // tracker write). Mirrors browser-back but with a confirmation if a session
+  // is active so the user doesn't accidentally lose tracked time.
+  const cancel = async () => {
+    if (startedHereRef.current && tracking) {
+      try {
+        await supabase.from("time_entries").delete().eq("id", tracking.id);
+      } catch {/* ignore */}
+      startedHereRef.current = false;
+    }
+    nav("/today/plan");
   };
 
   if (!block) return <div className="min-h-screen bg-background" />;
@@ -271,14 +314,18 @@ export default function Focus() {
   return (
     <div className="min-h-screen w-full bg-background flex justify-center">
       <div className="relative w-full max-w-[390px] min-h-screen flex flex-col items-center px-6 pt-14 pb-10 page-enter">
+        {/* Cancel — top-left, returns to plan without altering anything */}
+        <button
+          onClick={() => (startedHereRef.current && tracking) ? setConfirmCancelOpen(true) : cancel()}
+          className="absolute top-4 left-4 h-9 w-9 rounded-full bg-surface border border-border flex items-center justify-center text-secondary-fg hover:text-foreground pressable"
+          aria-label="Cancel focus session"
+        >
+          <X className="h-4 w-4" />
+        </button>
         <div className="px-3 py-1 rounded-full bg-primary/10 border border-primary/30 text-[11px] tracking-[0.2em] text-primary font-medium uppercase">Focus Mode</div>
-        {tracking && trackingCat && (
-          <div className="mt-2 inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full bg-surface border border-border text-[11px] text-secondary-fg">
-            <span className="h-1.5 w-1.5 rounded-full animate-pulse" style={{ background: trackingCat.color }} />
-            Tracking · <span className="text-foreground font-medium">{trackingCat.name}</span>
-            <span className="font-mono tabular-nums">{fmtHMS(elapsedSec)}</span>
-          </div>
-        )}
+        {/* Tracking pill removed — the main timer + the inline "Stop tracking"
+            button below already convey state. Two timers on one screen was
+            redundant and confusing. */}
 
         <h1 className="mt-12 text-[28px] font-semibold text-center leading-tight max-w-[300px] line-clamp-2">{block.title}</h1>
 
@@ -340,22 +387,42 @@ export default function Focus() {
           Skip block <ChevronRight className="h-3 w-3" />
         </button>
         {!tracking && armed && categories.length > 0 && (
-          <button
-            onClick={() => {
-              startedHereRef.current = true;
-              startTracking(undefined, { source: "focus", blockId: block.id, note: block.title });
-            }}
-            className="mt-3 inline-flex items-center gap-1.5 px-3 py-1.5 rounded-full bg-surface border border-border text-[12px] text-secondary-fg hover:text-foreground pressable"
-          >
-            <Timer className="h-3.5 w-3.5" /> Start tracking
-          </button>
+          <Popover open={catPickerOpen} onOpenChange={setCatPickerOpen}>
+            <PopoverTrigger asChild>
+              <button className="mt-3 inline-flex items-center gap-1.5 px-3 py-1.5 rounded-full bg-surface border border-border text-[12px] text-secondary-fg hover:text-foreground pressable">
+                <Timer className="h-3.5 w-3.5" /> Track time…
+              </button>
+            </PopoverTrigger>
+            <PopoverContent className="w-56 p-2" align="center">
+              <div className="text-[10px] uppercase tracking-wider text-secondary-fg px-2 py-1">Pick a category</div>
+              <div className="space-y-0.5">
+                {categories.map(c => (
+                  <button
+                    key={c.id}
+                    onClick={() => {
+                      startedHereRef.current = true;
+                      startTracking(c.id, { source: "focus", blockId: block.id, note: block.title });
+                      setCatPickerOpen(false);
+                    }}
+                    className="w-full flex items-center gap-2 px-2 py-1.5 rounded-md text-sm hover:bg-muted text-foreground text-left pressable"
+                  >
+                    <span className="h-2.5 w-2.5 rounded-full" style={{ background: c.color }} />
+                    <span className="flex-1 truncate">{c.name}</span>
+                  </button>
+                ))}
+              </div>
+            </PopoverContent>
+          </Popover>
         )}
-        {tracking && startedHereRef.current && (
+        {tracking && startedHereRef.current && trackingCat && (
           <button
             onClick={() => { stopTracking(); startedHereRef.current = false; }}
             className="mt-3 inline-flex items-center gap-1.5 px-3 py-1.5 rounded-full bg-surface border border-border text-[12px] text-secondary-fg hover:text-foreground pressable"
           >
-            <Square className="h-3.5 w-3.5" /> Stop tracking
+            <span className="h-2 w-2 rounded-full animate-pulse" style={{ background: trackingCat.color }} />
+            <span className="text-foreground font-medium">{trackingCat.name}</span>
+            <span className="font-mono tabular-nums">{fmtHMS(elapsedSec)}</span>
+            <Square className="h-3 w-3 ml-1" />
           </button>
         )}
         <style>{`@keyframes breathe {
@@ -500,12 +567,26 @@ export default function Focus() {
           <AlertDialogHeader>
             <AlertDialogTitle>Skip this block?</AlertDialogTitle>
             <AlertDialogDescription>
-              "{block?.title}" will be marked as done and you'll move to the next block. This can't be undone.
+              "{block?.title}" stays open (not completed) and you'll move on. Any tracker time started here is dropped.
             </AlertDialogDescription>
           </AlertDialogHeader>
           <AlertDialogFooter>
             <AlertDialogCancel>Cancel</AlertDialogCancel>
             <AlertDialogAction onClick={() => { setConfirmSkipOpen(false); skip(); }}>Skip</AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
+      <AlertDialog open={confirmCancelOpen} onOpenChange={setConfirmCancelOpen}>
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>Leave focus?</AlertDialogTitle>
+            <AlertDialogDescription>
+              You're tracking time. Leaving will discard this session — the block stays as it was.
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel>Stay</AlertDialogCancel>
+            <AlertDialogAction onClick={() => { setConfirmCancelOpen(false); cancel(); }}>Leave</AlertDialogAction>
           </AlertDialogFooter>
         </AlertDialogContent>
       </AlertDialog>

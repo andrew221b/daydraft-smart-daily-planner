@@ -180,6 +180,24 @@ export default function Today() {
     nav("/today/planning");
     try {
       const minWait = new Promise(r => setTimeout(r, 1500));
+      // Pre-compute hours already committed today so the AI gets a real
+      // budget. We count: completed blocks on the planning date + any
+      // already-scheduled non-completed blocks (we'll replace those, but
+      // their duration_min still represents intent).
+      let hoursAlreadyCommitted = 0;
+      try {
+        if (planDate === todayDateStr()) {
+          const { data: existingPlan } = await supabase
+            .from("plans").select("id").eq("user_id", user.id).eq("date", planDate).maybeSingle();
+          if (existingPlan?.id) {
+            const { data: completed } = await supabase
+              .from("blocks").select("duration_min")
+              .eq("plan_id", existingPlan.id).eq("completed", true);
+            const min = (completed || []).reduce((s: number, b: any) => s + (b.duration_min || 0), 0);
+            hoursAlreadyCommitted = min / 60;
+          }
+        }
+      } catch {/* non-fatal */}
       const { data, error } = await supabase.functions.invoke("generate-plan", {
         body: {
           raw_input: input,
@@ -189,6 +207,7 @@ export default function Today() {
           plan_date: planDate,
           now_iso: new Date().toISOString(),
           timezone: profile.timezone || Intl.DateTimeFormat().resolvedOptions().timeZone,
+          hours_already_committed: hoursAlreadyCommitted,
         },
       });
       await minWait;

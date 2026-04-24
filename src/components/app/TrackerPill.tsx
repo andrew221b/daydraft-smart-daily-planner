@@ -363,8 +363,10 @@ export function TrackerSheet({ open, onOpenChange }: { open: boolean; onOpenChan
           <SheetHeader className="text-left">
             <SheetTitle className="text-xl pr-8">Time tracker</SheetTitle>
             <SheetDescription className="text-xs">
+              {/* When a session is active, the hero stopwatch below is the
+                  source of truth — duplicating it here just confused users. */}
               {active
-                ? <>Tracking <span className="text-foreground font-medium">{activeCat?.name}</span> · <span className="font-mono tabular-nums">{fmtHMS(elapsedSec)}</span></>
+                ? <span className="opacity-0 select-none">.</span>
                 : <>{headerLabel}: <span className="text-foreground font-medium">{fmtHM(headerTotalSec)}</span></>}
             </SheetDescription>
           </SheetHeader>
@@ -463,15 +465,8 @@ export function TrackerSheet({ open, onOpenChange }: { open: boolean; onOpenChan
               </div>
             )}
 
-            {/* Active hint */}
-            {active && (
-              <div className="px-5 pt-3">
-                <div className="text-[11px] text-secondary-fg flex items-center gap-1.5">
-                  <span className="inline-block h-1 w-1 rounded-full bg-secondary-fg/60" />
-                  Tap another category to switch instantly
-                </div>
-              </div>
-            )}
+            {/* Switch hint removed — switching mid-session was confusing and
+                rarely intentional; users can stop and start a fresh session. */}
 
             {/* Empty state when no entries today and no active */}
             {!active && todayByCat.length === 0 && categories.length > 0 && (
@@ -558,9 +553,11 @@ export function TrackerSheet({ open, onOpenChange }: { open: boolean; onOpenChan
                           >
                             <Plus className="h-3.5 w-3.5" />
                           </button>
-                          <button onClick={() => active ? switchCategory(c.id) : start(c.id)} className="inline-flex items-center gap-1 px-3 py-1.5 rounded-lg bg-foreground text-background text-xs font-medium pressable">
-                            <Play className="h-3 w-3" fill="currentColor" /> {active ? "Switch" : "Start"}
-                          </button>
+                          {!active && (
+                            <button onClick={() => start(c.id)} className="inline-flex items-center gap-1 px-3 py-1.5 rounded-lg bg-foreground text-background text-xs font-medium pressable">
+                              <Play className="h-3 w-3" fill="currentColor" /> Start
+                            </button>
+                          )}
                         </>
                       )}
                     </div>
