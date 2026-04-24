@@ -43,7 +43,13 @@ function clipDuration(e: Entry, dayStart: number, dayEnd: number, now: number) {
   return Math.max(0, (b - a) / 1000);
 }
 
-export function TrackerSheet({ open, onOpenChange }: { open: boolean; onOpenChange: (v: boolean) => void }) {
+/**
+ * Inner tracker UI — used by both the standalone /tracker page (TrackerView)
+ * and the legacy bottom sheet (TrackerSheet). The tab bar now navigates to
+ * /tracker, so the sheet is no longer mounted from the shell, but we keep
+ * it exported for any old call sites until they're cleaned up.
+ */
+function TrackerInner({ embedded = false, onClose }: { embedded?: boolean; onClose?: () => void }) {
   const { user } = useAuth();
   const { active, elapsedSec, categories, start, stop, switchCategory, addCategory, deleteCategory, renameCategory, addManualEntry, todayTotalSec } = useTimeTracker();
   const { isPro } = useEntitlement();
@@ -351,25 +357,29 @@ export function TrackerSheet({ open, onOpenChange }: { open: boolean; onOpenChan
     }
   };
 
+  const Wrapper: React.FC<{ children: React.ReactNode }> = ({ children }) =>
+    embedded
+      ? <div className="bg-background">{children}</div>
+      : <div className="rounded-t-3xl p-0 border border-border max-h-[92vh] overflow-y-auto bg-surface-elevated">{children}</div>;
+
   return (
     <>
-    <Sheet open={open} onOpenChange={(v) => { onOpenChange(v); if (!v) setSelectedDay(null); }}>
-      <SheetContent side="bottom" className="rounded-t-3xl p-0 border-border max-h-[92vh] overflow-y-auto scrollbar-none [&::-webkit-scrollbar]:hidden">
+    <Wrapper>
         {/* Header */}
         <div className="px-5 pt-5 pb-4 border-b border-border">
           {/* PDF moved to the bottom of the sheet — the close (X) sits in the
               top-right of SheetContent and any button placed beside it gets
               accidentally tapped when the user reaches to dismiss. */}
-          <SheetHeader className="text-left">
-            <SheetTitle className="text-xl pr-8">Time tracker</SheetTitle>
-            <SheetDescription className="text-xs">
-              {/* When a session is active, the hero stopwatch below is the
-                  source of truth — duplicating it here just confused users. */}
-              {active
-                ? <span className="opacity-0 select-none">.</span>
-                : <>{headerLabel}: <span className="text-foreground font-medium">{fmtHM(headerTotalSec)}</span></>}
-            </SheetDescription>
-          </SheetHeader>
+          <div className="text-left">
+            <h2 className="text-xl font-semibold pr-8">Time tracker</h2>
+            {/* No subtitle when running — the hero stopwatch is the source of
+                truth and a duplicate just confused users. */}
+            {!active && (
+              <p className="text-xs text-secondary-fg mt-0.5">
+                {headerLabel}: <span className="text-foreground font-medium">{fmtHM(headerTotalSec)}</span>
+              </p>
+            )}
+          </div>
 
           {/* Tabs */}
           <div className="mt-4 inline-flex w-full rounded-xl bg-muted p-1">
