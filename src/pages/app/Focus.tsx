@@ -219,6 +219,12 @@ export default function Focus() {
     if (!block) return;
     haptics.notify("success");
     setShowCheck(true);
+    // Compute REAL time spent (wall-clock from when the timer armed → now).
+    // This replaces the old behaviour where completion silently credited the
+    // user with the full estimate even if they pressed Complete after 30s.
+    const actualSec = actualStartMsRef.current
+      ? Math.max(0, Math.round((Date.now() - actualStartMsRef.current) / 1000))
+      : 0;
     // Persist completion BEFORE navigating so a flaky network can't leave the
     // block stuck as incomplete after we've already advanced the user.
     const { error } = await supabase.from("blocks").update({ completed: true }).eq("id", block.id);
@@ -227,6 +233,8 @@ export default function Focus() {
       toast.error("Couldn't save — try again");
       return;
     }
+    // Only credit time-tracker hours if the user EXPLICITLY tracked this block
+    // (started a timer for it). Otherwise we fabricate hours that never happened.
     if (startedHereRef.current && tracking) {
       try { await stopTracking(); } catch {/* ignore */}
       startedHereRef.current = false;
@@ -240,12 +248,30 @@ export default function Focus() {
   const skip = async () => {
     if (!block) return;
     haptics.impact("light");
-    await supabase.from("blocks").update({ completed: true }).eq("id", block.id);
+    // Skip means "I'm not doing this right now" — DO NOT mark complete and DO
+    // NOT bank tracker time. Just move on. The block stays open so it can be
+    // carried over or re-planned later.
     if (startedHereRef.current && tracking) {
-      try { await stopTracking(); } catch {/* ignore */}
+      // Drop the in-progress entry entirely — they didn't actually do the work.
+      try {
+        await supabase.from("time_entries").delete().eq("id", tracking.id);
+      } catch {/* ignore */}
       startedHereRef.current = false;
     }
-    if (next) nav(`/focus/${next.id}`); else nav("/recap");
+    if (next) nav(`/focus/${next.id}`); else nav("/today/plan");
+  };
+
+  // Cancel = leave focus mode without changing anything (no completion, no
+  // tracker write). Mirrors browser-back but with a confirmation if a session
+  // is active so the user doesn't accidentally lose tracked time.
+  const cancel = async () => {
+    if (startedHereRef.current && tracking) {
+      try {
+        await supabase.from("time_entries").delete().eq("id", tracking.id);
+      } catch {/* ignore */}
+      startedHereRef.current = false;
+    }
+    nav("/today/plan");
   };
 
   if (!block) return <div className="min-h-screen bg-background" />;
