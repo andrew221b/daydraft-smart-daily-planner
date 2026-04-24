@@ -53,6 +53,11 @@ export default function Focus() {
   const [extended, setExtended] = useState(false);
   const startedHereRef = useRef(false);
   const [confirmSkipOpen, setConfirmSkipOpen] = useState(false);
+  const [confirmCancelOpen, setConfirmCancelOpen] = useState(false);
+  // Wall-clock when the timer actually started ticking (after preflight).
+  // Used to attribute REAL elapsed time to time_entries on complete().
+  const actualStartMsRef = useRef<number | null>(null);
+  const [catPickerOpen, setCatPickerOpen] = useState(false);
 
   useEffect(() => {
     if (!blockId || !user) return;
@@ -104,6 +109,13 @@ export default function Focus() {
     setPreflightOpen(false);
     setArmed(true);
   };
+
+  // Mark the wall-clock start the first time the timer is armed for this block.
+  useEffect(() => {
+    if (armed && !actualStartMsRef.current) {
+      actualStartMsRef.current = Date.now();
+    }
+  }, [armed]);
 
   useEffect(() => {
     if (!block || !armed) return;
