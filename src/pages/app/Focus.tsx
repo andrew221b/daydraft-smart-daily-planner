@@ -387,22 +387,42 @@ export default function Focus() {
           Skip block <ChevronRight className="h-3 w-3" />
         </button>
         {!tracking && armed && categories.length > 0 && (
-          <button
-            onClick={() => {
-              startedHereRef.current = true;
-              startTracking(undefined, { source: "focus", blockId: block.id, note: block.title });
-            }}
-            className="mt-3 inline-flex items-center gap-1.5 px-3 py-1.5 rounded-full bg-surface border border-border text-[12px] text-secondary-fg hover:text-foreground pressable"
-          >
-            <Timer className="h-3.5 w-3.5" /> Start tracking
-          </button>
+          <Popover open={catPickerOpen} onOpenChange={setCatPickerOpen}>
+            <PopoverTrigger asChild>
+              <button className="mt-3 inline-flex items-center gap-1.5 px-3 py-1.5 rounded-full bg-surface border border-border text-[12px] text-secondary-fg hover:text-foreground pressable">
+                <Timer className="h-3.5 w-3.5" /> Track time…
+              </button>
+            </PopoverTrigger>
+            <PopoverContent className="w-56 p-2" align="center">
+              <div className="text-[10px] uppercase tracking-wider text-secondary-fg px-2 py-1">Pick a category</div>
+              <div className="space-y-0.5">
+                {categories.map(c => (
+                  <button
+                    key={c.id}
+                    onClick={() => {
+                      startedHereRef.current = true;
+                      startTracking(c.id, { source: "focus", blockId: block.id, note: block.title });
+                      setCatPickerOpen(false);
+                    }}
+                    className="w-full flex items-center gap-2 px-2 py-1.5 rounded-md text-sm hover:bg-muted text-foreground text-left pressable"
+                  >
+                    <span className="h-2.5 w-2.5 rounded-full" style={{ background: c.color }} />
+                    <span className="flex-1 truncate">{c.name}</span>
+                  </button>
+                ))}
+              </div>
+            </PopoverContent>
+          </Popover>
         )}
-        {tracking && startedHereRef.current && (
+        {tracking && startedHereRef.current && trackingCat && (
           <button
             onClick={() => { stopTracking(); startedHereRef.current = false; }}
             className="mt-3 inline-flex items-center gap-1.5 px-3 py-1.5 rounded-full bg-surface border border-border text-[12px] text-secondary-fg hover:text-foreground pressable"
           >
-            <Square className="h-3.5 w-3.5" /> Stop tracking
+            <span className="h-2 w-2 rounded-full animate-pulse" style={{ background: trackingCat.color }} />
+            <span className="text-foreground font-medium">{trackingCat.name}</span>
+            <span className="font-mono tabular-nums">{fmtHMS(elapsedSec)}</span>
+            <Square className="h-3 w-3 ml-1" />
           </button>
         )}
         <style>{`@keyframes breathe {
