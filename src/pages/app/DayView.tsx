@@ -28,6 +28,7 @@ import { haptics } from "@/lib/haptics";
 import { ContextStrip } from "@/components/app/ContextStrip";
 import { SkeletonBlock } from "@/components/app/SkeletonBlock";
 import { peakWindow } from "@/lib/daydraft";
+import { scheduleBlockReminders, ensureNotificationPermission, clearScheduledReminders } from "@/lib/blockReminders";
 
 type ExBlock = Block & {
   ai_reasoning?: string | null;
@@ -112,6 +113,21 @@ export default function DayView() {
       setLoading(false);
     })();
   }, [user?.id, viewDate]);
+
+  // Schedule local notifications 2 min before each upcoming block. Only
+  // applies to today (setTimeout can't reliably span hours of background).
+  // We silently ask for permission once per session — declines are remembered
+  // by the browser, so this never spams.
+  useEffect(() => {
+    if (!isToday || blocks.length === 0) return;
+    let cancelled = false;
+    (async () => {
+      const ok = await ensureNotificationPermission();
+      if (cancelled || !ok) return;
+      scheduleBlockReminders(blocks as any, { planDate: viewDate });
+    })();
+    return () => { cancelled = true; clearScheduledReminders(); };
+  }, [blocks, isToday, viewDate]);
 
   const removeBlock = async (id: string) => {
     // Universal undo: snapshot, delete, offer 5s undo.
@@ -457,6 +473,20 @@ export default function DayView() {
                     </SwipeableBlock>
                     {editing && !b.is_calendar_event && (
                       <div className="ml-12 mt-1.5 flex items-center gap-2 text-[11px] text-secondary-fg">
+                        <span>Start:</span>
+                        <input
+                          type="time"
+                          value={b.start_time}
+                          onChange={(e) => {
+                            const v = e.target.value;
+                            setBlocks(bs => bs.map(x => x.id === b.id ? { ...x, start_time: v } : x));
+                          }}
+                          onBlur={async (e) => {
+                            const v = e.target.value;
+                            await supabase.from("blocks").update({ start_time: v }).eq("id", b.id);
+                          }}
+                          className="h-6 px-1.5 rounded-md bg-surface border border-border text-foreground text-[11px] tabular-nums"
+                        />
                         <span>Duration:</span>
                         <button
                           onClick={() => adjustDuration(b.id, -5)}
