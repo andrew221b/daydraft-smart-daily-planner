@@ -519,6 +519,14 @@ export default function DayView() {
                           className="h-6 w-6 rounded-md bg-surface border border-border pressable inline-flex items-center justify-center"
                           aria-label="Lengthen"
                         ><Plus className="h-3 w-3" /></button>
+                        <button
+                          onClick={() => openReminders(b.id)}
+                          className="ml-auto h-6 px-2 rounded-md bg-surface border border-border pressable inline-flex items-center gap-1 text-[11px] text-secondary-fg hover:text-primary hover:border-primary/30"
+                          aria-label="Reminders"
+                        >
+                          {getReminderConfig(b.id).enabled ? <Bell className="h-3 w-3" /> : <BellOff className="h-3 w-3" />}
+                          Remind
+                        </button>
                       </div>
                     )}
                     {editing && <InlineAdd onClick={() => setAddAtIdx(realIdx + 1)} />}
