@@ -4,7 +4,7 @@ import { Shell } from "@/components/app/Shell";
 import { useAuth } from "@/hooks/useAuth";
 import { supabase } from "@/integrations/supabase/client";
 import { Block, fmtTime, todayDateStr, parseDateStr, friendlyDateFor, isFutureDateStr } from "@/lib/daydraft";
-import { ChevronLeft, Sparkles, Play, RefreshCw, Plus, Minus, Coffee, ChevronDown, Zap, CalendarDays, Trash2 } from "lucide-react";
+import { ChevronLeft, Sparkles, Play, RefreshCw, Plus, Minus, Coffee, ChevronDown, Zap, CalendarDays, Trash2, Bell, BellOff } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { DndContext, closestCenter, PointerSensor, TouchSensor, useSensor, useSensors, DragEndEvent } from "@dnd-kit/core";
 import { SortableContext, arrayMove, verticalListSortingStrategy } from "@dnd-kit/sortable";
@@ -28,7 +28,7 @@ import { haptics } from "@/lib/haptics";
 import { ContextStrip } from "@/components/app/ContextStrip";
 import { SkeletonBlock } from "@/components/app/SkeletonBlock";
 import { peakWindow } from "@/lib/daydraft";
-import { scheduleBlockReminders, ensureNotificationPermission, clearScheduledReminders } from "@/lib/blockReminders";
+import { scheduleBlockReminders, ensureNotificationPermission, clearScheduledReminders, getReminderConfig, setReminderConfig, ReminderConfig } from "@/lib/blockReminders";
 
 type ExBlock = Block & {
   ai_reasoning?: string | null;
@@ -74,6 +74,24 @@ export default function DayView() {
   const [newDuration, setNewDuration] = useState(30);
   const [confirmRemoveId, setConfirmRemoveId] = useState<string | null>(null);
   const [confirmDeletePlan, setConfirmDeletePlan] = useState(false);
+  const [reminderBlockId, setReminderBlockId] = useState<string | null>(null);
+  const [reminderCfg, setReminderCfg] = useState<ReminderConfig>({ enabled: true, leadsMin: [2], repeats: 0 });
+
+  const openReminders = (id: string) => {
+    setReminderCfg(getReminderConfig(id));
+    setReminderBlockId(id);
+  };
+  const saveReminders = (cfg: ReminderConfig) => {
+    if (!reminderBlockId) return;
+    setReminderConfig(reminderBlockId, cfg);
+    setReminderCfg(cfg);
+    // Re-schedule with the new config so the change takes effect immediately.
+    if (isToday) {
+      ensureNotificationPermission().then((ok) => {
+        if (ok) scheduleBlockReminders(blocks as any, { planDate: viewDate });
+      });
+    }
+  };
 
   const sensors = useSensors(
     useSensor(PointerSensor, { activationConstraint: { distance: 6 } }),
