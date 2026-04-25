@@ -107,12 +107,17 @@ export default function Recap() {
     toast.success("Thanks — that helps tune your plans");
   };
 
-  // "Forgot to track?" — completed focus minutes vs tracked seconds today
+  // "Forgot to track?" — completed focus minutes vs tracked seconds today.
+  // Only ever offered for TODAY's recap. On a past day we can't sensibly
+  // backfill (the timer source-of-truth is `now`), and crediting hours dated
+  // "today" for work that happened yesterday would corrupt the tracker.
+  const isTodayRecap = viewDate === todayDateStr();
   const completedFocusSec = tasks.filter(b => b.completed).reduce((s, b) => s + b.duration_min * 60, 0);
-  const showRecover = !backfilled && completedFocusSec >= 30 * 60 && todayTotalSec < completedFocusSec * 0.5;
+  const showRecover = isTodayRecap && !backfilled && completedFocusSec >= 30 * 60 && todayTotalSec < completedFocusSec * 0.5;
 
   const backfill = async () => {
     if (!user) return;
+    if (!isTodayRecap) { toast.error("Backfill is only available for today"); return; }
     const cat = categories.find(c => c.is_default) || categories[0];
     if (!cat) { toast.error("No category found"); return; }
     const completed = tasks.filter(b => b.completed);
