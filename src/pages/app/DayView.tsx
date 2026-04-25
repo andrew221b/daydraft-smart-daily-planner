@@ -28,6 +28,7 @@ import { haptics } from "@/lib/haptics";
 import { ContextStrip } from "@/components/app/ContextStrip";
 import { SkeletonBlock } from "@/components/app/SkeletonBlock";
 import { peakWindow } from "@/lib/daydraft";
+import { scheduleBlockReminders, ensureNotificationPermission, clearScheduledReminders } from "@/lib/blockReminders";
 
 type ExBlock = Block & {
   ai_reasoning?: string | null;
@@ -112,6 +113,21 @@ export default function DayView() {
       setLoading(false);
     })();
   }, [user?.id, viewDate]);
+
+  // Schedule local notifications 2 min before each upcoming block. Only
+  // applies to today (setTimeout can't reliably span hours of background).
+  // We silently ask for permission once per session — declines are remembered
+  // by the browser, so this never spams.
+  useEffect(() => {
+    if (!isToday || blocks.length === 0) return;
+    let cancelled = false;
+    (async () => {
+      const ok = await ensureNotificationPermission();
+      if (cancelled || !ok) return;
+      scheduleBlockReminders(blocks as any, { planDate: viewDate });
+    })();
+    return () => { cancelled = true; clearScheduledReminders(); };
+  }, [blocks, isToday, viewDate]);
 
   const removeBlock = async (id: string) => {
     // Universal undo: snapshot, delete, offer 5s undo.
