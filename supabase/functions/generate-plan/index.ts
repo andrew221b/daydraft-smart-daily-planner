@@ -134,6 +134,8 @@ Rules:
 - Use kind="task" for actual tasks, "break" for breaks, "lunch" for lunch.
 - Extract location hints from raw text (e.g. "gym at 2pm", "lunch at Blue Bottle Mission") and include a short location string.
 - For EVERY task, include a one-sentence "reasoning" explaining placement (e.g. "Deep work first — your peak").
+- LIGHT-DAY DETECTION: if the user only listed a tiny amount of work (≤ 60 min total) AND there is plenty of time left in the day (trueHoursLeft ≥ 4h), do NOT pad with invented tasks. Instead, schedule ONLY what the user gave you and START the subtext with "✨ Light day — " followed by a warm one-liner suggesting a self-care or restorative activity (walk, stretch, read, call a friend). Do not add those activities as blocks unless the user mentions them.
+- SELF-CARE NUDGE: if the day is heavy (≥ 6h of deep_work) consider inserting one short "Recharge" break (kind="break", 10-15 min, type="routine") between deep blocks, with a reasoning like "Quick reset to keep your focus sharp."
 - Summary: short, e.g. "5 tasks · 3 focus blocks · Done by 5pm".
 - Subtext: one short sentence.${clarifiedHints}${patternHints}${calHints}`;
 
