@@ -473,6 +473,20 @@ export default function DayView() {
                     </SwipeableBlock>
                     {editing && !b.is_calendar_event && (
                       <div className="ml-12 mt-1.5 flex items-center gap-2 text-[11px] text-secondary-fg">
+                        <span>Start:</span>
+                        <input
+                          type="time"
+                          value={b.start_time}
+                          onChange={(e) => {
+                            const v = e.target.value;
+                            setBlocks(bs => bs.map(x => x.id === b.id ? { ...x, start_time: v } : x));
+                          }}
+                          onBlur={async (e) => {
+                            const v = e.target.value;
+                            await supabase.from("blocks").update({ start_time: v }).eq("id", b.id);
+                          }}
+                          className="h-6 px-1.5 rounded-md bg-surface border border-border text-foreground text-[11px] tabular-nums"
+                        />
                         <span>Duration:</span>
                         <button
                           onClick={() => adjustDuration(b.id, -5)}
