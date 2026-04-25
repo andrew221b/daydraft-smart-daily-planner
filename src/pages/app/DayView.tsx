@@ -698,6 +698,75 @@ export default function DayView() {
           </AlertDialogFooter>
         </AlertDialogContent>
       </AlertDialog>
+
+      <Sheet open={!!reminderBlockId} onOpenChange={(v) => !v && setReminderBlockId(null)}>
+        <SheetContent side="bottom" className="rounded-t-3xl border-border bg-surface-elevated">
+          <SheetHeader>
+            <SheetTitle className="flex items-center gap-2">
+              <Bell className="h-4 w-4 text-primary" />
+              Reminders
+            </SheetTitle>
+          </SheetHeader>
+          {(() => {
+            const b = blocks.find(x => x.id === reminderBlockId);
+            if (!b) return null;
+            const LEAD_OPTIONS = [0, 2, 5, 10, 15, 30, 60];
+            const REPEAT_OPTIONS = [0, 1, 2, 3, 5];
+            const toggleLead = (n: number) => {
+              const has = reminderCfg.leadsMin.includes(n);
+              const next = has
+                ? reminderCfg.leadsMin.filter(x => x !== n)
+                : [...reminderCfg.leadsMin, n].sort((a, c) => c - a);
+              saveReminders({ ...reminderCfg, leadsMin: next });
+            };
+            return (
+              <div className="mt-4 space-y-4">
+                <div className="text-sm text-foreground font-medium">{b.title}</div>
+                <div className="text-xs text-secondary-fg">Starts at {b.start_time}</div>
+
+                <div className="flex items-center justify-between rounded-xl bg-surface border border-border px-3 py-2.5">
+                  <span className="text-sm">Notify me</span>
+                  <button
+                    onClick={() => saveReminders({ ...reminderCfg, enabled: !reminderCfg.enabled })}
+                    className={`px-3 h-7 rounded-full text-[11px] font-medium pressable ${reminderCfg.enabled ? "bg-primary text-primary-foreground" : "bg-muted text-secondary-fg"}`}
+                  >{reminderCfg.enabled ? "On" : "Off"}</button>
+                </div>
+
+                <div className={reminderCfg.enabled ? "" : "opacity-40 pointer-events-none"}>
+                  <div className="text-[11px] uppercase tracking-wider text-secondary-fg mb-2">Before start</div>
+                  <div className="flex flex-wrap gap-1.5">
+                    {LEAD_OPTIONS.map(n => {
+                      const on = reminderCfg.leadsMin.includes(n);
+                      return (
+                        <button
+                          key={n}
+                          onClick={() => toggleLead(n)}
+                          className={`h-8 px-3 rounded-full text-[12px] font-medium pressable border ${on ? "bg-primary/10 border-primary/40 text-primary" : "bg-surface border-border text-secondary-fg"}`}
+                        >{n === 0 ? "At start" : `${n} min`}</button>
+                      );
+                    })}
+                  </div>
+
+                  <div className="text-[11px] uppercase tracking-wider text-secondary-fg mt-5 mb-2">Repeat after start</div>
+                  <div className="flex flex-wrap gap-1.5">
+                    {REPEAT_OPTIONS.map(n => (
+                      <button
+                        key={n}
+                        onClick={() => saveReminders({ ...reminderCfg, repeats: n })}
+                        className={`h-8 px-3 rounded-full text-[12px] font-medium pressable border ${reminderCfg.repeats === n ? "bg-primary/10 border-primary/40 text-primary" : "bg-surface border-border text-secondary-fg"}`}
+                      >{n === 0 ? "Don't repeat" : `${n}× every 5 min`}</button>
+                    ))}
+                  </div>
+                </div>
+
+                <p className="text-[11px] text-secondary-fg leading-relaxed">
+                  Reminders fire while the app is open. Saved on this device.
+                </p>
+              </div>
+            );
+          })()}
+        </SheetContent>
+      </Sheet>
     </Shell>
   );
 }
