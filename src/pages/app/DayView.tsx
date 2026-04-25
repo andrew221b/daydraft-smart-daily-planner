@@ -4,7 +4,7 @@ import { Shell } from "@/components/app/Shell";
 import { useAuth } from "@/hooks/useAuth";
 import { supabase } from "@/integrations/supabase/client";
 import { Block, fmtTime, todayDateStr, parseDateStr, friendlyDateFor, isFutureDateStr } from "@/lib/daydraft";
-import { ChevronLeft, Sparkles, Play, RefreshCw, Plus, Minus, Coffee, ChevronDown, Zap, CalendarDays, Trash2 } from "lucide-react";
+import { ChevronLeft, Sparkles, Play, RefreshCw, Plus, Minus, Coffee, ChevronDown, Zap, CalendarDays, Trash2, Bell, BellOff } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { DndContext, closestCenter, PointerSensor, TouchSensor, useSensor, useSensors, DragEndEvent } from "@dnd-kit/core";
 import { SortableContext, arrayMove, verticalListSortingStrategy } from "@dnd-kit/sortable";
@@ -28,7 +28,7 @@ import { haptics } from "@/lib/haptics";
 import { ContextStrip } from "@/components/app/ContextStrip";
 import { SkeletonBlock } from "@/components/app/SkeletonBlock";
 import { peakWindow } from "@/lib/daydraft";
-import { scheduleBlockReminders, ensureNotificationPermission, clearScheduledReminders } from "@/lib/blockReminders";
+import { scheduleBlockReminders, ensureNotificationPermission, clearScheduledReminders, getReminderConfig, setReminderConfig, ReminderConfig } from "@/lib/blockReminders";
 
 type ExBlock = Block & {
   ai_reasoning?: string | null;
@@ -74,6 +74,24 @@ export default function DayView() {
   const [newDuration, setNewDuration] = useState(30);
   const [confirmRemoveId, setConfirmRemoveId] = useState<string | null>(null);
   const [confirmDeletePlan, setConfirmDeletePlan] = useState(false);
+  const [reminderBlockId, setReminderBlockId] = useState<string | null>(null);
+  const [reminderCfg, setReminderCfg] = useState<ReminderConfig>({ enabled: true, leadsMin: [2], repeats: 0 });
+
+  const openReminders = (id: string) => {
+    setReminderCfg(getReminderConfig(id));
+    setReminderBlockId(id);
+  };
+  const saveReminders = (cfg: ReminderConfig) => {
+    if (!reminderBlockId) return;
+    setReminderConfig(reminderBlockId, cfg);
+    setReminderCfg(cfg);
+    // Re-schedule with the new config so the change takes effect immediately.
+    if (isToday) {
+      ensureNotificationPermission().then((ok) => {
+        if (ok) scheduleBlockReminders(blocks as any, { planDate: viewDate });
+      });
+    }
+  };
 
   const sensors = useSensors(
     useSensor(PointerSensor, { activationConstraint: { distance: 6 } }),
@@ -501,6 +519,14 @@ export default function DayView() {
                           className="h-6 w-6 rounded-md bg-surface border border-border pressable inline-flex items-center justify-center"
                           aria-label="Lengthen"
                         ><Plus className="h-3 w-3" /></button>
+                        <button
+                          onClick={() => openReminders(b.id)}
+                          className="ml-auto h-6 px-2 rounded-md bg-surface border border-border pressable inline-flex items-center gap-1 text-[11px] text-secondary-fg hover:text-primary hover:border-primary/30"
+                          aria-label="Reminders"
+                        >
+                          {getReminderConfig(b.id).enabled ? <Bell className="h-3 w-3" /> : <BellOff className="h-3 w-3" />}
+                          Remind
+                        </button>
                       </div>
                     )}
                     {editing && <InlineAdd onClick={() => setAddAtIdx(realIdx + 1)} />}
@@ -672,6 +698,75 @@ export default function DayView() {
           </AlertDialogFooter>
         </AlertDialogContent>
       </AlertDialog>
+
+      <Sheet open={!!reminderBlockId} onOpenChange={(v) => !v && setReminderBlockId(null)}>
+        <SheetContent side="bottom" className="rounded-t-3xl border-border bg-surface-elevated">
+          <SheetHeader>
+            <SheetTitle className="flex items-center gap-2">
+              <Bell className="h-4 w-4 text-primary" />
+              Reminders
+            </SheetTitle>
+          </SheetHeader>
+          {(() => {
+            const b = blocks.find(x => x.id === reminderBlockId);
+            if (!b) return null;
+            const LEAD_OPTIONS = [0, 2, 5, 10, 15, 30, 60];
+            const REPEAT_OPTIONS = [0, 1, 2, 3, 5];
+            const toggleLead = (n: number) => {
+              const has = reminderCfg.leadsMin.includes(n);
+              const next = has
+                ? reminderCfg.leadsMin.filter(x => x !== n)
+                : [...reminderCfg.leadsMin, n].sort((a, c) => c - a);
+              saveReminders({ ...reminderCfg, leadsMin: next });
+            };
+            return (
+              <div className="mt-4 space-y-4">
+                <div className="text-sm text-foreground font-medium">{b.title}</div>
+                <div className="text-xs text-secondary-fg">Starts at {b.start_time}</div>
+
+                <div className="flex items-center justify-between rounded-xl bg-surface border border-border px-3 py-2.5">
+                  <span className="text-sm">Notify me</span>
+                  <button
+                    onClick={() => saveReminders({ ...reminderCfg, enabled: !reminderCfg.enabled })}
+                    className={`px-3 h-7 rounded-full text-[11px] font-medium pressable ${reminderCfg.enabled ? "bg-primary text-primary-foreground" : "bg-muted text-secondary-fg"}`}
+                  >{reminderCfg.enabled ? "On" : "Off"}</button>
+                </div>
+
+                <div className={reminderCfg.enabled ? "" : "opacity-40 pointer-events-none"}>
+                  <div className="text-[11px] uppercase tracking-wider text-secondary-fg mb-2">Before start</div>
+                  <div className="flex flex-wrap gap-1.5">
+                    {LEAD_OPTIONS.map(n => {
+                      const on = reminderCfg.leadsMin.includes(n);
+                      return (
+                        <button
+                          key={n}
+                          onClick={() => toggleLead(n)}
+                          className={`h-8 px-3 rounded-full text-[12px] font-medium pressable border ${on ? "bg-primary/10 border-primary/40 text-primary" : "bg-surface border-border text-secondary-fg"}`}
+                        >{n === 0 ? "At start" : `${n} min`}</button>
+                      );
+                    })}
+                  </div>
+
+                  <div className="text-[11px] uppercase tracking-wider text-secondary-fg mt-5 mb-2">Repeat after start</div>
+                  <div className="flex flex-wrap gap-1.5">
+                    {REPEAT_OPTIONS.map(n => (
+                      <button
+                        key={n}
+                        onClick={() => saveReminders({ ...reminderCfg, repeats: n })}
+                        className={`h-8 px-3 rounded-full text-[12px] font-medium pressable border ${reminderCfg.repeats === n ? "bg-primary/10 border-primary/40 text-primary" : "bg-surface border-border text-secondary-fg"}`}
+                      >{n === 0 ? "Don't repeat" : `${n}× every 5 min`}</button>
+                    ))}
+                  </div>
+                </div>
+
+                <p className="text-[11px] text-secondary-fg leading-relaxed">
+                  Reminders fire while the app is open. Saved on this device.
+                </p>
+              </div>
+            );
+          })()}
+        </SheetContent>
+      </Sheet>
     </Shell>
   );
 }
