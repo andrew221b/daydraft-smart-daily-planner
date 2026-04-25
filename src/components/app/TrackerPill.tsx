@@ -69,9 +69,13 @@ function TrackerInner({ embedded = false, onClose }: { embedded?: boolean; onClo
   const activeCat = categories.find(c => c.id === active?.category_id);
   const catMap = useMemo(() => new Map(categories.map(c => [c.id, c])), [categories]);
 
-  // Load 60 days of entries when sheet opens (covers week + month views)
+  // Load 60 days of entries (covers week + month views). Re-fetches when the
+  // active session changes or the running session ticks past a minute so the
+  // breakdowns stay live. Previously this depended on a non-existent `open`
+  // var (legacy from the bottom-sheet implementation), so the page rendered
+  // with empty stats until you started/stopped a timer.
   useEffect(() => {
-    if (!open || !user) return;
+    if (!user) return;
     const since = new Date(); since.setDate(since.getDate() - 60); since.setHours(0,0,0,0);
     supabase
       .from("time_entries")
@@ -80,7 +84,7 @@ function TrackerInner({ embedded = false, onClose }: { embedded?: boolean; onClo
       .gte("started_at", since.toISOString())
       .order("started_at", { ascending: false })
       .then(({ data }) => setEntries((data || []) as Entry[]));
-  }, [open, user?.id, active?.id, todayTotalSec]);
+  }, [user?.id, active?.id, todayTotalSec]);
 
   // ----- Aggregations -----
   const now = Date.now();
