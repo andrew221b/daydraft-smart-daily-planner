@@ -76,7 +76,9 @@ const fire = (title: string, body: string) => {
       body,
       icon: "/placeholder.svg",
       tag: `block-${title}`,
-      renotify: true,
+      // `renotify` is not in the standard TS lib type, but supported by most
+      // browsers — cast to any so re-firing reminders surface a fresh ping.
+      ...({ renotify: true } as any),
     });
   } catch { /* some browsers throw inside iframes */ }
 };
