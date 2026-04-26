@@ -7,7 +7,8 @@ import { Button } from "@/components/ui/button";
 import { useEffect, useState } from "react";
 import { peakWindow } from "@/lib/daydraft";
 import { ThemeToggle } from "@/components/app/ThemeToggle";
-import { Fingerprint, Sparkles, Bell, Calendar, FileText, Shield, Trash2, HelpCircle } from "lucide-react";
+import { Fingerprint, Sparkles, Bell, Calendar, FileText, Shield, Trash2, HelpCircle, MessageCircle, Clock } from "lucide-react";
+import { Textarea } from "@/components/ui/textarea";
 import { Link } from "react-router-dom";
 import { clearStoredPasskey, enrollPasskey, getStoredPasskey, passkeySupported } from "@/lib/passkeys";
 import { toast } from "sonner";
@@ -21,6 +22,16 @@ const energies = [
   { key: "morning" as const, label: "Morning person" },
   { key: "midday" as const, label: "Midday flow" },
   { key: "night" as const, label: "Night owl" },
+];
+
+const TONES: Array<{ key: NonNullable<ReturnType<typeof useProfile>["profile"]>["ai_tone"]; label: string; sub: string }> = [
+  { key: "professional", label: "Professional", sub: "Direct, no fluff" },
+  { key: "coach", label: "Coach", sub: "Warm, encouraging" },
+  { key: "playful", label: "Playful", sub: "Light, witty" },
+  { key: "motivational", label: "Motivational", sub: "High energy" },
+  { key: "tough_love", label: "Tough love", sub: "Blunt, no excuses" },
+  { key: "philosophical", label: "Philosophical", sub: "Quotes & reflection" },
+  { key: "custom", label: "Custom", sub: "Describe your own" },
 ];
 
 export default function Settings() {
