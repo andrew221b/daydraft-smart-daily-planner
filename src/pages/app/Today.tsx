@@ -207,6 +207,10 @@ export default function Today() {
           now_iso: new Date().toISOString(),
           timezone: profile.timezone || Intl.DateTimeFormat().resolvedOptions().timeZone,
           hours_already_committed: hoursAlreadyCommitted,
+          active_hours_start: (profile as any).active_hours_start || "09:00",
+          active_hours_end: (profile as any).active_hours_end || "22:00",
+          ai_tone: (profile as any).ai_tone || "motivational",
+          ai_tone_custom: (profile as any).ai_tone_custom || null,
         },
       });
       await minWait;
