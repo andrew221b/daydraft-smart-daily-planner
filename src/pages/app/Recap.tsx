@@ -215,12 +215,19 @@ export default function Recap() {
             <Stat label="Efficiency" value={`${eff}%`} />
           </div>
 
-          {weekDelta != null && (
+          {/* Negative-delta callouts removed — recap should encourage, not
+              shame. We only celebrate gains; setbacks are visible in Stats
+              for users who want them. */}
+          {weekDelta != null && weekDelta > 0 && (
             <div className="mt-3 flex items-center justify-center gap-1.5 text-xs text-secondary-fg">
-              <TrendingUp className={`h-3.5 w-3.5 ${weekDelta >= 0 ? "text-success" : "text-destructive"}`} />
-              {weekDelta >= 0
-                ? <span><span className="text-success font-semibold">+{weekDelta}%</span> deep work vs last week's daily avg</span>
-                : <span><span className="text-destructive font-semibold">{weekDelta}%</span> vs last week's daily avg</span>}
+              <TrendingUp className="h-3.5 w-3.5 text-success" />
+              <span><span className="text-success font-semibold">+{weekDelta}%</span> deep work vs last week's daily avg — keep it going.</span>
+            </div>
+          )}
+          {weekDelta != null && weekDelta <= 0 && focusMin > 0 && (
+            <div className="mt-3 flex items-center justify-center gap-1.5 text-xs text-secondary-fg">
+              <Sparkles className="h-3.5 w-3.5 text-primary" />
+              <span>Focused {fmtHM(focusMin * 60)} today. Tomorrow's a fresh shot.</span>
             </div>
           )}
 
