@@ -765,6 +765,36 @@ export default function DayView() {
           })()}
         </SheetContent>
       </Sheet>
+
+      {/* Duration picker for existing block */}
+      <DurationPicker
+        open={!!durationEditId}
+        onClose={() => setDurationEditId(null)}
+        value={blocks.find(b => b.id === durationEditId)?.duration_min || 30}
+        onChange={async (v) => {
+          const id = durationEditId;
+          if (!id) return;
+          setBlocks(bs => {
+            const idx = bs.findIndex(b => b.id === id);
+            if (idx < 0) return bs;
+            const updated = [...bs];
+            updated[idx] = { ...updated[idx], duration_min: v };
+            return retime(updated);
+          });
+          await supabase.from("blocks").update({ duration_min: v }).eq("id", id);
+          await persistOrder(blocks);
+        }}
+        title="Duration"
+      />
+
+      {/* Duration picker for new inline block */}
+      <DurationPicker
+        open={newDurationOpen}
+        onClose={() => setNewDurationOpen(false)}
+        value={newDuration}
+        onChange={setNewDuration}
+        title="New block duration"
+      />
     </Shell>
   );
 }
