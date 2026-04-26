@@ -29,6 +29,7 @@ import { ContextStrip } from "@/components/app/ContextStrip";
 import { SkeletonBlock } from "@/components/app/SkeletonBlock";
 import { peakWindow } from "@/lib/daydraft";
 import { scheduleBlockReminders, ensureNotificationPermission, clearScheduledReminders, getReminderConfig, setReminderConfig, ReminderConfig } from "@/lib/blockReminders";
+import { DurationPicker } from "@/components/app/DurationPicker";
 
 type ExBlock = Block & {
   ai_reasoning?: string | null;
@@ -76,6 +77,8 @@ export default function DayView() {
   const [confirmDeletePlan, setConfirmDeletePlan] = useState(false);
   const [reminderBlockId, setReminderBlockId] = useState<string | null>(null);
   const [reminderCfg, setReminderCfg] = useState<ReminderConfig>({ enabled: true, leadsMin: [2], repeats: 0 });
+  const [durationEditId, setDurationEditId] = useState<string | null>(null);
+  const [newDurationOpen, setNewDurationOpen] = useState(false);
 
   const openReminders = (id: string) => {
     setReminderCfg(getReminderConfig(id));
