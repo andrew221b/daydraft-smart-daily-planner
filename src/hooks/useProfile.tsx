@@ -17,6 +17,10 @@ export interface Profile {
   morning_nudge_local_time?: string;
   evening_nudge_local_time?: string;
   tour_seen?: Record<string, boolean>;
+  ai_tone?: "professional" | "coach" | "playful" | "motivational" | "tough_love" | "philosophical" | "custom";
+  ai_tone_custom?: string | null;
+  active_hours_start?: string;
+  active_hours_end?: string;
 }
 
 type ProfileCtx = {
