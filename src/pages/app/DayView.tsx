@@ -633,11 +633,12 @@ export default function DayView() {
             />
             <div className="flex items-center justify-between bg-surface border border-border rounded-xl px-3 py-2">
               <span className="text-xs text-secondary-fg">Duration</span>
-              <div className="flex items-center gap-2">
-                <button onClick={() => setNewDuration(d => Math.max(5, d - 5))} className="h-7 w-7 rounded-md bg-background border border-border pressable">−</button>
-                <span className="text-sm font-semibold tabular-nums min-w-[44px] text-center">{newDuration}m</span>
-                <button onClick={() => setNewDuration(d => Math.min(240, d + 5))} className="h-7 w-7 rounded-md bg-background border border-border pressable">+</button>
-              </div>
+              <button
+                onClick={() => setNewDurationOpen(true)}
+                className="h-8 px-3 rounded-md bg-background border border-border pressable text-sm font-semibold tabular-nums hover:border-primary/40"
+              >
+                {newDuration < 60 ? `${newDuration}m` : `${Math.floor(newDuration/60)}h${newDuration%60 ? ` ${newDuration%60}m` : ""}`}
+              </button>
             </div>
             <Button
               onClick={addInlineBlock}
