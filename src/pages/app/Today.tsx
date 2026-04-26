@@ -268,12 +268,7 @@ export default function Today() {
             <h1 className="text-[28px] font-semibold leading-tight">{greeting()}{profile?.display_name ? `, ${profile.display_name}` : ""}</h1>
             <p className="text-secondary-fg text-sm mt-1">{friendlyDate()}</p>
           </div>
-          <div className="flex items-center gap-2">
-            <ProBadge />
-            <div className="h-10 w-10 rounded-full bg-surface-elevated border border-border flex items-center justify-center text-sm font-medium text-secondary-fg">
-              {(profile?.display_name || "·").slice(0,1).toUpperCase()}
-            </div>
-          </div>
+          <ProBadge />
         </div>
 
         <TodayInsight />
