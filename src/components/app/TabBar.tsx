@@ -1,10 +1,10 @@
 import { NavLink } from "react-router-dom";
-import { Sun, CalendarDays, BarChart3, Settings, Hourglass } from "lucide-react";
+import { Sun, History as HistoryIcon, BarChart3, Settings, TimerReset } from "lucide-react";
 import { useTimeTracker } from "@/hooks/useTimeTracker";
 
 const items = [
   { to: "/today", icon: Sun, tour: "tab-today" },
-  { to: "/history", icon: CalendarDays, tour: "tab-history" },
+  { to: "/history", icon: HistoryIcon, tour: "tab-history" },
   { to: "/stats", icon: BarChart3, tour: "tab-stats" },
   { to: "/settings", icon: Settings, tour: "tab-settings" },
 ];
@@ -44,7 +44,7 @@ export const TabBar = () => {
           >
             {({ isActive }) => (
               <>
-                <Hourglass className="h-5 w-5" strokeWidth={2.2} />
+                <TimerReset className="h-5 w-5" strokeWidth={2.2} />
                 {active && <span className="absolute top-0 right-1 h-1.5 w-1.5 rounded-full bg-primary animate-pulse" />}
                 {isActive && <span className="absolute -bottom-0.5 h-1 w-1 rounded-full bg-primary" />}
               </>
