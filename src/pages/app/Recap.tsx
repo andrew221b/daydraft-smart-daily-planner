@@ -300,29 +300,30 @@ export default function Recap() {
               actually act on. */}
 
           <div className="mt-10 space-y-3">
-            <Button
-              onClick={() => {
-                // For today's recap → plan tomorrow.
-                // For a past recap → plan today (their next actionable day),
-                // not the day-after-the-past-recap (which is also in the past).
-                const isToday = viewDate === todayDateStr();
-                if (isToday) {
-                  const tomorrow = new Date(); tomorrow.setDate(tomorrow.getDate() + 1);
-                  nav(`/today?date=${dateStr(tomorrow)}`);
-                } else {
-                  nav("/today");
-                }
-              }}
-              className="w-full h-13 py-3.5 rounded-xl text-primary-foreground text-base font-medium pressable shadow-glow"
-              style={{ background: "var(--gradient-primary)" }}>
-              {viewDate === todayDateStr() ? "Plan tomorrow" : "Plan today"}
-            </Button>
-            <button onClick={() => nav("/recap/week")} className="w-full text-primary text-sm hover:underline">
-              See your week →
-            </button>
-            <button onClick={() => nav("/today")} className="w-full text-secondary-fg text-sm hover:text-foreground transition-colors">
-              Done for today
-            </button>
+            {viewDate === todayDateStr() ? (
+              <>
+                <Button
+                  onClick={() => {
+                    const tomorrow = new Date(); tomorrow.setDate(tomorrow.getDate() + 1);
+                    nav(`/today?date=${dateStr(tomorrow)}`);
+                  }}
+                  className="w-full h-13 py-3.5 rounded-xl text-primary-foreground text-base font-medium pressable shadow-glow"
+                  style={{ background: "var(--gradient-primary)" }}>
+                  Plan tomorrow
+                </Button>
+                <button onClick={() => nav("/recap/week")} className="w-full text-primary text-sm hover:underline">
+                  See your week →
+                </button>
+                <button onClick={() => nav("/today")} className="w-full text-secondary-fg text-sm hover:text-foreground transition-colors">
+                  Done for today
+                </button>
+              </>
+            ) : (
+              // History recap is read-only: no action that re-opens past work.
+              <button onClick={() => nav("/history")} className="w-full text-secondary-fg text-sm hover:text-foreground transition-colors">
+                ← Back to history
+              </button>
+            )}
           </div>
           </>
           )}
