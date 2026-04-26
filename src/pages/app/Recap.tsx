@@ -215,15 +215,23 @@ export default function Recap() {
             <Stat label="Efficiency" value={`${eff}%`} />
           </div>
 
-          {weekDelta != null && (
+          {/* Negative-delta callouts removed — recap should encourage, not
+              shame. We only celebrate gains; setbacks are visible in Stats
+              for users who want them. */}
+          {weekDelta != null && weekDelta > 0 && (
             <div className="mt-3 flex items-center justify-center gap-1.5 text-xs text-secondary-fg">
-              <TrendingUp className={`h-3.5 w-3.5 ${weekDelta >= 0 ? "text-success" : "text-destructive"}`} />
-              {weekDelta >= 0
-                ? <span><span className="text-success font-semibold">+{weekDelta}%</span> deep work vs last week's daily avg</span>
-                : <span><span className="text-destructive font-semibold">{weekDelta}%</span> vs last week's daily avg</span>}
+              <TrendingUp className="h-3.5 w-3.5 text-success" />
+              <span><span className="text-success font-semibold">+{weekDelta}%</span> deep work vs last week's daily avg — keep it going.</span>
+            </div>
+          )}
+          {weekDelta != null && weekDelta <= 0 && focusMin > 0 && (
+            <div className="mt-3 flex items-center justify-center gap-1.5 text-xs text-secondary-fg">
+              <Sparkles className="h-3.5 w-3.5 text-primary" />
+              <span>Focused {fmtHM(focusMin * 60)} today. Tomorrow's a fresh shot.</span>
             </div>
           )}
 
+          {isTodayRecap && (
           <div className="mt-6 rounded-2xl bg-surface border border-border p-4">
             <div className="text-[11px] uppercase tracking-wider text-secondary-fg mb-2">How did today feel?</div>
             <div className="flex gap-2">
@@ -245,6 +253,7 @@ export default function Recap() {
               ))}
             </div>
           </div>
+          )}
 
           {showRecover && (
             <button
@@ -262,7 +271,7 @@ export default function Recap() {
             </button>
           )}
 
-          {unfinished.length > 0 && !carriedOver && (
+          {isTodayRecap && unfinished.length > 0 && !carriedOver && (
             <button
               onClick={carryOver}
               className="mt-3 w-full flex items-center gap-3 px-4 py-3 rounded-2xl border border-border bg-surface text-left pressable hover:border-primary/30"
@@ -293,29 +302,30 @@ export default function Recap() {
               actually act on. */}
 
           <div className="mt-10 space-y-3">
-            <Button
-              onClick={() => {
-                // For today's recap → plan tomorrow.
-                // For a past recap → plan today (their next actionable day),
-                // not the day-after-the-past-recap (which is also in the past).
-                const isToday = viewDate === todayDateStr();
-                if (isToday) {
-                  const tomorrow = new Date(); tomorrow.setDate(tomorrow.getDate() + 1);
-                  nav(`/today?date=${dateStr(tomorrow)}`);
-                } else {
-                  nav("/today");
-                }
-              }}
-              className="w-full h-13 py-3.5 rounded-xl text-primary-foreground text-base font-medium pressable shadow-glow"
-              style={{ background: "var(--gradient-primary)" }}>
-              {viewDate === todayDateStr() ? "Plan tomorrow" : "Plan today"}
-            </Button>
-            <button onClick={() => nav("/recap/week")} className="w-full text-primary text-sm hover:underline">
-              See your week →
-            </button>
-            <button onClick={() => nav("/today")} className="w-full text-secondary-fg text-sm hover:text-foreground transition-colors">
-              Done for today
-            </button>
+            {viewDate === todayDateStr() ? (
+              <>
+                <Button
+                  onClick={() => {
+                    const tomorrow = new Date(); tomorrow.setDate(tomorrow.getDate() + 1);
+                    nav(`/today?date=${dateStr(tomorrow)}`);
+                  }}
+                  className="w-full h-13 py-3.5 rounded-xl text-primary-foreground text-base font-medium pressable shadow-glow"
+                  style={{ background: "var(--gradient-primary)" }}>
+                  Plan tomorrow
+                </Button>
+                <button onClick={() => nav("/recap/week")} className="w-full text-primary text-sm hover:underline">
+                  See your week →
+                </button>
+                <button onClick={() => nav("/today")} className="w-full text-secondary-fg text-sm hover:text-foreground transition-colors">
+                  Done for today
+                </button>
+              </>
+            ) : (
+              // History recap is read-only: no action that re-opens past work.
+              <button onClick={() => nav("/history")} className="w-full text-secondary-fg text-sm hover:text-foreground transition-colors">
+                ← Back to history
+              </button>
+            )}
           </div>
           </>
           )}

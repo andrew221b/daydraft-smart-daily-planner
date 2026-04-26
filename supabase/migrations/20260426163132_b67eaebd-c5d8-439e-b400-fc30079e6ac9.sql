@@ -1,0 +1,6 @@
+
+ALTER TABLE public.profiles
+  ADD COLUMN IF NOT EXISTS ai_tone TEXT NOT NULL DEFAULT 'motivational',
+  ADD COLUMN IF NOT EXISTS ai_tone_custom TEXT,
+  ADD COLUMN IF NOT EXISTS active_hours_start TEXT NOT NULL DEFAULT '09:00',
+  ADD COLUMN IF NOT EXISTS active_hours_end TEXT NOT NULL DEFAULT '22:00';

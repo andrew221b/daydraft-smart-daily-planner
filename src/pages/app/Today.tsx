@@ -207,6 +207,10 @@ export default function Today() {
           now_iso: new Date().toISOString(),
           timezone: profile.timezone || Intl.DateTimeFormat().resolvedOptions().timeZone,
           hours_already_committed: hoursAlreadyCommitted,
+          active_hours_start: (profile as any).active_hours_start || "09:00",
+          active_hours_end: (profile as any).active_hours_end || "22:00",
+          ai_tone: (profile as any).ai_tone || "motivational",
+          ai_tone_custom: (profile as any).ai_tone_custom || null,
         },
       });
       await minWait;
@@ -268,12 +272,7 @@ export default function Today() {
             <h1 className="text-[28px] font-semibold leading-tight">{greeting()}{profile?.display_name ? `, ${profile.display_name}` : ""}</h1>
             <p className="text-secondary-fg text-sm mt-1">{friendlyDate()}</p>
           </div>
-          <div className="flex items-center gap-2">
-            <ProBadge />
-            <div className="h-10 w-10 rounded-full bg-surface-elevated border border-border flex items-center justify-center text-sm font-medium text-secondary-fg">
-              {(profile?.display_name || "·").slice(0,1).toUpperCase()}
-            </div>
-          </div>
+          <ProBadge />
         </div>
 
         <TodayInsight />

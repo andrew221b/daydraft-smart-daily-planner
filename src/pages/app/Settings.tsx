@@ -7,7 +7,8 @@ import { Button } from "@/components/ui/button";
 import { useEffect, useState } from "react";
 import { peakWindow } from "@/lib/daydraft";
 import { ThemeToggle } from "@/components/app/ThemeToggle";
-import { Fingerprint, Sparkles, Bell, Calendar, FileText, Shield, Trash2, HelpCircle } from "lucide-react";
+import { Fingerprint, Sparkles, Bell, Calendar, FileText, Shield, Trash2, HelpCircle, MessageCircle, Clock } from "lucide-react";
+import { Textarea } from "@/components/ui/textarea";
 import { Link } from "react-router-dom";
 import { clearStoredPasskey, enrollPasskey, getStoredPasskey, passkeySupported } from "@/lib/passkeys";
 import { toast } from "sonner";
@@ -21,6 +22,16 @@ const energies = [
   { key: "morning" as const, label: "Morning person" },
   { key: "midday" as const, label: "Midday flow" },
   { key: "night" as const, label: "Night owl" },
+];
+
+const TONES: Array<{ key: NonNullable<ReturnType<typeof useProfile>["profile"]>["ai_tone"]; label: string; sub: string }> = [
+  { key: "professional", label: "Professional", sub: "Direct, no fluff" },
+  { key: "coach", label: "Coach", sub: "Warm, encouraging" },
+  { key: "playful", label: "Playful", sub: "Light, witty" },
+  { key: "motivational", label: "Motivational", sub: "High energy" },
+  { key: "tough_love", label: "Tough love", sub: "Blunt, no excuses" },
+  { key: "philosophical", label: "Philosophical", sub: "Quotes & reflection" },
+  { key: "custom", label: "Custom", sub: "Describe your own" },
 ];
 
 export default function Settings() {
@@ -129,6 +140,65 @@ export default function Settings() {
                   </button>
                 );
               })}
+            </div>
+          </Section>
+
+          <Section title="Active hours">
+            <div className="rounded-xl bg-surface border border-border p-4 space-y-3">
+              <div className="flex items-center gap-2 text-xs text-secondary-fg">
+                <Clock className="h-4 w-4 text-primary" />
+                <span>The AI will only schedule tasks inside this window.</span>
+              </div>
+              <div className="flex items-center gap-3">
+                <label className="flex-1">
+                  <div className="text-[11px] text-secondary-fg mb-1">From</div>
+                  <input
+                    type="time"
+                    value={profile?.active_hours_start || "09:00"}
+                    onChange={(e) => update({ active_hours_start: e.target.value } as any)}
+                    className="w-full h-10 px-3 rounded-lg bg-background border border-border text-sm tabular-nums"
+                  />
+                </label>
+                <label className="flex-1">
+                  <div className="text-[11px] text-secondary-fg mb-1">To</div>
+                  <input
+                    type="time"
+                    value={profile?.active_hours_end || "22:00"}
+                    onChange={(e) => update({ active_hours_end: e.target.value } as any)}
+                    className="w-full h-10 px-3 rounded-lg bg-background border border-border text-sm tabular-nums"
+                  />
+                </label>
+              </div>
+            </div>
+          </Section>
+
+          <Section title="How the AI talks to you">
+            <div className="space-y-2">
+              {TONES.map(t => {
+                const active = (profile?.ai_tone || "motivational") === t.key;
+                return (
+                  <button
+                    key={t.key}
+                    onClick={() => update({ ai_tone: t.key } as any)}
+                    className={`w-full flex items-center justify-between px-4 py-3 rounded-xl border-2 pressable transition-all ${active ? "border-primary bg-surface-elevated" : "border-border bg-surface"}`}
+                  >
+                    <div className="text-left">
+                      <div className="text-sm flex items-center gap-1.5">
+                        <MessageCircle className="h-3.5 w-3.5 text-primary" /> {t.label}
+                      </div>
+                      <div className="text-xs text-secondary-fg mt-0.5">{t.sub}</div>
+                    </div>
+                  </button>
+                );
+              })}
+              {profile?.ai_tone === "custom" && (
+                <Textarea
+                  value={profile?.ai_tone_custom || ""}
+                  onChange={(e) => update({ ai_tone_custom: e.target.value } as any)}
+                  placeholder="e.g. talk to me like a calm Stoic mentor; no emojis; concise"
+                  className="mt-2 min-h-[80px] bg-surface border-border rounded-xl"
+                />
+              )}
             </div>
           </Section>
 

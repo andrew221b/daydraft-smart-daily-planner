@@ -111,9 +111,10 @@ export default function History() {
                     const isToday = p.date === todayKey;
                     const completionPct = p.total ? Math.round((p.done / p.total) * 100) : 0;
                     const allDone = p.total > 0 && p.done === p.total;
-                    // Past days route to Recap (reflection). Today routes to the
-                    // active DayView so the user can keep working on the plan.
-                    const goTo = isToday ? `/today/plan` : `/recap?date=${p.date}`;
+                    // ALL day rows route to Recap (read-only reflection +
+                    // AI insight). History is for looking back, never for
+                    // resuming work — that path is on the Today screen.
+                    const goTo = `/recap?date=${p.date}`;
                     return (
                       <button
                         key={p.id}

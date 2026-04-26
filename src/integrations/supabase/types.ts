@@ -165,6 +165,10 @@ export type Database = {
       }
       profiles: {
         Row: {
+          active_hours_end: string
+          active_hours_start: string
+          ai_tone: string
+          ai_tone_custom: string | null
           created_at: string
           digest_opt_in: boolean
           display_name: string | null
@@ -183,6 +187,10 @@ export type Database = {
           updated_at: string
         }
         Insert: {
+          active_hours_end?: string
+          active_hours_start?: string
+          ai_tone?: string
+          ai_tone_custom?: string | null
           created_at?: string
           digest_opt_in?: boolean
           display_name?: string | null
@@ -201,6 +209,10 @@ export type Database = {
           updated_at?: string
         }
         Update: {
+          active_hours_end?: string
+          active_hours_start?: string
+          ai_tone?: string
+          ai_tone_custom?: string | null
           created_at?: string
           digest_opt_in?: boolean
           display_name?: string | null
