@@ -231,6 +231,7 @@ export default function Recap() {
             </div>
           )}
 
+          {isTodayRecap && (
           <div className="mt-6 rounded-2xl bg-surface border border-border p-4">
             <div className="text-[11px] uppercase tracking-wider text-secondary-fg mb-2">How did today feel?</div>
             <div className="flex gap-2">
@@ -252,6 +253,7 @@ export default function Recap() {
               ))}
             </div>
           </div>
+          )}
 
           {showRecover && (
             <button
@@ -269,7 +271,7 @@ export default function Recap() {
             </button>
           )}
 
-          {unfinished.length > 0 && !carriedOver && (
+          {isTodayRecap && unfinished.length > 0 && !carriedOver && (
             <button
               onClick={carryOver}
               className="mt-3 w-full flex items-center gap-3 px-4 py-3 rounded-2xl border border-border bg-surface text-left pressable hover:border-primary/30"
