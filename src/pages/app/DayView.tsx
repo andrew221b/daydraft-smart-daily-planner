@@ -29,6 +29,7 @@ import { ContextStrip } from "@/components/app/ContextStrip";
 import { SkeletonBlock } from "@/components/app/SkeletonBlock";
 import { peakWindow } from "@/lib/daydraft";
 import { scheduleBlockReminders, ensureNotificationPermission, clearScheduledReminders, getReminderConfig, setReminderConfig, ReminderConfig } from "@/lib/blockReminders";
+import { DurationPicker } from "@/components/app/DurationPicker";
 
 type ExBlock = Block & {
   ai_reasoning?: string | null;
@@ -76,6 +77,8 @@ export default function DayView() {
   const [confirmDeletePlan, setConfirmDeletePlan] = useState(false);
   const [reminderBlockId, setReminderBlockId] = useState<string | null>(null);
   const [reminderCfg, setReminderCfg] = useState<ReminderConfig>({ enabled: true, leadsMin: [2], repeats: 0 });
+  const [durationEditId, setDurationEditId] = useState<string | null>(null);
+  const [newDurationOpen, setNewDurationOpen] = useState(false);
 
   const openReminders = (id: string) => {
     setReminderCfg(getReminderConfig(id));
@@ -507,18 +510,12 @@ export default function DayView() {
                         />
                         <span>Duration:</span>
                         <button
-                          onClick={() => adjustDuration(b.id, -5)}
-                          onPointerUp={() => persistDuration(b.id)}
-                          className="h-6 w-6 rounded-md bg-surface border border-border pressable inline-flex items-center justify-center"
-                          aria-label="Shorten"
-                        ><Minus className="h-3 w-3" /></button>
-                        <span className="tabular-nums text-foreground font-medium min-w-[40px] text-center">{b.duration_min}m</span>
-                        <button
-                          onClick={() => adjustDuration(b.id, 5)}
-                          onPointerUp={() => persistDuration(b.id)}
-                          className="h-6 w-6 rounded-md bg-surface border border-border pressable inline-flex items-center justify-center"
-                          aria-label="Lengthen"
-                        ><Plus className="h-3 w-3" /></button>
+                          onClick={() => setDurationEditId(b.id)}
+                          className="h-7 px-3 rounded-md bg-surface border border-border pressable tabular-nums text-foreground font-medium text-[12px] hover:border-primary/40"
+                          aria-label="Edit duration"
+                        >
+                          {b.duration_min < 60 ? `${b.duration_min}m` : `${Math.floor(b.duration_min/60)}h${b.duration_min%60 ? ` ${b.duration_min%60}m` : ""}`}
+                        </button>
                         <button
                           onClick={() => openReminders(b.id)}
                           className="ml-auto h-6 px-2 rounded-md bg-surface border border-border pressable inline-flex items-center gap-1 text-[11px] text-secondary-fg hover:text-primary hover:border-primary/30"
@@ -636,11 +633,12 @@ export default function DayView() {
             />
             <div className="flex items-center justify-between bg-surface border border-border rounded-xl px-3 py-2">
               <span className="text-xs text-secondary-fg">Duration</span>
-              <div className="flex items-center gap-2">
-                <button onClick={() => setNewDuration(d => Math.max(5, d - 5))} className="h-7 w-7 rounded-md bg-background border border-border pressable">−</button>
-                <span className="text-sm font-semibold tabular-nums min-w-[44px] text-center">{newDuration}m</span>
-                <button onClick={() => setNewDuration(d => Math.min(240, d + 5))} className="h-7 w-7 rounded-md bg-background border border-border pressable">+</button>
-              </div>
+              <button
+                onClick={() => setNewDurationOpen(true)}
+                className="h-8 px-3 rounded-md bg-background border border-border pressable text-sm font-semibold tabular-nums hover:border-primary/40"
+              >
+                {newDuration < 60 ? `${newDuration}m` : `${Math.floor(newDuration/60)}h${newDuration%60 ? ` ${newDuration%60}m` : ""}`}
+              </button>
             </div>
             <Button
               onClick={addInlineBlock}
@@ -767,6 +765,36 @@ export default function DayView() {
           })()}
         </SheetContent>
       </Sheet>
+
+      {/* Duration picker for existing block */}
+      <DurationPicker
+        open={!!durationEditId}
+        onClose={() => setDurationEditId(null)}
+        value={blocks.find(b => b.id === durationEditId)?.duration_min || 30}
+        onChange={async (v) => {
+          const id = durationEditId;
+          if (!id) return;
+          setBlocks(bs => {
+            const idx = bs.findIndex(b => b.id === id);
+            if (idx < 0) return bs;
+            const updated = [...bs];
+            updated[idx] = { ...updated[idx], duration_min: v };
+            return retime(updated);
+          });
+          await supabase.from("blocks").update({ duration_min: v }).eq("id", id);
+          await persistOrder(blocks);
+        }}
+        title="Duration"
+      />
+
+      {/* Duration picker for new inline block */}
+      <DurationPicker
+        open={newDurationOpen}
+        onClose={() => setNewDurationOpen(false)}
+        value={newDuration}
+        onChange={setNewDuration}
+        title="New block duration"
+      />
     </Shell>
   );
 }

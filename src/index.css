@@ -160,4 +160,6 @@
     0%, 80%, 100% { transform: translateY(0); opacity: 0.5; }
     40% { transform: translateY(-6px); opacity: 1; }
   }
+  .no-scrollbar::-webkit-scrollbar { display: none; }
+  .no-scrollbar { -ms-overflow-style: none; scrollbar-width: none; }
 }
