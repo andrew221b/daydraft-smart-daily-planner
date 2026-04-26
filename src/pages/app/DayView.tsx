@@ -510,18 +510,12 @@ export default function DayView() {
                         />
                         <span>Duration:</span>
                         <button
-                          onClick={() => adjustDuration(b.id, -5)}
-                          onPointerUp={() => persistDuration(b.id)}
-                          className="h-6 w-6 rounded-md bg-surface border border-border pressable inline-flex items-center justify-center"
-                          aria-label="Shorten"
-                        ><Minus className="h-3 w-3" /></button>
-                        <span className="tabular-nums text-foreground font-medium min-w-[40px] text-center">{b.duration_min}m</span>
-                        <button
-                          onClick={() => adjustDuration(b.id, 5)}
-                          onPointerUp={() => persistDuration(b.id)}
-                          className="h-6 w-6 rounded-md bg-surface border border-border pressable inline-flex items-center justify-center"
-                          aria-label="Lengthen"
-                        ><Plus className="h-3 w-3" /></button>
+                          onClick={() => setDurationEditId(b.id)}
+                          className="h-7 px-3 rounded-md bg-surface border border-border pressable tabular-nums text-foreground font-medium text-[12px] hover:border-primary/40"
+                          aria-label="Edit duration"
+                        >
+                          {b.duration_min < 60 ? `${b.duration_min}m` : `${Math.floor(b.duration_min/60)}h${b.duration_min%60 ? ` ${b.duration_min%60}m` : ""}`}
+                        </button>
                         <button
                           onClick={() => openReminders(b.id)}
                           className="ml-auto h-6 px-2 rounded-md bg-surface border border-border pressable inline-flex items-center gap-1 text-[11px] text-secondary-fg hover:text-primary hover:border-primary/30"
