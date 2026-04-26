@@ -9,7 +9,7 @@ const corsHeaders = {
 serve(async (req) => {
   if (req.method === "OPTIONS") return new Response(null, { headers: corsHeaders });
   try {
-    const { raw_input, energy_preference, name, mode, start_time, clarified_tasks, plan_date, now_iso, timezone, hours_already_committed } = await req.json();
+    const { raw_input, energy_preference, name, mode, start_time, clarified_tasks, plan_date, now_iso, timezone, hours_already_committed, active_hours_start, active_hours_end, ai_tone, ai_tone_custom } = await req.json();
     if (!raw_input || typeof raw_input !== "string") {
       return new Response(JSON.stringify({ error: "raw_input required" }), { status: 400, headers: { ...corsHeaders, "Content-Type": "application/json" } });
     }
@@ -86,6 +86,19 @@ serve(async (req) => {
       : 16;
 
     const isReplan = mode === "replan";
+    const activeStart = (typeof active_hours_start === "string" && /^\d{2}:\d{2}$/.test(active_hours_start)) ? active_hours_start : "09:00";
+    const activeEnd = (typeof active_hours_end === "string" && /^\d{2}:\d{2}$/.test(active_hours_end)) ? active_hours_end : "22:00";
+    const toneMap: Record<string, string> = {
+      professional: "Tone: professional, direct, no fluff. No emojis.",
+      coach: "Tone: warm coach. Encouraging but concrete.",
+      playful: "Tone: light and witty. One playful emoji max.",
+      motivational: "Tone: high-energy motivational. Strong verbs.",
+      tough_love: "Tone: blunt tough-love. No sugar coating, no emojis.",
+      philosophical: "Tone: philosophical. Occasional brief quote-like phrasing.",
+    };
+    const toneLine = ai_tone === "custom" && ai_tone_custom
+      ? `Tone (user-defined): ${String(ai_tone_custom).slice(0, 300)}`
+      : (toneMap[ai_tone] || toneMap.motivational);
     // Hours already accounted for elsewhere on the same date (completed
     // blocks from earlier today, fixed calendar events, etc.). The AI must
     // subtract this from the available window so it never over-promises.
@@ -117,12 +130,14 @@ FIXED calendar events you must schedule around (do not move, do not duplicate; e
 ${calendarEvents.map((e: any) => `- ${e.start_time} (${e.duration_min}m) ${e.title}`).join("\n")}` : "";
 
     const system = `You are DayDraft, an expert productivity planner. Build a realistic, energy-aware schedule from a raw task list.
+${toneLine}
 Context:
 - Current local time: ${nowHHMM} (${timezone || "UTC"}).
 - Planning date: ${plan_date || todayLocal} ${isPlanningToday ? "(TODAY)" : "(future date)"}.
 - Raw hours remaining in the day: ~${hoursLeftToday.toFixed(1)}h.
 - Hours already committed (completed work / fixed events): ~${committed.toFixed(1)}h.
 - Realistic hours you can plan into: ~${trueHoursLeft.toFixed(1)}h.
+- User active hours: ${activeStart}–${activeEnd}. NEVER schedule any block outside this window.
 Rules:
 - Front-load deep work in the user's peak window (${peak}) ONLY if it's still ahead.
 - Batch communication into 1-2 blocks, ideally after the peak.
