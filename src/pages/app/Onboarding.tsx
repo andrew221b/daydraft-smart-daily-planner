@@ -64,22 +64,22 @@ export default function Onboarding() {
 
   return (
     <div className="min-h-screen w-full bg-background flex justify-center">
-      <div className="relative w-full max-w-[390px] min-h-screen flex flex-col">
-        <Blobs />
-        <div className="relative z-10 flex-1 flex flex-col px-6 pt-16 pb-10 page-enter" key={step}>
+      <div className="relative w-full max-w-[420px] min-h-screen flex flex-col">
+        <div className="relative z-10 flex-1 flex flex-col px-6 pt-14 pb-10 page-enter" key={step}>
           <div className="flex gap-1.5 mb-10">
             {[0,1].map(i => (
-              <div key={i} className={`h-1 flex-1 rounded-full transition-colors ${i <= step ? "bg-primary" : "bg-border"}`} />
+              <div key={i} className={`h-[3px] flex-1 rounded-full transition-colors ${i <= step ? "bg-primary" : "bg-border"}`} />
             ))}
           </div>
 
           {step === 0 && (
             <div className="flex-1 flex flex-col">
               <div className="flex-1 flex flex-col justify-center">
-                <h1 className="text-5xl font-semibold leading-[1.05] tracking-tight">Your day,<br/>designed.</h1>
-                <p className="text-secondary-fg mt-5 text-lg leading-relaxed">For busy pros. Drop your tasks, get a focused, intelligent schedule.</p>
+                <p className="text-[11px] font-medium uppercase tracking-[0.18em] text-secondary-fg">DayDraft</p>
+                <h1 className="text-[44px] font-semibold leading-[1.05] tracking-tight mt-3">Your day,<br/>designed.</h1>
+                <p className="text-secondary-fg mt-4 text-[15px] leading-relaxed max-w-sm">For busy pros. Drop your tasks. Get a focused, intelligent schedule in seconds.</p>
               </div>
-              <Button onClick={() => setStep(1)} className="w-full h-13 py-3.5 rounded-xl bg-primary text-primary-foreground hover:bg-primary/90 pressable text-base font-medium">
+              <Button onClick={() => setStep(1)} className="w-full h-12 rounded-xl bg-primary text-primary-foreground hover:bg-primary/92 pressable text-[15px] font-medium shadow-card">
                 Get started
               </Button>
             </div>
@@ -87,30 +87,31 @@ export default function Onboarding() {
 
           {step === 1 && (
             <div className="flex-1 flex flex-col">
-              <h1 className="text-3xl font-semibold leading-tight">How should we talk to you?</h1>
-              <p className="text-secondary-fg mt-2">Sets the tone for nudges, plans and recaps. Change anytime in Settings.</p>
-              <div className="space-y-2 mt-6 flex-1 overflow-y-auto">
+              <p className="text-[11px] font-medium uppercase tracking-[0.14em] text-secondary-fg">Step 2 of 2</p>
+              <h1 className="text-[26px] font-semibold leading-tight mt-1.5 tracking-tight">How should we talk to you?</h1>
+              <p className="text-secondary-fg mt-1.5 text-[13.5px]">Sets the tone for nudges, plans and recaps. Change anytime in Settings.</p>
+              <div className="space-y-1.5 mt-5 flex-1 overflow-y-auto">
                 {TONE_OPTIONS.map(e => {
                   const active = tone === e.key;
                   return (
                     <button key={e.key} onClick={() => setTone(e.key)}
-                      className={`w-full flex items-center gap-3 p-3.5 rounded-xl border-2 pressable transition-all ${active ? "border-primary bg-surface-elevated" : "border-border bg-surface"}`}>
-                      <span className="text-xl">{e.emoji}</span>
+                      className={`w-full flex items-center gap-3 p-3 rounded-lg border pressable transition-all ${active ? "border-primary bg-primary/[0.04]" : "border-border bg-card hover:border-foreground/20"}`}>
+                      <span className="text-lg">{e.emoji}</span>
                       <div className="flex-1 text-left">
-                        <div className="font-medium text-[15px]">{e.title}</div>
-                        <div className="text-[12px] text-secondary-fg leading-snug">{e.sub}</div>
+                        <div className="font-medium text-[14px]">{e.title}</div>
+                        <div className="text-[11.5px] text-secondary-fg leading-snug mt-0.5">{e.sub}</div>
                       </div>
-                      <span className={`h-5 w-5 rounded-full border-2 flex items-center justify-center transition-all shrink-0 ${active ? "border-primary bg-primary" : "border-border"}`}>
+                      <span className={`h-[18px] w-[18px] rounded-full border flex items-center justify-center transition-all shrink-0 ${active ? "border-primary bg-primary" : "border-border"}`}>
                         {active && <Check className="h-3 w-3 text-primary-foreground" strokeWidth={3} />}
                       </span>
                     </button>
                   );
                 })}
               </div>
-              <Button onClick={() => finish(true)} className="w-full h-12 rounded-xl bg-primary text-primary-foreground hover:bg-primary/90 pressable text-base font-medium mt-4">
+              <Button onClick={() => finish(true)} className="w-full h-12 rounded-xl bg-primary text-primary-foreground hover:bg-primary/92 pressable text-[15px] font-medium mt-4 shadow-card">
                 Enable nudges & continue
               </Button>
-              <button onClick={() => finish(false)} className="mt-3 text-secondary-fg text-sm hover:text-foreground transition-colors mx-auto">Skip nudges</button>
+              <button onClick={() => finish(false)} className="mt-3 text-secondary-fg text-[12.5px] hover:text-foreground transition-colors mx-auto">Skip nudges</button>
             </div>
           )}
         </div>
