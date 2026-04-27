@@ -415,9 +415,10 @@ function SortableTaskCard({ id, index: i, task: t, loadingAI, onUpdate, onRemove
         </button>
         <DurationPicker
           open={durOpen}
-          onOpenChange={setDurOpen}
+          onClose={() => setDurOpen(false)}
           value={t.estimate_min}
           onChange={(m) => onUpdate(i, { estimate_min: m })}
+          title="Estimate"
         />
       </div>
 
