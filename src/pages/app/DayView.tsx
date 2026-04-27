@@ -567,24 +567,23 @@ export default function DayView() {
       )}
 
       {!planMissing && !isFuture && firstUnfinishedTask && (
-        <div className="fixed bottom-24 left-1/2 -translate-x-1/2 w-full max-w-[390px] px-5 z-30">
+        <div className="fixed bottom-[68px] left-1/2 -translate-x-1/2 w-full max-w-[420px] px-5 z-30">
           <Button onClick={() => nav(`/focus/${firstUnfinishedTask.id}`)}
-            className="w-full h-13 py-3.5 rounded-xl text-primary-foreground text-base font-medium pressable shadow-glow"
-            style={{ background: "var(--gradient-primary)" }}>
+            className="w-full h-12 rounded-xl bg-primary hover:bg-primary/92 text-primary-foreground text-[15px] font-medium pressable shadow-elevated">
             <Play className="h-4 w-4" fill="currentColor" /> {toneCopy(getTone(profile as any), doneTasks === 0 ? "start_first" : "start_next")}
           </Button>
         </div>
       )}
       {!planMissing && !isFuture && !firstUnfinishedTask && totalTasks > 0 && (
-        <div className="fixed bottom-24 left-1/2 -translate-x-1/2 w-full max-w-[390px] px-5 z-30">
-          <Button onClick={() => nav(isToday ? "/recap" : `/recap?date=${viewDate}`)} className="w-full h-13 py-3.5 rounded-xl bg-success text-success-foreground hover:bg-success/90 text-base font-medium pressable">
+        <div className="fixed bottom-[68px] left-1/2 -translate-x-1/2 w-full max-w-[420px] px-5 z-30">
+          <Button onClick={() => nav(isToday ? "/recap" : `/recap?date=${viewDate}`)} className="w-full h-12 rounded-xl bg-success text-success-foreground hover:bg-success/90 text-[15px] font-medium pressable shadow-elevated">
             {toneCopy(getTone(profile as any), "recap_cta")} →
           </Button>
         </div>
       )}
       {!planMissing && isFuture && totalTasks > 0 && (
-        <div className="fixed bottom-24 left-1/2 -translate-x-1/2 w-full max-w-[390px] px-5 z-30">
-          <div className="w-full h-13 py-3.5 rounded-xl bg-surface border border-border text-center text-xs text-secondary-fg flex items-center justify-center gap-1.5">
+        <div className="fixed bottom-[68px] left-1/2 -translate-x-1/2 w-full max-w-[420px] px-5 z-30">
+          <div className="w-full h-12 rounded-xl bg-card border border-border text-center text-[12px] text-secondary-fg flex items-center justify-center gap-1.5">
             <CalendarDays className="h-3.5 w-3.5" />
             Preview · starts {friendlyDateFor(parseDateStr(viewDate))}
           </div>
@@ -592,7 +591,7 @@ export default function DayView() {
       )}
 
       <Sheet open={!!reasoningBlock} onOpenChange={(v) => !v && setReasoningBlock(null)}>
-        <SheetContent side="bottom" className="rounded-t-3xl border-border bg-surface-elevated">
+        <SheetContent side="bottom" className="rounded-t-2xl border-border bg-popover">
           <SheetHeader>
             <SheetTitle className="flex items-center gap-2">
               <Sparkles className="h-4 w-4 text-primary" />
@@ -606,7 +605,7 @@ export default function DayView() {
 
       {/* Inline add sheet */}
       <Sheet open={addAtIdx != null} onOpenChange={(v) => !v && setAddAtIdx(null)}>
-        <SheetContent side="bottom" className="rounded-t-3xl border-border bg-surface-elevated">
+        <SheetContent side="bottom" className="rounded-t-2xl border-border bg-popover">
           <SheetHeader>
             <SheetTitle className="flex items-center gap-2">
               <Plus className="h-4 w-4 text-primary" />
@@ -617,11 +616,11 @@ export default function DayView() {
             <div className="flex gap-2">
               <button
                 onClick={() => setNewKind("task")}
-                className={`flex-1 h-10 rounded-xl border text-sm font-medium pressable ${newKind === "task" ? "bg-primary/10 border-primary/40 text-primary" : "bg-surface border-border text-secondary-fg"}`}
+                className={`flex-1 h-10 rounded-lg border text-[13px] font-medium pressable transition-colors ${newKind === "task" ? "bg-primary/8 border-primary/40 text-primary" : "bg-card border-border text-secondary-fg"}`}
               >Task</button>
               <button
                 onClick={() => { setNewKind("break"); if (!newTitle) setNewTitle("Break"); }}
-                className={`flex-1 h-10 rounded-xl border text-sm font-medium pressable inline-flex items-center justify-center gap-1.5 ${newKind === "break" ? "bg-primary/10 border-primary/40 text-primary" : "bg-surface border-border text-secondary-fg"}`}
+                className={`flex-1 h-10 rounded-lg border text-[13px] font-medium pressable inline-flex items-center justify-center gap-1.5 transition-colors ${newKind === "break" ? "bg-primary/8 border-primary/40 text-primary" : "bg-card border-border text-secondary-fg"}`}
               ><Coffee className="h-3.5 w-3.5" /> Break</button>
             </div>
             <input
@@ -629,21 +628,20 @@ export default function DayView() {
               value={newTitle}
               onChange={e => setNewTitle(e.target.value)}
               placeholder={newKind === "break" ? "Break name (optional)" : "What's the task?"}
-              className="w-full h-11 px-3 rounded-xl bg-surface border border-border text-sm text-foreground"
+              className="w-full h-11 px-3 rounded-lg bg-card border border-border text-[14px] text-foreground placeholder:text-secondary-fg/70 focus:outline-none focus:border-primary/50 focus:ring-2 focus:ring-primary/15"
             />
-            <div className="flex items-center justify-between bg-surface border border-border rounded-xl px-3 py-2">
-              <span className="text-xs text-secondary-fg">Duration</span>
+            <div className="flex items-center justify-between bg-card border border-border rounded-lg px-3 py-2">
+              <span className="text-[11px] text-secondary-fg uppercase tracking-wider font-medium">Duration</span>
               <button
                 onClick={() => setNewDurationOpen(true)}
-                className="h-8 px-3 rounded-md bg-background border border-border pressable text-sm font-semibold tabular-nums hover:border-primary/40"
+                className="h-8 px-3 rounded-md bg-background border border-border pressable text-[13px] font-semibold tabular-nums hover:border-primary/40 transition-colors"
               >
                 {newDuration < 60 ? `${newDuration}m` : `${Math.floor(newDuration/60)}h${newDuration%60 ? ` ${newDuration%60}m` : ""}`}
               </button>
             </div>
             <Button
               onClick={addInlineBlock}
-              className="w-full h-11 rounded-xl text-primary-foreground font-medium pressable shadow-glow"
-              style={{ background: "var(--gradient-primary)" }}
+              className="w-full h-11 rounded-lg bg-primary hover:bg-primary/92 text-primary-foreground font-medium pressable"
             >Add</Button>
           </div>
         </SheetContent>
