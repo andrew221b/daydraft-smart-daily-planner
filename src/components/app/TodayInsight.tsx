@@ -3,8 +3,7 @@ import { Sparkles, Quote } from "lucide-react";
 import { useAuth } from "@/hooks/useAuth";
 import { useProfile } from "@/hooks/useProfile";
 import { supabase } from "@/integrations/supabase/client";
-
-type Tone = "professional" | "coach" | "playful" | "motivational" | "tough_love" | "philosophical";
+import { getTone, type Tone } from "@/lib/tone";
 
 const QUOTES: Record<Tone, string[]> = {
   professional: [
@@ -80,8 +79,8 @@ export const TodayInsight = () => {
     return () => clearInterval(t);
   }, []);
 
-  // Tap to rotate to the next quote.
-  const onTap = () => setRotateTick(t => t + 1);
+  // Insight is intentionally static per session — the user said the
+  // tap-to-rotate flicker felt unstable. Keep it calm.
 
   useEffect(() => {
     if (!user) return;
@@ -105,36 +104,33 @@ export const TodayInsight = () => {
     })();
   }, [user?.id]);
 
-  const tone = ((): Tone => {
-    try {
-      const t = (profile as any)?.ai_tone || localStorage.getItem("dd_ai_tone");
-      if (t && ["professional","coach","playful","motivational","tough_love","philosophical"].includes(t)) return t as Tone;
-    } catch {/* ignore */}
-    return "motivational";
-  })();
+  const tone = getTone(profile as any) as Exclude<Tone, "custom">;
+  const safeTone = (tone === "custom" ? "professional" : tone) as Exclude<Tone, "custom">;
 
   const { text, isQuote } = useMemo(() => {
     const ratio = yesterdayPlanned ? (yesterdayDone || 0) / yesterdayPlanned : null;
-    // Alternate context line and quote so users see both signal and inspiration.
-    const showQuote = rotateTick % 2 === 1;
-    if (showQuote) {
-      const pool = QUOTES[tone];
-      const idx = (Math.floor(Date.now() / 3_600_000) + Math.floor(rotateTick / 2)) % pool.length;
-      return { text: pool[idx], isQuote: true };
+    // Pick ONE thing for the whole session: context line if we have a strong
+    // signal (great/poor yesterday or specific time-of-day), otherwise a quote
+    // pinned for the day so it doesn't flicker.
+    const ctx = ctxMessages(tickHour, safeTone, ratio);
+    if (ctx && (ratio == null || ratio >= 0.8 || ratio < 0.3)) {
+      return { text: ctx, isQuote: false };
     }
-    return { text: ctxMessages(tickHour, tone, ratio) || QUOTES[tone][0], isQuote: false };
-  }, [tickHour, yesterdayDone, yesterdayPlanned, tone, rotateTick]);
+    const pool = QUOTES[safeTone];
+    // Same quote across the whole calendar day per tone.
+    const dayKey = Math.floor(Date.now() / 86_400_000);
+    return { text: pool[dayKey % pool.length], isQuote: true };
+  }, [tickHour, yesterdayDone, yesterdayPlanned, safeTone]);
 
   return (
-    <button
-      onClick={onTap}
-      className="mt-5 inline-flex items-center gap-2 px-3 py-1.5 rounded-full bg-primary/10 border border-primary/30 shadow-glow max-w-full pressable hover:bg-primary/15 transition-colors"
-      aria-label="Tap for another insight"
+    <div
+      className="mt-5 inline-flex items-center gap-2 px-3 py-1.5 rounded-full bg-primary/10 border border-primary/30 shadow-glow max-w-full"
+      aria-label="Today's insight"
     >
       {isQuote
         ? <Quote className="h-3.5 w-3.5 text-primary shrink-0" />
         : <Sparkles className="h-3.5 w-3.5 text-primary shrink-0" fill="currentColor" />}
       <span className="text-xs font-medium text-primary truncate">{text}</span>
-    </button>
+    </div>
   );
 };
