@@ -175,7 +175,7 @@ function TourOverlay({ rect, step, index, total, onNext, onSkip }: {
 
       {/* Tooltip card */}
       <div
-        className="absolute pointer-events-auto rounded-2xl bg-surface-elevated border border-border shadow-card p-4 page-enter"
+        className="absolute pointer-events-auto rounded-xl bg-surface-elevated border border-border shadow-card p-4 page-enter"
         style={{ top: tooltipTop, left: tooltipLeft, width: tooltipWidth }}
       >
         <div className="flex items-center justify-between gap-3">

@@ -62,7 +62,7 @@ export const InstallPrompt = () => {
 
   return (
     <div className="fixed bottom-20 left-1/2 -translate-x-1/2 z-50 w-[calc(100%-32px)] max-w-[358px] page-enter">
-      <div className="rounded-2xl bg-surface-elevated border border-border shadow-card p-4 flex gap-3">
+      <div className="rounded-xl bg-surface-elevated border border-border shadow-card p-4 flex gap-3">
         <div className="h-10 w-10 rounded-xl bg-primary/15 border border-primary/30 flex items-center justify-center shrink-0">
           <Plus className="h-5 w-5 text-primary" />
         </div>

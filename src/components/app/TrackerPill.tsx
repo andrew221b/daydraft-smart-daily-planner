@@ -405,7 +405,7 @@ function TrackerInner({ embedded = false, onClose }: { embedded?: boolean; onClo
             {/* Hero stopwatch — big, scannable */}
             <div className="px-5 pt-5">
               <div
-                className={`rounded-2xl border p-5 transition-colors ${
+                className={`rounded-xl border p-5 transition-colors ${
                   active
                     ? "border-primary/50 bg-gradient-to-br from-primary/10 via-primary/5 to-transparent"
                     : "border-border bg-surface"
@@ -485,7 +485,7 @@ function TrackerInner({ embedded = false, onClose }: { embedded?: boolean; onClo
             {/* Empty state when no entries today and no active */}
             {!active && todayByCat.length === 0 && categories.length > 0 && (
               <div className="px-5 pt-4">
-                <div className="rounded-2xl border border-dashed border-border bg-surface/50 px-4 py-5 text-center">
+                <div className="rounded-xl border border-dashed border-border bg-surface/50 px-4 py-5 text-center">
                   <div className="mx-auto h-10 w-10 rounded-full bg-muted flex items-center justify-center mb-2">
                     <Clock className="h-4 w-4 text-secondary-fg" />
                   </div>
@@ -503,7 +503,7 @@ function TrackerInner({ embedded = false, onClose }: { embedded?: boolean; onClo
                 const periodSec = stat?.sec || 0;
                 return (
                   <SwipeRow key={c.id} disabled={c.is_default || isActive || editingCat === c.id} onDelete={() => setConfirmDeleteCat(c.id)}>
-                  <div className={`rounded-2xl border transition-colors ${isActive ? "border-primary/60 bg-primary/5 shadow-[0_0_0_3px_hsl(var(--primary)/0.08)]" : "border-border bg-surface"} overflow-hidden`}>
+                  <div className={`rounded-xl border transition-colors ${isActive ? "border-primary/60 bg-primary/5 shadow-[0_0_0_3px_hsl(var(--primary)/0.08)]" : "border-border bg-surface"} overflow-hidden`}>
                     <div className="flex items-center gap-2 px-3 py-2.5">
                       {editingCat === c.id ? (
                         <form
@@ -600,7 +600,7 @@ function TrackerInner({ embedded = false, onClose }: { embedded?: boolean; onClo
                   const c = await addCategory(newName);
                   if (c) setNewName("");
                 }}
-                className="flex items-center gap-2 rounded-2xl border border-dashed border-border bg-surface px-3 py-2"
+                className="flex items-center gap-2 rounded-xl border border-dashed border-border bg-surface px-3 py-2"
               >
                 <Plus className="h-4 w-4 text-secondary-fg shrink-0" />
                 <Input
@@ -622,7 +622,7 @@ function TrackerInner({ embedded = false, onClose }: { embedded?: boolean; onClo
         {/* WEEK TAB — bars + tap-to-expand day */}
         {tab === "week" && (
           <div className="px-5 py-4 space-y-4">
-            <div className="rounded-2xl border border-border bg-surface p-4">
+            <div className="rounded-xl border border-border bg-surface p-4">
               <div className="flex items-end justify-between gap-2 h-32">
                 {weekDays.map(d => {
                   const h = d.total > 0 ? Math.max(8, (d.total / weekMaxSec) * 100) : 4;
@@ -663,7 +663,7 @@ function TrackerInner({ embedded = false, onClose }: { embedded?: boolean; onClo
         {/* MONTH TAB — heatmap calendar */}
         {tab === "month" && (
           <div className="px-5 py-4 space-y-4">
-            <div className="rounded-2xl border border-border bg-surface p-4">
+            <div className="rounded-xl border border-border bg-surface p-4">
               <div className="flex items-center justify-between mb-3">
                 <button onClick={() => setMonthCursor(d => { const x = new Date(d); x.setMonth(x.getMonth() - 1); return x; })} className="p-1.5 rounded-lg hover:bg-muted pressable" aria-label="Previous month">
                   <ChevronLeft className="h-4 w-4" />
@@ -806,7 +806,7 @@ function DayDetail({ detail, catMap }: { detail: NonNullable<ReturnType<() => an
   const dateLabel = detail.date.toLocaleDateString(undefined, { weekday: "long", month: "short", day: "numeric" });
 
   return (
-    <div className="rounded-2xl border border-border bg-surface p-4 space-y-3 animate-in fade-in slide-in-from-bottom-2 duration-200">
+    <div className="rounded-xl border border-border bg-surface p-4 space-y-3 animate-in fade-in slide-in-from-bottom-2 duration-200">
       <div className="flex items-baseline justify-between">
         <div className="text-sm font-semibold">{dateLabel}</div>
         <div className="text-xs text-secondary-fg">Total <span className="font-mono tabular-nums text-foreground">{fmtHM(detail.total)}</span></div>
@@ -1093,7 +1093,7 @@ function SwipeRow({
 
   return (
     <div className="relative">
-      <div className="absolute inset-0 flex items-center justify-end pr-5 rounded-2xl bg-destructive/90 text-destructive-foreground">
+      <div className="absolute inset-0 flex items-center justify-end pr-5 rounded-xl bg-destructive/90 text-destructive-foreground">
         <div className="flex items-center gap-1.5 text-[12px] font-semibold">
           <Trash2 className="h-3.5 w-3.5" /> Delete
         </div>

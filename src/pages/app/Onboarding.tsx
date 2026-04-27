@@ -94,7 +94,7 @@ export default function Onboarding() {
                   const active = tone === e.key;
                   return (
                     <button key={e.key} onClick={() => setTone(e.key)}
-                      className={`w-full flex items-center gap-3 p-3.5 rounded-2xl border-2 pressable transition-all ${active ? "border-primary bg-surface-elevated" : "border-border bg-surface"}`}>
+                      className={`w-full flex items-center gap-3 p-3.5 rounded-xl border-2 pressable transition-all ${active ? "border-primary bg-surface-elevated" : "border-border bg-surface"}`}>
                       <span className="text-xl">{e.emoji}</span>
                       <div className="flex-1 text-left">
                         <div className="font-medium text-[15px]">{e.title}</div>

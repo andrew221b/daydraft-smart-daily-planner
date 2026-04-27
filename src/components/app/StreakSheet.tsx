@@ -140,7 +140,7 @@ export const StreakSheet = ({ open, onOpenChange }: { open: boolean; onOpenChang
             {milestones.map(m => {
               const reached = longest >= m.n;
               return (
-                <div key={m.n} className={`rounded-2xl border p-3 text-center ${reached ? "border-primary/40 bg-primary/5" : "border-border bg-surface"}`}>
+                <div key={m.n} className={`rounded-xl border p-3 text-center ${reached ? "border-primary/40 bg-primary/5" : "border-border bg-surface"}`}>
                   <Trophy className={`h-4 w-4 mx-auto ${reached ? "text-primary" : "text-secondary-fg/50"}`} />
                   <div className={`text-sm font-semibold mt-1 ${reached ? "text-primary" : "text-foreground"}`}>{m.n}</div>
                   <div className="text-[10px] text-secondary-fg leading-tight">{m.label}</div>
@@ -157,7 +157,7 @@ export const StreakSheet = ({ open, onOpenChange }: { open: boolean; onOpenChang
 
         {canRestore && (
           <button onClick={restore}
-            className="w-full mt-4 flex items-center gap-3 px-4 py-3 rounded-2xl border border-primary/30 bg-primary/5 text-left pressable">
+            className="w-full mt-4 flex items-center gap-3 px-4 py-3 rounded-xl border border-primary/30 bg-primary/5 text-left pressable">
             <div className="h-9 w-9 rounded-full bg-primary/10 flex items-center justify-center shrink-0">
               <RotateCcw className="h-4 w-4 text-primary" />
             </div>
@@ -180,7 +180,7 @@ export const StreakSheet = ({ open, onOpenChange }: { open: boolean; onOpenChang
 
 const Stat = forwardRef<HTMLDivElement, { label: string; value: string; sub: string; highlight?: boolean }>(
   ({ label, value, sub, highlight }, ref) => (
-    <div ref={ref} className={`rounded-2xl border p-3 text-center ${highlight ? "border-primary/40 bg-primary/5" : "border-border bg-surface"}`}>
+    <div ref={ref} className={`rounded-xl border p-3 text-center ${highlight ? "border-primary/40 bg-primary/5" : "border-border bg-surface"}`}>
       <div className={`text-2xl font-semibold ${highlight ? "text-primary" : "text-foreground"}`}>{value}</div>
       <div className="text-[10px] text-secondary-fg uppercase tracking-wide mt-1">{label}</div>
       <div className="text-[10px] text-secondary-fg/70">{sub}</div>

@@ -370,7 +370,7 @@ function SortableTaskCard({ id, index: i, task: t, loadingAI, onUpdate, onRemove
         : "bg-primary";
 
   return (
-    <div ref={setNodeRef} style={style} className="rounded-2xl border border-border bg-surface p-3">
+    <div ref={setNodeRef} style={style} className="rounded-xl border border-border bg-surface p-3">
       {/* Row 1 — drag handle, priority dot, title, remove */}
       <div className="flex items-center gap-2">
         <button

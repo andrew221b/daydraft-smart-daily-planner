@@ -89,7 +89,7 @@ export default function RecapWeek() {
 }
 
 const Card = ({ icon, label, value, sub }: { icon: React.ReactNode; label: string; value: string; sub?: string }) => (
-  <div className="rounded-2xl bg-surface border border-border p-4 shadow-card">
+  <div className="rounded-xl bg-surface border border-border p-4 shadow-card">
     <div className="flex items-center gap-1.5 text-secondary-fg text-[11px] uppercase tracking-wide">
       {icon}<span>{label}</span>
     </div>

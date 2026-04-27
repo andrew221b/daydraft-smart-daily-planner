@@ -87,7 +87,7 @@ export const SwipeableBlock = ({
   };
 
   return (
-    <div className="relative overflow-hidden rounded-2xl">
+    <div className="relative overflow-hidden rounded-xl">
       {/* Action backgrounds */}
       <div className="absolute inset-0 flex items-center justify-between px-5 pointer-events-none">
         <div

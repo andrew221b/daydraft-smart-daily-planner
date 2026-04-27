@@ -453,7 +453,7 @@ export default function Focus() {
               Ask AI to help with this task
             </button>
           ) : (
-            <div className="rounded-2xl border border-border bg-surface p-4 space-y-3 text-left">
+            <div className="rounded-xl border border-border bg-surface p-4 space-y-3 text-left">
               <div className="flex items-center gap-2 text-xs font-medium text-primary uppercase tracking-wider">
                 <Sparkles className="h-3.5 w-3.5" /> AI Assistant
               </div>
