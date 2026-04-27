@@ -5,7 +5,9 @@ import { useProfile } from "@/hooks/useProfile";
 import { supabase } from "@/integrations/supabase/client";
 import { getTone, type Tone } from "@/lib/tone";
 
-const QUOTES: Record<Tone, string[]> = {
+type CoreTone = Exclude<Tone, "custom">;
+
+const QUOTES: Record<CoreTone, string[]> = {
   professional: [
     "Plan deliberately. Execute with focus.",
     "Discipline equals freedom. — Jocko Willink",
@@ -44,7 +46,7 @@ const QUOTES: Record<Tone, string[]> = {
   ],
 };
 
-const ctxMessages = (h: number, tone: Tone, doneRatio: number | null): string | null => {
+const ctxMessages = (h: number, tone: CoreTone, doneRatio: number | null): string | null => {
   // Context-aware overlay only ~30% of the time so cycling through quotes still happens.
   const ctx: string[] = [];
   if (doneRatio != null && doneRatio >= 0.8) {
@@ -72,7 +74,6 @@ export const TodayInsight = () => {
   const [yesterdayDone, setYesterdayDone] = useState<number | null>(null);
   const [yesterdayPlanned, setYesterdayPlanned] = useState<number | null>(null);
   const [tickHour, setTickHour] = useState(() => new Date().getHours());
-  const [rotateTick, setRotateTick] = useState(0);
 
   useEffect(() => {
     const t = setInterval(() => setTickHour(new Date().getHours()), 60_000);
@@ -104,8 +105,8 @@ export const TodayInsight = () => {
     })();
   }, [user?.id]);
 
-  const tone = getTone(profile as any) as Exclude<Tone, "custom">;
-  const safeTone = (tone === "custom" ? "professional" : tone) as Exclude<Tone, "custom">;
+  const rawTone = getTone(profile as any);
+  const safeTone: CoreTone = rawTone === "custom" ? "professional" : rawTone;
 
   const { text, isQuote } = useMemo(() => {
     const ratio = yesterdayPlanned ? (yesterdayDone || 0) / yesterdayPlanned : null;
