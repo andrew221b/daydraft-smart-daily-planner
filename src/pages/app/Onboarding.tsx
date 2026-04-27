@@ -3,39 +3,37 @@ import { useNavigate } from "react-router-dom";
 import { Button } from "@/components/ui/button";
 import { Blobs } from "@/components/app/Blobs";
 import { useProfile } from "@/hooks/useProfile";
-import { Check, Bell } from "lucide-react";
+import { Check } from "lucide-react";
 import { enablePush, pushSupported } from "@/lib/push";
 import { supabase } from "@/integrations/supabase/client";
 import { toast } from "sonner";
-
-const energies = [
-  { key: "morning" as const, emoji: "🌅", title: "Morning person", sub: "Peak 8am – 12pm" },
-  { key: "midday" as const, emoji: "☀️", title: "Midday flow", sub: "Peak 11am – 3pm" },
-  { key: "night" as const, emoji: "🌙", title: "Night owl", sub: "Peak 7pm – 11pm" },
-];
+import { TONE_OPTIONS, type Tone } from "@/lib/tone";
 
 const PROGRESS_KEY = "dd_onboarding_progress";
+const TONE_KEYS = TONE_OPTIONS.map(o => o.key);
 
 export default function Onboarding() {
-  // Restore in-progress onboarding so refresh mid-flow doesn't lose the user.
+  // Onboarding is intentionally minimal — busy pros don't have patience for
+  // 5-step flows. Two steps: welcome + tone choice (also enables notifications
+  // inline). Energy-of-day was removed — it just nagged users.
   const initial = (() => {
     try {
       const raw = sessionStorage.getItem(PROGRESS_KEY);
-      if (!raw) return { step: 0, pick: "morning" as const };
+      if (!raw) return { step: 0, tone: "professional" as Tone };
       const p = JSON.parse(raw);
-      const step = [0,1,2].includes(p.step) ? p.step : 0;
-      const pick = ["morning","midday","night"].includes(p.pick) ? p.pick : "morning";
-      return { step, pick };
-    } catch { return { step: 0, pick: "morning" as const }; }
+      const step = [0, 1].includes(p.step) ? p.step : 0;
+      const tone = TONE_KEYS.includes(p.tone) ? (p.tone as Tone) : ("professional" as Tone);
+      return { step, tone };
+    } catch { return { step: 0, tone: "professional" as Tone }; }
   })();
   const [step, setStep] = useState<number>(initial.step);
-  const [pick, setPick] = useState<"morning" | "midday" | "night">(initial.pick);
+  const [tone, setTone] = useState<Tone>(initial.tone);
   const { update } = useProfile();
   const nav = useNavigate();
 
   useEffect(() => {
-    try { sessionStorage.setItem(PROGRESS_KEY, JSON.stringify({ step, pick })); } catch {/* ignore */}
-  }, [step, pick]);
+    try { sessionStorage.setItem(PROGRESS_KEY, JSON.stringify({ step, tone })); } catch {/* ignore */}
+  }, [step, tone]);
 
   const finish = async (notif: boolean) => {
     let enabled = false;
@@ -47,14 +45,19 @@ export default function Onboarding() {
           enabled = true;
         }
       } catch (e: any) {
-        // Push isn't configured yet (no VAPID) or user denied — keep onboarding moving.
         if (e?.message && !/VAPID|configured/i.test(e.message)) toast(e.message);
       }
     }
     const tz = (() => {
       try { return Intl.DateTimeFormat().resolvedOptions().timeZone; } catch { return "UTC"; }
     })();
-    await update({ energy_preference: pick, notifications_enabled: enabled, onboarded: true, timezone: tz });
+    try { localStorage.setItem("dd_ai_tone", tone); } catch {/* ignore */}
+    await update({
+      ai_tone: tone as any,
+      notifications_enabled: enabled,
+      onboarded: true,
+      timezone: tz,
+    } as any);
     try { sessionStorage.removeItem(PROGRESS_KEY); } catch {/* ignore */}
     nav("/today");
   };
@@ -65,7 +68,7 @@ export default function Onboarding() {
         <Blobs />
         <div className="relative z-10 flex-1 flex flex-col px-6 pt-16 pb-10 page-enter" key={step}>
           <div className="flex gap-1.5 mb-10">
-            {[0,1,2].map(i => (
+            {[0,1].map(i => (
               <div key={i} className={`h-1 flex-1 rounded-full transition-colors ${i <= step ? "bg-primary" : "bg-border"}`} />
             ))}
           </div>
@@ -74,58 +77,40 @@ export default function Onboarding() {
             <div className="flex-1 flex flex-col">
               <div className="flex-1 flex flex-col justify-center">
                 <h1 className="text-5xl font-semibold leading-[1.05] tracking-tight">Your day,<br/>designed.</h1>
-                <p className="text-secondary-fg mt-5 text-lg leading-relaxed">DayDraft turns your messy task list into a focused, intelligent schedule.</p>
+                <p className="text-secondary-fg mt-5 text-lg leading-relaxed">For busy pros. Drop your tasks, get a focused, intelligent schedule.</p>
               </div>
               <Button onClick={() => setStep(1)} className="w-full h-13 py-3.5 rounded-xl bg-primary text-primary-foreground hover:bg-primary/90 pressable text-base font-medium shadow-glow">
-                Get Started
+                Get started
               </Button>
             </div>
           )}
 
           {step === 1 && (
             <div className="flex-1 flex flex-col">
-              <h1 className="text-3xl font-semibold leading-tight">When are you sharpest?</h1>
-              <p className="text-secondary-fg mt-2">We'll schedule deep work around your peak hours.</p>
-              <div className="space-y-3 mt-8 flex-1">
-                {energies.map(e => {
-                  const active = pick === e.key;
+              <h1 className="text-3xl font-semibold leading-tight">How should we talk to you?</h1>
+              <p className="text-secondary-fg mt-2">Sets the tone for nudges, plans and recaps. Change anytime in Settings.</p>
+              <div className="space-y-2 mt-6 flex-1 overflow-y-auto">
+                {TONE_OPTIONS.map(e => {
+                  const active = tone === e.key;
                   return (
-                    <button key={e.key} onClick={() => setPick(e.key)}
-                      className={`w-full flex items-center gap-4 p-4 rounded-2xl border-2 pressable transition-all ${active ? "border-primary bg-surface-elevated shadow-glow" : "border-border bg-surface"}`}>
-                      <span className="text-2xl">{e.emoji}</span>
+                    <button key={e.key} onClick={() => setTone(e.key)}
+                      className={`w-full flex items-center gap-3 p-3.5 rounded-2xl border-2 pressable transition-all ${active ? "border-primary bg-surface-elevated shadow-glow" : "border-border bg-surface"}`}>
+                      <span className="text-xl">{e.emoji}</span>
                       <div className="flex-1 text-left">
-                        <div className="font-medium">{e.title}</div>
-                        <div className="text-sm text-secondary-fg">{e.sub}</div>
+                        <div className="font-medium text-[15px]">{e.title}</div>
+                        <div className="text-[12px] text-secondary-fg leading-snug">{e.sub}</div>
                       </div>
-                      <span className={`h-6 w-6 rounded-full border-2 flex items-center justify-center transition-all ${active ? "border-primary bg-primary" : "border-border"}`}>
-                        {active && <Check className="h-3.5 w-3.5 text-primary-foreground" strokeWidth={3} />}
+                      <span className={`h-5 w-5 rounded-full border-2 flex items-center justify-center transition-all shrink-0 ${active ? "border-primary bg-primary" : "border-border"}`}>
+                        {active && <Check className="h-3 w-3 text-primary-foreground" strokeWidth={3} />}
                       </span>
                     </button>
                   );
                 })}
               </div>
-              <Button onClick={() => setStep(2)} className="w-full h-12 rounded-xl bg-primary text-primary-foreground hover:bg-primary/90 pressable text-base font-medium shadow-glow mt-6">
-                Continue
+              <Button onClick={() => finish(true)} className="w-full h-12 rounded-xl bg-primary text-primary-foreground hover:bg-primary/90 pressable text-base font-medium shadow-glow mt-4">
+                Enable nudges & continue
               </Button>
-            </div>
-          )}
-
-          {step === 2 && (
-            <div className="flex-1 flex flex-col">
-              <div className="flex-1 flex flex-col items-center justify-center text-center">
-                <div className="relative h-32 w-20 rounded-[28px] border-2 border-border bg-surface flex items-center justify-center mb-8">
-                  <div className="absolute -top-3 -right-10 px-3 py-2 bg-primary rounded-xl shadow-glow text-xs font-medium text-primary-foreground ring-pulse flex items-center gap-1.5">
-                    <Bell className="h-3 w-3" /> 8:00
-                  </div>
-                  <div className="h-1 w-8 rounded-full bg-border" />
-                </div>
-                <h1 className="text-3xl font-semibold leading-tight">Stay on track</h1>
-                <p className="text-secondary-fg mt-2 max-w-xs">DayDraft sends one morning nudge to start your day.</p>
-              </div>
-              <Button onClick={() => finish(true)} className="w-full h-12 rounded-xl bg-primary text-primary-foreground hover:bg-primary/90 pressable text-base font-medium shadow-glow">
-                Enable Notifications
-              </Button>
-              <button onClick={() => finish(false)} className="mt-4 text-secondary-fg text-sm hover:text-foreground transition-colors">Maybe Later</button>
+              <button onClick={() => finish(false)} className="mt-3 text-secondary-fg text-sm hover:text-foreground transition-colors mx-auto">Skip nudges</button>
             </div>
           )}
         </div>
