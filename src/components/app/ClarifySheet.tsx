@@ -4,7 +4,7 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import {
   Sparkles, Clock, X, Check, Loader2, Split, GripVertical,
-  ChevronDown, ChevronUp, ExternalLink, CalendarClock, Timer, AlertTriangle,
+  ChevronDown, ChevronUp, ExternalLink, CalendarClock, Activity, AlertTriangle,
 } from "lucide-react";
 import { supabase } from "@/integrations/supabase/client";
 import { toast } from "sonner";
@@ -16,6 +16,9 @@ import {
   SortableContext, arrayMove, verticalListSortingStrategy, useSortable,
 } from "@dnd-kit/sortable";
 import { CSS } from "@dnd-kit/utilities";
+import { DurationPicker } from "@/components/app/DurationPicker";
+import { useProfile } from "@/hooks/useProfile";
+import { getTone, t as toneCopy } from "@/lib/tone";
 
 export type ClarifiedTask = {
   title: string;
