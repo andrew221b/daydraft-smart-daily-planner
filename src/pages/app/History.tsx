@@ -91,8 +91,8 @@ export default function History() {
 
   return (
     <Shell>
-      <div className="px-6 pt-14">
-        <h1 className="text-[28px] font-semibold">History</h1>
+      <div className="px-5 pt-10">
+        <h1 className="text-[22px] font-semibold tracking-tight">History</h1>
         <p className="text-secondary-fg text-sm mt-1">Every day you've designed.</p>
         {loading && (
           <div className="mt-8 space-y-3">

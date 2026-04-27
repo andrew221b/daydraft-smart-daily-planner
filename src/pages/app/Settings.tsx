@@ -107,8 +107,8 @@ export default function Settings() {
 
   return (
     <Shell>
-      <div className="px-6 pt-14">
-        <h1 className="text-[28px] font-semibold">Settings</h1>
+      <div className="px-5 pt-10">
+        <h1 className="text-[22px] font-semibold tracking-tight">Settings</h1>
 
         <div className="mt-8 space-y-6">
           <Section title="DayDraft Pro">
