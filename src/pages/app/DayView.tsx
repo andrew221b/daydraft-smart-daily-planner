@@ -22,6 +22,7 @@ import {
   AlertDialogTitle,
 } from "@/components/ui/alert-dialog";
 import { useProfile } from "@/hooks/useProfile";
+import { getTone, t as toneCopy } from "@/lib/tone";
 import { toast } from "sonner";
 import { useTour, TOUR_DAYVIEW } from "@/components/app/Tour";
 import { haptics } from "@/lib/haptics";
@@ -571,14 +572,14 @@ export default function DayView() {
           <Button onClick={() => nav(`/focus/${firstUnfinishedTask.id}`)}
             className="w-full h-13 py-3.5 rounded-xl text-primary-foreground text-base font-medium pressable shadow-glow"
             style={{ background: "var(--gradient-primary)" }}>
-            <Play className="h-4 w-4" fill="currentColor" /> Start {doneTasks === 0 ? "First" : "Next"} Block
+            <Play className="h-4 w-4" fill="currentColor" /> {toneCopy(getTone(profile as any), doneTasks === 0 ? "start_first" : "start_next")}
           </Button>
         </div>
       )}
       {!planMissing && !isFuture && !firstUnfinishedTask && totalTasks > 0 && (
         <div className="fixed bottom-24 left-1/2 -translate-x-1/2 w-full max-w-[390px] px-5 z-30">
           <Button onClick={() => nav(isToday ? "/recap" : `/recap?date=${viewDate}`)} className="w-full h-13 py-3.5 rounded-xl bg-success text-success-foreground hover:bg-success/90 text-base font-medium pressable">
-            See Today's Recap →
+            {toneCopy(getTone(profile as any), "recap_cta")} →
           </Button>
         </div>
       )}
