@@ -1,7 +1,7 @@
 import { useEffect, useState } from "react";
 import { useNavigate } from "react-router-dom";
 import { Button } from "@/components/ui/button";
-import { Blobs } from "@/components/app/Blobs";
+// Blobs removed in pro redesign — clean surface only.
 import { useProfile } from "@/hooks/useProfile";
 import { Check } from "lucide-react";
 import { enablePush, pushSupported } from "@/lib/push";
