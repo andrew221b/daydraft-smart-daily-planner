@@ -801,7 +801,7 @@ const NowLine = ({ label }: { label: string }) => (
   <div className="flex items-center gap-2 my-2 px-3">
     <div className="text-[10px] text-primary font-mono-sf font-medium">{label}</div>
     <div className="flex-1 h-px bg-primary/40" />
-    <div className="h-1.5 w-1.5 rounded-full bg-primary shadow-glow" />
+    <div className="h-1.5 w-1.5 rounded-full bg-primary" />
   </div>
 );
 

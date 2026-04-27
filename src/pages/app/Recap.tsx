@@ -199,8 +199,8 @@ export default function Recap() {
               <div className="text-sm font-medium">Nothing to recap yet</div>
               <p className="text-xs text-secondary-fg mt-1">No plan exists for this day.</p>
               <Button onClick={() => nav(viewDate === todayDateStr() ? "/today" : `/today?date=${viewDate}`)}
-                className="mt-4 h-10 px-5 rounded-xl text-primary-foreground text-sm font-medium pressable shadow-glow"
-                style={{ background: "var(--gradient-primary)" }}>
+                className="mt-4 h-10 px-5 rounded-xl text-primary-foreground text-sm font-medium pressable"
+               >
                 Open planner
               </Button>
             </div>
@@ -309,8 +309,8 @@ export default function Recap() {
                     const tomorrow = new Date(); tomorrow.setDate(tomorrow.getDate() + 1);
                     nav(`/today?date=${dateStr(tomorrow)}`);
                   }}
-                  className="w-full h-13 py-3.5 rounded-xl text-primary-foreground text-base font-medium pressable shadow-glow"
-                  style={{ background: "var(--gradient-primary)" }}>
+                  className="w-full h-13 py-3.5 rounded-xl text-primary-foreground text-base font-medium pressable"
+                 >
                   Plan tomorrow
                 </Button>
                 <button onClick={() => nav("/recap/week")} className="w-full text-primary text-sm hover:underline">

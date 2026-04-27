@@ -369,14 +369,14 @@ export default function Focus() {
             onClick={extendFiveMin}
             className={`h-12 px-3 rounded-xl text-sm font-medium pressable flex items-center gap-1.5 transition-colors ${
               timeUp
-                ? "bg-primary/15 border-2 border-primary/50 text-primary shadow-glow"
+                ? "bg-primary/15 border-2 border-primary/50 text-primary"
                 : "bg-surface border border-border"
             }`}
           >
             <Plus className="h-3.5 w-3.5" /> 5 min
           </button>
-          <button onClick={complete} className="flex-1 h-13 py-3 rounded-xl bg-primary text-primary-foreground font-medium pressable shadow-glow flex items-center justify-center gap-2"
-            style={{ background: "var(--gradient-primary)" }}>
+          <button onClick={complete} className="flex-1 h-13 py-3 rounded-xl bg-primary text-primary-foreground font-medium pressable flex items-center justify-center gap-2"
+           >
             Complete <Check className="h-4 w-4" strokeWidth={3} />
           </button>
           <div className="shrink-0">

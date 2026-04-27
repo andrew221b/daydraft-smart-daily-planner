@@ -314,7 +314,7 @@ const ProCard = ({ entitlement, isPro, planQuotaUsed, planQuotaLimit, onUpgrade 
     : tier === "trial" ? `Trial · ${entitlement?.daysLeftInTrial}d left`
     : "Free";
   return (
-    <div className="rounded-xl border-2 border-primary/30 bg-primary/5 p-4 shadow-glow">
+    <div className="rounded-xl border-2 border-primary/30 bg-primary/5 p-4">
       <div className="flex items-start justify-between">
         <div>
           <div className="flex items-center gap-1.5">
@@ -330,7 +330,7 @@ const ProCard = ({ entitlement, isPro, planQuotaUsed, planQuotaLimit, onUpgrade 
       </div>
       {!isPro && (
         <Button onClick={onUpgrade} className="w-full mt-4 h-11 rounded-xl text-primary-foreground font-medium pressable"
-          style={{ background: "var(--gradient-primary)" }}>
+         >
           Start free trial
         </Button>
       )}

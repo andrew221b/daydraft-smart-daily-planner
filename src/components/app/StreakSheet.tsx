@@ -123,7 +123,7 @@ export const StreakSheet = ({ open, onOpenChange }: { open: boolean; onOpenChang
                       title={k}
                       className={`h-3 w-3 rounded-[3px] ${
                         isFuture ? "bg-surface border border-border/50"
-                          : isPlanned ? "bg-primary shadow-glow"
+                          : isPlanned ? "bg-primary"
                           : "bg-surface border border-border"
                       }`}
                     />
@@ -169,8 +169,8 @@ export const StreakSheet = ({ open, onOpenChange }: { open: boolean; onOpenChang
           </button>
         )}
 
-        <Button onClick={share} disabled={sharing || current === 0} className="w-full mt-6 h-12 rounded-xl text-primary-foreground font-medium pressable shadow-glow"
-          style={{ background: "var(--gradient-primary)" }}>
+        <Button onClick={share} disabled={sharing || current === 0} className="w-full mt-6 h-12 rounded-xl text-primary-foreground font-medium pressable"
+         >
           <Share2 className="h-4 w-4 mr-2" /> {sharing ? "Generating..." : "Share streak"}
         </Button>
       </SheetContent>
@@ -180,7 +180,7 @@ export const StreakSheet = ({ open, onOpenChange }: { open: boolean; onOpenChang
 
 const Stat = forwardRef<HTMLDivElement, { label: string; value: string; sub: string; highlight?: boolean }>(
   ({ label, value, sub, highlight }, ref) => (
-    <div ref={ref} className={`rounded-2xl border p-3 text-center ${highlight ? "border-primary/40 bg-primary/5 shadow-glow" : "border-border bg-surface"}`}>
+    <div ref={ref} className={`rounded-2xl border p-3 text-center ${highlight ? "border-primary/40 bg-primary/5" : "border-border bg-surface"}`}>
       <div className={`text-2xl font-semibold ${highlight ? "text-primary" : "text-foreground"}`}>{value}</div>
       <div className="text-[10px] text-secondary-fg uppercase tracking-wide mt-1">{label}</div>
       <div className="text-[10px] text-secondary-fg/70">{sub}</div>

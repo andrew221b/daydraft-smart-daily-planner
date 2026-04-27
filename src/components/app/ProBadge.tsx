@@ -28,7 +28,7 @@ export const ProBadge = () => {
     <>
       <button
         onClick={() => setOpen(true)}
-        className="relative inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full bg-gradient-to-r from-primary/15 to-primary/5 border border-primary/40 pressable shadow-glow"
+        className="relative inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full bg-gradient-to-r from-primary/15 to-primary/5 border border-primary/40 pressable"
         aria-label="Upgrade to Pro"
       >
         <Sparkles className="h-3.5 w-3.5 text-primary" fill="currentColor" />

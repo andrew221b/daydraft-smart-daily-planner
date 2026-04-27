@@ -432,7 +432,7 @@ function TrackerInner({ embedded = false, onClose }: { embedded?: boolean; onClo
                     </div>
                     <button
                       onClick={handleStop}
-                      className="shrink-0 inline-flex items-center justify-center h-11 w-11 rounded-full bg-primary text-primary-foreground pressable shadow-glow"
+                      className="shrink-0 inline-flex items-center justify-center h-11 w-11 rounded-full bg-primary text-primary-foreground pressable"
                       aria-label="Stop"
                     >
                       <Pause className="h-4 w-4" fill="currentColor" />

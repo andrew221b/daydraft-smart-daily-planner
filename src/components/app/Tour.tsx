@@ -197,7 +197,7 @@ function TourOverlay({ rect, step, index, total, onNext, onSkip }: {
           </div>
           <button
             onClick={onNext}
-            className="inline-flex items-center gap-1 px-4 py-2 rounded-full bg-primary text-primary-foreground text-sm font-medium pressable shadow-glow"
+            className="inline-flex items-center gap-1 px-4 py-2 rounded-full bg-primary text-primary-foreground text-sm font-medium pressable"
           >
             {isLast ? "Got it" : <>Next <ArrowRight className="h-3.5 w-3.5" /></>}
           </button>

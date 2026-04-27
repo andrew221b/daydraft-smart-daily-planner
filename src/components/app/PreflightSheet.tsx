@@ -69,8 +69,8 @@ export const PreflightSheet = ({
         <div className="mt-5 space-y-2 pb-2">
           <Button
             onClick={startWithPref}
-            className="w-full h-12 rounded-xl text-primary-foreground font-medium pressable shadow-glow"
-            style={{ background: "var(--gradient-primary)" }}
+            className="w-full h-12 rounded-xl text-primary-foreground font-medium pressable"
+           
           >
             {allChecked ? "Let's go" : "Start anyway"}
           </Button>

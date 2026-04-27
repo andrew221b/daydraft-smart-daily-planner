@@ -79,7 +79,7 @@ export default function Onboarding() {
                 <h1 className="text-5xl font-semibold leading-[1.05] tracking-tight">Your day,<br/>designed.</h1>
                 <p className="text-secondary-fg mt-5 text-lg leading-relaxed">For busy pros. Drop your tasks, get a focused, intelligent schedule.</p>
               </div>
-              <Button onClick={() => setStep(1)} className="w-full h-13 py-3.5 rounded-xl bg-primary text-primary-foreground hover:bg-primary/90 pressable text-base font-medium shadow-glow">
+              <Button onClick={() => setStep(1)} className="w-full h-13 py-3.5 rounded-xl bg-primary text-primary-foreground hover:bg-primary/90 pressable text-base font-medium">
                 Get started
               </Button>
             </div>
@@ -94,7 +94,7 @@ export default function Onboarding() {
                   const active = tone === e.key;
                   return (
                     <button key={e.key} onClick={() => setTone(e.key)}
-                      className={`w-full flex items-center gap-3 p-3.5 rounded-2xl border-2 pressable transition-all ${active ? "border-primary bg-surface-elevated shadow-glow" : "border-border bg-surface"}`}>
+                      className={`w-full flex items-center gap-3 p-3.5 rounded-2xl border-2 pressable transition-all ${active ? "border-primary bg-surface-elevated" : "border-border bg-surface"}`}>
                       <span className="text-xl">{e.emoji}</span>
                       <div className="flex-1 text-left">
                         <div className="font-medium text-[15px]">{e.title}</div>
@@ -107,7 +107,7 @@ export default function Onboarding() {
                   );
                 })}
               </div>
-              <Button onClick={() => finish(true)} className="w-full h-12 rounded-xl bg-primary text-primary-foreground hover:bg-primary/90 pressable text-base font-medium shadow-glow mt-4">
+              <Button onClick={() => finish(true)} className="w-full h-12 rounded-xl bg-primary text-primary-foreground hover:bg-primary/90 pressable text-base font-medium mt-4">
                 Enable nudges & continue
               </Button>
               <button onClick={() => finish(false)} className="mt-3 text-secondary-fg text-sm hover:text-foreground transition-colors mx-auto">Skip nudges</button>
