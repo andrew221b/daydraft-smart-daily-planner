@@ -267,16 +267,18 @@ export default function Today() {
 
   return (
     <Shell>
-      <div className="px-6 pt-12">
-        <div className="flex items-start justify-between">
-          <div>
-            <h1 className="text-[28px] font-semibold leading-tight">{greetingFor(getTone(profile as any), profile?.display_name)}</h1>
-            <p className="text-secondary-fg text-sm mt-1">{friendlyDate()}</p>
+      <div className="px-5 pt-10">
+        <div className="flex items-end justify-between gap-3">
+          <div className="min-w-0">
+            <p className="text-[11px] font-medium uppercase tracking-[0.14em] text-secondary-fg">{friendlyDate()}</p>
+            <h1 className="text-[22px] font-semibold leading-tight mt-1 truncate">{greetingFor(getTone(profile as any), profile?.display_name)}</h1>
           </div>
           <ProBadge />
         </div>
 
-        <TodayInsight />
+        <div className="mt-4">
+          <TodayInsight />
+        </div>
 
         {showTrialBanner && (
           <button onClick={() => { setUpgradeReason("trial-banner"); setUpgradeOpen(true); }}
@@ -297,7 +299,7 @@ export default function Today() {
           </div>
         )}
 
-        <div className="mt-6 relative">
+        <div className="mt-5 relative">
           <SpilloverChips planDate={planDate} onCarryOver={(titles) => {
             const block = titles.join("\n");
             setInput(prev => prev ? block + "\n" + prev : block);
@@ -306,23 +308,16 @@ export default function Today() {
           <Textarea
             data-tour="today-input"
             value={input} onChange={e => setInput(e.target.value)} placeholder={DEFAULT_PLACEHOLDER}
-            className="min-h-[200px] bg-surface border-border rounded-[20px] p-4 text-base leading-relaxed resize-none focus-visible:ring-primary/40 focus-visible:ring-offset-0 focus-visible:border-primary/40 transition-all" />
+            className="min-h-[180px] bg-card border-border rounded-xl p-4 text-[15px] leading-relaxed resize-none placeholder:text-secondary-fg/70 focus-visible:ring-2 focus-visible:ring-primary/15 focus-visible:ring-offset-0 focus-visible:border-primary/50 transition-all shadow-card" />
         </div>
 
-        <div className="flex gap-2 mt-3 overflow-x-auto pb-1">
+        <div className="flex gap-1.5 mt-3 overflow-x-auto pb-1 no-scrollbar">
           <QuickCaptureButton variant="chip" className="" />
-          <button data-tour="today-voice" onClick={voice}
-            className="shrink-0 inline-flex items-center gap-1.5 px-3 py-2 rounded-full bg-surface border border-border text-xs text-secondary-fg pressable hover:text-foreground">
-            <Mic className="h-3.5 w-3.5" /> Voice
-          </button>
-          <button data-tour="today-yesterday" onClick={useYesterday} className="shrink-0 inline-flex items-center gap-1.5 px-3 py-2 rounded-full bg-surface border border-border text-xs text-secondary-fg pressable hover:text-foreground">
-            <Sparkles className="h-3.5 w-3.5" /> Use yesterday's
-          </button>
-          <button data-tour="today-template" onClick={saveAsTemplate} className="shrink-0 inline-flex items-center gap-1.5 px-3 py-2 rounded-full bg-surface border border-border text-xs text-secondary-fg pressable hover:text-foreground">
-            <Bookmark className="h-3.5 w-3.5" /> Save template
-          </button>
+          <Chip onClick={voice} icon={Mic} label="Voice" tour="today-voice" />
+          <Chip onClick={useYesterday} icon={Sparkles} label="Yesterday" tour="today-yesterday" />
+          <Chip onClick={saveAsTemplate} icon={Bookmark} label="Save template" tour="today-template" />
           {templates.map(t => (
-            <button key={t.id} onClick={() => applyTemplate(t)} className="shrink-0 inline-flex items-center gap-1.5 px-3 py-2 rounded-full bg-primary/5 border border-primary/30 text-xs text-primary pressable hover:bg-primary/10">
+            <button key={t.id} onClick={() => applyTemplate(t)} className="shrink-0 inline-flex items-center gap-1.5 h-7 px-2.5 rounded-md bg-primary/8 border border-primary/25 text-[11px] font-medium text-primary pressable hover:bg-primary/12">
               {t.name}
             </button>
           ))}
@@ -331,28 +326,28 @@ export default function Today() {
         {hasPlanForDate && (
           <button
             onClick={() => nav(planDate === todayDateStr() ? "/today/plan" : `/today/plan?date=${planDate}`)}
-            className="mt-4 w-full text-left rounded-xl bg-primary/5 border border-primary/20 px-3 py-2.5 pressable hover:border-primary/40 transition-colors"
+            className="mt-4 w-full text-left rounded-lg bg-primary/[0.04] border border-primary/20 px-3.5 py-2.5 pressable hover:border-primary/40 hover:bg-primary/[0.06] transition-colors"
           >
-            <div className="text-[11px] uppercase tracking-wider text-primary font-semibold">
+            <div className="text-[10px] uppercase tracking-[0.14em] text-primary font-semibold">
               {planDate === todayDateStr() ? "Today's plan" : `Plan for ${friendlyDateFor(parseDateStr(planDate))}`}
             </div>
-            <div className="text-sm text-foreground mt-0.5 truncate">
+            <div className="text-[13px] text-foreground mt-0.5 truncate">
               {existingSummary || "Open plan →"}
             </div>
           </button>
         )}
 
-        <div className="mt-8">
-          <div className="flex items-center justify-between mb-2 px-1">
-            <span className="text-[11px] text-secondary-fg uppercase tracking-wider">Plan for</span>
+        <div className="mt-7">
+          <div className="flex items-center justify-between mb-2 px-0.5">
+            <span className="text-[10px] text-secondary-fg uppercase tracking-[0.14em] font-medium">Plan for</span>
             <Popover open={datePopoverOpen} onOpenChange={setDatePopoverOpen}>
               <PopoverTrigger asChild>
                 <button
                   className={cn(
-                    "inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full border text-xs pressable",
+                    "inline-flex items-center gap-1.5 h-7 px-2.5 rounded-md border text-[11px] font-medium pressable",
                     planDate === todayDateStr()
-                      ? "bg-surface border-border text-secondary-fg"
-                      : "bg-primary/10 border-primary/30 text-primary"
+                      ? "bg-card border-border text-secondary-fg hover:text-foreground"
+                      : "bg-primary/8 border-primary/25 text-primary"
                   )}
                 >
                   <CalendarDays className="h-3.5 w-3.5" />
@@ -374,11 +369,11 @@ export default function Today() {
               </PopoverContent>
             </Popover>
           </div>
-          <Button data-tour="today-plan" onClick={openClarify} disabled={busy} className="w-full h-13 py-3.5 rounded-xl text-primary-foreground text-base font-medium pressable shadow-glow"
-            style={{ background: "var(--gradient-primary)" }}>
+          <Button data-tour="today-plan" onClick={openClarify} disabled={busy}
+            className="w-full h-12 rounded-xl bg-primary hover:bg-primary/92 text-primary-foreground text-[15px] font-medium pressable transition-all shadow-card">
             {planDate === todayDateStr() ? toneCopy(getTone(profile as any), "plan_cta") : `Plan ${friendlyDateFor(parseDateStr(planDate))}`} <ArrowRight className="h-4 w-4" />
           </Button>
-          <p className="text-xs text-secondary-fg text-center mt-2">
+          <p className="text-[11px] text-secondary-fg text-center mt-2">
             {toneCopy(getTone(profile as any), "plan_hint")}
           </p>
         </div>
@@ -386,5 +381,15 @@ export default function Today() {
       <UpgradeSheet open={upgradeOpen} onOpenChange={setUpgradeOpen} reason={upgradeReason} />
       <ClarifySheet open={clarifyOpen} onOpenChange={setClarifyOpen} rawInput={input} onConfirm={plan} planDate={planDate} />
     </Shell>
+  );
+}
+
+function Chip({ onClick, icon: Icon, label, tour }: { onClick: () => void; icon: any; label: string; tour?: string }) {
+  return (
+    <button data-tour={tour} onClick={onClick}
+      className="shrink-0 inline-flex items-center gap-1.5 h-7 px-2.5 rounded-md bg-card border border-border text-[11px] font-medium text-secondary-fg pressable hover:text-foreground hover:border-foreground/20 transition-colors">
+      <Icon className="h-3.5 w-3.5" />
+      {label}
+    </button>
   );
 }
