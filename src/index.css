@@ -4,72 +4,75 @@
 
 @layer base {
   :root {
-    --background: 240 22% 5%;
-    --foreground: 240 38% 96%;
-    --surface: 240 16% 9%;
-    --surface-elevated: 240 15% 13%;
-    --card: 240 16% 9%;
-    --card-foreground: 240 38% 96%;
-    --popover: 240 15% 13%;
-    --popover-foreground: 240 38% 96%;
-    --primary: 230 100% 71%;
-    --primary-foreground: 240 22% 5%;
-    --primary-glow: 230 100% 78%;
-    --secondary: 240 15% 13%;
-    --secondary-foreground: 240 38% 96%;
-    --muted: 240 15% 13%;
-    --muted-foreground: 240 18% 66%;
-    --accent: 22 100% 63%;
-    --accent-foreground: 240 22% 5%;
-    --success: 142 71% 58%;
-    --success-foreground: 240 22% 5%;
-    --destructive: 0 84% 60%;
-    --destructive-foreground: 240 38% 96%;
-    --border: 240 22% 17%;
-    --input: 240 22% 17%;
-    --ring: 230 100% 71%;
-    --type-deep: 230 100% 71%;
-    --type-comm: 22 100% 63%;
-    --type-routine: 142 71% 58%;
-    --radius: 1rem;
-    --shadow-card: 0 4px 24px rgba(0,0,0,0.4);
-    --shadow-glow: 0 0 28px hsl(230 100% 71% / 0.35);
-    --gradient-primary: linear-gradient(135deg, hsl(230 100% 71%), hsl(258 90% 66%));
-    --gradient-glow: radial-gradient(60% 50% at 50% 0%, hsl(258 90% 60% / 0.35), transparent 70%);
+    /* Notion Calm — light is the default (Pro mode) */
+    --background: 40 14% 98%;          /* #FAFAF8 warm paper */
+    --foreground: 30 6% 15%;           /* #28262A graphite */
+    --surface: 36 10% 96%;             /* subtle card bg */
+    --surface-elevated: 0 0% 100%;     /* pure white panels */
+    --card: 0 0% 100%;
+    --card-foreground: 30 6% 15%;
+    --popover: 0 0% 100%;
+    --popover-foreground: 30 6% 15%;
+    --primary: 221 83% 53%;            /* #2563EB single accent */
+    --primary-foreground: 0 0% 100%;
+    --primary-glow: 221 83% 60%;
+    --secondary: 36 10% 94%;
+    --secondary-foreground: 30 6% 15%;
+    --muted: 36 10% 94%;
+    --muted-foreground: 30 4% 42%;     /* #6B6864 quiet text */
+    --accent: 221 83% 53%;             /* same as primary, no orange */
+    --accent-foreground: 0 0% 100%;
+    --success: 152 52% 38%;            /* muted green */
+    --success-foreground: 0 0% 100%;
+    --destructive: 4 70% 50%;
+    --destructive-foreground: 0 0% 100%;
+    --border: 36 8% 89%;               /* hairline */
+    --input: 36 8% 89%;
+    --ring: 221 83% 53%;
+    --type-deep: 221 83% 53%;          /* deep work — blue */
+    --type-comm: 25 75% 50%;           /* comms — warm amber */
+    --type-routine: 152 38% 42%;       /* routine — sage */
+    --radius: 0.75rem;                 /* tighter, pro */
+    --shadow-card: 0 1px 2px rgba(15,17,21,0.04), 0 1px 1px rgba(15,17,21,0.03);
+    --shadow-elevated: 0 4px 16px rgba(15,17,21,0.06), 0 1px 2px rgba(15,17,21,0.04);
+    --shadow-glow: 0 0 0 4px hsl(221 83% 53% / 0.12);
+    --gradient-primary: linear-gradient(135deg, hsl(221 83% 53%), hsl(221 83% 60%));
+    --gradient-glow: radial-gradient(60% 50% at 50% 0%, hsl(221 83% 53% / 0.08), transparent 70%);
   }
 
-  :root.light {
-    --background: 40 30% 98%;
-    --foreground: 240 22% 12%;
-    --surface: 40 25% 95%;
-    --surface-elevated: 0 0% 100%;
-    --card: 0 0% 100%;
-    --card-foreground: 240 22% 12%;
-    --popover: 0 0% 100%;
-    --popover-foreground: 240 22% 12%;
-    --primary: 230 85% 58%;
-    --primary-foreground: 0 0% 100%;
-    --primary-glow: 230 85% 65%;
-    --secondary: 40 20% 92%;
-    --secondary-foreground: 240 22% 12%;
-    --muted: 40 20% 92%;
-    --muted-foreground: 240 12% 36%;
-    --accent: 22 90% 52%;
-    --accent-foreground: 0 0% 100%;
-    --success: 142 65% 38%;
-    --success-foreground: 0 0% 100%;
-    --destructive: 0 75% 50%;
+  :root.dark {
+    --background: 220 13% 8%;
+    --foreground: 30 8% 92%;
+    --surface: 220 12% 11%;
+    --surface-elevated: 220 11% 14%;
+    --card: 220 12% 11%;
+    --card-foreground: 30 8% 92%;
+    --popover: 220 11% 14%;
+    --popover-foreground: 30 8% 92%;
+    --primary: 221 90% 65%;
+    --primary-foreground: 220 13% 8%;
+    --primary-glow: 221 90% 72%;
+    --secondary: 220 11% 14%;
+    --secondary-foreground: 30 8% 92%;
+    --muted: 220 11% 14%;
+    --muted-foreground: 30 4% 62%;
+    --accent: 221 90% 65%;
+    --accent-foreground: 220 13% 8%;
+    --success: 152 50% 55%;
+    --success-foreground: 220 13% 8%;
+    --destructive: 4 70% 60%;
     --destructive-foreground: 0 0% 100%;
-    --border: 40 15% 86%;
-    --input: 40 15% 86%;
-    --ring: 230 85% 58%;
-    --type-deep: 230 85% 58%;
-    --type-comm: 22 90% 52%;
-    --type-routine: 142 65% 38%;
-    --shadow-card: 0 4px 16px rgba(20, 22, 50, 0.08);
-    --shadow-glow: 0 0 24px hsl(230 85% 58% / 0.22);
-    --gradient-primary: linear-gradient(135deg, hsl(230 85% 58%), hsl(258 80% 60%));
-    --gradient-glow: radial-gradient(60% 50% at 50% 0%, hsl(258 80% 60% / 0.18), transparent 70%);
+    --border: 220 10% 19%;
+    --input: 220 10% 19%;
+    --ring: 221 90% 65%;
+    --type-deep: 221 90% 65%;
+    --type-comm: 25 80% 60%;
+    --type-routine: 152 40% 55%;
+    --shadow-card: 0 1px 2px rgba(0,0,0,0.4);
+    --shadow-elevated: 0 8px 24px rgba(0,0,0,0.5);
+    --shadow-glow: 0 0 0 4px hsl(221 90% 65% / 0.2);
+    --gradient-primary: linear-gradient(135deg, hsl(221 90% 65%), hsl(221 90% 72%));
+    --gradient-glow: radial-gradient(60% 50% at 50% 0%, hsl(221 90% 65% / 0.18), transparent 70%);
   }
 }
 
@@ -105,19 +108,28 @@
   input, textarea, select { font-size: 16px; }
   h1, h2, h3, h4, h5 {
     font-family: -apple-system, BlinkMacSystemFont, "SF Pro Display", "Inter", system-ui, sans-serif;
-    letter-spacing: -0.02em;
+    letter-spacing: -0.022em;
+    font-weight: 600;
   }
 }
 
 @layer utilities {
   .font-mono-sf { font-family: "SF Mono", ui-monospace, "JetBrains Mono", Menlo, monospace; }
   .shadow-card { box-shadow: var(--shadow-card); }
+  .shadow-elevated { box-shadow: var(--shadow-elevated); }
   .shadow-glow { box-shadow: var(--shadow-glow); }
   .bg-surface { background-color: hsl(var(--surface)); }
   .bg-surface-elevated { background-color: hsl(var(--surface-elevated)); }
   .text-secondary-fg { color: hsl(var(--muted-foreground)); }
-  .pressable { transition: transform 120ms ease; }
-  .pressable:active { transform: scale(0.96); }
+  .pressable { transition: transform 140ms cubic-bezier(0.2,0.8,0.2,1), background-color 140ms ease, border-color 140ms ease; }
+  .pressable:active { transform: scale(0.97); }
+  .hairline { border: 1px solid hsl(var(--border)); }
+  .calm-card {
+    background-color: hsl(var(--card));
+    border: 1px solid hsl(var(--border));
+    border-radius: var(--radius);
+    box-shadow: var(--shadow-card);
+  }
   .page-enter { animation: pageEnter 280ms cubic-bezier(0.22, 1, 0.36, 1) both; }
   @keyframes pageEnter {
     from { opacity: 0; transform: translateY(8px); }
