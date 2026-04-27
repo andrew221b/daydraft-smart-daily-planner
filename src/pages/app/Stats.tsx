@@ -107,17 +107,17 @@ export default function Stats() {
 
   return (
     <Shell>
-      <div className="px-6 pt-14">
+      <div className="px-5 pt-10">
         <div className="flex items-end justify-between">
           <div>
-            <h1 className="text-[28px] font-semibold">Stats</h1>
-            <p className="text-secondary-fg text-sm mt-1">Last 7 days.</p>
+            <p className="text-[11px] font-medium uppercase tracking-[0.14em] text-secondary-fg">Last 7 days</p>
+            <h1 className="text-[22px] font-semibold mt-1 tracking-tight">Stats</h1>
           </div>
-          <a href="/recap/week" className="text-xs text-primary hover:underline">Week recap →</a>
+          <a href="/recap/week" className="text-[12px] text-primary hover:underline font-medium">Week recap →</a>
         </div>
 
-        <div className="mt-8 rounded-2xl bg-surface border border-border shadow-card p-5">
-          <div className="text-xs text-secondary-fg uppercase tracking-wider mb-4">Focus minutes</div>
+        <div className="mt-6 rounded-xl bg-card border border-border shadow-card p-4">
+          <div className="text-[10px] text-secondary-fg uppercase tracking-[0.14em] font-medium mb-3">Focus minutes</div>
           <div className="flex items-end gap-2 h-32">
             {days.length === 0 ? <div className="text-secondary-fg text-sm">No data yet.</div> :
               days.map(d => {
@@ -126,33 +126,33 @@ export default function Stats() {
                 const localDate = new Date(y, (mo || 1) - 1, da || 1);
                 return (
                   <div key={d.date} className="flex-1 flex flex-col items-center gap-2">
-                    <div className="w-full bg-primary/80 rounded-t-md" style={{ height: `${(d.focusMin / maxFocus) * 100}%`, minHeight: 2 }} />
-                    <div className="text-[10px] text-secondary-fg">{localDate.toLocaleDateString(undefined, { weekday: "short" })[0]}</div>
+                    <div className="w-full bg-primary rounded-sm" style={{ height: `${(d.focusMin / maxFocus) * 100}%`, minHeight: 2 }} />
+                    <div className="text-[10px] text-secondary-fg font-medium">{localDate.toLocaleDateString(undefined, { weekday: "short" })[0]}</div>
                   </div>
                 );
               })}
           </div>
         </div>
 
-        <div className="mt-4 rounded-2xl bg-surface border border-border shadow-card p-5">
-          <div className="text-xs text-secondary-fg uppercase tracking-wider mb-4">Type breakdown</div>
-          <div className="h-3 rounded-full overflow-hidden bg-surface-elevated flex">
+        <div className="mt-3 rounded-xl bg-card border border-border shadow-card p-4">
+          <div className="text-[10px] text-secondary-fg uppercase tracking-[0.14em] font-medium mb-3">Type breakdown</div>
+          <div className="h-2 rounded-full overflow-hidden bg-muted flex">
             <div style={{ width: `${(breakdown.deep_work/totalBreak)*100}%`, background: "hsl(var(--type-deep))" }} />
             <div style={{ width: `${(breakdown.communication/totalBreak)*100}%`, background: "hsl(var(--type-comm))" }} />
             <div style={{ width: `${(breakdown.routine/totalBreak)*100}%`, background: "hsl(var(--type-routine))" }} />
           </div>
-          <div className="flex justify-between text-xs text-secondary-fg mt-3">
+          <div className="flex justify-between text-[11px] text-secondary-fg mt-3">
             <Legend color="hsl(var(--type-deep))" label="Deep" />
             <Legend color="hsl(var(--type-comm))" label="Comms" />
             <Legend color="hsl(var(--type-routine))" label="Routine" />
           </div>
         </div>
 
-        <div className="mt-4 rounded-2xl bg-surface border border-border shadow-card p-5">
-          <div className="flex items-end justify-between mb-4">
-            <div className="text-xs text-secondary-fg uppercase tracking-wider">Tracked hours</div>
+        <div className="mt-3 rounded-xl bg-card border border-border shadow-card p-4">
+          <div className="flex items-end justify-between mb-3">
+            <div className="text-[10px] text-secondary-fg uppercase tracking-[0.14em] font-medium">Tracked hours</div>
             <div className="text-right">
-              <div className="text-lg font-semibold tabular-nums">{fmtHM(todayTotalSec)}</div>
+              <div className="text-[17px] font-semibold tabular-nums">{fmtHM(todayTotalSec)}</div>
               <div className="text-[10px] text-secondary-fg leading-none">today</div>
             </div>
           </div>
@@ -165,31 +165,31 @@ export default function Stats() {
                 const localDate = new Date(y, (mo || 1) - 1, da || 1);
                 return (
                   <div key={d.date} className="flex-1 flex flex-col items-center gap-2">
-                    <div className="w-full rounded-t-md" style={{ height: `${(d.sec / maxTracked) * 100}%`, minHeight: 2, background: "hsl(var(--primary))" }} />
-                    <div className="text-[10px] text-secondary-fg">{localDate.toLocaleDateString(undefined, { weekday: "short" })[0]}</div>
+                    <div className="w-full rounded-sm" style={{ height: `${(d.sec / maxTracked) * 100}%`, minHeight: 2, background: "hsl(var(--primary))" }} />
+                    <div className="text-[10px] text-secondary-fg font-medium">{localDate.toLocaleDateString(undefined, { weekday: "short" })[0]}</div>
                   </div>
                 );
               })
             )}
           </div>
-          <div className="mt-3 flex items-center justify-between text-xs text-secondary-fg">
+          <div className="mt-3 flex items-center justify-between text-[11px] text-secondary-fg">
             <span>Last 7 days</span>
             <span className="text-foreground font-medium tabular-nums">{fmtHM(weekTotalSec)} total</span>
           </div>
 
           {byCategory.length > 0 && (
-            <div className="mt-5 pt-4 border-t border-border space-y-2">
-              <div className="text-[11px] uppercase tracking-wider text-secondary-fg">By category</div>
+            <div className="mt-4 pt-3 border-t border-border space-y-2">
+              <div className="text-[10px] uppercase tracking-[0.14em] text-secondary-fg font-medium">By category</div>
               {byCategory.map(c => (
                 <div key={c.id} className="space-y-1">
-                  <div className="flex items-center justify-between text-xs">
+                  <div className="flex items-center justify-between text-[12px]">
                     <div className="flex items-center gap-2 min-w-0">
                       <span className="h-2 w-2 rounded-full shrink-0" style={{ background: c.color }} />
                       <span className="truncate">{c.name}</span>
                     </div>
                     <span className="tabular-nums text-foreground font-medium ml-2 shrink-0">{fmtHM(c.sec)}</span>
                   </div>
-                  <div className="h-1.5 rounded-full bg-surface-elevated overflow-hidden">
+                  <div className="h-1 rounded-full bg-muted overflow-hidden">
                     <div className="h-full rounded-full" style={{ width: `${(c.sec / totalCatSec) * 100}%`, background: c.color }} />
                   </div>
                 </div>
