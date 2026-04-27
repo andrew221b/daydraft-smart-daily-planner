@@ -4,7 +4,7 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import {
   Sparkles, Clock, X, Check, Loader2, Split, GripVertical,
-  ChevronDown, ChevronUp, ExternalLink, CalendarClock, Timer, AlertTriangle,
+  ChevronDown, ChevronUp, ExternalLink, CalendarClock, Activity, AlertTriangle,
 } from "lucide-react";
 import { supabase } from "@/integrations/supabase/client";
 import { toast } from "sonner";
@@ -16,6 +16,9 @@ import {
   SortableContext, arrayMove, verticalListSortingStrategy, useSortable,
 } from "@dnd-kit/sortable";
 import { CSS } from "@dnd-kit/utilities";
+import { DurationPicker } from "@/components/app/DurationPicker";
+import { useProfile } from "@/hooks/useProfile";
+import { getTone, t as toneCopy } from "@/lib/tone";
 
 export type ClarifiedTask = {
   title: string;
@@ -343,6 +346,9 @@ type CardProps = {
 function SortableTaskCard({ id, index: i, task: t, loadingAI, onUpdate, onRemove, onBump, onSplit }: CardProps) {
   const { attributes, listeners, setNodeRef, transform, transition, isDragging } = useSortable({ id });
   const [expanded, setExpanded] = useState(false);
+  const [durOpen, setDurOpen] = useState(false);
+  const { profile } = useProfile();
+  const tone = getTone(profile as any);
   const style = {
     transform: CSS.Transform.toString(transform),
     transition,
@@ -391,37 +397,36 @@ function SortableTaskCard({ id, index: i, task: t, loadingAI, onUpdate, onRemove
         </button>
       </div>
 
-      {/* Row 2 — estimate stepper (the only always-visible control) */}
+      {/* Row 2 — estimate (tap to edit, presets + custom wheel) */}
       <div className="mt-2 flex items-center justify-between gap-2 pl-7">
         <div className="flex items-center gap-1.5 text-[12px] text-secondary-fg">
           <Clock className="h-3.5 w-3.5" />
-          <span>Time</span>
+          <span>Estimate</span>
           {loadingAI && !t.ai_estimate_min && (
             <Loader2 className="h-3 w-3 animate-spin text-primary ml-1" />
           )}
         </div>
-        <div className="flex items-center gap-1">
-          <button
-            onClick={() => onBump(i, -STEP)}
-            className="h-8 w-8 rounded-lg bg-background border border-border text-foreground pressable text-base font-medium"
-            aria-label="Decrease time"
-          >−</button>
-          <span className="min-w-[60px] text-center text-sm font-semibold tabular-nums">
-            {fmt(t.estimate_min)}
-          </span>
-          <button
-            onClick={() => onBump(i, STEP)}
-            className="h-8 w-8 rounded-lg bg-background border border-border text-foreground pressable text-base font-medium"
-            aria-label="Increase time"
-          >+</button>
-        </div>
+        <button
+          onClick={() => setDurOpen(true)}
+          className="h-8 px-3 rounded-lg bg-background border border-border pressable text-sm font-semibold tabular-nums hover:border-primary/40"
+          aria-label="Edit estimate"
+        >
+          {fmt(t.estimate_min)}
+        </button>
+        <DurationPicker
+          open={durOpen}
+          onClose={() => setDurOpen(false)}
+          value={t.estimate_min}
+          onChange={(m) => onUpdate(i, { estimate_min: m })}
+          title="Estimate"
+        />
       </div>
 
-      {/* Row 2b — track time toggle */}
+      {/* Row 2b — track time toggle (Activity icon = visibly different from Clock) */}
       <div className="mt-2 flex items-center justify-between gap-2 pl-7">
         <div className="flex items-center gap-1.5 text-[12px] text-secondary-fg">
-          <Timer className="h-3.5 w-3.5" />
-          <span>Track time</span>
+          <Activity className="h-3.5 w-3.5" />
+          <span>{toneCopy(tone, "track_label")}</span>
         </div>
         <button
           type="button"
