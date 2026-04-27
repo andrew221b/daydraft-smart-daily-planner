@@ -309,7 +309,7 @@ export default function Recap() {
                     const tomorrow = new Date(); tomorrow.setDate(tomorrow.getDate() + 1);
                     nav(`/today?date=${dateStr(tomorrow)}`);
                   }}
-                  className="w-full h-13 py-3.5 rounded-xl text-primary-foreground text-base font-medium pressable"
+                  className="w-full h-13 py-3.5 rounded-xl bg-primary hover:bg-primary/92 text-primary-foreground text-[15px] font-medium pressable shadow-card"
                  >
                   Plan tomorrow
                 </Button>

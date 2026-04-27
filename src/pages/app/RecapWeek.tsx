@@ -78,7 +78,7 @@ export default function RecapWeek() {
             </div>
           </div>
 
-          <Button onClick={() => nav("/today")} className="w-full mt-10 h-13 py-3.5 rounded-xl text-primary-foreground text-base font-medium pressable"
+          <Button onClick={() => nav("/today")} className="w-full mt-10 h-13 py-3.5 rounded-xl bg-primary hover:bg-primary/92 text-primary-foreground text-[15px] font-medium pressable shadow-card"
            >
             Plan today <ArrowRight className="h-4 w-4 ml-1" />
           </Button>

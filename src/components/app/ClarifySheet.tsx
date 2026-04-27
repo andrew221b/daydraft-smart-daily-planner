@@ -320,7 +320,7 @@ export function ClarifySheet({ open, onOpenChange, rawInput, onConfirm, planDate
               )
             }
             disabled={tasks.length === 0 || hasPastFixed}
-            className="w-full h-12 rounded-xl text-primary-foreground text-base font-medium pressable"
+            className="w-full h-12 rounded-xl bg-primary hover:bg-primary/92 text-primary-foreground text-[15px] font-medium pressable shadow-card"
            
           >
             {hasPastFixed ? "Fix past times to continue" : <>Plan my day <Sparkles className="h-4 w-4 ml-1" /></>}

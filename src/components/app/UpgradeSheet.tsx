@@ -101,7 +101,7 @@ export const UpgradeSheet = ({
           </div>
 
           <Button onClick={checkout} disabled={busy}
-            className="w-full mt-5 h-13 py-3.5 rounded-xl text-primary-foreground text-base font-medium pressable"
+            className="w-full mt-5 h-13 py-3.5 rounded-xl bg-primary hover:bg-primary/92 text-primary-foreground text-[15px] font-medium pressable shadow-card"
            >
             Start 7-day free trial
           </Button>
