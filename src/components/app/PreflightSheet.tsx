@@ -69,7 +69,7 @@ export const PreflightSheet = ({
         <div className="mt-5 space-y-2 pb-2">
           <Button
             onClick={startWithPref}
-            className="w-full h-12 rounded-xl text-primary-foreground font-medium pressable"
+            className="w-full h-12 rounded-xl bg-primary hover:bg-primary/92 text-primary-foreground font-medium pressable shadow-card"
            
           >
             {allChecked ? "Let's go" : "Start anyway"}

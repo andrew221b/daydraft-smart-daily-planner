@@ -329,7 +329,7 @@ const ProCard = ({ entitlement, isPro, planQuotaUsed, planQuotaLimit, onUpgrade 
         </div>
       </div>
       {!isPro && (
-        <Button onClick={onUpgrade} className="w-full mt-4 h-11 rounded-xl text-primary-foreground font-medium pressable"
+        <Button onClick={onUpgrade} className="w-full mt-4 h-11 rounded-xl bg-primary hover:bg-primary/92 text-primary-foreground font-medium pressable shadow-card"
          >
           Start free trial
         </Button>

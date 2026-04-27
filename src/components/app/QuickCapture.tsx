@@ -131,7 +131,7 @@ export function QuickCaptureButton({ className = "", variant = "icon" }: { class
             </div>
 
             <Button onClick={save} disabled={busy || !text.trim()}
-              className="w-full mt-3 h-12 rounded-xl text-primary-foreground font-medium pressable"
+              className="w-full mt-3 h-12 rounded-xl bg-primary hover:bg-primary/92 text-primary-foreground font-medium pressable shadow-card"
              >
               Capture
             </Button>

@@ -169,7 +169,7 @@ export const StreakSheet = ({ open, onOpenChange }: { open: boolean; onOpenChang
           </button>
         )}
 
-        <Button onClick={share} disabled={sharing || current === 0} className="w-full mt-6 h-12 rounded-xl text-primary-foreground font-medium pressable"
+        <Button onClick={share} disabled={sharing || current === 0} className="w-full mt-6 h-12 rounded-xl bg-primary hover:bg-primary/92 text-primary-foreground font-medium pressable shadow-card"
          >
           <Share2 className="h-4 w-4 mr-2" /> {sharing ? "Generating..." : "Share streak"}
         </Button>
