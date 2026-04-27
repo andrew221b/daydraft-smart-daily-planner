@@ -175,7 +175,7 @@ function TourOverlay({ rect, step, index, total, onNext, onSkip }: {
 
       {/* Tooltip card */}
       <div
-        className="absolute pointer-events-auto rounded-2xl bg-surface-elevated border border-border shadow-card p-4 page-enter"
+        className="absolute pointer-events-auto rounded-xl bg-surface-elevated border border-border shadow-card p-4 page-enter"
         style={{ top: tooltipTop, left: tooltipLeft, width: tooltipWidth }}
       >
         <div className="flex items-center justify-between gap-3">
@@ -197,7 +197,7 @@ function TourOverlay({ rect, step, index, total, onNext, onSkip }: {
           </div>
           <button
             onClick={onNext}
-            className="inline-flex items-center gap-1 px-4 py-2 rounded-full bg-primary text-primary-foreground text-sm font-medium pressable shadow-glow"
+            className="inline-flex items-center gap-1 px-4 py-2 rounded-full bg-primary text-primary-foreground text-sm font-medium pressable"
           >
             {isLast ? "Got it" : <>Next <ArrowRight className="h-3.5 w-3.5" /></>}
           </button>

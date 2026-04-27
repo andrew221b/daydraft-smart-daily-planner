@@ -39,7 +39,7 @@ export function DurationPicker({ open, onClose, value, onChange, title = "Durati
                 <button
                   key={p}
                   onClick={() => apply(p)}
-                  className={`h-14 rounded-2xl border pressable text-sm font-medium tabular-nums transition-colors ${
+                  className={`h-14 rounded-xl border pressable text-sm font-medium tabular-nums transition-colors ${
                     value === p
                       ? "bg-primary text-primary-foreground border-primary shadow-md"
                       : "bg-surface border-border text-foreground hover:border-primary/40"
@@ -51,7 +51,7 @@ export function DurationPicker({ open, onClose, value, onChange, title = "Durati
             </div>
             <button
               onClick={() => { setCustom(true); setHours(Math.floor(value / 60)); setMins(value % 60); }}
-              className="w-full h-12 rounded-2xl border border-dashed border-border bg-surface/50 text-sm text-secondary-fg pressable hover:text-foreground hover:border-primary/40"
+              className="w-full h-12 rounded-xl border border-dashed border-border bg-surface/50 text-sm text-secondary-fg pressable hover:text-foreground hover:border-primary/40"
             >
               Custom…
             </button>
@@ -76,7 +76,7 @@ function WheelPicker({
   const HOURS = Array.from({ length: 9 }, (_, i) => i); // 0-8h
   const MINS = Array.from({ length: 12 }, (_, i) => i * 5); // 0,5,...55
   return (
-    <div className="relative h-44 rounded-2xl bg-surface border border-border overflow-hidden">
+    <div className="relative h-44 rounded-xl bg-surface border border-border overflow-hidden">
       {/* Center selection band */}
       <div className="pointer-events-none absolute inset-x-0 top-1/2 -translate-y-1/2 h-10 bg-primary/10 border-y border-primary/20" />
       <div className="grid grid-cols-2 h-full">

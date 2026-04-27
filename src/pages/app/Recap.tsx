@@ -195,12 +195,12 @@ export default function Recap() {
           <p className="text-secondary-fg mt-1">{parseDateStr(viewDate).toLocaleDateString(undefined, { weekday: "long", month: "long", day: "numeric" })}</p>
 
           {tasks.length === 0 && (
-            <div className="mt-8 rounded-2xl bg-surface-elevated border border-border shadow-card p-6 text-center">
+            <div className="mt-8 rounded-xl bg-surface-elevated border border-border shadow-card p-6 text-center">
               <div className="text-sm font-medium">Nothing to recap yet</div>
               <p className="text-xs text-secondary-fg mt-1">No plan exists for this day.</p>
               <Button onClick={() => nav(viewDate === todayDateStr() ? "/today" : `/today?date=${viewDate}`)}
-                className="mt-4 h-10 px-5 rounded-xl text-primary-foreground text-sm font-medium pressable shadow-glow"
-                style={{ background: "var(--gradient-primary)" }}>
+                className="mt-4 h-10 px-5 rounded-xl text-primary-foreground text-sm font-medium pressable"
+               >
                 Open planner
               </Button>
             </div>
@@ -232,7 +232,7 @@ export default function Recap() {
           )}
 
           {isTodayRecap && (
-          <div className="mt-6 rounded-2xl bg-surface border border-border p-4">
+          <div className="mt-6 rounded-xl bg-surface border border-border p-4">
             <div className="text-[11px] uppercase tracking-wider text-secondary-fg mb-2">How did today feel?</div>
             <div className="flex gap-2">
               {([
@@ -258,7 +258,7 @@ export default function Recap() {
           {showRecover && (
             <button
               onClick={backfill}
-              className="mt-6 w-full flex items-center gap-3 px-4 py-3 rounded-2xl border border-primary/30 bg-primary/5 text-left pressable"
+              className="mt-6 w-full flex items-center gap-3 px-4 py-3 rounded-xl border border-primary/30 bg-primary/5 text-left pressable"
             >
               <div className="h-9 w-9 rounded-full bg-primary/10 flex items-center justify-center shrink-0">
                 <Clock className="h-4 w-4 text-primary" />
@@ -274,7 +274,7 @@ export default function Recap() {
           {isTodayRecap && unfinished.length > 0 && !carriedOver && (
             <button
               onClick={carryOver}
-              className="mt-3 w-full flex items-center gap-3 px-4 py-3 rounded-2xl border border-border bg-surface text-left pressable hover:border-primary/30"
+              className="mt-3 w-full flex items-center gap-3 px-4 py-3 rounded-xl border border-border bg-surface text-left pressable hover:border-primary/30"
             >
               <div className="h-9 w-9 rounded-full bg-primary/10 flex items-center justify-center shrink-0">
                 <RotateCcw className="h-4 w-4 text-primary" />
@@ -287,7 +287,7 @@ export default function Recap() {
             </button>
           )}
 
-          <div className="mt-6 rounded-2xl bg-surface-elevated border border-border shadow-card p-4">
+          <div className="mt-6 rounded-xl bg-surface-elevated border border-border shadow-card p-4">
             <div className="flex items-center gap-2 text-primary">
               <Sparkles className="h-4 w-4" />
               <span className="text-xs font-medium uppercase tracking-wide">Today's insight</span>
@@ -309,8 +309,8 @@ export default function Recap() {
                     const tomorrow = new Date(); tomorrow.setDate(tomorrow.getDate() + 1);
                     nav(`/today?date=${dateStr(tomorrow)}`);
                   }}
-                  className="w-full h-13 py-3.5 rounded-xl text-primary-foreground text-base font-medium pressable shadow-glow"
-                  style={{ background: "var(--gradient-primary)" }}>
+                  className="w-full h-13 py-3.5 rounded-xl bg-primary hover:bg-primary/92 text-primary-foreground text-[15px] font-medium pressable shadow-card"
+                 >
                   Plan tomorrow
                 </Button>
                 <button onClick={() => nav("/recap/week")} className="w-full text-primary text-sm hover:underline">
@@ -336,7 +336,7 @@ export default function Recap() {
 }
 
 const Stat = ({ label, value }: { label: string; value: string }) => (
-  <div className="rounded-2xl bg-surface border border-border p-3 text-center shadow-card">
+  <div className="rounded-xl bg-surface border border-border p-3 text-center shadow-card">
     <div className="text-xl font-semibold">{value}</div>
     <div className="text-[11px] text-secondary-fg mt-1 leading-tight">{label}</div>
   </div>

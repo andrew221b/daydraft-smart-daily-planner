@@ -70,7 +70,7 @@ export default function RecapWeek() {
                 const label = d.toLocaleDateString(undefined, { weekday: "short" })[0];
                 return (
                   <div key={k} className="flex-1 flex flex-col items-center gap-1">
-                    <div className={`h-10 w-full rounded-lg ${planned ? "bg-primary shadow-glow" : "bg-surface border border-border"}`} />
+                    <div className={`h-10 w-full rounded-lg ${planned ? "bg-primary" : "bg-surface border border-border"}`} />
                     <span className="text-[10px] text-secondary-fg">{label}</span>
                   </div>
                 );
@@ -78,8 +78,8 @@ export default function RecapWeek() {
             </div>
           </div>
 
-          <Button onClick={() => nav("/today")} className="w-full mt-10 h-13 py-3.5 rounded-xl text-primary-foreground text-base font-medium pressable shadow-glow"
-            style={{ background: "var(--gradient-primary)" }}>
+          <Button onClick={() => nav("/today")} className="w-full mt-10 h-13 py-3.5 rounded-xl bg-primary hover:bg-primary/92 text-primary-foreground text-[15px] font-medium pressable shadow-card"
+           >
             Plan today <ArrowRight className="h-4 w-4 ml-1" />
           </Button>
         </div>
@@ -89,7 +89,7 @@ export default function RecapWeek() {
 }
 
 const Card = ({ icon, label, value, sub }: { icon: React.ReactNode; label: string; value: string; sub?: string }) => (
-  <div className="rounded-2xl bg-surface border border-border p-4 shadow-card">
+  <div className="rounded-xl bg-surface border border-border p-4 shadow-card">
     <div className="flex items-center gap-1.5 text-secondary-fg text-[11px] uppercase tracking-wide">
       {icon}<span>{label}</span>
     </div>

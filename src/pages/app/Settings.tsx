@@ -107,8 +107,8 @@ export default function Settings() {
 
   return (
     <Shell>
-      <div className="px-6 pt-14">
-        <h1 className="text-[28px] font-semibold">Settings</h1>
+      <div className="px-5 pt-10">
+        <h1 className="text-[22px] font-semibold tracking-tight">Settings</h1>
 
         <div className="mt-8 space-y-6">
           <Section title="DayDraft Pro">
@@ -314,7 +314,7 @@ const ProCard = ({ entitlement, isPro, planQuotaUsed, planQuotaLimit, onUpgrade 
     : tier === "trial" ? `Trial · ${entitlement?.daysLeftInTrial}d left`
     : "Free";
   return (
-    <div className="rounded-xl border-2 border-primary/30 bg-primary/5 p-4 shadow-glow">
+    <div className="rounded-xl border-2 border-primary/30 bg-primary/5 p-4">
       <div className="flex items-start justify-between">
         <div>
           <div className="flex items-center gap-1.5">
@@ -329,8 +329,8 @@ const ProCard = ({ entitlement, isPro, planQuotaUsed, planQuotaLimit, onUpgrade 
         </div>
       </div>
       {!isPro && (
-        <Button onClick={onUpgrade} className="w-full mt-4 h-11 rounded-xl text-primary-foreground font-medium pressable"
-          style={{ background: "var(--gradient-primary)" }}>
+        <Button onClick={onUpgrade} className="w-full mt-4 h-11 rounded-xl bg-primary hover:bg-primary/92 text-primary-foreground font-medium pressable shadow-card"
+         >
           Start free trial
         </Button>
       )}

@@ -91,22 +91,22 @@ export default function History() {
 
   return (
     <Shell>
-      <div className="px-6 pt-14">
-        <h1 className="text-[28px] font-semibold">History</h1>
-        <p className="text-secondary-fg text-sm mt-1">Every day you've designed.</p>
+      <div className="px-5 pt-10">
+        <p className="text-[11px] font-medium uppercase tracking-[0.14em] text-secondary-fg">Reflection</p>
+        <h1 className="text-[22px] font-semibold tracking-tight mt-1">History</h1>
         {loading && (
-          <div className="mt-8 space-y-3">
+          <div className="mt-6 space-y-2">
             {[0, 1, 2].map(i => (
-              <div key={i} className="h-20 rounded-2xl bg-surface border border-border shadow-card animate-pulse" />
+              <div key={i} className="h-[78px] rounded-xl bg-card border border-border shadow-card animate-pulse" />
             ))}
           </div>
         )}
         {!loading && (
-          <div className="mt-8 space-y-7">
+          <div className="mt-6 space-y-6">
             {Object.entries(groups).map(([w, items]) => (
               <div key={w}>
-                <div className="text-[11px] text-secondary-fg uppercase tracking-wider mb-2">{w}</div>
-                <div className="space-y-2">
+                <div className="text-[10px] text-secondary-fg uppercase tracking-[0.14em] mb-2 font-medium">{w}</div>
+                <div className="space-y-1.5">
                   {items.map(p => {
                     const isToday = p.date === todayKey;
                     const completionPct = p.total ? Math.round((p.done / p.total) * 100) : 0;
@@ -119,7 +119,7 @@ export default function History() {
                       <button
                         key={p.id}
                         onClick={() => nav(goTo)}
-                        className="w-full text-left rounded-2xl bg-surface border border-border p-4 shadow-card pressable hover:border-primary/30 transition-colors"
+                        className="w-full text-left rounded-xl bg-card border border-border p-3.5 shadow-card pressable hover:border-foreground/20 transition-colors"
                       >
                         <div className="flex items-center gap-2">
                           {allDone ? (
@@ -127,15 +127,15 @@ export default function History() {
                           ) : (
                             <Circle className="h-3.5 w-3.5 text-secondary-fg/60 shrink-0" />
                           )}
-                          <div className="text-xs text-secondary-fg">
+                          <div className="text-[11px] text-secondary-fg font-medium">
                             {parseDateStr(p.date).toLocaleDateString(undefined, { weekday: "long", month: "long", day: "numeric" })}
-                            {isToday && <span className="ml-2 text-[10px] uppercase tracking-wider text-primary font-semibold">Today</span>}
+                            {isToday && <span className="ml-2 text-[10px] uppercase tracking-[0.14em] text-primary font-semibold">Today</span>}
                           </div>
                         </div>
-                        <div className="mt-1.5 text-[15px] line-clamp-2 leading-snug">
+                        <div className="mt-1 text-[13.5px] line-clamp-2 leading-snug">
                           {p.ai_summary || p.preview || `${p.total} task${p.total === 1 ? "" : "s"}`}
                         </div>
-                        <div className="mt-2 flex items-center justify-between text-[11px] text-secondary-fg">
+                        <div className="mt-2 flex items-center justify-between text-[10.5px] text-secondary-fg">
                           <span>
                             <span className="text-foreground font-medium">{p.done}</span>
                             <span className="text-secondary-fg">/{p.total}</span>

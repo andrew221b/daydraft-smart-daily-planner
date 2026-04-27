@@ -9,16 +9,16 @@ interface Ctx {
   setTheme: (t: Theme) => void;
 }
 
-const ThemeCtx = createContext<Ctx>({ theme: "system", resolved: "dark", setTheme: () => {} });
+const ThemeCtx = createContext<Ctx>({ theme: "system", resolved: "light", setTheme: () => {} });
 
 const STORAGE_KEY = "daydraft.theme";
 
 const applyTheme = (theme: Theme): "light" | "dark" => {
-  const sys = window.matchMedia("(prefers-color-scheme: light)").matches ? "light" : "dark";
+  const sys = window.matchMedia("(prefers-color-scheme: dark)").matches ? "dark" : "light";
   const resolved = theme === "system" ? sys : theme;
   const root = document.documentElement;
   root.classList.remove("light", "dark");
-  if (resolved === "light") root.classList.add("light");
+  if (resolved === "dark") root.classList.add("dark");
   return resolved;
 };
 
@@ -27,11 +27,11 @@ export const ThemeProvider = ({ children }: { children: ReactNode }) => {
     if (typeof window === "undefined") return "system";
     return (localStorage.getItem(STORAGE_KEY) as Theme) || "system";
   });
-  const [resolved, setResolved] = useState<"light" | "dark">("dark");
+  const [resolved, setResolved] = useState<"light" | "dark">("light");
 
   useEffect(() => {
     setResolved(applyTheme(theme));
-    const mq = window.matchMedia("(prefers-color-scheme: light)");
+    const mq = window.matchMedia("(prefers-color-scheme: dark)");
     const onChange = () => { if (theme === "system") setResolved(applyTheme("system")); };
     mq.addEventListener("change", onChange);
     return () => mq.removeEventListener("change", onChange);

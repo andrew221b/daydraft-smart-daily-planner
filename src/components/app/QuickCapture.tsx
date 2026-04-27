@@ -74,10 +74,10 @@ export function QuickCaptureButton({ className = "", variant = "icon" }: { class
         data-tour="today-inbox"
         aria-label={`Capture · ${pendingCount} pending`}
         className={variant === "chip"
-          ? `shrink-0 inline-flex items-center gap-1.5 px-3 py-2 rounded-full bg-surface border border-border text-xs text-secondary-fg pressable hover:text-foreground ${className}`
-          : `relative h-10 w-10 rounded-full bg-surface-elevated border border-border flex items-center justify-center text-secondary-fg hover:text-foreground pressable ${className}`}
+          ? `shrink-0 inline-flex items-center gap-1.5 h-7 px-2.5 rounded-md bg-card border border-border text-[11px] font-medium text-secondary-fg pressable hover:text-foreground hover:border-foreground/20 transition-colors ${className}`
+          : `relative h-9 w-9 rounded-lg bg-card border border-border flex items-center justify-center text-secondary-fg hover:text-foreground pressable ${className}`}
       >
-        <Inbox className={variant === "chip" ? "h-3.5 w-3.5" : "h-4 w-4"} strokeWidth={2.2} />
+        <Inbox className={variant === "chip" ? "h-3.5 w-3.5" : "h-[18px] w-[18px]"} strokeWidth={1.75} />
         {variant === "chip" && <span>Capture</span>}
         {pendingCount > 0 && (
           variant === "chip"
@@ -131,8 +131,8 @@ export function QuickCaptureButton({ className = "", variant = "icon" }: { class
             </div>
 
             <Button onClick={save} disabled={busy || !text.trim()}
-              className="w-full mt-3 h-12 rounded-xl text-primary-foreground font-medium pressable shadow-glow"
-              style={{ background: "var(--gradient-primary)" }}>
+              className="w-full mt-3 h-12 rounded-xl bg-primary hover:bg-primary/92 text-primary-foreground font-medium pressable shadow-card"
+             >
               Capture
             </Button>
           </div>

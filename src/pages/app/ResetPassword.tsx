@@ -52,7 +52,7 @@ export default function ResetPassword() {
                 className="h-12 bg-surface border-border rounded-xl" />
               <Input type="password" required minLength={6} value={pw2} onChange={e => setPw2(e.target.value)} placeholder="Confirm password"
                 className="h-12 bg-surface border-border rounded-xl" />
-              <Button type="submit" disabled={busy} className="w-full h-12 rounded-xl bg-primary text-primary-foreground hover:bg-primary/90 pressable text-base font-medium shadow-glow">
+              <Button type="submit" disabled={busy} className="w-full h-12 rounded-xl bg-primary text-primary-foreground hover:bg-primary/90 pressable text-base font-medium">
                 {busy ? "..." : "Update password"}
               </Button>
             </form>

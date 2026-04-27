@@ -45,7 +45,7 @@ export default function ForgotPassword() {
             <form onSubmit={submit} className="mt-10 space-y-3">
               <Input type="email" required value={email} onChange={e => setEmail(e.target.value)} placeholder="Email"
                 className="h-12 bg-surface border-border rounded-xl" />
-              <Button type="submit" disabled={busy} className="w-full h-12 rounded-xl bg-primary text-primary-foreground hover:bg-primary/90 pressable text-base font-medium shadow-glow">
+              <Button type="submit" disabled={busy} className="w-full h-12 rounded-xl bg-primary text-primary-foreground hover:bg-primary/90 pressable text-base font-medium">
                 {busy ? "..." : "Send reset link"}
               </Button>
             </form>

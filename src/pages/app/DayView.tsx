@@ -367,24 +367,24 @@ export default function DayView() {
 
   return (
     <Shell>
-      <div className="px-5 pt-12 flex items-center justify-between">
-        <button onClick={() => nav("/today")} className="h-9 w-9 -ml-2 rounded-full flex items-center justify-center text-secondary-fg hover:text-foreground pressable">
+      <div className="px-5 pt-10 flex items-center justify-between">
+        <button onClick={() => nav("/today")} className="h-8 w-8 -ml-1.5 rounded-md flex items-center justify-center text-secondary-fg hover:text-foreground hover:bg-muted pressable">
           <ChevronLeft className="h-5 w-5" />
         </button>
         <div className="text-center">
-          <h1 className="text-[22px] font-semibold leading-tight">
-            {isToday ? "Today's Plan" : `Plan · ${friendlyDateFor(parseDateStr(viewDate))}`}
+          <h1 className="text-[15px] font-semibold leading-tight tracking-tight">
+            {isToday ? "Today's Plan" : friendlyDateFor(parseDateStr(viewDate))}
           </h1>
           <div className="mt-0.5"><ContextStrip meetings={meetings} /></div>
         </div>
-        <button onClick={() => setEditing(e => !e)} disabled={planMissing} className="text-sm text-primary font-medium px-2 disabled:opacity-30">
+        <button onClick={() => setEditing(e => !e)} disabled={planMissing} className="text-[13px] text-primary font-medium px-2 disabled:opacity-30">
           {editing ? "Done" : "Edit"}
         </button>
       </div>
 
-      <div className="px-5 mt-5">
+      <div className="px-5 mt-4">
         {planMissing && (
-          <div className="rounded-2xl bg-surface-elevated border border-border shadow-card p-6 text-center">
+          <div className="rounded-xl bg-card border border-border shadow-card p-6 text-center">
             <CalendarDays className="h-6 w-6 mx-auto text-secondary-fg mb-2" />
             <div className="text-sm font-medium">
               {isFuture ? `No plan for ${friendlyDateFor(parseDateStr(viewDate))} yet`
@@ -395,24 +395,23 @@ export default function DayView() {
               {isToday || isFuture ? "Head back to the planner to draft one." : "This day was never planned."}
             </p>
             <Button onClick={() => nav(isToday ? "/today" : `/today?date=${viewDate}`)}
-              className="mt-4 h-10 px-5 rounded-xl text-primary-foreground text-sm font-medium pressable shadow-glow"
-              style={{ background: "var(--gradient-primary)" }}>
+              className="mt-4 h-9 px-4 rounded-lg bg-primary hover:bg-primary/92 text-primary-foreground text-[13px] font-medium pressable">
               Open planner
             </Button>
           </div>
         )}
         {!planMissing && (
-        <div className="rounded-2xl bg-surface-elevated border border-border shadow-card p-4 relative overflow-hidden">
-          <div className="absolute left-0 top-3 bottom-3 w-[3px] rounded-r-full bg-primary" />
+        <div className="rounded-xl bg-card border border-border shadow-card p-3.5 relative overflow-hidden">
+          <div className="absolute left-0 top-3 bottom-3 w-[2px] rounded-r-full bg-primary" />
           <div className="pl-3">
             <div className="flex items-center gap-2">
-              <Sparkles className="h-4 w-4 text-primary" />
-              <span className="text-sm font-medium">{plan?.ai_summary || `${doneTasks}/${totalTasks} tasks`}</span>
+              <Sparkles className="h-3.5 w-3.5 text-primary" />
+              <span className="text-[13px] font-medium">{plan?.ai_summary || `${doneTasks}/${totalTasks} tasks`}</span>
             </div>
-            <p className="text-secondary-fg text-sm mt-1.5 leading-relaxed">{plan?.ai_subtext}</p>
+            <p className="text-secondary-fg text-[12.5px] mt-1 leading-relaxed">{plan?.ai_subtext}</p>
             {minutesUntilNext != null && (
-              <div className="mt-3 inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full bg-primary/10 border border-primary/30 text-[11px] font-medium text-primary">
-                <span className="h-1.5 w-1.5 rounded-full bg-primary animate-pulse" />
+              <div className="mt-2.5 inline-flex items-center gap-1.5 px-2 py-0.5 rounded bg-primary/8 border border-primary/20 text-[10.5px] font-medium text-primary">
+                <span className="h-1 w-1 rounded-full bg-primary animate-pulse" />
                 {activeBlock
                   ? `${minutesUntilNext} min left in current block`
                   : `Starts in ${minutesUntilNext} min`}
@@ -424,20 +423,20 @@ export default function DayView() {
       </div>
 
       {!planMissing && !isFuture && firstUnfinishedTask && (
-        <div className="px-5 mt-3">
+        <div className="px-5 mt-2.5">
           <button onClick={replanRest} disabled={replanning}
-            className="w-full inline-flex items-center justify-center gap-2 px-3 py-2 rounded-full bg-surface border border-border text-xs text-secondary-fg pressable hover:text-primary hover:border-primary/30">
+            className="w-full inline-flex items-center justify-center gap-1.5 h-8 px-3 rounded-md bg-card border border-border text-[11.5px] font-medium text-secondary-fg pressable hover:text-primary hover:border-primary/40 transition-colors">
             <RefreshCw className={`h-3.5 w-3.5 ${replanning ? "animate-spin" : ""}`} />
-            {replanning ? "Re-planning..." : "Re-plan rest of day"}
+            {replanning ? "Re-planning…" : "Re-plan rest of day"}
           </button>
         </div>
       )}
 
       {!planMissing && plan && (
-        <div className="px-5 mt-2">
+        <div className="px-5 mt-1.5">
           <button
             onClick={() => setConfirmDeletePlan(true)}
-            className="w-full inline-flex items-center justify-center gap-2 px-3 py-2 rounded-full bg-surface border border-border text-xs text-secondary-fg pressable hover:text-destructive hover:border-destructive/30"
+            className="w-full inline-flex items-center justify-center gap-1.5 h-8 px-3 rounded-md text-[11.5px] font-medium text-secondary-fg pressable hover:text-destructive transition-colors"
           >
             <Trash2 className="h-3.5 w-3.5" />
             Delete plan
@@ -568,24 +567,23 @@ export default function DayView() {
       )}
 
       {!planMissing && !isFuture && firstUnfinishedTask && (
-        <div className="fixed bottom-24 left-1/2 -translate-x-1/2 w-full max-w-[390px] px-5 z-30">
+        <div className="fixed bottom-[68px] left-1/2 -translate-x-1/2 w-full max-w-[420px] px-5 z-30">
           <Button onClick={() => nav(`/focus/${firstUnfinishedTask.id}`)}
-            className="w-full h-13 py-3.5 rounded-xl text-primary-foreground text-base font-medium pressable shadow-glow"
-            style={{ background: "var(--gradient-primary)" }}>
+            className="w-full h-12 rounded-xl bg-primary hover:bg-primary/92 text-primary-foreground text-[15px] font-medium pressable shadow-elevated">
             <Play className="h-4 w-4" fill="currentColor" /> {toneCopy(getTone(profile as any), doneTasks === 0 ? "start_first" : "start_next")}
           </Button>
         </div>
       )}
       {!planMissing && !isFuture && !firstUnfinishedTask && totalTasks > 0 && (
-        <div className="fixed bottom-24 left-1/2 -translate-x-1/2 w-full max-w-[390px] px-5 z-30">
-          <Button onClick={() => nav(isToday ? "/recap" : `/recap?date=${viewDate}`)} className="w-full h-13 py-3.5 rounded-xl bg-success text-success-foreground hover:bg-success/90 text-base font-medium pressable">
+        <div className="fixed bottom-[68px] left-1/2 -translate-x-1/2 w-full max-w-[420px] px-5 z-30">
+          <Button onClick={() => nav(isToday ? "/recap" : `/recap?date=${viewDate}`)} className="w-full h-12 rounded-xl bg-success text-success-foreground hover:bg-success/90 text-[15px] font-medium pressable shadow-elevated">
             {toneCopy(getTone(profile as any), "recap_cta")} →
           </Button>
         </div>
       )}
       {!planMissing && isFuture && totalTasks > 0 && (
-        <div className="fixed bottom-24 left-1/2 -translate-x-1/2 w-full max-w-[390px] px-5 z-30">
-          <div className="w-full h-13 py-3.5 rounded-xl bg-surface border border-border text-center text-xs text-secondary-fg flex items-center justify-center gap-1.5">
+        <div className="fixed bottom-[68px] left-1/2 -translate-x-1/2 w-full max-w-[420px] px-5 z-30">
+          <div className="w-full h-12 rounded-xl bg-card border border-border text-center text-[12px] text-secondary-fg flex items-center justify-center gap-1.5">
             <CalendarDays className="h-3.5 w-3.5" />
             Preview · starts {friendlyDateFor(parseDateStr(viewDate))}
           </div>
@@ -593,7 +591,7 @@ export default function DayView() {
       )}
 
       <Sheet open={!!reasoningBlock} onOpenChange={(v) => !v && setReasoningBlock(null)}>
-        <SheetContent side="bottom" className="rounded-t-3xl border-border bg-surface-elevated">
+        <SheetContent side="bottom" className="rounded-t-2xl border-border bg-popover">
           <SheetHeader>
             <SheetTitle className="flex items-center gap-2">
               <Sparkles className="h-4 w-4 text-primary" />
@@ -607,7 +605,7 @@ export default function DayView() {
 
       {/* Inline add sheet */}
       <Sheet open={addAtIdx != null} onOpenChange={(v) => !v && setAddAtIdx(null)}>
-        <SheetContent side="bottom" className="rounded-t-3xl border-border bg-surface-elevated">
+        <SheetContent side="bottom" className="rounded-t-2xl border-border bg-popover">
           <SheetHeader>
             <SheetTitle className="flex items-center gap-2">
               <Plus className="h-4 w-4 text-primary" />
@@ -618,11 +616,11 @@ export default function DayView() {
             <div className="flex gap-2">
               <button
                 onClick={() => setNewKind("task")}
-                className={`flex-1 h-10 rounded-xl border text-sm font-medium pressable ${newKind === "task" ? "bg-primary/10 border-primary/40 text-primary" : "bg-surface border-border text-secondary-fg"}`}
+                className={`flex-1 h-10 rounded-lg border text-[13px] font-medium pressable transition-colors ${newKind === "task" ? "bg-primary/8 border-primary/40 text-primary" : "bg-card border-border text-secondary-fg"}`}
               >Task</button>
               <button
                 onClick={() => { setNewKind("break"); if (!newTitle) setNewTitle("Break"); }}
-                className={`flex-1 h-10 rounded-xl border text-sm font-medium pressable inline-flex items-center justify-center gap-1.5 ${newKind === "break" ? "bg-primary/10 border-primary/40 text-primary" : "bg-surface border-border text-secondary-fg"}`}
+                className={`flex-1 h-10 rounded-lg border text-[13px] font-medium pressable inline-flex items-center justify-center gap-1.5 transition-colors ${newKind === "break" ? "bg-primary/8 border-primary/40 text-primary" : "bg-card border-border text-secondary-fg"}`}
               ><Coffee className="h-3.5 w-3.5" /> Break</button>
             </div>
             <input
@@ -630,21 +628,20 @@ export default function DayView() {
               value={newTitle}
               onChange={e => setNewTitle(e.target.value)}
               placeholder={newKind === "break" ? "Break name (optional)" : "What's the task?"}
-              className="w-full h-11 px-3 rounded-xl bg-surface border border-border text-sm text-foreground"
+              className="w-full h-11 px-3 rounded-lg bg-card border border-border text-[14px] text-foreground placeholder:text-secondary-fg/70 focus:outline-none focus:border-primary/50 focus:ring-2 focus:ring-primary/15"
             />
-            <div className="flex items-center justify-between bg-surface border border-border rounded-xl px-3 py-2">
-              <span className="text-xs text-secondary-fg">Duration</span>
+            <div className="flex items-center justify-between bg-card border border-border rounded-lg px-3 py-2">
+              <span className="text-[11px] text-secondary-fg uppercase tracking-wider font-medium">Duration</span>
               <button
                 onClick={() => setNewDurationOpen(true)}
-                className="h-8 px-3 rounded-md bg-background border border-border pressable text-sm font-semibold tabular-nums hover:border-primary/40"
+                className="h-8 px-3 rounded-md bg-background border border-border pressable text-[13px] font-semibold tabular-nums hover:border-primary/40 transition-colors"
               >
                 {newDuration < 60 ? `${newDuration}m` : `${Math.floor(newDuration/60)}h${newDuration%60 ? ` ${newDuration%60}m` : ""}`}
               </button>
             </div>
             <Button
               onClick={addInlineBlock}
-              className="w-full h-11 rounded-xl text-primary-foreground font-medium pressable shadow-glow"
-              style={{ background: "var(--gradient-primary)" }}
+              className="w-full h-11 rounded-lg bg-primary hover:bg-primary/92 text-primary-foreground font-medium pressable"
             >Add</Button>
           </div>
         </SheetContent>
@@ -804,7 +801,7 @@ const NowLine = ({ label }: { label: string }) => (
   <div className="flex items-center gap-2 my-2 px-3">
     <div className="text-[10px] text-primary font-mono-sf font-medium">{label}</div>
     <div className="flex-1 h-px bg-primary/40" />
-    <div className="h-1.5 w-1.5 rounded-full bg-primary shadow-glow" />
+    <div className="h-1.5 w-1.5 rounded-full bg-primary" />
   </div>
 );
 

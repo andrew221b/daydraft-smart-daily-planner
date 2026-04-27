@@ -125,13 +125,13 @@ export const TodayInsight = () => {
 
   return (
     <div
-      className="mt-5 inline-flex items-center gap-2 px-3 py-1.5 rounded-full bg-primary/10 border border-primary/30 shadow-glow max-w-full"
+      className="flex items-start gap-2.5 px-3.5 py-2.5 rounded-lg bg-card border border-border"
       aria-label="Today's insight"
     >
       {isQuote
-        ? <Quote className="h-3.5 w-3.5 text-primary shrink-0" />
-        : <Sparkles className="h-3.5 w-3.5 text-primary shrink-0" fill="currentColor" />}
-      <span className="text-xs font-medium text-primary truncate">{text}</span>
+        ? <Quote className="h-3.5 w-3.5 text-primary shrink-0 mt-0.5" strokeWidth={2} />
+        : <Sparkles className="h-3.5 w-3.5 text-primary shrink-0 mt-0.5" />}
+      <span className="text-[12.5px] leading-snug text-foreground/85">{text}</span>
     </div>
   );
 };

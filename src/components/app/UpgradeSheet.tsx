@@ -101,8 +101,8 @@ export const UpgradeSheet = ({
           </div>
 
           <Button onClick={checkout} disabled={busy}
-            className="w-full mt-5 h-13 py-3.5 rounded-xl text-primary-foreground text-base font-medium pressable shadow-glow"
-            style={{ background: "var(--gradient-primary)" }}>
+            className="w-full mt-5 h-13 py-3.5 rounded-xl bg-primary hover:bg-primary/92 text-primary-foreground text-[15px] font-medium pressable shadow-card"
+           >
             Start 7-day free trial
           </Button>
           <p className="text-[11px] text-secondary-fg text-center mt-2">No charge today · Cancel anytime</p>
@@ -123,7 +123,7 @@ const PlanCard = ({ active, onClick, title, price, sub, badge }: {
 }) => (
   <button onClick={onClick}
     className={`relative text-left rounded-xl border-2 p-3 pressable transition-all ${
-      active ? "border-primary bg-primary/5 shadow-glow" : "border-border bg-surface"
+      active ? "border-primary bg-primary/5" : "border-border bg-surface"
     }`}>
     {badge && (
       <span className="absolute -top-2 right-2 text-[10px] font-semibold px-1.5 py-0.5 rounded-full bg-primary text-primary-foreground">{badge}</span>

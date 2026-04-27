@@ -47,7 +47,7 @@ export const SpilloverChips = ({ onCarryOver, planDate }: SpilloverProps) => {
   if (dismissed || titles.length === 0) return null;
 
   return (
-    <div className="mb-3 rounded-2xl bg-surface border border-border p-3">
+    <div className="mb-3 rounded-xl bg-surface border border-border p-3">
       <div className="flex items-center justify-between mb-2">
         <div className="text-xs text-secondary-fg">
           <span className="text-foreground font-medium">{titles.length} unfinished</span> from {sourceLabel}

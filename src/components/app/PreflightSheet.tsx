@@ -51,7 +51,7 @@ export const PreflightSheet = ({
             <button
               key={key}
               onClick={() => toggle(key)}
-              className={`w-full flex items-center gap-3 px-4 py-3 rounded-2xl border pressable transition-colors ${
+              className={`w-full flex items-center gap-3 px-4 py-3 rounded-xl border pressable transition-colors ${
                 checks[key]
                   ? "border-primary/40 bg-primary/10"
                   : "border-border bg-surface"
@@ -69,8 +69,8 @@ export const PreflightSheet = ({
         <div className="mt-5 space-y-2 pb-2">
           <Button
             onClick={startWithPref}
-            className="w-full h-12 rounded-xl text-primary-foreground font-medium pressable shadow-glow"
-            style={{ background: "var(--gradient-primary)" }}
+            className="w-full h-12 rounded-xl bg-primary hover:bg-primary/92 text-primary-foreground font-medium pressable shadow-card"
+           
           >
             {allChecked ? "Let's go" : "Start anyway"}
           </Button>
