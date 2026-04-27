@@ -6,7 +6,8 @@ import { Button } from "@/components/ui/button";
 import { useProfile } from "@/hooks/useProfile";
 import { useAuth } from "@/hooks/useAuth";
 import { supabase } from "@/integrations/supabase/client";
-import { greeting, friendlyDate, todayDateStr, dateStr, parseDateStr, isFutureDateStr, friendlyDateFor } from "@/lib/daydraft";
+import { friendlyDate, todayDateStr, dateStr, parseDateStr, isFutureDateStr, friendlyDateFor } from "@/lib/daydraft";
+import { getTone, t as toneCopy, greetingFor } from "@/lib/tone";
 import { Mic, Sparkles, ArrowRight, CalendarDays } from "lucide-react";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
 import { Calendar } from "@/components/ui/calendar";
@@ -269,7 +270,7 @@ export default function Today() {
       <div className="px-6 pt-12">
         <div className="flex items-start justify-between">
           <div>
-            <h1 className="text-[28px] font-semibold leading-tight">{greeting()}{profile?.display_name ? `, ${profile.display_name}` : ""}</h1>
+            <h1 className="text-[28px] font-semibold leading-tight">{greetingFor(getTone(profile as any), profile?.display_name)}</h1>
             <p className="text-secondary-fg text-sm mt-1">{friendlyDate()}</p>
           </div>
           <ProBadge />
@@ -375,10 +376,10 @@ export default function Today() {
           </div>
           <Button data-tour="today-plan" onClick={openClarify} disabled={busy} className="w-full h-13 py-3.5 rounded-xl text-primary-foreground text-base font-medium pressable shadow-glow"
             style={{ background: "var(--gradient-primary)" }}>
-            {planDate === todayDateStr() ? "Plan My Day" : `Plan ${friendlyDateFor(parseDateStr(planDate))}`} <ArrowRight className="h-4 w-4" />
+            {planDate === todayDateStr() ? toneCopy(getTone(profile as any), "plan_cta") : `Plan ${friendlyDateFor(parseDateStr(planDate))}`} <ArrowRight className="h-4 w-4" />
           </Button>
           <p className="text-xs text-secondary-fg text-center mt-2">
-            Next: confirm AI time estimates · pin meetings · then auto-schedule
+            {toneCopy(getTone(profile as any), "plan_hint")}
           </p>
         </div>
       </div>
