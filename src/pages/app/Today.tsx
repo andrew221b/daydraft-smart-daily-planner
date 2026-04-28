@@ -8,7 +8,7 @@ import { useAuth } from "@/hooks/useAuth";
 import { supabase } from "@/integrations/supabase/client";
 import { friendlyDate, todayDateStr, dateStr, parseDateStr, isFutureDateStr, friendlyDateFor } from "@/lib/daydraft";
 import { getTone, t as toneCopy, greetingFor } from "@/lib/tone";
-import { Mic, Sparkles, ArrowRight, CalendarDays } from "lucide-react";
+import { Mic, Sparkles, ArrowRight, CalendarDays, MoreHorizontal, Bookmark } from "lucide-react";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
 import { Calendar } from "@/components/ui/calendar";
 import { cn } from "@/lib/utils";
@@ -18,14 +18,14 @@ import { ProBadge } from "@/components/app/ProBadge";
 import { TodayInsight } from "@/components/app/TodayInsight";
 import { useEntitlement } from "@/hooks/useEntitlement";
 import { UpgradeSheet } from "@/components/app/UpgradeSheet";
-import { Bookmark } from "lucide-react";
 import { ClarifySheet, ClarifiedTask } from "@/components/app/ClarifySheet";
 import { QuickCaptureButton } from "@/components/app/QuickCapture";
 import { useTour, TOUR_TODAY } from "@/components/app/Tour";
 import { haptics } from "@/lib/haptics";
+import { Sheet, SheetContent, SheetHeader, SheetTitle } from "@/components/ui/sheet";
 
 const DEFAULT_PLACEHOLDER =
-  "Write however you want — AI will figure it out.\n\nE.g. finish deck, call mom 15min, gym, reply to Alex...";
+  "Brain-dump your day.\nE.g. finish deck, gym, call mom 15m, ship invoice…";
 
 export default function Today() {
   const { profile } = useProfile();
@@ -44,6 +44,7 @@ export default function Today() {
   // Date the user is planning for. Defaults to today; can be set to any future date.
   const [planDate, setPlanDate] = useState<string>(todayDateStr());
   const [datePopoverOpen, setDatePopoverOpen] = useState(false);
+  const [moreOpen, setMoreOpen] = useState(false);
   // Captures previewed into the textarea — consumed only after a successful plan.
   const [pendingCaptureIds, setPendingCaptureIds] = useState<string[]>([]);
 
@@ -268,7 +269,7 @@ export default function Today() {
   return (
     <Shell>
       <div className="px-5 pt-10">
-        <div className="flex items-end justify-between gap-3">
+        <div className="flex items-start justify-between gap-3">
           <div className="min-w-0">
             <p className="text-[11px] font-medium uppercase tracking-[0.14em] text-secondary-fg">{friendlyDate()}</p>
             <h1 className="text-[22px] font-semibold leading-tight mt-1 truncate">{greetingFor(getTone(profile as any), profile?.display_name)}</h1>
@@ -276,30 +277,60 @@ export default function Today() {
           <ProBadge />
         </div>
 
-        <div className="mt-4">
-          <TodayInsight />
-        </div>
-
-        {showTrialBanner && (
-          <button onClick={() => { setUpgradeReason("trial-banner"); setUpgradeOpen(true); }}
-            className="mt-3 w-full flex items-center justify-between px-4 py-3 rounded-xl border border-primary/30 bg-primary/5 pressable">
-            <div className="text-left">
-              <div className="text-sm font-medium text-foreground">{entitlement!.daysLeftInTrial} days left in trial</div>
-              <div className="text-xs text-secondary-fg">Tap to keep DayDraft Pro</div>
+        {/* Existing plan card — primary surface when one exists */}
+        {hasPlanForDate && (
+          <button
+            onClick={() => nav(planDate === todayDateStr() ? "/today/plan" : `/today/plan?date=${planDate}`)}
+            className="mt-5 w-full text-left rounded-xl bg-card border border-border shadow-card px-4 py-3.5 pressable hover:border-primary/40 transition-colors"
+          >
+            <div className="flex items-center gap-2 text-[10px] uppercase tracking-[0.14em] text-primary font-semibold">
+              <Sparkles className="h-3 w-3" />
+              {planDate === todayDateStr() ? "Today's plan" : `Plan for ${friendlyDateFor(parseDateStr(planDate))}`}
             </div>
-            <span className="text-xs font-semibold text-primary">Upgrade →</span>
+            <div className="text-[14px] text-foreground mt-1 leading-snug">
+              {existingSummary || "Open plan"}
+            </div>
+            <div className="text-[11px] text-primary mt-1.5 inline-flex items-center gap-1">Open <ArrowRight className="h-3 w-3" /></div>
           </button>
         )}
 
-        {!isPro && planQuotaRemaining <= 2 && planQuotaRemaining > 0 && (
+        {!hasPlanForDate && (
+          <div className="mt-5">
+            <TodayInsight />
+          </div>
+        )}
+
+        {showTrialBanner && !hasPlanForDate && (
+          <button onClick={() => { setUpgradeReason("trial-banner"); setUpgradeOpen(true); }}
+            className="mt-3 w-full flex items-center justify-between px-4 py-2.5 rounded-lg border border-primary/30 bg-primary/5 pressable">
+            <span className="text-[12px] text-foreground">{entitlement!.daysLeftInTrial} days left in trial</span>
+            <span className="text-[11px] font-semibold text-primary">Upgrade →</span>
+          </button>
+        )}
+
+        {!isPro && planQuotaRemaining === 0 && (
           <div className="mt-3 text-[11px] text-secondary-fg">
-            {planQuotaRemaining} of {planQuotaUsed + planQuotaRemaining} free plans left this week.
+            Free plans for this week are used.
             <button onClick={() => { setUpgradeReason("feature"); setUpgradeOpen(true); }}
               className="ml-1 text-primary hover:underline">Go unlimited</button>
           </div>
         )}
 
-        <div className="mt-5 relative">
+        {/* Section divider — write-your-day */}
+        <div className="mt-7 flex items-center justify-between">
+          <span className="text-[10px] text-secondary-fg uppercase tracking-[0.14em] font-medium">
+            {hasPlanForDate ? "Re-plan or add more" : "What's on your plate?"}
+          </span>
+          <button
+            onClick={() => setMoreOpen(true)}
+            className="h-7 w-7 -mr-1 rounded-md flex items-center justify-center text-secondary-fg hover:text-foreground hover:bg-muted pressable"
+            aria-label="More options"
+          >
+            <MoreHorizontal className="h-4 w-4" />
+          </button>
+        </div>
+
+        <div className="mt-2 relative">
           <SpilloverChips planDate={planDate} onCarryOver={(titles) => {
             const block = titles.join("\n");
             setInput(prev => prev ? block + "\n" + prev : block);
@@ -308,88 +339,90 @@ export default function Today() {
           <Textarea
             data-tour="today-input"
             value={input} onChange={e => setInput(e.target.value)} placeholder={DEFAULT_PLACEHOLDER}
-            className="min-h-[180px] bg-card border-border rounded-xl p-4 text-[15px] leading-relaxed resize-none placeholder:text-secondary-fg/70 focus-visible:ring-2 focus-visible:ring-primary/15 focus-visible:ring-offset-0 focus-visible:border-primary/50 transition-all shadow-card" />
+            className="min-h-[160px] bg-card border-border rounded-xl p-4 text-[15px] leading-relaxed resize-none placeholder:text-secondary-fg/70 focus-visible:ring-2 focus-visible:ring-primary/15 focus-visible:ring-offset-0 focus-visible:border-primary/50 transition-all shadow-card" />
         </div>
 
-        <div className="flex gap-1.5 mt-3 overflow-x-auto pb-1 no-scrollbar">
-          <QuickCaptureButton variant="chip" className="" />
-          <Chip onClick={voice} icon={Mic} label="Voice" tour="today-voice" />
-          <Chip onClick={useYesterday} icon={Sparkles} label="Yesterday" tour="today-yesterday" />
-          <Chip onClick={saveAsTemplate} icon={Bookmark} label="Save template" tour="today-template" />
-          {templates.map(t => (
-            <button key={t.id} onClick={() => applyTemplate(t)} className="shrink-0 inline-flex items-center gap-1.5 h-7 px-2.5 rounded-md bg-primary/8 border border-primary/25 text-[11px] font-medium text-primary pressable hover:bg-primary/12">
-              {t.name}
-            </button>
-          ))}
-        </div>
-
-        {hasPlanForDate && (
-          <button
-            onClick={() => nav(planDate === todayDateStr() ? "/today/plan" : `/today/plan?date=${planDate}`)}
-            className="mt-4 w-full text-left rounded-lg bg-primary/[0.04] border border-primary/20 px-3.5 py-2.5 pressable hover:border-primary/40 hover:bg-primary/[0.06] transition-colors"
+        {/* Compact secondary row — voice + planning date only */}
+        <div className="flex items-center gap-2 mt-3">
+          <button onClick={voice}
+            className="inline-flex items-center justify-center h-8 w-8 rounded-md bg-card border border-border text-secondary-fg pressable hover:text-foreground"
+            aria-label="Voice input"
           >
-            <div className="text-[10px] uppercase tracking-[0.14em] text-primary font-semibold">
-              {planDate === todayDateStr() ? "Today's plan" : `Plan for ${friendlyDateFor(parseDateStr(planDate))}`}
-            </div>
-            <div className="text-[13px] text-foreground mt-0.5 truncate">
-              {existingSummary || "Open plan →"}
-            </div>
+            <Mic className="h-3.5 w-3.5" />
           </button>
-        )}
+          <Popover open={datePopoverOpen} onOpenChange={setDatePopoverOpen}>
+            <PopoverTrigger asChild>
+              <button
+                className={cn(
+                  "inline-flex items-center gap-1.5 h-8 px-2.5 rounded-md border text-[11.5px] font-medium pressable",
+                  planDate === todayDateStr()
+                    ? "bg-card border-border text-secondary-fg hover:text-foreground"
+                    : "bg-primary/8 border-primary/25 text-primary"
+                )}
+              >
+                <CalendarDays className="h-3.5 w-3.5" />
+                Plan for {friendlyDateFor(parseDateStr(planDate))}
+              </button>
+            </PopoverTrigger>
+            <PopoverContent className="w-auto p-0" align="start">
+              <Calendar
+                mode="single"
+                selected={parseDateStr(planDate)}
+                onSelect={(d) => { if (d) { setPlanDate(dateStr(d)); setDatePopoverOpen(false); } }}
+                disabled={(d) => {
+                  const today = new Date(); today.setHours(0,0,0,0);
+                  return d < today;
+                }}
+                initialFocus
+                className={cn("p-3 pointer-events-auto")}
+              />
+            </PopoverContent>
+          </Popover>
+        </div>
 
-        <div className="mt-7">
-          <div className="flex items-center justify-between mb-2 px-0.5">
-            <span className="text-[10px] text-secondary-fg uppercase tracking-[0.14em] font-medium">Plan for</span>
-            <Popover open={datePopoverOpen} onOpenChange={setDatePopoverOpen}>
-              <PopoverTrigger asChild>
-                <button
-                  className={cn(
-                    "inline-flex items-center gap-1.5 h-7 px-2.5 rounded-md border text-[11px] font-medium pressable",
-                    planDate === todayDateStr()
-                      ? "bg-card border-border text-secondary-fg hover:text-foreground"
-                      : "bg-primary/8 border-primary/25 text-primary"
-                  )}
-                >
-                  <CalendarDays className="h-3.5 w-3.5" />
-                  {friendlyDateFor(parseDateStr(planDate))}
-                </button>
-              </PopoverTrigger>
-              <PopoverContent className="w-auto p-0" align="end">
-                <Calendar
-                  mode="single"
-                  selected={parseDateStr(planDate)}
-                  onSelect={(d) => { if (d) { setPlanDate(dateStr(d)); setDatePopoverOpen(false); } }}
-                  disabled={(d) => {
-                    const today = new Date(); today.setHours(0,0,0,0);
-                    return d < today;
-                  }}
-                  initialFocus
-                  className={cn("p-3 pointer-events-auto")}
-                />
-              </PopoverContent>
-            </Popover>
-          </div>
+        <div className="mt-4">
           <Button data-tour="today-plan" onClick={openClarify} disabled={busy}
             className="w-full h-12 rounded-xl bg-primary hover:bg-primary/92 text-primary-foreground text-[15px] font-medium pressable transition-all shadow-card">
-            {planDate === todayDateStr() ? toneCopy(getTone(profile as any), "plan_cta") : `Plan ${friendlyDateFor(parseDateStr(planDate))}`} <ArrowRight className="h-4 w-4" />
+            {hasPlanForDate ? "Re-plan with these" : (planDate === todayDateStr() ? toneCopy(getTone(profile as any), "plan_cta") : `Plan ${friendlyDateFor(parseDateStr(planDate))}`)} <ArrowRight className="h-4 w-4" />
           </Button>
-          <p className="text-[11px] text-secondary-fg text-center mt-2">
-            {toneCopy(getTone(profile as any), "plan_hint")}
-          </p>
         </div>
       </div>
+
+      {/* "More" sheet — secondary actions live here */}
+      <Sheet open={moreOpen} onOpenChange={setMoreOpen}>
+        <SheetContent side="bottom" className="rounded-t-2xl border-border bg-popover">
+          <SheetHeader className="text-left mb-3">
+            <SheetTitle className="text-[16px]">Quick actions</SheetTitle>
+          </SheetHeader>
+          <div className="space-y-1">
+            <MoreRow onClick={() => { setMoreOpen(false); useYesterday(); }} icon={<Sparkles className="h-4 w-4" />} label="Use yesterday's tasks" />
+            <MoreRow onClick={() => { setMoreOpen(false); saveAsTemplate(); }} icon={<Bookmark className="h-4 w-4" />} label="Save as template" />
+            {templates.length > 0 && (
+              <div className="pt-2 mt-2 border-t border-border">
+                <div className="px-3 py-1.5 text-[10px] uppercase tracking-wider text-secondary-fg">Templates</div>
+                {templates.map(t => (
+                  <MoreRow key={t.id} onClick={() => { setMoreOpen(false); applyTemplate(t); }} icon={<Bookmark className="h-4 w-4" />} label={t.name} />
+                ))}
+              </div>
+            )}
+            <div className="pt-1">
+              <QuickCaptureButton variant="chip" className="w-full justify-center" />
+            </div>
+          </div>
+        </SheetContent>
+      </Sheet>
+
       <UpgradeSheet open={upgradeOpen} onOpenChange={setUpgradeOpen} reason={upgradeReason} />
       <ClarifySheet open={clarifyOpen} onOpenChange={setClarifyOpen} rawInput={input} onConfirm={plan} planDate={planDate} />
     </Shell>
   );
 }
 
-function Chip({ onClick, icon: Icon, label, tour }: { onClick: () => void; icon: any; label: string; tour?: string }) {
-  return (
-    <button data-tour={tour} onClick={onClick}
-      className="shrink-0 inline-flex items-center gap-1.5 h-7 px-2.5 rounded-md bg-card border border-border text-[11px] font-medium text-secondary-fg pressable hover:text-foreground hover:border-foreground/20 transition-colors">
-      <Icon className="h-3.5 w-3.5" />
-      {label}
-    </button>
-  );
-}
+const MoreRow = ({ onClick, icon, label }: { onClick: () => void; icon: React.ReactNode; label: string }) => (
+  <button onClick={onClick}
+    className="w-full flex items-center gap-3 px-3 py-3 rounded-lg pressable hover:bg-muted/40 text-[14px] text-foreground"
+  >
+    <span className="text-secondary-fg">{icon}</span>
+    <span className="flex-1 text-left">{label}</span>
+  </button>
+);
