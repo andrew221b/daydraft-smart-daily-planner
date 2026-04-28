@@ -7,7 +7,7 @@ import { Button } from "@/components/ui/button";
 import { useEffect, useState } from "react";
 import { peakWindow } from "@/lib/daydraft";
 import { ThemeToggle } from "@/components/app/ThemeToggle";
-import { Fingerprint, Sparkles, Bell, Calendar, FileText, Shield, Trash2, HelpCircle, MessageCircle, Clock } from "lucide-react";
+import { Fingerprint, Sparkles, Bell, Calendar, FileText, Shield, Trash2, HelpCircle, MessageCircle, Clock, ChevronDown } from "lucide-react";
 import { Textarea } from "@/components/ui/textarea";
 import { Link } from "react-router-dom";
 import { clearStoredPasskey, enrollPasskey, getStoredPasskey, passkeySupported } from "@/lib/passkeys";
@@ -44,6 +44,7 @@ export default function Settings() {
   const { entitlement, isPro, planQuotaUsed, planQuotaLimit } = useEntitlement();
   const [upgradeOpen, setUpgradeOpen] = useState(false);
   const [calConnecting, setCalConnecting] = useState(false);
+  const [advancedOpen, setAdvancedOpen] = useState(false);
   useEffect(() => { if (profile) setName(profile.display_name || ""); }, [profile?.id]);
 
   const togglePasskey = async () => {
@@ -110,184 +111,178 @@ export default function Settings() {
       <div className="px-5 pt-10">
         <h1 className="text-[22px] font-semibold tracking-tight">Settings</h1>
 
-        <div className="mt-8 space-y-6">
-          <Section title="DayDraft Pro">
-            <ProCard
-              entitlement={entitlement} isPro={isPro}
-              planQuotaUsed={planQuotaUsed} planQuotaLimit={planQuotaLimit}
-              onUpgrade={() => setUpgradeOpen(true)}
-            />
-          </Section>
+        <div className="mt-7 space-y-7">
+          {/* 1. Plan card — most important context */}
+          <ProCard
+            entitlement={entitlement} isPro={isPro}
+            planQuotaUsed={planQuotaUsed} planQuotaLimit={planQuotaLimit}
+            onUpgrade={() => setUpgradeOpen(true)}
+          />
 
-          <Section title="Name">
-            <Input value={name} onChange={e => setName(e.target.value)} onBlur={() => update({ display_name: name })}
-              className="h-12 bg-surface border-border rounded-xl" />
-          </Section>
-
-          <Section title="Appearance">
-            <ThemeToggle />
-          </Section>
-
-          <Section title="Energy preference">
-            <div className="space-y-2">
-              {energies.map(e => {
-                const active = profile?.energy_preference === e.key;
-                return (
-                  <button key={e.key} onClick={() => update({ energy_preference: e.key })}
-                    className={`w-full flex items-center justify-between px-4 py-3 rounded-xl border-2 pressable transition-all ${active ? "border-primary bg-surface-elevated" : "border-border bg-surface"}`}>
-                    <span className="text-sm">{e.label}</span>
-                    <span className="text-xs text-secondary-fg">{peakWindow(e.key)}</span>
-                  </button>
-                );
-              })}
-            </div>
-          </Section>
-
-          <Section title="Active hours">
-            <div className="rounded-xl bg-surface border border-border p-4 space-y-3">
-              <div className="flex items-center gap-2 text-xs text-secondary-fg">
-                <Clock className="h-4 w-4 text-primary" />
-                <span>The AI will only schedule tasks inside this window.</span>
+          {/* 2. Profile — name + appearance grouped */}
+          <Section title="You">
+            <div className="rounded-xl border border-border bg-surface divide-y divide-border overflow-hidden">
+              <div className="px-3 py-2.5">
+                <div className="text-[11px] text-secondary-fg mb-1">Name</div>
+                <Input value={name} onChange={e => setName(e.target.value)} onBlur={() => update({ display_name: name })}
+                  className="h-9 bg-transparent border-0 px-0 focus-visible:ring-0 text-[14px]" />
               </div>
-              <div className="flex items-center gap-3">
-                <label className="flex-1">
-                  <div className="text-[11px] text-secondary-fg mb-1">From</div>
-                  <input
-                    type="time"
-                    value={profile?.active_hours_start || "09:00"}
-                    onChange={(e) => update({ active_hours_start: e.target.value } as any)}
-                    className="w-full h-10 px-3 rounded-lg bg-background border border-border text-sm tabular-nums"
-                  />
-                </label>
-                <label className="flex-1">
-                  <div className="text-[11px] text-secondary-fg mb-1">To</div>
-                  <input
-                    type="time"
-                    value={profile?.active_hours_end || "22:00"}
-                    onChange={(e) => update({ active_hours_end: e.target.value } as any)}
-                    className="w-full h-10 px-3 rounded-lg bg-background border border-border text-sm tabular-nums"
-                  />
-                </label>
+              <div className="px-3 py-3">
+                <div className="text-[11px] text-secondary-fg mb-2">Appearance</div>
+                <ThemeToggle />
               </div>
             </div>
           </Section>
 
-          <Section title="How the AI talks to you">
-            <div className="space-y-2">
+          {/* 3. AI tone — single most-used preference */}
+          <Section title="AI tone">
+            <div className="rounded-xl border border-border bg-surface divide-y divide-border overflow-hidden">
               {TONES.map(t => {
                 const active = (profile?.ai_tone || "motivational") === t.key;
                 return (
                   <button
                     key={t.key}
                     onClick={() => update({ ai_tone: t.key } as any)}
-                    className={`w-full flex items-center justify-between px-4 py-3 rounded-xl border-2 pressable transition-all ${active ? "border-primary bg-surface-elevated" : "border-border bg-surface"}`}
+                    className={`w-full flex items-center justify-between px-4 py-3 pressable transition-colors ${active ? "bg-primary/[0.06]" : "hover:bg-surface-elevated"}`}
                   >
                     <div className="text-left">
-                      <div className="text-sm flex items-center gap-1.5">
-                        <MessageCircle className="h-3.5 w-3.5 text-primary" /> {t.label}
-                      </div>
-                      <div className="text-xs text-secondary-fg mt-0.5">{t.sub}</div>
+                      <div className="text-[14px] text-foreground">{t.label}</div>
+                      <div className="text-[11px] text-secondary-fg mt-0.5">{t.sub}</div>
                     </div>
+                    {active && <span className="h-2 w-2 rounded-full bg-primary" />}
                   </button>
                 );
               })}
-              {profile?.ai_tone === "custom" && (
-                <Textarea
-                  value={profile?.ai_tone_custom || ""}
-                  onChange={(e) => update({ ai_tone_custom: e.target.value } as any)}
-                  placeholder="e.g. talk to me like a calm Stoic mentor; no emojis; concise"
-                  className="mt-2 min-h-[80px] bg-surface border-border rounded-xl"
-                />
-              )}
             </div>
+            {profile?.ai_tone === "custom" && (
+              <Textarea
+                value={profile?.ai_tone_custom || ""}
+                onChange={(e) => update({ ai_tone_custom: e.target.value } as any)}
+                placeholder="e.g. talk to me like a calm Stoic mentor; no emojis; concise"
+                className="mt-2 min-h-[70px] bg-surface border-border rounded-xl text-[13px]"
+              />
+            )}
           </Section>
 
-          <Section title="Sign-in shortcut">
-            <button onClick={togglePasskey}
-              className="w-full flex items-center justify-between px-4 py-3 rounded-xl border-2 border-border bg-surface pressable hover:border-primary/30">
-              <div className="flex items-center gap-3">
-                <Fingerprint className="h-5 w-5 text-primary" />
-                <div className="text-left">
-                  <div className="text-sm">Face ID / fingerprint</div>
-                  <div className="text-xs text-secondary-fg">{hasPasskey ? "Enabled on this device" : "Skip the password next time"}</div>
-                </div>
-              </div>
-              <span className={`text-xs font-medium ${hasPasskey ? "text-success" : "text-secondary-fg"}`}>
-                {hasPasskey ? "On" : "Off"}
-              </span>
-            </button>
-          </Section>
-
-          <Section title="Notifications">
-            <div className="flex items-center justify-between rounded-xl bg-surface border border-border px-4 py-3">
-              <div className="flex items-center gap-3">
-                <Bell className="h-5 w-5 text-primary" />
-                <div>
-                  <div className="text-sm">Morning + evening nudges</div>
-                  <div className="text-xs text-secondary-fg">7am draft · 9pm wins · Sunday recap</div>
-                </div>
-              </div>
-              <Switch checked={!!profile?.notifications_enabled} onCheckedChange={togglePush} />
-            </div>
-          </Section>
-
-          <Section title="Calendar">
-            <button onClick={connectCalendar}
-              className="w-full flex items-center justify-between px-4 py-3 rounded-xl border-2 border-border bg-surface pressable hover:border-primary/30">
-              <div className="flex items-center gap-3">
-                <Calendar className="h-5 w-5 text-primary" />
-                <div className="text-left">
-                  <div className="text-sm">Connect Google Calendar</div>
-                  <div className="text-xs text-secondary-fg">{isPro ? "Plan around your meetings" : "Pro · plan around your meetings"}</div>
-                </div>
-              </div>
-              <span className="text-xs font-medium text-primary">{isPro ? "Connect" : "Pro"}</span>
-            </button>
-          </Section>
-
-          <Button onClick={signOut} variant="outline" className="w-full h-12 rounded-xl border-border bg-surface hover:bg-surface-elevated pressable">
-            Sign out
-          </Button>
-
-          <Section title="Help">
-            <button
-              onClick={async () => {
-                await tour.resetAll();
-                nav("/today");
-                setTimeout(() => tour.start(TOUR_TODAY, { force: true }), 400);
-              }}
-              className="w-full flex items-center gap-3 px-4 py-3 rounded-xl border border-border bg-surface pressable hover:border-primary/30"
-            >
-              <HelpCircle className="h-5 w-5 text-primary" />
-              <div className="text-left flex-1">
-                <div className="text-sm">Replay tutorial</div>
-                <div className="text-xs text-secondary-fg">See the in-app walkthrough again</div>
-              </div>
-              <span className="text-secondary-fg">›</span>
-            </button>
-          </Section>
-
-          <Section title="Legal & privacy">
+          {/* 4. Notifications + Calendar — connected channels */}
+          <Section title="Connections">
             <div className="rounded-xl border border-border bg-surface divide-y divide-border overflow-hidden">
+              <div className="flex items-center justify-between px-4 py-3">
+                <div className="flex items-center gap-3">
+                  <Bell className="h-4 w-4 text-secondary-fg" />
+                  <div className="text-[14px]">Daily nudges</div>
+                </div>
+                <Switch checked={!!profile?.notifications_enabled} onCheckedChange={togglePush} />
+              </div>
+              <button onClick={connectCalendar}
+                className="w-full flex items-center justify-between px-4 py-3 pressable hover:bg-surface-elevated">
+                <div className="flex items-center gap-3">
+                  <Calendar className="h-4 w-4 text-secondary-fg" />
+                  <div className="text-[14px] text-left">Google Calendar</div>
+                </div>
+                <span className="text-[12px] font-medium text-primary">{isPro ? "Connect" : "Pro"}</span>
+              </button>
+              <button onClick={togglePasskey}
+                className="w-full flex items-center justify-between px-4 py-3 pressable hover:bg-surface-elevated">
+                <div className="flex items-center gap-3">
+                  <Fingerprint className="h-4 w-4 text-secondary-fg" />
+                  <div className="text-[14px] text-left">Face ID / fingerprint</div>
+                </div>
+                <span className={`text-[12px] font-medium ${hasPasskey ? "text-success" : "text-secondary-fg"}`}>
+                  {hasPasskey ? "On" : "Off"}
+                </span>
+              </button>
+            </div>
+          </Section>
+
+          {/* 5. Advanced — collapsed by default */}
+          <Section title="Advanced">
+            <button
+              onClick={() => setAdvancedOpen(o => !o)}
+              className="w-full flex items-center justify-between px-4 py-3 rounded-xl border border-border bg-surface pressable hover:bg-surface-elevated"
+            >
+              <span className="text-[14px]">Active hours & energy</span>
+              <ChevronDown className={`h-4 w-4 text-secondary-fg transition-transform ${advancedOpen ? "rotate-180" : ""}`} />
+            </button>
+            {advancedOpen && (
+              <div className="mt-2 space-y-2">
+                <div className="rounded-xl bg-surface border border-border p-3 space-y-2.5">
+                  <div className="text-[11px] text-secondary-fg">Active hours — when AI may schedule tasks.</div>
+                  <div className="flex items-center gap-3">
+                    <label className="flex-1">
+                      <div className="text-[10px] text-secondary-fg mb-1">From</div>
+                      <input
+                        type="time"
+                        value={profile?.active_hours_start || "09:00"}
+                        onChange={(e) => update({ active_hours_start: e.target.value } as any)}
+                        className="w-full h-9 px-3 rounded-lg bg-background border border-border text-[13px] tabular-nums"
+                      />
+                    </label>
+                    <label className="flex-1">
+                      <div className="text-[10px] text-secondary-fg mb-1">To</div>
+                      <input
+                        type="time"
+                        value={profile?.active_hours_end || "22:00"}
+                        onChange={(e) => update({ active_hours_end: e.target.value } as any)}
+                        className="w-full h-9 px-3 rounded-lg bg-background border border-border text-[13px] tabular-nums"
+                      />
+                    </label>
+                  </div>
+                </div>
+                <div className="rounded-xl border border-border bg-surface divide-y divide-border overflow-hidden">
+                  {energies.map(e => {
+                    const active = profile?.energy_preference === e.key;
+                    return (
+                      <button key={e.key} onClick={() => update({ energy_preference: e.key })}
+                        className={`w-full flex items-center justify-between px-4 py-3 pressable transition-colors ${active ? "bg-primary/[0.06]" : "hover:bg-surface-elevated"}`}>
+                        <span className="text-[13px]">{e.label}</span>
+                        <span className="text-[11px] text-secondary-fg tabular-nums">{peakWindow(e.key)}</span>
+                      </button>
+                    );
+                  })}
+                </div>
+              </div>
+            )}
+          </Section>
+
+          {/* 6. Help + legal — quiet, terminal items */}
+          <Section title="More">
+            <div className="rounded-xl border border-border bg-surface divide-y divide-border overflow-hidden">
+              <button
+                onClick={async () => {
+                  await tour.resetAll();
+                  nav("/today");
+                  setTimeout(() => tour.start(TOUR_TODAY, { force: true }), 400);
+                }}
+                className="w-full flex items-center gap-3 px-4 py-3 pressable hover:bg-surface-elevated"
+              >
+                <HelpCircle className="h-4 w-4 text-secondary-fg" />
+                <span className="text-[14px] flex-1 text-left">Replay tutorial</span>
+                <span className="text-secondary-fg">›</span>
+              </button>
               <Link to="/privacy" className="flex items-center gap-3 px-4 py-3 pressable hover:bg-surface-elevated">
                 <Shield className="h-4 w-4 text-secondary-fg" />
-                <span className="text-sm flex-1">Privacy Policy</span>
+                <span className="text-[14px] flex-1">Privacy</span>
                 <span className="text-secondary-fg">›</span>
               </Link>
               <Link to="/terms" className="flex items-center gap-3 px-4 py-3 pressable hover:bg-surface-elevated">
                 <FileText className="h-4 w-4 text-secondary-fg" />
-                <span className="text-sm flex-1">Terms of Service</span>
+                <span className="text-[14px] flex-1">Terms</span>
                 <span className="text-secondary-fg">›</span>
               </Link>
               <Link to="/settings/delete-account" className="flex items-center gap-3 px-4 py-3 pressable hover:bg-surface-elevated text-destructive">
                 <Trash2 className="h-4 w-4" />
-                <span className="text-sm flex-1">Delete account</span>
+                <span className="text-[14px] flex-1">Delete account</span>
                 <span>›</span>
               </Link>
             </div>
           </Section>
 
-          <p className="text-center text-[11px] text-secondary-fg pt-2">DayDraft · v1.0</p>
+          <Button onClick={signOut} variant="outline" className="w-full h-11 rounded-xl border-border bg-surface hover:bg-surface-elevated pressable text-[13px]">
+            Sign out
+          </Button>
+
+          <p className="text-center text-[11px] text-secondary-fg pt-1">DayDraft · v1.0</p>
         </div>
       </div>
       <UpgradeSheet open={upgradeOpen} onOpenChange={setUpgradeOpen} reason="feature" />
@@ -297,7 +292,7 @@ export default function Settings() {
 
 const Section = ({ title, children }: { title: string; children: React.ReactNode }) => (
   <div>
-    <div className="text-[11px] uppercase tracking-wider text-secondary-fg mb-2">{title}</div>
+    <div className="text-[10px] uppercase tracking-[0.14em] text-secondary-fg mb-2 font-medium">{title}</div>
     {children}
   </div>
 );
@@ -314,29 +309,24 @@ const ProCard = ({ entitlement, isPro, planQuotaUsed, planQuotaLimit, onUpgrade 
     : tier === "trial" ? `Trial · ${entitlement?.daysLeftInTrial}d left`
     : "Free";
   return (
-    <div className="rounded-xl border-2 border-primary/30 bg-primary/5 p-4">
-      <div className="flex items-start justify-between">
-        <div>
-          <div className="flex items-center gap-1.5">
-            <Sparkles className="h-4 w-4 text-primary" />
-            <span className="text-[11px] font-semibold text-primary uppercase tracking-wider">{badge}</span>
-          </div>
-          <div className="text-sm mt-2">
-            {isPro
-              ? "Unlimited plans, calendar sync, and everything else."
-              : `${planQuotaUsed} of ${planQuotaLimit} free plans used this week.`}
-          </div>
-        </div>
+    <div className="rounded-xl border border-primary/25 bg-primary/[0.04] p-4">
+      <div className="flex items-center gap-1.5">
+        <Sparkles className="h-3.5 w-3.5 text-primary" />
+        <span className="text-[10px] font-semibold text-primary uppercase tracking-[0.14em]">{badge}</span>
+      </div>
+      <div className="text-[13px] mt-1.5 text-foreground">
+        {isPro
+          ? "Unlimited plans, calendar sync, and everything."
+          : `${planQuotaUsed} of ${planQuotaLimit} free plans used this week.`}
       </div>
       {!isPro && (
-        <Button onClick={onUpgrade} className="w-full mt-4 h-11 rounded-xl bg-primary hover:bg-primary/92 text-primary-foreground font-medium pressable shadow-card"
-         >
+        <Button onClick={onUpgrade} className="w-full mt-3 h-10 rounded-lg bg-primary hover:bg-primary/92 text-primary-foreground text-[13px] font-medium pressable">
           Start free trial
         </Button>
       )}
       {isPro && (
         <button onClick={() => toast("Subscription management coming soon")}
-          className="w-full mt-4 h-11 rounded-xl text-sm text-secondary-fg border border-border bg-surface pressable hover:text-foreground">
+          className="w-full mt-3 h-9 rounded-lg text-[12px] text-secondary-fg border border-border bg-surface pressable hover:text-foreground">
           Manage subscription
         </button>
       )}
