@@ -19,7 +19,7 @@ export const TabBar = () => {
     >
       <div className="flex items-stretch justify-between px-2 pt-1.5 pb-1.5">
         {tabs.map((it) => (
-          <TabItem key={it.to} {...it} pulse={it.to === "/today" && active} />
+          <TabItem key={it.to} {...it} pulse={it.to === "/today" && !!active} />
         ))}
       </div>
     </nav>
