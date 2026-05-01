@@ -107,17 +107,17 @@ export default function Stats() {
 
   return (
     <Shell>
-      <div className="px-5 pt-10">
+      <div className="px-6 pt-12">
         <div className="flex items-end justify-between">
           <div>
-            <p className="text-[11px] font-medium uppercase tracking-[0.14em] text-secondary-fg">Last 7 days</p>
-            <h1 className="text-[22px] font-semibold mt-1 tracking-tight">Stats</h1>
+            <p className="eyebrow">Last 7 days</p>
+            <h1 className="font-display text-[28px] font-semibold mt-1.5 tracking-tight">Stats</h1>
           </div>
           <a href="/recap/week" className="text-[12px] text-primary hover:underline font-medium">Week recap →</a>
         </div>
 
-        <div className="mt-6 rounded-xl bg-card border border-border shadow-card p-4">
-          <div className="text-[10px] text-secondary-fg uppercase tracking-[0.14em] font-medium mb-3">Focus minutes</div>
+        <div className="mt-7 rounded-2xl bg-surface border border-border p-5">
+          <div className="eyebrow mb-4">Focus minutes</div>
           <div className="flex items-end gap-2 h-32">
             {days.length === 0 ? <div className="text-secondary-fg text-sm">No data yet.</div> :
               days.map(d => {
@@ -126,7 +126,7 @@ export default function Stats() {
                 const localDate = new Date(y, (mo || 1) - 1, da || 1);
                 return (
                   <div key={d.date} className="flex-1 flex flex-col items-center gap-2">
-                    <div className="w-full bg-primary rounded-sm" style={{ height: `${(d.focusMin / maxFocus) * 100}%`, minHeight: 2 }} />
+                    <div className="w-full bg-primary rounded-md" style={{ height: `${(d.focusMin / maxFocus) * 100}%`, minHeight: 2 }} />
                     <div className="text-[10px] text-secondary-fg font-medium">{localDate.toLocaleDateString(undefined, { weekday: "short" })[0]}</div>
                   </div>
                 );
@@ -134,8 +134,8 @@ export default function Stats() {
           </div>
         </div>
 
-        <div className="mt-3 rounded-xl bg-card border border-border shadow-card p-4">
-          <div className="text-[10px] text-secondary-fg uppercase tracking-[0.14em] font-medium mb-3">Type breakdown</div>
+        <div className="mt-3 rounded-2xl bg-surface border border-border p-5">
+          <div className="eyebrow mb-4">Type breakdown</div>
           <div className="h-2 rounded-full overflow-hidden bg-muted flex">
             <div style={{ width: `${(breakdown.deep_work/totalBreak)*100}%`, background: "hsl(var(--type-deep))" }} />
             <div style={{ width: `${(breakdown.communication/totalBreak)*100}%`, background: "hsl(var(--type-comm))" }} />
@@ -148,11 +148,11 @@ export default function Stats() {
           </div>
         </div>
 
-        <div className="mt-3 rounded-xl bg-card border border-border shadow-card p-4">
+        <div className="mt-3 rounded-2xl bg-surface border border-border p-5">
           <div className="flex items-end justify-between mb-3">
-            <div className="text-[10px] text-secondary-fg uppercase tracking-[0.14em] font-medium">Tracked hours</div>
+            <div className="eyebrow">Tracked hours</div>
             <div className="text-right">
-              <div className="text-[17px] font-semibold tabular-nums">{fmtHM(todayTotalSec)}</div>
+              <div className="font-display text-[20px] font-semibold tabular-nums">{fmtHM(todayTotalSec)}</div>
               <div className="text-[10px] text-secondary-fg leading-none">today</div>
             </div>
           </div>
@@ -165,7 +165,7 @@ export default function Stats() {
                 const localDate = new Date(y, (mo || 1) - 1, da || 1);
                 return (
                   <div key={d.date} className="flex-1 flex flex-col items-center gap-2">
-                    <div className="w-full rounded-sm" style={{ height: `${(d.sec / maxTracked) * 100}%`, minHeight: 2, background: "hsl(var(--primary))" }} />
+                    <div className="w-full rounded-md" style={{ height: `${(d.sec / maxTracked) * 100}%`, minHeight: 2, background: "hsl(var(--primary))" }} />
                     <div className="text-[10px] text-secondary-fg font-medium">{localDate.toLocaleDateString(undefined, { weekday: "short" })[0]}</div>
                   </div>
                 );
@@ -179,7 +179,7 @@ export default function Stats() {
 
           {byCategory.length > 0 && (
             <div className="mt-4 pt-3 border-t border-border space-y-2">
-              <div className="text-[10px] uppercase tracking-[0.14em] text-secondary-fg font-medium">By category</div>
+              <div className="eyebrow">By category</div>
               {byCategory.map(c => (
                 <div key={c.id} className="space-y-1">
                   <div className="flex items-center justify-between text-[12px]">
