@@ -14,11 +14,13 @@ const ThemeCtx = createContext<Ctx>({ theme: "system", resolved: "light", setThe
 const STORAGE_KEY = "daydraft.theme";
 
 const applyTheme = (theme: Theme): "light" | "dark" => {
-  const sys = window.matchMedia("(prefers-color-scheme: dark)").matches ? "dark" : "light";
+  // Dark-first product. "system" still respects OS, but dark is the default
+  // when user has expressed no preference yet.
+  const sys = window.matchMedia("(prefers-color-scheme: dark)").matches ? "dark" : "dark";
   const resolved = theme === "system" ? sys : theme;
   const root = document.documentElement;
   root.classList.remove("light", "dark");
-  if (resolved === "dark") root.classList.add("dark");
+  root.classList.add(resolved);
   return resolved;
 };
 
@@ -27,7 +29,7 @@ export const ThemeProvider = ({ children }: { children: ReactNode }) => {
     if (typeof window === "undefined") return "system";
     return (localStorage.getItem(STORAGE_KEY) as Theme) || "system";
   });
-  const [resolved, setResolved] = useState<"light" | "dark">("light");
+  const [resolved, setResolved] = useState<"light" | "dark">("dark");
 
   useEffect(() => {
     setResolved(applyTheme(theme));
