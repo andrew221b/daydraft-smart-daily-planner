@@ -28,23 +28,25 @@ export const SortableBlock = ({
       {...(isCal ? {} : attributes)}
       {...(isCal ? {} : listeners)}
       onClick={() => onTap?.(block)}
-      className={`group flex items-center gap-3 py-2.5 px-3 rounded-lg cursor-pointer pressable ${block.completed ? "opacity-50" : ""} ${isCal ? "bg-muted/40" : "hover:bg-muted/40"}`}
+      className={`group flex items-center gap-3 py-3 px-3 rounded-xl cursor-pointer pressable transition-colors ${
+        block.completed ? "opacity-55" : ""
+      } ${isCal ? "bg-surface/40" : "hover:bg-surface"}`}
     >
-      <div className="w-11 text-right text-secondary-fg text-[12px] font-mono-sf tabular-nums shrink-0">{fmtTime(block.start_time)}</div>
-      <div className="w-1 h-6 rounded-full shrink-0" style={{ background: isCal ? "hsl(var(--border))" : typeColor(block.type) }} />
+      <div className="w-12 text-right text-secondary-fg text-[12px] font-mono-sf tabular-nums shrink-0">{fmtTime(block.start_time)}</div>
+      <div className="w-[3px] h-7 rounded-full shrink-0" style={{ background: isCal ? "hsl(var(--border))" : typeColor(block.type) }} />
       <div className="flex-1 min-w-0">
-        <div className={`text-[14px] leading-tight flex items-center gap-1.5 min-w-0 ${block.completed ? "line-through text-secondary-fg" : "text-foreground"}`}>
+        <div className={`text-[14.5px] leading-tight flex items-center gap-1.5 min-w-0 ${block.completed ? "line-through text-secondary-fg" : "text-foreground"}`}>
           {isCal && <Calendar className="h-3 w-3 text-secondary-fg shrink-0" />}
           <span className="truncate">{block.title}</span>
         </div>
-        <div className="text-[11px] text-secondary-fg mt-0.5 tabular-nums">{dur}</div>
+        <div className="text-[11px] text-secondary-fg mt-1 tabular-nums">{dur}</div>
       </div>
       {block.completed ? (
         <div data-tour="dayview-complete" className="h-5 w-5 rounded-full bg-success flex items-center justify-center shrink-0">
           <Check className="h-3 w-3 text-success-foreground" strokeWidth={3} />
         </div>
       ) : (
-        <div data-tour="dayview-complete" className="h-5 w-5 rounded-full border border-border shrink-0" />
+        <div data-tour="dayview-complete" className="h-5 w-5 rounded-full border-[1.5px] border-border shrink-0" />
       )}
     </div>
   );
