@@ -64,8 +64,9 @@ export default function Onboarding() {
 
   return (
     <div className="min-h-screen w-full bg-background flex justify-center">
-      <div className="relative w-full max-w-[420px] min-h-screen flex flex-col">
-        <div className="relative z-10 flex-1 flex flex-col px-6 pt-14 pb-10 page-enter" key={step}>
+      <div className="relative w-full max-w-[440px] min-h-screen flex flex-col">
+        <div className="pointer-events-none absolute inset-x-0 top-0 h-[320px]" style={{ background: "var(--gradient-glow)" }} />
+        <div className="relative z-10 flex-1 flex flex-col px-7 pt-16 pb-10 page-enter" key={step}>
           <div className="flex gap-1.5 mb-10">
             {[0,1].map(i => (
               <div key={i} className={`h-[3px] flex-1 rounded-full transition-colors ${i <= step ? "bg-primary" : "bg-border"}`} />
@@ -75,9 +76,9 @@ export default function Onboarding() {
           {step === 0 && (
             <div className="flex-1 flex flex-col">
               <div className="flex-1 flex flex-col justify-center">
-                <p className="text-[11px] font-medium uppercase tracking-[0.18em] text-secondary-fg">DayDraft</p>
-                <h1 className="text-[44px] font-semibold leading-[1.05] tracking-tight mt-3">Your day,<br/>designed.</h1>
-                <p className="text-secondary-fg mt-4 text-[15px] leading-relaxed max-w-sm">For busy pros. Drop your tasks. Get a focused, intelligent schedule in seconds.</p>
+                <p className="eyebrow">DayDraft</p>
+                <h1 className="font-display text-[48px] font-semibold leading-[1.0] tracking-tight mt-4">Your day,<br/>designed.</h1>
+                <p className="text-secondary-fg mt-5 text-[15.5px] leading-relaxed max-w-sm">For busy pros. Drop your tasks. Get a focused, intelligent schedule in seconds.</p>
               </div>
               <Button onClick={() => setStep(1)} className="w-full h-12 rounded-xl bg-primary text-primary-foreground hover:bg-primary/92 pressable text-[15px] font-medium shadow-card">
                 Get started
@@ -87,8 +88,8 @@ export default function Onboarding() {
 
           {step === 1 && (
             <div className="flex-1 flex flex-col">
-              <p className="text-[11px] font-medium uppercase tracking-[0.14em] text-secondary-fg">Step 2 of 2</p>
-              <h1 className="text-[26px] font-semibold leading-tight mt-1.5 tracking-tight">How should we talk to you?</h1>
+              <p className="eyebrow">Step 2 of 2</p>
+              <h1 className="font-display text-[28px] font-semibold leading-tight mt-1.5 tracking-tight">How should we talk to you?</h1>
               <p className="text-secondary-fg mt-1.5 text-[13.5px]">Sets the tone for nudges, plans and recaps. Change anytime in Settings.</p>
               <div className="space-y-1.5 mt-5 flex-1 overflow-y-auto">
                 {TONE_OPTIONS.map(e => {
