@@ -91,21 +91,21 @@ export default function History() {
 
   return (
     <Shell>
-      <div className="px-5 pt-10">
-        <p className="text-[11px] font-medium uppercase tracking-[0.14em] text-secondary-fg">Reflection</p>
-        <h1 className="text-[22px] font-semibold tracking-tight mt-1">History</h1>
+      <div className="px-6 pt-12">
+        <p className="eyebrow">Reflection</p>
+        <h1 className="font-display text-[28px] font-semibold tracking-tight mt-1.5">History</h1>
         {loading && (
-          <div className="mt-6 space-y-2">
+          <div className="mt-7 space-y-2">
             {[0, 1, 2].map(i => (
-              <div key={i} className="h-[78px] rounded-xl bg-card border border-border shadow-card animate-pulse" />
+              <div key={i} className="h-[88px] rounded-2xl bg-surface border border-border animate-pulse" />
             ))}
           </div>
         )}
         {!loading && (
-          <div className="mt-6 space-y-6">
+          <div className="mt-7 space-y-7">
             {Object.entries(groups).map(([w, items]) => (
               <div key={w}>
-                <div className="text-[10px] text-secondary-fg uppercase tracking-[0.14em] mb-2 font-medium">{w}</div>
+                <div className="eyebrow mb-2.5">{w}</div>
                 <div className="space-y-1.5">
                   {items.map(p => {
                     const isToday = p.date === todayKey;
@@ -119,7 +119,7 @@ export default function History() {
                       <button
                         key={p.id}
                         onClick={() => nav(goTo)}
-                        className="w-full text-left rounded-xl bg-card border border-border p-3.5 shadow-card pressable hover:border-foreground/20 transition-colors"
+                        className="w-full text-left rounded-2xl bg-surface border border-border p-4 pressable hover:border-primary/30 transition-colors"
                       >
                         <div className="flex items-center gap-2">
                           {allDone ? (
@@ -127,15 +127,15 @@ export default function History() {
                           ) : (
                             <Circle className="h-3.5 w-3.5 text-secondary-fg/60 shrink-0" />
                           )}
-                          <div className="text-[11px] text-secondary-fg font-medium">
+                          <div className="text-[11.5px] text-secondary-fg font-medium">
                             {parseDateStr(p.date).toLocaleDateString(undefined, { weekday: "long", month: "long", day: "numeric" })}
-                            {isToday && <span className="ml-2 text-[10px] uppercase tracking-[0.14em] text-primary font-semibold">Today</span>}
+                            {isToday && <span className="ml-2 eyebrow text-primary">Today</span>}
                           </div>
                         </div>
-                        <div className="mt-1 text-[13.5px] line-clamp-2 leading-snug">
+                        <div className="mt-1.5 text-[14px] line-clamp-2 leading-snug font-display">
                           {p.ai_summary || p.preview || `${p.total} task${p.total === 1 ? "" : "s"}`}
                         </div>
-                        <div className="mt-2 flex items-center justify-between text-[10.5px] text-secondary-fg">
+                        <div className="mt-3 flex items-center justify-between text-[11px] text-secondary-fg">
                           <span>
                             <span className="text-foreground font-medium">{p.done}</span>
                             <span className="text-secondary-fg">/{p.total}</span>
@@ -150,13 +150,13 @@ export default function History() {
               </div>
             ))}
             {plans.length === 0 && (
-              <div className="text-center py-16">
+              <div className="text-center py-20">
                 <CalendarDays className="h-8 w-8 text-secondary-fg/40 mx-auto mb-3" />
-                <div className="text-sm font-medium">No plans yet</div>
-                <p className="text-xs text-secondary-fg mt-1">Once you plan a day, it'll show up here.</p>
+                <div className="font-display text-[16px] font-medium">No plans yet</div>
+                <p className="text-[12.5px] text-secondary-fg mt-1.5">Once you plan a day, it'll show up here.</p>
                 <button
                   onClick={() => nav("/today")}
-                  className="mt-4 text-sm text-primary font-medium hover:underline"
+                  className="mt-5 text-[13px] text-primary font-medium hover:underline"
                 >
                   Design today →
                 </button>

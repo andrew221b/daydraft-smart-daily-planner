@@ -295,17 +295,17 @@ export default function DayView() {
 
   return (
     <Shell>
-      <div className="px-5 pt-10 flex items-center justify-between">
-        <button onClick={() => nav("/today")} className="h-8 w-8 -ml-1.5 rounded-md flex items-center justify-center text-secondary-fg hover:text-foreground hover:bg-muted pressable">
+      <div className="px-6 pt-12 flex items-center justify-between">
+        <button onClick={() => nav("/today")} className="h-9 w-9 -ml-2 rounded-full flex items-center justify-center text-secondary-fg hover:text-foreground hover:bg-surface pressable">
           <ChevronLeft className="h-5 w-5" />
         </button>
-        <h1 className="text-[15px] font-semibold tracking-tight">
+        <h1 className="font-display text-[16px] font-semibold tracking-tight">
           {isToday ? "Today" : friendlyDateFor(parseDateStr(viewDate))}
         </h1>
         <button
           onClick={() => setMoreOpen(true)}
           disabled={planMissing}
-          className="h-8 w-8 -mr-1.5 rounded-md flex items-center justify-center text-secondary-fg hover:text-foreground hover:bg-muted pressable disabled:opacity-30"
+          className="h-9 w-9 -mr-2 rounded-full flex items-center justify-center text-secondary-fg hover:text-foreground hover:bg-surface pressable disabled:opacity-30"
           aria-label="More"
         >
           <MoreHorizontal className="h-5 w-5" />
@@ -314,17 +314,17 @@ export default function DayView() {
 
       {/* Compact progress strip — single line, no boxed card */}
       {!planMissing && totalTasks > 0 && (
-        <div className="px-5 mt-4">
+        <div className="px-6 mt-5">
           <div className="flex items-baseline justify-between">
-            <div className="text-[13px] text-foreground tabular-nums">
+            <div className="text-[13.5px] text-foreground tabular-nums">
               <span className="font-semibold">{doneTasks}</span>
               <span className="text-secondary-fg">/{totalTasks} done</span>
             </div>
-            <div className="text-[11px] text-secondary-fg tabular-nums">
+            <div className="text-[11.5px] text-secondary-fg tabular-nums">
               {Math.round(blocks.filter(b => b.kind === "task").reduce((s,b) => s + b.duration_min, 0) / 6) / 10}h planned
             </div>
           </div>
-          <div className="mt-1.5 h-1 rounded-full bg-muted overflow-hidden">
+          <div className="mt-2 h-1 rounded-full bg-muted overflow-hidden">
             <div className="h-full bg-primary transition-all duration-500" style={{ width: totalTasks ? `${(doneTasks / totalTasks) * 100}%` : "0%" }} />
           </div>
         </div>

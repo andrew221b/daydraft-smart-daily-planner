@@ -108,8 +108,9 @@ export default function Settings() {
 
   return (
     <Shell>
-      <div className="px-5 pt-10">
-        <h1 className="text-[22px] font-semibold tracking-tight">Settings</h1>
+      <div className="px-6 pt-12">
+        <p className="eyebrow">Account</p>
+        <h1 className="font-display text-[28px] font-semibold tracking-tight mt-1.5">Settings</h1>
 
         <div className="mt-7 space-y-7">
           {/* 1. Plan card — most important context */}

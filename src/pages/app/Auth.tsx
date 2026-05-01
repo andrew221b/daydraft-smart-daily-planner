@@ -3,7 +3,6 @@ import { supabase } from "@/integrations/supabase/client";
 import { lovable } from "@/integrations/lovable";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
-import { Blobs } from "@/components/app/Blobs";
 import { toast } from "sonner";
 import { Link, useNavigate } from "react-router-dom";
 import { useAuth } from "@/hooks/useAuth";
@@ -118,11 +117,11 @@ export default function Auth() {
 
   return (
     <div className="min-h-screen w-full bg-background flex justify-center">
-      <div className="relative w-full max-w-[390px] min-h-screen flex flex-col">
-        <Blobs />
-        <div className="relative z-10 flex-1 flex flex-col px-6 pt-20 pb-10">
-          <div className="text-secondary-fg text-sm tracking-widest uppercase">DayDraft</div>
-          <h1 className="text-4xl font-semibold mt-3 leading-tight">
+      <div className="relative w-full max-w-[420px] min-h-screen flex flex-col">
+        <div className="pointer-events-none absolute inset-x-0 top-0 h-[320px]" style={{ background: "var(--gradient-glow)" }} />
+        <div className="relative z-10 flex-1 flex flex-col px-7 pt-20 pb-10">
+          <p className="eyebrow">DayDraft</p>
+          <h1 className="font-display text-[40px] font-semibold mt-3 leading-[1.05] tracking-tight">
             {awaitingConfirmation ? "Check your email." : mode === "signup" ? "Design your days." : "Welcome back."}
           </h1>
           <p className="text-secondary-fg mt-2">
