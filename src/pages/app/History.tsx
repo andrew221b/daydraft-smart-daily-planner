@@ -2,10 +2,11 @@ import { useEffect, useState } from "react";
 import { Shell } from "@/components/app/Shell";
 import { useAuth } from "@/hooks/useAuth";
 import { supabase } from "@/integrations/supabase/client";
-import { parseDateStr, todayDateStr, isFutureDateStr } from "@/lib/daydraft";
+import { parseDateStr, todayDateStr } from "@/lib/daydraft";
 import { useNavigate } from "react-router-dom";
-import { CheckCircle2, Circle, CalendarDays } from "lucide-react";
-import { toast } from "sonner";
+import { CheckCircle2, Circle, CalendarDays, Flame, Timer as TimerIcon, Target } from "lucide-react";
+import { useTimeTracker, fmtHM } from "@/hooks/useTimeTracker";
+import { useStreak } from "@/hooks/useStreak";
 
 interface BlockLite { plan_id: string; kind: string; completed: boolean; title: string; }
 interface PlanRow {
@@ -20,6 +21,8 @@ interface PlanRow {
 export default function History() {
   const { user } = useAuth();
   const nav = useNavigate();
+  const { weekTotalSec, todayTotalSec } = useTimeTracker();
+  const { streak } = useStreak();
   const [plans, setPlans] = useState<PlanRow[]>([]);
   const [loading, setLoading] = useState(true);
 
@@ -89,20 +92,58 @@ export default function History() {
 
   const todayKey = todayDateStr();
 
+  // Roll-up across the last 7 plan rows (recent activity)
+  const last7 = plans.slice(0, 7);
+  const totalTasks = last7.reduce((s, p) => s + p.total, 0);
+  const totalDone = last7.reduce((s, p) => s + p.done, 0);
+  const completionPct = totalTasks ? Math.round((totalDone / totalTasks) * 100) : 0;
+
   return (
     <Shell>
       <div className="px-6 pt-12">
-        <p className="eyebrow">Reflection</p>
-        <h1 className="font-display text-[28px] font-semibold tracking-tight mt-1.5">History</h1>
+        <p className="eyebrow">Your week</p>
+        <h1 className="font-display text-[28px] font-semibold tracking-tight mt-1.5">Insights</h1>
+
+        {/* At-a-glance — the only numbers a busy person actually needs */}
+        <div className="mt-6 grid grid-cols-2 gap-2.5">
+          <StatCard
+            icon={<TimerIcon className="h-3.5 w-3.5" />}
+            label="Tracked this week"
+            value={fmtHM(weekTotalSec)}
+            sub={`${fmtHM(todayTotalSec)} today`}
+            onClick={() => nav("/tracker")}
+          />
+          <StatCard
+            icon={<Target className="h-3.5 w-3.5" />}
+            label="Tasks done"
+            value={`${completionPct}%`}
+            sub={`${totalDone} of ${totalTasks} planned`}
+          />
+          <StatCard
+            icon={<Flame className="h-3.5 w-3.5" />}
+            label="Current streak"
+            value={`${streak?.current_streak ?? 0}d`}
+            sub={`Best ${streak?.longest_streak ?? 0}d`}
+          />
+          <StatCard
+            icon={<CalendarDays className="h-3.5 w-3.5" />}
+            label="Days planned"
+            value={`${plans.length}`}
+            sub="Last 60 days"
+          />
+        </div>
+
+        <div className="mt-8 eyebrow">Recent days</div>
+
         {loading && (
-          <div className="mt-7 space-y-2">
+          <div className="mt-3 space-y-2">
             {[0, 1, 2].map(i => (
               <div key={i} className="h-[88px] rounded-2xl bg-surface border border-border animate-pulse" />
             ))}
           </div>
         )}
         {!loading && (
-          <div className="mt-7 space-y-7">
+          <div className="mt-3 space-y-7">
             {Object.entries(groups).map(([w, items]) => (
               <div key={w}>
                 <div className="eyebrow mb-2.5">{w}</div>
@@ -153,7 +194,7 @@ export default function History() {
               <div className="text-center py-20">
                 <CalendarDays className="h-8 w-8 text-secondary-fg/40 mx-auto mb-3" />
                 <div className="font-display text-[16px] font-medium">No plans yet</div>
-                <p className="text-[12.5px] text-secondary-fg mt-1.5">Once you plan a day, it'll show up here.</p>
+                <p className="text-[12.5px] text-secondary-fg mt-1.5">Plan a day and your insights will appear here.</p>
                 <button
                   onClick={() => nav("/today")}
                   className="mt-5 text-[13px] text-primary font-medium hover:underline"
@@ -166,5 +207,22 @@ export default function History() {
         )}
       </div>
     </Shell>
+  );
+}
+
+function StatCard({ icon, label, value, sub, onClick }: { icon: React.ReactNode; label: string; value: string; sub?: string; onClick?: () => void }) {
+  const Comp: any = onClick ? "button" : "div";
+  return (
+    <Comp
+      onClick={onClick}
+      className={`text-left rounded-2xl bg-surface border border-border p-4 ${onClick ? "pressable hover:border-primary/30 transition-colors" : ""}`}
+    >
+      <div className="flex items-center gap-1.5 text-secondary-fg">
+        {icon}
+        <span className="eyebrow">{label}</span>
+      </div>
+      <div className="mt-2 font-display text-[22px] font-semibold tabular-nums leading-none">{value}</div>
+      {sub && <div className="mt-1.5 text-[11px] text-secondary-fg tabular-nums">{sub}</div>}
+    </Comp>
   );
 }
