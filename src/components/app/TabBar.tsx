@@ -1,5 +1,5 @@
 import { NavLink } from "react-router-dom";
-import { Home, Timer, Clock3, BarChart2, Settings as SettingsIcon } from "lucide-react";
+import { Home, Timer, BarChart2, Settings as SettingsIcon } from "lucide-react";
 import { useTimeTracker, fmtHMS } from "@/hooks/useTimeTracker";
 
 const tabs = [
