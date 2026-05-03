@@ -117,14 +117,14 @@ export default function Auth() {
 
   return (
     <div className="min-h-screen w-full bg-background flex justify-center">
-      <div className="relative w-full max-w-[420px] min-h-screen flex flex-col">
-        <div className="pointer-events-none absolute inset-x-0 top-0 h-[320px]" style={{ background: "var(--gradient-glow)" }} />
-        <div className="relative z-10 flex-1 flex flex-col px-7 pt-20 pb-10">
+      <div className="relative w-full max-w-[400px] min-h-screen flex flex-col">
+        <div className="pointer-events-none absolute inset-x-0 top-0 h-[200px]" style={{ background: "var(--gradient-glow)" }} />
+        <div className="relative z-10 flex-1 flex flex-col px-6 pt-16 pb-10">
           <p className="eyebrow">DayDraft</p>
-          <h1 className="font-display text-[40px] font-semibold mt-3 leading-[1.05] tracking-tight">
+          <h1 className="font-display text-[28px] font-semibold mt-3 leading-[1.1] tracking-tight text-balance">
             {awaitingConfirmation ? "Check your email." : mode === "signup" ? "Design your days." : "Welcome back."}
           </h1>
-          <p className="text-secondary-fg mt-2">
+          <p className="text-secondary-fg mt-2.5 text-[13px] leading-[1.55]">
             {awaitingConfirmation
               ? `We sent a confirmation link to ${confirmedFor || email}. Open it to finish creating your account.`
               : mode === "signup"
@@ -136,29 +136,29 @@ export default function Auth() {
             <>
               <div className="mt-8 space-y-2">
                 <button onClick={() => oauth("google")} disabled={busy}
-                  className="w-full h-12 rounded-xl bg-surface-elevated border border-border text-foreground hover:bg-surface pressable text-sm font-medium inline-flex items-center justify-center gap-2">
+                  className="w-full h-12 rounded-[14px] app-card py-0 text-foreground hover:border-primary/20 pressable text-sm font-medium inline-flex items-center justify-center gap-2">
                   <GoogleIcon /> Continue with Google
                 </button>
                 <button onClick={() => oauth("apple")} disabled={busy}
-                  className="w-full h-12 rounded-xl bg-foreground text-background hover:opacity-90 pressable text-sm font-medium inline-flex items-center justify-center gap-2">
+                  className="w-full h-12 rounded-[14px] bg-foreground text-background hover:opacity-90 pressable text-sm font-medium inline-flex items-center justify-center gap-2 shadow-card">
                   <AppleIcon /> Continue with Apple
                 </button>
                 {canUsePasskey && (
                   <button onClick={passkeyLogin} disabled={busy}
-                    className="w-full h-12 rounded-xl bg-surface border border-primary/30 text-primary hover:bg-surface-elevated pressable text-sm font-medium inline-flex items-center justify-center gap-2">
+                    className="w-full h-12 rounded-[14px] border border-primary/18 bg-primary/[0.04] backdrop-blur-sm text-primary hover:bg-primary/[0.07] pressable text-sm font-medium inline-flex items-center justify-center gap-2">
                     <Fingerprint className="h-4 w-4" /> Use Face ID / fingerprint
                   </button>
                 )}
               </div>
-              <div className="my-5 flex items-center gap-3 text-[11px] uppercase tracking-wider text-secondary-fg">
-                <div className="flex-1 h-px bg-border" />
-                <span>or continue with email</span>
-                <div className="flex-1 h-px bg-border" />
+              <div className="my-6 flex items-center gap-3 text-[10px] font-semibold uppercase tracking-[0.12em] text-secondary-fg">
+                <div className="flex-1 h-px bg-border/50" />
+                <span className="shrink-0">or email</span>
+                <div className="flex-1 h-px bg-border/50" />
               </div>
 
               <form onSubmit={submit} className="space-y-3">
                 {mode === "signup" && (
-                  <Input value={name} onChange={e => setName(e.target.value)} placeholder="Your name" className="h-12 bg-surface border-border rounded-xl" />
+                  <Input value={name} onChange={e => setName(e.target.value)} placeholder="Your name" className="h-12 bg-surface/80 border-border/50 rounded-[14px]" />
                 )}
                 <Input
                   type="email"
@@ -173,10 +173,10 @@ export default function Auth() {
                     }
                   }}
                   placeholder="Email"
-                  className="h-12 bg-surface border-border rounded-xl"
+                  className="h-12 bg-surface/80 border-border/50 rounded-[14px]"
                 />
-                <Input type="password" required minLength={6} value={pw} onChange={e => setPw(e.target.value)} placeholder="Password" className="h-12 bg-surface border-border rounded-xl" />
-                <Button type="submit" disabled={busy} className="w-full h-12 rounded-xl bg-primary text-primary-foreground hover:bg-primary/90 pressable text-base font-medium">
+                <Input type="password" required minLength={6} value={pw} onChange={e => setPw(e.target.value)} placeholder="Password" className="h-12 bg-surface/80 border-border/50 rounded-[14px]" />
+                <Button type="submit" disabled={busy} className="w-full h-12 rounded-[14px] bg-primary text-primary-foreground hover:bg-primary/90 pressable text-base font-medium shadow-card">
                   {busy ? "..." : mode === "signup" ? "Create account" : "Sign in"}
                 </Button>
               </form>
@@ -204,7 +204,7 @@ export default function Auth() {
                 type="button"
                 onClick={resendConfirmation}
                 disabled={resending}
-                className="w-full h-12 rounded-xl bg-surface border border-border text-foreground hover:bg-surface pressable text-base font-medium"
+                className="w-full h-12 rounded-[14px] app-card py-0 text-foreground hover:border-primary/15 pressable text-base font-medium"
               >
                 {resending ? "Sending..." : "Resend confirmation email"}
               </Button>

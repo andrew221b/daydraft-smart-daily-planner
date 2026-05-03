@@ -34,6 +34,12 @@ export function QuickCaptureButton({ className = "", variant = "icon" }: { class
   useEffect(() => { refresh(); }, [user?.id]);
   useEffect(() => { if (open) refresh(); }, [open]);
 
+  useEffect(() => {
+    const openCapture = () => setOpen(true);
+    window.addEventListener("dd-open-quick-capture", openCapture);
+    return () => window.removeEventListener("dd-open-quick-capture", openCapture);
+  }, []);
+
   const save = async () => {
     if (!text.trim() || !user) return;
     setBusy(true);
@@ -74,8 +80,8 @@ export function QuickCaptureButton({ className = "", variant = "icon" }: { class
         data-tour="today-inbox"
         aria-label={`Capture · ${pendingCount} pending`}
         className={variant === "chip"
-          ? `shrink-0 inline-flex items-center gap-1.5 h-7 px-2.5 rounded-md bg-card border border-border text-[11px] font-medium text-secondary-fg pressable hover:text-foreground hover:border-foreground/20 transition-colors ${className}`
-          : `relative h-9 w-9 rounded-lg bg-card border border-border flex items-center justify-center text-secondary-fg hover:text-foreground pressable ${className}`}
+          ? `shrink-0 inline-flex items-center gap-1.5 h-7 px-2.5 rounded-[10px] bg-background/70 border border-border/50 text-[11px] font-medium text-secondary-fg pressable hover:text-foreground hover:border-border transition-colors backdrop-blur-sm ${className}`
+          : `relative h-9 w-9 rounded-[12px] bg-background/70 border border-border/50 flex items-center justify-center text-secondary-fg hover:text-foreground pressable backdrop-blur-sm ${className}`}
       >
         <Inbox className={variant === "chip" ? "h-3.5 w-3.5" : "h-[18px] w-[18px]"} strokeWidth={1.75} />
         {variant === "chip" && <span>Capture</span>}
@@ -87,11 +93,12 @@ export function QuickCaptureButton({ className = "", variant = "icon" }: { class
       </button>
 
       <Sheet open={open} onOpenChange={setOpen}>
-        <SheetContent side="bottom" className="rounded-t-3xl border-border bg-surface-elevated max-h-[90vh] overflow-y-auto">
+        <SheetContent side="bottom" className="rounded-t-[24px] border-border/50 bg-background/95 backdrop-blur-xl max-h-[90vh] overflow-y-auto">
           <SheetHeader className="text-left">
-            <SheetTitle className="text-xl">Capture</SheetTitle>
-            <SheetDescription className="text-xs">
-              Jot thoughts as they come. They'll appear on your next plan automatically.
+            <SheetTitle className="font-display text-[19px] font-semibold">Capture</SheetTitle>
+            <SheetDescription className="text-[12.5px] text-secondary-fg leading-[1.5]">
+              Jot thoughts as they come. They&apos;ll appear on your next plan automatically.
+              <span className="block mt-1 text-[11px] text-secondary-fg/80">Tip: ⌘⇧C (Ctrl⇧C) opens this from anywhere.</span>
             </SheetDescription>
           </SheetHeader>
 
@@ -100,12 +107,12 @@ export function QuickCaptureButton({ className = "", variant = "icon" }: { class
               <Textarea
                 autoFocus value={text} onChange={e => setText(e.target.value)}
                 placeholder="A task, an idea, a follow-up…"
-                className="min-h-[100px] bg-surface border-border rounded-xl text-base pr-12"
+                className="min-h-[100px] bg-surface/70 border-border/50 rounded-[14px] text-[15px] pr-12"
               />
               <button
                 onClick={voice}
                 aria-label="Voice capture"
-                className="absolute right-3 top-3 h-8 w-8 rounded-full bg-surface-elevated border border-border flex items-center justify-center text-secondary-fg hover:text-primary pressable"
+                className="absolute right-3 top-3 h-8 w-8 rounded-full bg-background/80 border border-border/50 flex items-center justify-center text-secondary-fg hover:text-primary pressable backdrop-blur-sm"
               >
                 <Mic className="h-3.5 w-3.5" />
               </button>
@@ -114,16 +121,16 @@ export function QuickCaptureButton({ className = "", variant = "icon" }: { class
             <div className="flex gap-2 mt-3">
               <button
                 onClick={() => setDestination("today")}
-                className={`flex-1 inline-flex items-center justify-center gap-1.5 px-3 py-2 rounded-xl border text-xs font-medium pressable ${
-                  destination === "today" ? "border-primary bg-primary/10 text-primary" : "border-border bg-surface text-secondary-fg"
+                className={`flex-1 inline-flex items-center justify-center gap-1.5 px-3 py-2 rounded-[12px] border text-xs font-medium pressable backdrop-blur-sm ${
+                  destination === "today" ? "border-primary/30 bg-primary/[0.08] text-primary" : "border-border/50 bg-surface/60 text-secondary-fg"
                 }`}
               >
                 <Sun className="h-3.5 w-3.5" /> Today
               </button>
               <button
                 onClick={() => setDestination("tomorrow")}
-                className={`flex-1 inline-flex items-center justify-center gap-1.5 px-3 py-2 rounded-xl border text-xs font-medium pressable ${
-                  destination === "tomorrow" ? "border-primary bg-primary/10 text-primary" : "border-border bg-surface text-secondary-fg"
+                className={`flex-1 inline-flex items-center justify-center gap-1.5 px-3 py-2 rounded-[12px] border text-xs font-medium pressable backdrop-blur-sm ${
+                  destination === "tomorrow" ? "border-primary/30 bg-primary/[0.08] text-primary" : "border-border/50 bg-surface/60 text-secondary-fg"
                 }`}
               >
                 <Sunrise className="h-3.5 w-3.5" /> Tomorrow
@@ -131,7 +138,7 @@ export function QuickCaptureButton({ className = "", variant = "icon" }: { class
             </div>
 
             <Button onClick={save} disabled={busy || !text.trim()}
-              className="w-full mt-3 h-12 rounded-xl bg-primary hover:bg-primary/92 text-primary-foreground font-medium pressable shadow-card"
+              className="w-full mt-3 h-12 rounded-[14px] bg-primary hover:bg-primary/92 text-primary-foreground font-medium pressable shadow-card"
              >
               Capture
             </Button>
@@ -147,7 +154,7 @@ export function QuickCaptureButton({ className = "", variant = "icon" }: { class
                   const forToday = it.content.startsWith("[today]");
                   const display = forToday ? it.content.replace(/^\[today\]\s*/, "") : it.content;
                   return (
-                    <div key={it.id} className="flex items-start gap-2 px-3 py-2.5 rounded-xl bg-surface border border-border">
+                    <div key={it.id} className="flex items-start gap-2 px-3 py-2.5 app-card">
                       {forToday
                         ? <Sun className="h-3.5 w-3.5 text-primary mt-0.5 shrink-0" />
                         : <Sunrise className="h-3.5 w-3.5 text-secondary-fg mt-0.5 shrink-0" />}

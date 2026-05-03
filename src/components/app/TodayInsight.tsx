@@ -4,6 +4,7 @@ import { useAuth } from "@/hooks/useAuth";
 import { useProfile } from "@/hooks/useProfile";
 import { supabase } from "@/integrations/supabase/client";
 import { getTone, type Tone } from "@/lib/tone";
+import { isUserTask } from "@/lib/daydraft";
 
 type CoreTone = Exclude<Tone, "custom">;
 
@@ -97,9 +98,9 @@ export const TodayInsight = () => {
       if (!p) { setYesterdayDone(0); setYesterdayPlanned(0); return; }
       const { data: bs } = await supabase
         .from("blocks")
-        .select("completed, kind")
+        .select("completed, kind, is_calendar_event")
         .eq("plan_id", p.id);
-      const tasks = (bs || []).filter((b: any) => b.kind === "task");
+      const tasks = (bs || []).filter((b: any) => isUserTask(b));
       setYesterdayPlanned(tasks.length);
       setYesterdayDone(tasks.filter((b: any) => b.completed).length);
     })();
@@ -125,7 +126,7 @@ export const TodayInsight = () => {
 
   return (
     <div
-      className="flex items-start gap-2.5 px-3.5 py-2.5 rounded-lg bg-card border border-border"
+      className="flex items-start gap-3 px-4 py-3 app-card"
       aria-label="Today's insight"
     >
       {isQuote

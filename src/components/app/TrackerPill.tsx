@@ -364,29 +364,32 @@ function TrackerInner({ embedded = false, onClose }: { embedded?: boolean; onClo
   const Wrapper: React.FC<{ children: React.ReactNode }> = ({ children }) =>
     embedded
       ? <div className="bg-background">{children}</div>
-      : <div className="rounded-t-3xl p-0 border border-border max-h-[92vh] overflow-y-auto bg-surface-elevated">{children}</div>;
+      : <div className="rounded-t-[24px] p-0 border border-border/50 max-h-[92vh] overflow-y-auto bg-background/85 backdrop-blur-xl">{children}</div>;
 
   return (
     <>
     <Wrapper>
         {/* Header */}
-        <div className="px-5 pt-5 pb-4 border-b border-border">
+        <div className="px-5 pt-7 pb-5 border-b border-border/50">
           {/* PDF moved to the bottom of the sheet — the close (X) sits in the
               top-right of SheetContent and any button placed beside it gets
               accidentally tapped when the user reaches to dismiss. */}
           <div className="text-left">
-            <h2 className="text-xl font-semibold pr-8">Time tracker</h2>
-            {/* No subtitle when running — the hero stopwatch is the source of
-                truth and a duplicate just confused users. */}
+            <h2 className="font-display text-[22px] font-semibold pr-8 tracking-tight">Timer</h2>
             {!active && (
-              <p className="text-xs text-secondary-fg mt-0.5">
-                {headerLabel}: <span className="text-foreground font-medium">{fmtHM(headerTotalSec)}</span>
-              </p>
+              <>
+                <p className="text-xs text-secondary-fg mt-0.5">
+                  {headerLabel}: <span className="text-foreground font-medium">{fmtHM(headerTotalSec)}</span>
+                </p>
+                <p className="text-[13px] text-secondary-fg mt-3 leading-[1.55] max-w-[20rem]">
+                  Choose what you&apos;re working on, tap Play, then Pause when done. Use the pills below to view today, week, or month totals.
+                </p>
+              </>
             )}
           </div>
 
           {/* Tabs */}
-          <div className="mt-4 inline-flex w-full rounded-xl bg-muted p-1">
+          <div className="mt-5 inline-flex w-full rounded-[14px] bg-muted/80 p-1">
             {(["today","week","month"] as Tab[]).map(t => (
               <button
                 key={t}
@@ -405,12 +408,11 @@ function TrackerInner({ embedded = false, onClose }: { embedded?: boolean; onClo
             {/* Hero stopwatch — premium, centered */}
             <div className="px-5 pt-5">
               <div
-                className={`relative overflow-hidden rounded-[22px] border p-6 transition-all duration-500 ${
+                className={`relative overflow-hidden rounded-[20px] border p-6 transition-all duration-500 backdrop-blur-sm ${
                   active
-                    ? "border-primary/40 bg-surface-elevated"
-                    : "border-border bg-surface"
+                    ? "border-primary/25 bg-surface/90 shadow-card"
+                    : "border-border/50 bg-surface/65"
                 }`}
-                style={active ? { boxShadow: "0 20px 60px -20px hsl(var(--primary) / 0.35), inset 0 1px 0 hsl(var(--primary) / 0.08)" } : undefined}
               >
                 {active && (
                   <>
@@ -437,7 +439,7 @@ function TrackerInner({ embedded = false, onClose }: { embedded?: boolean; onClo
                     </div>
                     <button
                       onClick={handleStop}
-                      className="mt-1 inline-flex items-center justify-center gap-2 h-11 px-6 rounded-full bg-primary text-primary-foreground text-[13.5px] font-semibold pressable shadow-glow"
+                      className="mt-1 inline-flex items-center justify-center gap-2 h-11 px-6 rounded-full bg-primary text-primary-foreground text-[13.5px] font-semibold pressable shadow-card"
                       aria-label="Stop"
                     >
                       <Pause className="h-3.5 w-3.5" fill="currentColor" /> Stop
@@ -485,7 +487,7 @@ function TrackerInner({ embedded = false, onClose }: { embedded?: boolean; onClo
             {/* Empty state when no entries today and no active */}
             {!active && todayByCat.length === 0 && categories.length > 0 && (
               <div className="px-5 pt-4">
-                <div className="rounded-xl border border-dashed border-border bg-surface/50 px-4 py-5 text-center">
+                <div className="rounded-[18px] border border-dashed border-border/45 bg-surface/40 backdrop-blur-sm px-4 py-5 text-center">
                   <div className="mx-auto h-10 w-10 rounded-full bg-muted flex items-center justify-center mb-2">
                     <Clock className="h-4 w-4 text-secondary-fg" />
                   </div>
@@ -503,7 +505,7 @@ function TrackerInner({ embedded = false, onClose }: { embedded?: boolean; onClo
                 const periodSec = stat?.sec || 0;
                 return (
                   <SwipeRow key={c.id} disabled={c.is_default || isActive || editingCat === c.id} onDelete={() => setConfirmDeleteCat(c.id)}>
-                  <div className={`rounded-xl border transition-colors ${isActive ? "border-primary/60 bg-primary/5 shadow-[0_0_0_3px_hsl(var(--primary)/0.08)]" : "border-border bg-surface"} overflow-hidden`}>
+                  <div className={`rounded-[16px] border transition-colors ${isActive ? "border-primary/35 bg-primary/[0.05] ring-2 ring-primary/12 ring-offset-2 ring-offset-background" : "border-border/50 bg-surface/70"} overflow-hidden backdrop-blur-sm`}>
                     <div className="flex items-center gap-2 px-3 py-2.5">
                       {editingCat === c.id ? (
                         <form
@@ -600,7 +602,7 @@ function TrackerInner({ embedded = false, onClose }: { embedded?: boolean; onClo
                   const c = await addCategory(newName);
                   if (c) setNewName("");
                 }}
-                className="flex items-center gap-2 rounded-xl border border-dashed border-border bg-surface px-3 py-2"
+                className="flex items-center gap-2 rounded-[14px] border border-dashed border-border/45 bg-surface/45 backdrop-blur-sm px-3 py-2"
               >
                 <Plus className="h-4 w-4 text-secondary-fg shrink-0" />
                 <Input
@@ -622,7 +624,7 @@ function TrackerInner({ embedded = false, onClose }: { embedded?: boolean; onClo
         {/* WEEK TAB — bars + tap-to-expand day */}
         {tab === "week" && (
           <div className="px-5 py-4 space-y-4">
-            <div className="rounded-xl border border-border bg-surface p-4">
+            <div className="app-card p-4">
               <div className="flex items-end justify-between gap-2 h-32">
                 {weekDays.map(d => {
                   const h = d.total > 0 ? Math.max(8, (d.total / weekMaxSec) * 100) : 4;
@@ -650,7 +652,7 @@ function TrackerInner({ embedded = false, onClose }: { embedded?: boolean; onClo
                   );
                 })}
               </div>
-              <div className="mt-3 pt-3 border-t border-border flex items-center justify-between text-[11px]">
+              <div className="mt-3 pt-3 border-t border-border/50 flex items-center justify-between text-[11px]">
                 <span className="text-secondary-fg">Tap a bar for details</span>
                 <span className="font-medium">Total <span className="font-mono tabular-nums">{fmtHM(weekTotal)}</span></span>
               </div>
@@ -663,12 +665,12 @@ function TrackerInner({ embedded = false, onClose }: { embedded?: boolean; onClo
         {/* MONTH TAB — heatmap calendar */}
         {tab === "month" && (
           <div className="px-5 py-4 space-y-4">
-            <div className="rounded-xl border border-border bg-surface p-4">
+            <div className="app-card p-4">
               <div className="flex items-center justify-between mb-3">
                 <button onClick={() => setMonthCursor(d => { const x = new Date(d); x.setMonth(x.getMonth() - 1); return x; })} className="p-1.5 rounded-lg hover:bg-muted pressable" aria-label="Previous month">
                   <ChevronLeft className="h-4 w-4" />
                 </button>
-                <div className="text-sm font-medium">{monthLabel}</div>
+                <div className="text-[14px] font-display font-semibold">{monthLabel}</div>
                 <button onClick={() => setMonthCursor(d => { const x = new Date(d); x.setMonth(x.getMonth() + 1); return x; })} className="p-1.5 rounded-lg hover:bg-muted pressable" aria-label="Next month">
                   <ChevronRight className="h-4 w-4" />
                 </button>
@@ -691,7 +693,7 @@ function TrackerInner({ embedded = false, onClose }: { embedded?: boolean; onClo
                     <button
                       key={c.key}
                       onClick={() => setSelectedDay(isSelected ? null : c.key)}
-                      className={`aspect-square rounded-md text-[10px] font-medium relative pressable transition-all flex items-center justify-center ${isSelected ? "ring-2 ring-primary ring-offset-1 ring-offset-surface" : ""} ${isToday && !isSelected ? "ring-1 ring-foreground/40" : ""}`}
+                      className={`aspect-square rounded-md text-[10px] font-medium relative pressable transition-all flex items-center justify-center ${isSelected ? "ring-2 ring-primary/80 ring-offset-2 ring-offset-background" : ""} ${isToday && !isSelected ? "ring-1 ring-foreground/25" : ""}`}
                       style={{
                         backgroundColor: c.total > 0 ? `hsl(var(--primary) / ${opacity})` : "hsl(var(--muted))",
                         color: intensity > 0.5 ? "hsl(var(--primary-foreground))" : "hsl(var(--foreground))",
@@ -704,7 +706,7 @@ function TrackerInner({ embedded = false, onClose }: { embedded?: boolean; onClo
                 })}
               </div>
 
-              <div className="mt-3 pt-3 border-t border-border flex items-center justify-between text-[11px]">
+              <div className="mt-3 pt-3 border-t border-border/50 flex items-center justify-between text-[11px]">
                 <div className="flex items-center gap-1.5">
                   <span className="text-secondary-fg">Less</span>
                   {[0.15, 0.4, 0.65, 1].map((o, i) => (
@@ -725,7 +727,7 @@ function TrackerInner({ embedded = false, onClose }: { embedded?: boolean; onClo
           <button
             onClick={exportPDF}
             disabled={exporting || headerTotalSec === 0}
-            className="w-full inline-flex items-center justify-center gap-2 h-11 rounded-xl border border-border bg-surface text-sm font-medium text-foreground pressable disabled:opacity-40 disabled:pointer-events-none"
+            className="w-full inline-flex items-center justify-center gap-2 h-11 rounded-[14px] app-card py-0 text-sm font-medium text-foreground pressable disabled:opacity-40 disabled:pointer-events-none"
             aria-label="Export PDF"
             title={isPro ? `Export ${headerLabel} as PDF` : "PDF export is a Pro feature"}
           >
@@ -777,7 +779,7 @@ export function TrackerView() {
 export function TrackerSheet({ open, onOpenChange }: { open: boolean; onOpenChange: (v: boolean) => void }) {
   return (
     <Sheet open={open} onOpenChange={onOpenChange}>
-      <SheetContent side="bottom" className="rounded-t-3xl p-0 border-border max-h-[92vh] overflow-y-auto">
+      <SheetContent side="bottom" className="rounded-t-[24px] p-0 border-border/50 max-h-[92vh] overflow-y-auto bg-background/95 backdrop-blur-xl">
         <TrackerInner onClose={() => onOpenChange(false)} />
       </SheetContent>
     </Sheet>
@@ -806,9 +808,9 @@ function DayDetail({ detail, catMap }: { detail: NonNullable<ReturnType<() => an
   const dateLabel = detail.date.toLocaleDateString(undefined, { weekday: "long", month: "short", day: "numeric" });
 
   return (
-    <div className="rounded-xl border border-border bg-surface p-4 space-y-3 animate-in fade-in slide-in-from-bottom-2 duration-200">
+    <div className="app-card p-4 space-y-3 animate-in fade-in slide-in-from-bottom-2 duration-200">
       <div className="flex items-baseline justify-between">
-        <div className="text-sm font-semibold">{dateLabel}</div>
+        <div className="text-[14px] font-display font-semibold">{dateLabel}</div>
         <div className="text-xs text-secondary-fg">Total <span className="font-mono tabular-nums text-foreground">{fmtHM(detail.total)}</span></div>
       </div>
 
@@ -841,7 +843,7 @@ function DayDetail({ detail, catMap }: { detail: NonNullable<ReturnType<() => an
           </div>
 
           {detail.items.length > 0 && (
-            <div className="pt-2 mt-2 border-t border-border">
+            <div className="pt-2 mt-2 border-t border-border/50">
               <div className="text-[11px] font-medium uppercase tracking-wide text-secondary-fg mb-2">Sessions</div>
               <div className="space-y-1.5 max-h-48 overflow-y-auto">
                 {detail.items.map((it: any) => {

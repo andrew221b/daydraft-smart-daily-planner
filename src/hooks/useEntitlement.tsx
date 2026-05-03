@@ -48,9 +48,18 @@ export const useEntitlement = () => {
     // so users in negative-UTC timezones don't see their quota reset a day
     // late).
     const since = new Date(); since.setDate(since.getDate() - 6);
-    const { data: plans } = await supabase.from("plans").select("date")
-      .eq("user_id", user.id).gte("date", dateStr(since));
-    const uniq = new Set((plans || []).map((p: any) => p.date));
+    // Only days that actually have schedule blocks count — empty plan rows
+    // (failed generation, partial writes) must not burn the weekly quota.
+    const { data: plans } = await supabase
+      .from("plans")
+      .select("date, blocks(id)")
+      .eq("user_id", user.id)
+      .gte("date", dateStr(since));
+    const uniq = new Set(
+      (plans || [])
+        .filter((p: { blocks?: { id: string }[] | null }) => Array.isArray(p.blocks) && p.blocks.length > 0)
+        .map((p: { date: string }) => p.date),
+    );
     setPlanQuotaUsed(uniq.size);
     setLoading(false);
   }, [user?.id]);

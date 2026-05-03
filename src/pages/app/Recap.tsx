@@ -4,13 +4,14 @@ import { Shell } from "@/components/app/Shell";
 import { useAuth } from "@/hooks/useAuth";
 import { useProfile } from "@/hooks/useProfile";
 import { supabase } from "@/integrations/supabase/client";
-import { Block, todayDateStr, parseDateStr, friendlyDateFor, dateStr } from "@/lib/daydraft";
-import { Sparkles, Clock, RotateCcw, TrendingUp, Smile, Meh, Frown } from "lucide-react";
+import { Block, todayDateStr, parseDateStr, friendlyDateFor, dateStr, isUserTask } from "@/lib/daydraft";
+import { Sparkles, Clock, RotateCcw, TrendingUp, Smile, Meh, Frown, Copy } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { useTimeTracker, fmtHM } from "@/hooks/useTimeTracker";
 import { toast } from "sonner";
 import { haptics } from "@/lib/haptics";
 import { Confetti } from "@/components/app/Confetti";
+import { formatPlanAsPlainText, copyTextToClipboard } from "@/lib/planTextExport";
 
 export default function Recap() {
   const { user } = useAuth();
@@ -50,6 +51,7 @@ export default function Recap() {
         .eq("kind", "task")
         .eq("type", "deep_work")
         .eq("completed", true)
+        .eq("is_calendar_event", false)
         .gte("plans.date", dateStr(sevenAgo))
         .lt("plans.date", todayDateStr());
       if (prev) {
@@ -65,7 +67,7 @@ export default function Recap() {
     })();
   }, [user?.id, profile?.energy_preference, viewDate]);
 
-  const tasks = blocks.filter(b => b.kind === "task");
+  const tasks = blocks.filter(isUserTask);
   const done = tasks.filter(b => b.completed).length;
   const focusMin = tasks.filter(b => b.completed && b.type === "deep_work").reduce((s, b) => s + b.duration_min, 0);
   const plannedMin = tasks.reduce((s, b) => s + b.duration_min, 0);
@@ -149,6 +151,15 @@ export default function Recap() {
   // Carry unfinished tasks to tomorrow's quick_captures inbox so they're
   // pre-loaded into the next plan. One-tap shortcut for the 80% case.
   const unfinished = tasks.filter(b => !b.completed);
+  const copyRecapOutline = async () => {
+    if (!blocks.length) return;
+    const headline = `Recap · ${parseDateStr(viewDate).toLocaleDateString(undefined, { weekday: "long", month: "long", day: "numeric" })}`;
+    const text = formatPlanAsPlainText({ headline, blocks });
+    const ok = await copyTextToClipboard(text);
+    if (ok) toast.success("Copied day outline");
+    else toast.error("Could not copy");
+  };
+
   const carryOver = async () => {
     if (!user || unfinished.length === 0) return;
     // Tag with the target date so Today.tsx only consumes captures meant for
@@ -187,15 +198,28 @@ export default function Recap() {
     <Shell>
       <Confetti fire={confettiFired} />
       <div className="relative">
-        <div className="absolute inset-x-0 top-0 h-72 pointer-events-none" style={{ background: "var(--gradient-glow)" }} />
-        <div className="relative px-6 pt-16">
-          <h1 className="text-[34px] font-semibold leading-tight">
+        <div className="absolute inset-x-0 top-0 h-52 pointer-events-none" style={{ background: "var(--gradient-glow)" }} />
+        <div className="relative px-6 pt-14">
+          <h1 className="font-display text-[26px] font-semibold leading-tight text-balance">
             {viewDate === todayDateStr() ? "Day complete." : `Recap · ${friendlyDateFor(parseDateStr(viewDate))}`}
           </h1>
-          <p className="text-secondary-fg mt-1">{parseDateStr(viewDate).toLocaleDateString(undefined, { weekday: "long", month: "long", day: "numeric" })}</p>
+          <div className="mt-1 flex items-center justify-between gap-3">
+            <p className="text-secondary-fg flex-1 min-w-0">
+              {parseDateStr(viewDate).toLocaleDateString(undefined, { weekday: "long", month: "long", day: "numeric" })}
+            </p>
+            {blocks.length > 0 && (
+              <button
+                type="button"
+                onClick={() => void copyRecapOutline()}
+                className="shrink-0 inline-flex items-center gap-1.5 h-8 px-2.5 rounded-lg border border-border/60 bg-surface/50 text-[11px] font-medium text-secondary-fg hover:text-foreground pressable"
+              >
+                <Copy className="h-3.5 w-3.5" /> Copy outline
+              </button>
+            )}
+          </div>
 
           {tasks.length === 0 && (
-            <div className="mt-8 rounded-xl bg-surface-elevated border border-border shadow-card p-6 text-center">
+            <div className="mt-8 app-card p-6 text-center">
               <div className="text-sm font-medium">Nothing to recap yet</div>
               <p className="text-xs text-secondary-fg mt-1">No plan exists for this day.</p>
               <Button onClick={() => nav(viewDate === todayDateStr() ? "/today" : `/today?date=${viewDate}`)}
@@ -209,7 +233,7 @@ export default function Recap() {
           {tasks.length > 0 && (
           <>
 
-          <div className="grid grid-cols-3 gap-3 mt-8">
+          <div className="grid grid-cols-3 gap-2.5 mt-8">
             <Stat label="Tasks done" value={`${done}/${tasks.length}`} />
             <Stat label="Focus time" value={`${fh}h ${fm}m`} />
             <Stat label="Efficiency" value={`${eff}%`} />
@@ -232,8 +256,8 @@ export default function Recap() {
           )}
 
           {isTodayRecap && (
-          <div className="mt-6 rounded-xl bg-surface border border-border p-4">
-            <div className="text-[11px] uppercase tracking-wider text-secondary-fg mb-2">How did today feel?</div>
+          <div className="mt-6 app-card p-4">
+            <div className="eyebrow mb-3">How did today feel?</div>
             <div className="flex gap-2">
               {([
                 { k: "good" as const, Icon: Smile, label: "Great" },
@@ -287,12 +311,12 @@ export default function Recap() {
             </button>
           )}
 
-          <div className="mt-6 rounded-xl bg-surface-elevated border border-border shadow-card p-4">
+          <div className="mt-5 app-card p-4">
             <div className="flex items-center gap-2 text-primary">
               <Sparkles className="h-4 w-4" />
-              <span className="text-xs font-medium uppercase tracking-wide">Today's insight</span>
+              <span className="eyebrow">Today&apos;s insight</span>
             </div>
-            <p className="text-[15px] leading-relaxed mt-2">
+            <p className="text-[14.5px] leading-[1.55] mt-2.5 text-foreground/90">
               {insight || "Reflecting on your day..."}
             </p>
           </div>
@@ -336,8 +360,8 @@ export default function Recap() {
 }
 
 const Stat = ({ label, value }: { label: string; value: string }) => (
-  <div className="rounded-xl bg-surface border border-border p-3 text-center shadow-card">
-    <div className="text-xl font-semibold">{value}</div>
-    <div className="text-[11px] text-secondary-fg mt-1 leading-tight">{label}</div>
+  <div className="app-card p-3.5 text-center">
+    <div className="font-display text-xl font-semibold tabular-nums">{value}</div>
+    <div className="text-[11px] text-secondary-fg mt-1.5 leading-tight">{label}</div>
   </div>
 );

@@ -1,5 +1,6 @@
-import { useEffect, useMemo, useState } from "react";
-import { useNavigate } from "react-router-dom";
+import { useEffect, useMemo, useRef, useState } from "react";
+import { useQuery, useQueryClient } from "@tanstack/react-query";
+import { Link, useNavigate, useSearchParams } from "react-router-dom";
 import { Shell } from "@/components/app/Shell";
 import { Textarea } from "@/components/ui/textarea";
 import { Button } from "@/components/ui/button";
@@ -15,6 +16,7 @@ import {
   fmtTime,
   Block,
   typeColor,
+  isUserTask,
 } from "@/lib/daydraft";
 import { getTone, t as toneCopy, greetingFor } from "@/lib/tone";
 import {
@@ -26,6 +28,10 @@ import {
   Bookmark,
   Plus,
   Pencil,
+  Flame,
+  Target,
+  ListChecks,
+  Inbox,
 } from "lucide-react";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
 import { Calendar } from "@/components/ui/calendar";
@@ -35,10 +41,18 @@ import { ProBadge } from "@/components/app/ProBadge";
 import { useEntitlement } from "@/hooks/useEntitlement";
 import { UpgradeSheet } from "@/components/app/UpgradeSheet";
 import { ClarifySheet, ClarifiedTask } from "@/components/app/ClarifySheet";
-import { QuickCaptureButton } from "@/components/app/QuickCapture";
+import { PullToRefresh } from "@/components/app/PullToRefresh";
+import { BeginnerTip } from "@/components/app/BeginnerTip";
 import { useTour, TOUR_TODAY } from "@/components/app/Tour";
 import { haptics } from "@/lib/haptics";
-import { Sheet, SheetContent, SheetHeader, SheetTitle } from "@/components/ui/sheet";
+import { Sheet, SheetContent, SheetDescription, SheetHeader, SheetTitle } from "@/components/ui/sheet";
+import { useStreak } from "@/hooks/useStreak";
+import { TodayInsight } from "@/components/app/TodayInsight";
+import { NextUpCard } from "@/components/app/NextUpCard";
+import { getWeekIntention } from "@/lib/weekIntention";
+import { dayShapeHint } from "@/lib/microDelights";
+import { readComposerDraft, writeComposerDraft, clearComposerDraft } from "@/lib/composerDraft";
+import { fetchPlanDashboard, planDashboardQueryKey } from "@/lib/planQueries";
 
 const DEFAULT_PLACEHOLDER =
   "Brain-dump your day…\nfinish deck · gym 45m · call mom 15m · ship invoice";
@@ -47,15 +61,25 @@ export default function Today() {
   const { profile } = useProfile();
   const { user } = useAuth();
   const nav = useNavigate();
+  const [searchParams, setSearchParams] = useSearchParams();
+  const { streak, recordPlanToday, restoreWithFreeze, showRestoreOffer } = useStreak();
   const { isPro, planQuotaRemaining, entitlement } = useEntitlement();
   const tour = useTour();
   const [upgradeOpen, setUpgradeOpen] = useState(false);
   const [upgradeReason, setUpgradeReason] = useState<"quota" | "feature" | "trial-banner">("feature");
   const [input, setInput] = useState("");
   const [busy, setBusy] = useState(false);
-  const [hasPlanForDate, setHasPlanForDate] = useState(false);
-  const [planBlocks, setPlanBlocks] = useState<Block[]>([]);
-  const [planSummary, setPlanSummary] = useState<string | null>(null);
+  const queryClient = useQueryClient();
+  const { data: planData } = useQuery({
+    queryKey: planDashboardQueryKey(user?.id ?? "", planDate),
+    queryFn: () => fetchPlanDashboard(user!.id, planDate),
+    enabled: !!user?.id,
+    staleTime: 30_000,
+    refetchOnWindowFocus: true,
+  });
+  const planBlocks = planData?.planBlocks ?? [];
+  const hasPlanForDate = planData?.hasPlanForDate ?? false;
+  const planSummary = planData?.planSummary ?? null;
   const [templates, setTemplates] = useState<{ id: string; name: string; raw_input: string }[]>([]);
   const [clarifyOpen, setClarifyOpen] = useState(false);
   const [planDate, setPlanDate] = useState<string>(todayDateStr());
@@ -63,20 +87,84 @@ export default function Today() {
   const [moreOpen, setMoreOpen] = useState(false);
   const [composerOpen, setComposerOpen] = useState(false);
   const [pendingCaptureIds, setPendingCaptureIds] = useState<string[]>([]);
+  const [nowHM, setNowHM] = useState(() => {
+    const n = new Date();
+    return `${String(n.getHours()).padStart(2, "0")}:${String(n.getMinutes()).padStart(2, "0")}`;
+  });
+  const [intentTick, setIntentTick] = useState(0);
+  const weekIntention = useMemo(() => getWeekIntention(), [intentTick]);
+
+  useEffect(() => {
+    const t = setInterval(() => {
+      const n = new Date();
+      setNowHM(`${String(n.getHours()).padStart(2, "0")}:${String(n.getMinutes()).padStart(2, "0")}`);
+    }, 30_000);
+    return () => clearInterval(t);
+  }, []);
+
+  useEffect(() => {
+    const h = () => setIntentTick((x) => x + 1);
+    window.addEventListener("dd-week-intent", h);
+    return () => window.removeEventListener("dd-week-intent", h);
+  }, []);
+
+  const qsDate = searchParams.get("date");
+  useEffect(() => {
+    if (qsDate && /^\d{4}-\d{2}-\d{2}$/.test(qsDate)) setPlanDate(qsDate);
+  }, [qsDate]);
+
+  const composerBailHandled = useRef(false);
+  useEffect(() => {
+    if (searchParams.get("composer") !== "1") {
+      composerBailHandled.current = false;
+      return;
+    }
+    if (composerBailHandled.current) return;
+    composerBailHandled.current = true;
+    const dRaw = searchParams.get("date");
+    const d =
+      dRaw && /^\d{4}-\d{2}-\d{2}$/.test(dRaw)
+        ? dRaw
+        : sessionStorage.getItem("dd_planning_plan_date") || todayDateStr();
+    setPlanDate(d);
+    const fromSess = sessionStorage.getItem("dd_planning_input") || "";
+    const fromDraft = readComposerDraft(d);
+    setInput(fromSess || fromDraft || "");
+    setComposerOpen(true);
+    const next = new URLSearchParams(searchParams);
+    next.delete("composer");
+    setSearchParams(next, { replace: true });
+    toast("Your list is here — edit and try again when you’re ready.");
+  }, [searchParams, setSearchParams]);
+
+  const draftTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+  useEffect(() => {
+    if (!user) return;
+    if (draftTimer.current) clearTimeout(draftTimer.current);
+    draftTimer.current = setTimeout(() => {
+      writeComposerDraft(planDate, input);
+    }, 450);
+    return () => {
+      if (draftTimer.current) clearTimeout(draftTimer.current);
+    };
+  }, [input, planDate, user?.id]);
+
+  useEffect(() => {
+    if (!composerOpen) return;
+    if (input.trim()) return;
+    const d = readComposerDraft(planDate);
+    if (d) setInput(d);
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- only hydrate empty composer on open
+  }, [composerOpen, planDate]);
 
   useEffect(() => {
     if (!user) return;
-    (async () => {
-      const { data: p } = await supabase.from("plans").select("id, ai_summary").eq("user_id", user.id).eq("date", planDate).maybeSingle();
-      if (!p) { setHasPlanForDate(false); setPlanBlocks([]); setPlanSummary(null); return; }
-      const { data: bs } = await supabase.from("blocks").select("*").eq("plan_id", p.id).order("position");
-      const list = (bs || []) as Block[];
-      setHasPlanForDate(list.length > 0);
-      setPlanBlocks(list);
-      setPlanSummary(list.length > 0 ? (p.ai_summary || null) : null);
-    })();
     supabase.from("block_templates").select("id, name, raw_input").eq("user_id", user.id).order("created_at", { ascending: false })
       .then(({ data }) => setTemplates((data || []) as any));
+  }, [user?.id]);
+
+  useEffect(() => {
+    if (!user) return;
     (async () => {
       const { data: caps } = await supabase.from("quick_captures").select("*").eq("user_id", user.id).eq("consumed", false);
       if (!caps || !caps.length) { setPendingCaptureIds([]); return; }
@@ -109,7 +197,7 @@ export default function Today() {
     if (!user) return;
     const { data } = await supabase
       .from("plans")
-      .select("raw_input, blocks!inner(id)")
+      .select("raw_input")
       .eq("user_id", user.id)
       .lt("date", planDate)
       .order("date", { ascending: false })
@@ -122,6 +210,41 @@ export default function Today() {
       .join("\n");
     if (raw) { setInput(raw); setComposerOpen(true); toast.success("Loaded previous tasks"); }
     else toast("No previous tasks found");
+  };
+
+  const carryOverUnfinished = async () => {
+    if (!user) return;
+    const { data: prevPlan } = await supabase
+      .from("plans")
+      .select("id")
+      .eq("user_id", user.id)
+      .lt("date", planDate)
+      .order("date", { ascending: false })
+      .limit(1)
+      .maybeSingle();
+    if (!prevPlan?.id) {
+      toast("No earlier plan found");
+      return;
+    }
+    const { data: bs } = await supabase
+      .from("blocks")
+      .select("title, kind, completed, is_calendar_event")
+      .eq("plan_id", prevPlan.id)
+      .eq("kind", "task")
+      .eq("completed", false);
+    const titles = (bs || [])
+      .filter((b: { is_calendar_event?: boolean }) => !b.is_calendar_event)
+      .map((b: { title: string }) => (b.title || "").trim())
+      .filter(Boolean);
+    if (!titles.length) {
+      toast("Nothing unfinished on your last planned day");
+      return;
+    }
+    const block = titles.join("\n");
+    setInput((prev) => (prev ? `${prev}\n${block}` : block));
+    setComposerOpen(true);
+    haptics.selection();
+    toast.success(`Added ${titles.length} open task${titles.length === 1 ? "" : "s"} — tweak times, then generate`);
   };
 
   const saveAsTemplate = async () => {
@@ -139,6 +262,7 @@ export default function Today() {
   const applyTemplate = (t: { raw_input: string; name: string }) => {
     setInput(t.raw_input);
     setComposerOpen(true);
+    haptics.selection();
     toast.success(`Loaded "${t.name}"`);
   };
 
@@ -157,7 +281,11 @@ export default function Today() {
     if (!user || !profile) return;
     if (planDate === todayDateStr()) {
       try {
-        const { data: q } = await supabase.functions.invoke("check-plan-quota", { body: {} });
+        const since = new Date();
+        since.setDate(since.getDate() - 6);
+        const { data: q } = await supabase.functions.invoke("check-plan-quota", {
+          body: { since_date: dateStr(since) },
+        });
         if (q && q.allowed === false) {
           setUpgradeReason("quota");
           setUpgradeOpen(true);
@@ -174,6 +302,7 @@ export default function Today() {
     setClarifyOpen(false);
     setBusy(true);
     sessionStorage.setItem("dd_planning_input", input);
+    sessionStorage.setItem("dd_planning_plan_date", planDate);
     nav("/today/planning");
     try {
       const minWait = new Promise(r => setTimeout(r, 1500));
@@ -185,7 +314,7 @@ export default function Today() {
           if (existingPlan?.id) {
             const { data: completed } = await supabase
               .from("blocks").select("duration_min")
-              .eq("plan_id", existingPlan.id).eq("completed", true);
+              .eq("plan_id", existingPlan.id).eq("kind", "task").eq("completed", true);
             const min = (completed || []).reduce((s: number, b: any) => s + (b.duration_min || 0), 0);
             hoursAlreadyCommitted = min / 60;
           }
@@ -226,7 +355,11 @@ export default function Today() {
         location_lat: b.location_lat ?? null,
         location_lng: b.location_lng ?? null,
       }));
-      if (blocks.length) await supabase.from("blocks").insert(blocks);
+      if (!blocks.length) {
+        await supabase.from("plans").delete().eq("id", planRow.id);
+        throw new Error("No schedule was generated — try fewer tasks or simpler wording.");
+      }
+      await supabase.from("blocks").insert(blocks);
       if (pendingCaptureIds.length) {
         try {
           await supabase.from("quick_captures").update({ consumed: true } as any)
@@ -243,6 +376,22 @@ export default function Today() {
           JSON.stringify(trackTitles),
         );
       } catch {/* ignore */}
+      if (planDate === todayDateStr()) {
+        try {
+          const r = await recordPlanToday();
+          if (r && typeof r === "object" && "milestone" in r && (r as { milestone?: number | null }).milestone) {
+            const m = (r as { milestone: number }).milestone;
+            toast.success(`${m}-day planning streak`);
+            haptics.notify("success");
+          }
+        } catch {
+          /* streak is best-effort */
+        }
+      }
+      clearComposerDraft(planDate);
+      sessionStorage.removeItem("dd_planning_input");
+      sessionStorage.removeItem("dd_planning_plan_date");
+      void queryClient.invalidateQueries({ queryKey: planDashboardQueryKey(user.id, planDate) });
       nav(planDate === todayDateStr() ? "/today/plan" : `/today/plan?date=${planDate}`);
     } catch (e: any) {
       toast.error(e.message || "Planning failed");
@@ -254,35 +403,136 @@ export default function Today() {
 
   // Derive a glanceable plan summary
   const planStats = useMemo(() => {
-    const tasks = planBlocks.filter(b => b.kind === "task");
+    const tasks = planBlocks.filter(isUserTask);
     const done = tasks.filter(b => b.completed).length;
     const totalMin = tasks.reduce((s, b) => s + b.duration_min, 0);
     return { tasks, done, total: tasks.length, hours: Math.round(totalMin / 6) / 10 };
   }, [planBlocks]);
 
   const isToday = planDate === todayDateStr();
+  const dayShapeLine = useMemo(() => {
+    if (!hasPlanForDate || !isToday || planBlocks.length === 0) return null;
+    return dayShapeHint(planBlocks);
+  }, [hasPlanForDate, isToday, planBlocks]);
   const tone = getTone(profile as any);
 
   return (
     <Shell>
+      <PullToRefresh
+        onRefresh={async () => {
+          if (!user) return;
+          await queryClient.invalidateQueries({ queryKey: planDashboardQueryKey(user.id, planDate) });
+        }}
+      >
       <div className="px-6 pt-12">
         {/* ── Header ─────────────────────────── */}
         <div className="flex items-start justify-between gap-3">
-          <div className="min-w-0">
+          <div className="min-w-0 flex-1">
             <p className="eyebrow">{friendlyDate()}</p>
-            <h1 className="font-display text-[28px] font-semibold leading-[1.1] mt-1.5 truncate">
+            <h1 className="font-display text-[26px] font-semibold leading-[1.12] mt-2 truncate text-balance">
               {greetingFor(tone, profile?.display_name)}
             </h1>
+            {!profile?.onboarded ? (
+              <p className="text-[12.5px] text-secondary-fg leading-relaxed mt-2">
+                Bottom bar: <span className="text-foreground/80">Today</span> · <span className="text-foreground/80">Timer</span> ·{" "}
+                <span className="text-foreground/80">History</span> · <span className="text-foreground/80">Settings</span>
+              </p>
+            ) : hasPlanForDate && planDate === todayDateStr() ? (
+              <p className="text-[12.5px] text-secondary-fg leading-relaxed mt-2">
+                <span className="text-foreground/85">Next up</span> jumps into Focus; open the plan card to tick tasks off.
+              </p>
+            ) : null}
           </div>
-          <ProBadge />
+          <div className="flex shrink-0 items-start gap-1.5 pr-10">
+            <ProBadge />
+          </div>
         </div>
+
+        {profile?.onboarded && !hasPlanForDate && planDate === todayDateStr() && (
+          <div className="mt-5">
+            <BeginnerTip>
+              <strong className="text-foreground font-medium">How it works:</strong> tap{" "}
+              <strong className="text-foreground font-medium">Plan my day</strong>, write tasks in any format, then{" "}
+              <strong className="text-foreground font-medium">Generate plan</strong>.{" "}
+              The inbox button (top-right) saves quick notes for later. Need help?{" "}
+              <strong className="text-foreground font-medium">Settings → Replay tutorial</strong>.
+            </BeginnerTip>
+          </div>
+        )}
+
+        {profile?.onboarded && planDate === todayDateStr() && (
+          <div className="mt-5 space-y-3">
+            {showRestoreOffer && (
+              <div className="rounded-[20px] border border-amber-500/20 bg-amber-500/[0.045] backdrop-blur-sm px-4 py-3.5 shadow-card">
+                <p className="text-[12.5px] leading-relaxed text-foreground">
+                  You skipped a planning day. Use your <strong className="font-semibold">weekly freeze</strong> once to bridge the gap and keep your streak.
+                </p>
+                <Button
+                  size="sm"
+                  variant="secondary"
+                  className="mt-2.5 h-9 rounded-lg text-[12px]"
+                  onClick={async () => {
+                    const ok = await restoreWithFreeze();
+                    if (ok) toast.success("Streak restored — plan today to continue");
+                    else toast.error("Could not apply freeze");
+                  }}
+                >
+                  Restore streak
+                </Button>
+              </div>
+            )}
+            {weekIntention && (
+              <div className="flex items-start gap-3 rounded-[20px] border border-primary/12 bg-primary/[0.03] backdrop-blur-sm px-4 py-3.5 shadow-card animate-in fade-in slide-in-from-bottom-2 duration-500 fill-mode-both">
+                <Target className="h-4 w-4 text-primary shrink-0 mt-0.5" strokeWidth={2} />
+                <div className="min-w-0 flex-1">
+                  <div className="text-[10px] font-semibold uppercase tracking-wider text-secondary-fg">This week&apos;s focus</div>
+                  <p className="text-[13px] text-foreground mt-1 leading-snug">{weekIntention.text}</p>
+                </div>
+                <Link to="/settings#week-intention" className="text-[11px] font-medium text-primary shrink-0 pt-0.5 hover:underline">
+                  Edit
+                </Link>
+              </div>
+            )}
+            <TodayInsight />
+            {streak && streak.current_streak >= 1 && (
+              <Link
+                to="/history"
+                className="inline-flex items-center gap-2 rounded-[14px] border border-border/60 bg-surface/50 backdrop-blur-sm px-3 py-2 text-[12.5px] text-secondary-fg transition-colors hover:border-primary/25 hover:text-foreground"
+              >
+                <Flame className="h-4 w-4 text-primary shrink-0" />
+                <span>
+                  <span className="font-semibold tabular-nums text-foreground">{streak.current_streak}</span> day planning streak
+                  {streak.longest_streak > streak.current_streak && (
+                    <span className="text-secondary-fg"> · best {streak.longest_streak}</span>
+                  )}
+                </span>
+              </Link>
+            )}
+          </div>
+        )}
 
         {/* ── Plan — primary surface when present ─ */}
         {hasPlanForDate ? (
-          <div className="mt-7">
+          <div className="mt-7 space-y-4">
+            {isToday && (
+              <NextUpCard
+                blocks={planBlocks}
+                nowHHMM={nowHM}
+                onOpenPlan={() => nav("/today/plan")}
+              />
+            )}
+            {dayShapeLine && (
+              <p
+                className="text-[11.5px] leading-snug text-secondary-fg/90 pl-1 border-l-2 border-primary/25 pl-3 py-0.5 animate-in fade-in duration-300"
+                aria-live="polite"
+              >
+                {dayShapeLine}
+              </p>
+            )}
             <button
+              data-tour="today-plan"
               onClick={() => nav(isToday ? "/today/plan" : `/today/plan?date=${planDate}`)}
-              className="w-full text-left rounded-[20px] bg-surface border border-border p-5 pressable hover:border-primary/40 transition-colors group"
+              className="w-full text-left app-card p-5 pressable hover:border-primary/28 transition-colors group"
             >
               <div className="flex items-center justify-between">
                 <span className="eyebrow text-primary">{isToday ? "Today's plan" : friendlyDateFor(parseDateStr(planDate))}</span>
@@ -404,6 +654,7 @@ export default function Today() {
           </p>
         )}
       </div>
+      </PullToRefresh>
 
       {/* ─── Composer sheet — write tasks here ─── */}
       <Sheet open={composerOpen} onOpenChange={setComposerOpen}>
@@ -412,6 +663,11 @@ export default function Today() {
             <SheetTitle className="font-display text-[18px]">
               {hasPlanForDate ? "Add or re-plan" : (isToday ? "Plan today" : `Plan ${friendlyDateFor(parseDateStr(planDate))}`)}
             </SheetTitle>
+            <SheetDescription className="text-left text-[13px] leading-relaxed text-secondary-fg pr-6">
+              {hasPlanForDate
+                ? "Append tasks below, then re-run planning. DayDraft will merge them into an updated schedule."
+                : "List everything you hope to do — bullets, commas, shorthand, rough times. You'll confirm durations on the next step before the schedule is built."}
+            </SheetDescription>
           </SheetHeader>
           <Textarea
             data-tour="today-input"
@@ -462,8 +718,12 @@ export default function Today() {
         <SheetContent side="bottom" className="rounded-t-[24px] border-border bg-popover">
           <SheetHeader className="text-left mb-3">
             <SheetTitle className="font-display text-[18px]">Quick actions</SheetTitle>
+            <SheetDescription className="text-left text-[13px] text-secondary-fg">
+              Templates, carry-over, yesterday&apos;s brain-dump, and quick capture.
+            </SheetDescription>
           </SheetHeader>
           <div className="space-y-1">
+            <MoreRow onClick={() => { setMoreOpen(false); carryOverUnfinished(); }} icon={<ListChecks className="h-4 w-4" />} label="Carry over unfinished" />
             <MoreRow onClick={() => { setMoreOpen(false); useYesterday(); }} icon={<Sparkles className="h-4 w-4" />} label="Use yesterday's tasks" />
             <MoreRow onClick={() => { setMoreOpen(false); saveAsTemplate(); }} icon={<Bookmark className="h-4 w-4" />} label="Save current as template" />
             {templates.length > 0 && (
@@ -474,9 +734,14 @@ export default function Today() {
                 ))}
               </div>
             )}
-            <div className="pt-1">
-              <QuickCaptureButton variant="chip" className="w-full justify-center" />
-            </div>
+            <MoreRow
+              onClick={() => {
+                setMoreOpen(false);
+                window.dispatchEvent(new Event("dd-open-quick-capture"));
+              }}
+              icon={<Inbox className="h-4 w-4" />}
+              label="Open capture inbox"
+            />
           </div>
         </SheetContent>
       </Sheet>

@@ -3,7 +3,7 @@ import { Shell } from "@/components/app/Shell";
 import { useAuth } from "@/hooks/useAuth";
 import { supabase } from "@/integrations/supabase/client";
 import { useTimeTracker, fmtHM } from "@/hooks/useTimeTracker";
-import { dateStr } from "@/lib/daydraft";
+import { dateStr, isUserTask } from "@/lib/daydraft";
 
 export default function Stats() {
   const { user } = useAuth();
@@ -30,14 +30,16 @@ export default function Stats() {
       const counts = { deep_work: 0, communication: 0, routine: 0 } as any;
       (ps || []).forEach(p => {
         const items = byPlan[p.id] || [];
-        const tasks = items.filter((b: any) => b.kind === "task");
+        const tasks = items.filter((b: any) => isUserTask(b));
         out.push({
           date: p.date,
           focusMin: tasks.filter((b: any) => b.completed && b.type === "deep_work").reduce((s: number, b: any) => s + b.duration_min, 0),
           done: tasks.filter((b: any) => b.completed).length,
           total: tasks.length,
         });
-        tasks.forEach((b: any) => { counts[b.type] = (counts[b.type] || 0) + b.duration_min; });
+        tasks
+          .filter((b: any) => b.completed)
+          .forEach((b: any) => { counts[b.type] = (counts[b.type] || 0) + b.duration_min; });
       });
       setDays(out);
       setBreakdown(counts);
@@ -111,12 +113,12 @@ export default function Stats() {
         <div className="flex items-end justify-between">
           <div>
             <p className="eyebrow">Last 7 days</p>
-            <h1 className="font-display text-[28px] font-semibold mt-1.5 tracking-tight">Stats</h1>
+            <h1 className="font-display text-[26px] font-semibold mt-2 tracking-tight text-balance">Stats</h1>
           </div>
           <a href="/recap/week" className="text-[12px] text-primary hover:underline font-medium">Week recap →</a>
         </div>
 
-        <div className="mt-7 rounded-2xl bg-surface border border-border p-5">
+        <div className="mt-8 app-card p-5">
           <div className="eyebrow mb-4">Focus minutes</div>
           <div className="flex items-end gap-2 h-32">
             {days.length === 0 ? <div className="text-secondary-fg text-sm">No data yet.</div> :
@@ -134,8 +136,8 @@ export default function Stats() {
           </div>
         </div>
 
-        <div className="mt-3 rounded-2xl bg-surface border border-border p-5">
-          <div className="eyebrow mb-4">Type breakdown</div>
+        <div className="mt-3 app-card p-5">
+          <div className="eyebrow mb-3">Completed time by type</div>
           <div className="h-2 rounded-full overflow-hidden bg-muted flex">
             <div style={{ width: `${(breakdown.deep_work/totalBreak)*100}%`, background: "hsl(var(--type-deep))" }} />
             <div style={{ width: `${(breakdown.communication/totalBreak)*100}%`, background: "hsl(var(--type-comm))" }} />
@@ -148,7 +150,7 @@ export default function Stats() {
           </div>
         </div>
 
-        <div className="mt-3 rounded-2xl bg-surface border border-border p-5">
+        <div className="mt-3 app-card p-5">
           <div className="flex items-end justify-between mb-3">
             <div className="eyebrow">Tracked hours</div>
             <div className="text-right">

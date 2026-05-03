@@ -1,7 +1,7 @@
 import { useEffect, useRef, useState } from "react";
 import { useNavigate, useParams } from "react-router-dom";
 import { supabase } from "@/integrations/supabase/client";
-import { Block } from "@/lib/daydraft";
+import { Block, todayDateStr } from "@/lib/daydraft";
 import { Check, ChevronRight, Plus, Sparkles, MapPin, ExternalLink, Loader2, Lightbulb, Copy, Phone, CalendarPlus, Mail, Timer, Square, X } from "lucide-react";
 import { useAuth } from "@/hooks/useAuth";
 import { mapsUrl } from "@/lib/maps";
@@ -14,7 +14,6 @@ import {
 } from "@/components/ui/popover";
 import { haptics } from "@/lib/haptics";
 import { PreflightSheet } from "@/components/app/PreflightSheet";
-import { QuickCaptureButton } from "@/components/app/QuickCapture";
 import {
   AlertDialog,
   AlertDialogAction,
@@ -58,6 +57,8 @@ export default function Focus() {
   // Used to attribute REAL elapsed time to time_entries on complete().
   const actualStartMsRef = useRef<number | null>(null);
   const [catPickerOpen, setCatPickerOpen] = useState(false);
+  /** Plan calendar day (YYYY-MM-DD) — for recap / back navigation off the default "today". */
+  const [planDate, setPlanDate] = useState<string | null>(null);
 
   useEffect(() => {
     if (!blockId || !user) return;
@@ -76,6 +77,7 @@ export default function Focus() {
     setHelpError(null);
     setHelpLoading(false);
     startedHereRef.current = false;
+    setPlanDate(null);
     (async () => {
       const { data } = await supabase.from("blocks").select("*").eq("id", blockId).maybeSingle();
       if (!data) {
@@ -83,6 +85,8 @@ export default function Focus() {
         nav("/today/plan");
         return;
       }
+      const { data: planRow } = await supabase.from("plans").select("date").eq("id", data.plan_id).maybeSingle();
+      setPlanDate((planRow as { date?: string } | null)?.date ?? todayDateStr());
       setBlock(data as Block);
       setTotal(data.duration_min * 60);
       setRemaining(data.duration_min * 60);
@@ -239,9 +243,10 @@ export default function Focus() {
       try { await stopTracking(); } catch {/* ignore */}
       startedHereRef.current = false;
     }
+    const recap = `/recap?date=${planDate || todayDateStr()}`;
     setTimeout(() => {
       if (next) nav(`/focus/${next.id}`);
-      else nav("/recap");
+      else nav(recap);
     }, 600);
   };
 
@@ -258,7 +263,9 @@ export default function Focus() {
       } catch {/* ignore */}
       startedHereRef.current = false;
     }
-    if (next) nav(`/focus/${next.id}`); else nav("/today/plan");
+    const backPlan =
+      planDate && planDate !== todayDateStr() ? `/today/plan?date=${planDate}` : "/today/plan";
+    if (next) nav(`/focus/${next.id}`); else nav(backPlan);
   };
 
   // Cancel = leave focus mode without changing anything (no completion, no
@@ -271,7 +278,9 @@ export default function Focus() {
       } catch {/* ignore */}
       startedHereRef.current = false;
     }
-    nav("/today/plan");
+    const backPlan =
+      planDate && planDate !== todayDateStr() ? `/today/plan?date=${planDate}` : "/today/plan";
+    nav(backPlan);
   };
 
   if (!block) return <div className="min-h-screen bg-background" />;
@@ -312,35 +321,36 @@ export default function Focus() {
   };
 
   return (
-    <div className="min-h-screen w-full bg-background flex justify-center">
-      <div className="relative w-full max-w-[390px] min-h-screen flex flex-col items-center px-6 pt-14 pb-10 page-enter">
+    <div className="min-h-screen w-full bg-background flex justify-center relative">
+      <div className="pointer-events-none absolute inset-x-0 top-0 h-[160px]" style={{ background: "var(--gradient-glow)" }} />
+      <div className="relative w-full max-w-[400px] min-h-screen flex flex-col items-center px-6 pt-14 pb-10 page-enter">
         {/* Cancel — top-left, returns to plan without altering anything */}
         <button
           onClick={() => (startedHereRef.current && tracking) ? setConfirmCancelOpen(true) : cancel()}
-          className="absolute top-4 left-4 h-9 w-9 rounded-full bg-surface border border-border flex items-center justify-center text-secondary-fg hover:text-foreground pressable"
+          className="absolute top-4 left-4 h-9 w-9 rounded-full border border-border/50 bg-background/70 backdrop-blur-md flex items-center justify-center text-secondary-fg hover:text-foreground pressable shadow-card"
           aria-label="Cancel focus session"
         >
           <X className="h-4 w-4" />
         </button>
-        <div className="px-3 py-1 rounded-full bg-primary/10 border border-primary/30 text-[11px] tracking-[0.2em] text-primary font-medium uppercase">Focus Mode</div>
+        <div className="px-3 py-1 rounded-full bg-primary/[0.08] border border-primary/18 text-[10px] tracking-[0.14em] text-primary font-semibold uppercase">Focus</div>
         {/* Tracking pill removed — the main timer + the inline "Stop tracking"
             button below already convey state. Two timers on one screen was
             redundant and confusing. */}
 
-        <h1 className="mt-12 text-[28px] font-semibold text-center leading-tight max-w-[300px] line-clamp-2">{block.title}</h1>
+        <h1 className="mt-10 font-display text-[24px] font-semibold text-center leading-snug max-w-[300px] line-clamp-3 text-balance">{block.title}</h1>
 
         <div className="relative mt-12">
           {/* Ambient breathing ring (subtle pulse around the timer) */}
           <div
             className="absolute inset-0 rounded-full pointer-events-none"
             style={{
-              background: "radial-gradient(closest-side, hsl(var(--primary) / 0.18), transparent 70%)",
+              background: "radial-gradient(closest-side, hsl(var(--primary) / 0.1), transparent 72%)",
               animation: "breathe 4s ease-in-out infinite",
             }}
           />
           <svg width="260" height="260" className={lowTime ? "ring-pulse rounded-full relative" : "relative"}>
-            <circle cx="130" cy="130" r={radius} stroke="hsl(var(--border))" strokeWidth="6" fill="none" />
-            <circle cx="130" cy="130" r={radius} stroke="hsl(var(--primary))" strokeWidth="6" fill="none" strokeLinecap="round"
+            <circle cx="130" cy="130" r={radius} stroke="hsl(var(--border) / 0.45)" strokeWidth="5" fill="none" />
+            <circle cx="130" cy="130" r={radius} stroke="hsl(var(--primary))" strokeWidth="5" fill="none" strokeLinecap="round"
               strokeDasharray={circ} strokeDashoffset={offset} transform="rotate(-90 130 130)" style={{ transition: "stroke-dashoffset 240ms linear" }} />
           </svg>
           <div className="absolute inset-0 flex flex-col items-center justify-center">
@@ -364,24 +374,21 @@ export default function Focus() {
           </div>
         </div>
 
-        <div className="flex items-center gap-3 mt-14 w-full">
+        <div className="flex items-center gap-3 mt-12 w-full">
           <button
             onClick={extendFiveMin}
-            className={`h-12 px-3 rounded-xl text-sm font-medium pressable flex items-center gap-1.5 transition-colors ${
+            className={`h-12 px-3 rounded-[14px] text-sm font-medium pressable flex items-center gap-1.5 transition-colors backdrop-blur-sm ${
               timeUp
-                ? "bg-primary/15 border-2 border-primary/50 text-primary"
-                : "bg-surface border border-border"
+                ? "bg-primary/[0.12] border border-primary/35 text-primary"
+                : "app-card py-0 border-border/50"
             }`}
           >
             <Plus className="h-3.5 w-3.5" /> 5 min
           </button>
-          <button onClick={complete} className="flex-1 h-13 py-3 rounded-xl bg-primary text-primary-foreground font-medium pressable flex items-center justify-center gap-2"
+          <button onClick={complete} className="flex-1 h-13 py-3 rounded-[14px] bg-primary text-primary-foreground font-medium pressable flex items-center justify-center gap-2 shadow-card"
            >
             Complete <Check className="h-4 w-4" strokeWidth={3} />
           </button>
-          <div className="shrink-0">
-            <QuickCaptureButton variant="icon" />
-          </div>
         </div>
         <button onClick={() => setConfirmSkipOpen(true)} className="mt-3 text-secondary-fg text-xs hover:text-foreground inline-flex items-center gap-1">
           Skip block <ChevronRight className="h-3 w-3" />
@@ -389,7 +396,7 @@ export default function Focus() {
         {!tracking && armed && categories.length > 0 && (
           <Popover open={catPickerOpen} onOpenChange={setCatPickerOpen}>
             <PopoverTrigger asChild>
-              <button className="mt-3 inline-flex items-center gap-1.5 px-3 py-1.5 rounded-full bg-surface border border-border text-[12px] text-secondary-fg hover:text-foreground pressable">
+              <button className="mt-3 inline-flex items-center gap-1.5 px-3 py-1.5 rounded-full border border-border/50 bg-background/60 backdrop-blur-sm text-[12px] text-secondary-fg hover:text-foreground pressable">
                 <Timer className="h-3.5 w-3.5" /> Track time…
               </button>
             </PopoverTrigger>
@@ -417,7 +424,7 @@ export default function Focus() {
         {tracking && startedHereRef.current && trackingCat && (
           <button
             onClick={() => { stopTracking(); startedHereRef.current = false; }}
-            className="mt-3 inline-flex items-center gap-1.5 px-3 py-1.5 rounded-full bg-surface border border-border text-[12px] text-secondary-fg hover:text-foreground pressable"
+            className="mt-3 inline-flex items-center gap-1.5 px-3 py-1.5 rounded-full border border-border/50 bg-background/60 backdrop-blur-sm text-[12px] text-secondary-fg hover:text-foreground pressable"
           >
             <span className="h-2 w-2 rounded-full animate-pulse" style={{ background: trackingCat.color }} />
             <span className="text-foreground font-medium">{trackingCat.name}</span>
@@ -430,7 +437,7 @@ export default function Focus() {
           50% { transform: scale(1.05); opacity: 0.95; }
         }`}</style>
 
-        <div className="mt-auto pt-10 text-secondary-fg text-[13px]">
+        <div className="mt-auto pt-8 text-secondary-fg text-[13px] leading-relaxed text-center px-2">
           {next ? (
             <>Next up: <span className="text-foreground">{next.title}</span></>
           ) : block.kind === "task" ? (
@@ -447,14 +454,14 @@ export default function Focus() {
           {!helpOpen ? (
             <button
               onClick={loadHelp}
-              className="w-full h-11 rounded-xl bg-surface border border-border text-sm font-medium pressable inline-flex items-center justify-center gap-2 text-foreground"
+              className="w-full h-11 rounded-[14px] app-card py-0 text-sm font-medium pressable inline-flex items-center justify-center gap-2 text-foreground"
             >
               <Sparkles className="h-4 w-4 text-primary" />
               Ask AI to help with this task
             </button>
           ) : (
-            <div className="rounded-xl border border-border bg-surface p-4 space-y-3 text-left">
-              <div className="flex items-center gap-2 text-xs font-medium text-primary uppercase tracking-wider">
+            <div className="app-card p-4 space-y-3 text-left">
+              <div className="flex items-center gap-2 eyebrow text-primary">
                 <Sparkles className="h-3.5 w-3.5" /> AI Assistant
               </div>
               {block.location && (
@@ -462,7 +469,7 @@ export default function Focus() {
                   href={mapsUrl(block.location, block.location_lat, block.location_lng)}
                   target="_blank"
                   rel="noreferrer"
-                  className="flex items-center gap-2 text-sm text-foreground bg-background rounded-xl px-3 py-2 border border-border pressable"
+                  className="flex items-center gap-2 text-sm text-foreground bg-background/80 rounded-[12px] px-3 py-2 border border-border/50 pressable"
                 >
                   <MapPin className="h-4 w-4 text-primary shrink-0" />
                   <span className="truncate flex-1">{block.location}</span>
@@ -500,9 +507,9 @@ export default function Focus() {
               {help && (
                 <>
                   {help.draft && (
-                    <div className="rounded-xl border border-primary/30 bg-primary/5 overflow-hidden">
-                      <div className="flex items-center justify-between px-3 py-2 border-b border-primary/20">
-                        <div className="flex items-center gap-1.5 text-[11px] uppercase tracking-wider text-primary font-medium">
+                    <div className="rounded-[14px] border border-primary/18 bg-primary/[0.04] overflow-hidden">
+                      <div className="flex items-center justify-between px-3 py-2 border-b border-primary/12">
+                        <div className="flex items-center gap-1.5 eyebrow text-primary">
                           <Mail className="h-3 w-3" /> Draft
                         </div>
                         <button onClick={copyDraft} className="inline-flex items-center gap-1 text-[11px] font-medium text-primary pressable">
@@ -550,7 +557,7 @@ export default function Focus() {
                     </div>
                   )}
                   {help.tip && (
-                    <div className="flex items-start gap-2 bg-primary/5 border border-primary/20 rounded-xl px-3 py-2 text-sm text-foreground">
+                    <div className="flex items-start gap-2 bg-primary/[0.04] border border-primary/15 rounded-[12px] px-3 py-2 text-sm text-foreground">
                       <Lightbulb className="h-4 w-4 text-primary shrink-0 mt-0.5" />
                       <span>{help.tip}</span>
                     </div>

@@ -13,6 +13,13 @@ export interface Block {
   kind: BlockKind;
   completed: boolean;
   position: number;
+  /** Synced calendar blocks are not user tasks — exclude from Focus / Next up. */
+  is_calendar_event?: boolean;
+}
+
+/** User-owned tasks only (excludes synced calendar rows from metrics & carry-over). */
+export function isUserTask(b: { kind: string; is_calendar_event?: boolean | null }): boolean {
+  return b.kind === "task" && !b.is_calendar_event;
 }
 
 export const peakWindow = (e: EnergyPref) =>

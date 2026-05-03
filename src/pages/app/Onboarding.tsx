@@ -64,12 +64,12 @@ export default function Onboarding() {
 
   return (
     <div className="min-h-screen w-full bg-background flex justify-center">
-      <div className="relative w-full max-w-[440px] min-h-screen flex flex-col">
-        <div className="pointer-events-none absolute inset-x-0 top-0 h-[320px]" style={{ background: "var(--gradient-glow)" }} />
-        <div className="relative z-10 flex-1 flex flex-col px-7 pt-16 pb-10 page-enter" key={step}>
-          <div className="flex gap-1.5 mb-10">
+      <div className="relative w-full max-w-[400px] min-h-screen flex flex-col">
+        <div className="pointer-events-none absolute inset-x-0 top-0 h-[200px]" style={{ background: "var(--gradient-glow)" }} />
+        <div className="relative z-10 flex-1 flex flex-col px-6 pt-14 pb-10 page-enter" key={step}>
+          <div className="flex gap-1.5 mb-9">
             {[0,1].map(i => (
-              <div key={i} className={`h-[3px] flex-1 rounded-full transition-colors ${i <= step ? "bg-primary" : "bg-border"}`} />
+              <div key={i} className={`h-[3px] flex-1 rounded-full transition-colors ${i <= step ? "bg-primary" : "bg-border/70"}`} />
             ))}
           </div>
 
@@ -77,10 +77,13 @@ export default function Onboarding() {
             <div className="flex-1 flex flex-col">
               <div className="flex-1 flex flex-col justify-center">
                 <p className="eyebrow">DayDraft</p>
-                <h1 className="font-display text-[48px] font-semibold leading-[1.0] tracking-tight mt-4">Your day,<br/>designed.</h1>
-                <p className="text-secondary-fg mt-5 text-[15.5px] leading-relaxed max-w-sm">For busy pros. Drop your tasks. Get a focused, intelligent schedule in seconds.</p>
+                <h1 className="font-display text-[40px] font-semibold leading-[1.05] tracking-tight mt-3 text-balance">Your day, designed.</h1>
+                <p className="text-secondary-fg mt-5 text-[15px] leading-[1.55] max-w-sm">
+                  For busy pros. Drop your tasks. Get a focused schedule in seconds.{" "}
+                  <span className="text-foreground/90">Four tabs along the bottom</span> take you between planning, tracking time, history, and settings.
+                </p>
               </div>
-              <Button onClick={() => setStep(1)} className="w-full h-12 rounded-xl bg-primary text-primary-foreground hover:bg-primary/92 pressable text-[15px] font-medium shadow-card">
+              <Button onClick={() => setStep(1)} className="w-full h-12 rounded-[14px] bg-primary text-primary-foreground hover:bg-primary/92 pressable text-[15px] font-medium shadow-card">
                 Get started
               </Button>
             </div>
@@ -89,14 +92,14 @@ export default function Onboarding() {
           {step === 1 && (
             <div className="flex-1 flex flex-col">
               <p className="eyebrow">Step 2 of 2</p>
-              <h1 className="font-display text-[28px] font-semibold leading-tight mt-1.5 tracking-tight">How should we talk to you?</h1>
-              <p className="text-secondary-fg mt-1.5 text-[13.5px]">Sets the tone for nudges, plans and recaps. Change anytime in Settings.</p>
-              <div className="space-y-1.5 mt-5 flex-1 overflow-y-auto">
+              <h1 className="font-display text-[26px] font-semibold leading-tight mt-2 tracking-tight text-balance">How should we talk to you?</h1>
+              <p className="text-secondary-fg mt-2 text-[13px] leading-[1.55]">Sets the tone for nudges, plans and recaps. Change anytime in Settings.</p>
+              <div className="space-y-2 mt-6 flex-1 overflow-y-auto">
                 {TONE_OPTIONS.map(e => {
                   const active = tone === e.key;
                   return (
                     <button key={e.key} onClick={() => setTone(e.key)}
-                      className={`w-full flex items-center gap-3 p-3 rounded-lg border pressable transition-all ${active ? "border-primary bg-primary/[0.04]" : "border-border bg-card hover:border-foreground/20"}`}>
+                      className={`w-full flex items-center gap-3 p-3.5 rounded-[16px] border pressable transition-all backdrop-blur-sm ${active ? "border-primary/25 bg-primary/[0.05]" : "border-border/50 bg-surface/60 hover:border-border"}`}>
                       <span className="text-lg">{e.emoji}</span>
                       <div className="flex-1 text-left">
                         <div className="font-medium text-[14px]">{e.title}</div>
@@ -109,10 +112,10 @@ export default function Onboarding() {
                   );
                 })}
               </div>
-              <Button onClick={() => finish(true)} className="w-full h-12 rounded-xl bg-primary text-primary-foreground hover:bg-primary/92 pressable text-[15px] font-medium mt-4 shadow-card">
+              <Button onClick={() => finish(true)} className="w-full h-12 rounded-[14px] bg-primary text-primary-foreground hover:bg-primary/92 pressable text-[15px] font-medium mt-5 shadow-card">
                 Enable nudges & continue
               </Button>
-              <button onClick={() => finish(false)} className="mt-3 text-secondary-fg text-[12.5px] hover:text-foreground transition-colors mx-auto">Skip nudges</button>
+              <button onClick={() => finish(false)} className="mt-3 text-secondary-fg text-[13px] hover:text-foreground transition-colors mx-auto">Skip nudges</button>
             </div>
           )}
         </div>

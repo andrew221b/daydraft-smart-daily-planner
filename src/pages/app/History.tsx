@@ -1,14 +1,16 @@
 import { useEffect, useState } from "react";
 import { Shell } from "@/components/app/Shell";
+import { PageHeader } from "@/components/app/PageHeader";
+import { PullToRefresh } from "@/components/app/PullToRefresh";
 import { useAuth } from "@/hooks/useAuth";
 import { supabase } from "@/integrations/supabase/client";
-import { parseDateStr, todayDateStr } from "@/lib/daydraft";
+import { parseDateStr, todayDateStr, isUserTask } from "@/lib/daydraft";
 import { useNavigate } from "react-router-dom";
-import { CheckCircle2, Circle, CalendarDays, Flame, Timer as TimerIcon, Target } from "lucide-react";
+import { CheckCircle2, Circle, CalendarDays, Flame, Timer as TimerIcon, Target, LayoutList } from "lucide-react";
 import { useTimeTracker, fmtHM } from "@/hooks/useTimeTracker";
 import { useStreak } from "@/hooks/useStreak";
 
-interface BlockLite { plan_id: string; kind: string; completed: boolean; title: string; }
+interface BlockLite { plan_id: string; kind: string; completed: boolean; title: string; is_calendar_event?: boolean | null; }
 interface PlanRow {
   id: string;
   date: string;
@@ -41,7 +43,7 @@ export default function History() {
     const ids = list.map(p => p.id);
     const { data: blocks } = await supabase
       .from("blocks")
-      .select("plan_id,kind,completed,title,position")
+      .select("plan_id,kind,completed,title,position,is_calendar_event")
       .in("plan_id", ids)
       .order("position");
     const byPlan = new Map<string, BlockLite[]>();
@@ -61,7 +63,7 @@ export default function History() {
       .filter(p => !orphans.includes(p.id))
       .map(p => {
         const bs = byPlan.get(p.id) || [];
-        const tasks = bs.filter(b => b.kind === "task");
+        const tasks = bs.filter(b => isUserTask(b));
         const done = tasks.filter(b => b.completed).length;
         const preview = tasks.slice(0, 3).map(t => t.title).filter(Boolean).join(" · ");
         return {
@@ -100,12 +102,16 @@ export default function History() {
 
   return (
     <Shell>
+      <PullToRefresh onRefresh={async () => { await load(); }}>
       <div className="px-6 pt-12">
-        <p className="eyebrow">Your week</p>
-        <h1 className="font-display text-[28px] font-semibold tracking-tight mt-1.5">Insights</h1>
+        <PageHeader
+          eyebrow="Your week"
+          title="History"
+          hint="Planned days and tracked time. Tap a day for recap — only tasks you mark done count toward completion; open items stay open."
+        />
 
         {/* At-a-glance — the only numbers a busy person actually needs */}
-        <div className="mt-6 grid grid-cols-2 gap-2.5">
+        <div className="mt-9 grid grid-cols-2 gap-3">
           <StatCard
             icon={<TimerIcon className="h-3.5 w-3.5" />}
             label="Tracked this week"
@@ -133,7 +139,7 @@ export default function History() {
           />
         </div>
 
-        <div className="mt-8 eyebrow">Recent days</div>
+        <div className="mt-10 eyebrow">Recent days</div>
 
         {loading && (
           <div className="mt-3 space-y-2">
@@ -143,11 +149,11 @@ export default function History() {
           </div>
         )}
         {!loading && (
-          <div className="mt-3 space-y-7">
+          <div className="mt-4 space-y-8">
             {Object.entries(groups).map(([w, items]) => (
               <div key={w}>
                 <div className="eyebrow mb-2.5">{w}</div>
-                <div className="space-y-1.5">
+                <div className="space-y-2">
                   {items.map(p => {
                     const isToday = p.date === todayKey;
                     const completionPct = p.total ? Math.round((p.done / p.total) * 100) : 0;
@@ -157,34 +163,52 @@ export default function History() {
                     // resuming work — that path is on the Today screen.
                     const goTo = `/recap?date=${p.date}`;
                     return (
-                      <button
+                      <div
                         key={p.id}
-                        onClick={() => nav(goTo)}
-                        className="w-full text-left rounded-2xl bg-surface border border-border p-4 pressable hover:border-primary/30 transition-colors"
+                        className="app-card p-0 flex overflow-hidden hover:border-primary/25 transition-colors border-border"
                       >
-                        <div className="flex items-center gap-2">
-                          {allDone ? (
-                            <CheckCircle2 className="h-3.5 w-3.5 text-success shrink-0" />
-                          ) : (
-                            <Circle className="h-3.5 w-3.5 text-secondary-fg/60 shrink-0" />
-                          )}
-                          <div className="text-[11.5px] text-secondary-fg font-medium">
-                            {parseDateStr(p.date).toLocaleDateString(undefined, { weekday: "long", month: "long", day: "numeric" })}
-                            {isToday && <span className="ml-2 eyebrow text-primary">Today</span>}
+                        <button
+                          type="button"
+                          onClick={() => nav(goTo)}
+                          className="flex-1 text-left p-4 pressable min-w-0"
+                        >
+                          <div className="flex items-center gap-2">
+                            {allDone ? (
+                              <CheckCircle2 className="h-3.5 w-3.5 text-success shrink-0" />
+                            ) : (
+                              <Circle className="h-3.5 w-3.5 text-secondary-fg/60 shrink-0" />
+                            )}
+                            <div className="text-[11.5px] text-secondary-fg font-medium">
+                              {parseDateStr(p.date).toLocaleDateString(undefined, { weekday: "long", month: "long", day: "numeric" })}
+                              {isToday && <span className="ml-2 eyebrow text-primary">Today</span>}
+                            </div>
                           </div>
-                        </div>
-                        <div className="mt-1.5 text-[14px] line-clamp-2 leading-snug font-display">
-                          {p.ai_summary || p.preview || `${p.total} task${p.total === 1 ? "" : "s"}`}
-                        </div>
-                        <div className="mt-3 flex items-center justify-between text-[11px] text-secondary-fg">
-                          <span>
-                            <span className="text-foreground font-medium">{p.done}</span>
-                            <span className="text-secondary-fg">/{p.total}</span>
-                            {" tasks done"}
-                          </span>
-                          <span className={`tabular-nums ${allDone ? "text-success font-medium" : ""}`}>{completionPct}%</span>
-                        </div>
-                      </button>
+                          <div className="mt-1.5 text-[14px] line-clamp-2 leading-snug font-display">
+                            {p.ai_summary || p.preview || `${p.total} task${p.total === 1 ? "" : "s"}`}
+                          </div>
+                          <div className="mt-3 flex items-center justify-between text-[11px] text-secondary-fg">
+                            <span>
+                              <span className="text-foreground font-medium">{p.done}</span>
+                              <span className="text-secondary-fg">/{p.total}</span>
+                              {" tasks done"}
+                            </span>
+                            <span className={`tabular-nums ${allDone ? "text-success font-medium" : ""}`}>{completionPct}%</span>
+                          </div>
+                        </button>
+                        <button
+                          type="button"
+                          onClick={(e) => {
+                            e.preventDefault();
+                            e.stopPropagation();
+                            nav(`/today/plan?date=${p.date}`);
+                          }}
+                          className="shrink-0 w-[52px] flex flex-col items-center justify-center gap-1 border-l border-border/60 bg-surface/40 text-[10px] font-semibold uppercase tracking-wide text-secondary-fg hover:text-primary hover:bg-primary/[0.06] pressable"
+                          aria-label={`Open plan for ${p.date}`}
+                        >
+                          <LayoutList className="h-4 w-4" />
+                          Plan
+                        </button>
+                      </div>
                     );
                   })}
                 </div>
@@ -206,6 +230,7 @@ export default function History() {
           </div>
         )}
       </div>
+      </PullToRefresh>
     </Shell>
   );
 }
@@ -215,7 +240,7 @@ function StatCard({ icon, label, value, sub, onClick }: { icon: React.ReactNode;
   return (
     <Comp
       onClick={onClick}
-      className={`text-left rounded-2xl bg-surface border border-border p-4 ${onClick ? "pressable hover:border-primary/30 transition-colors" : ""}`}
+      className={`text-left app-card p-4 ${onClick ? "pressable hover:border-primary/25 transition-colors" : ""}`}
     >
       <div className="flex items-center gap-1.5 text-secondary-fg">
         {icon}

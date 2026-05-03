@@ -253,15 +253,14 @@ export function ClarifySheet({ open, onOpenChange, rawInput, onConfirm, planDate
 
   return (
     <Sheet open={open} onOpenChange={onOpenChange}>
-      <SheetContent side="bottom" className="rounded-t-3xl max-h-[94vh] overflow-y-auto p-0 border-border">
-        {/* Header — minimal */}
-        <div className="px-5 pt-5 pb-4 sticky top-0 bg-background z-10 border-b border-border">
+      <SheetContent side="bottom" className="rounded-t-[24px] max-h-[94vh] overflow-y-auto p-0 border-border/50 bg-background/95 backdrop-blur-xl">
+        <div className="px-5 pt-6 pb-4 sticky top-0 z-10 border-b border-border/50 bg-background/90 backdrop-blur-md supports-[backdrop-filter]:bg-background/75">
           <SheetHeader className="text-left">
-            <SheetTitle className="flex items-center gap-2 text-xl">
+            <SheetTitle className="flex items-center gap-2 font-display text-[19px] font-semibold tracking-tight">
               Review tasks
               {(loadingAI || splitting) && <Loader2 className="h-4 w-4 animate-spin text-primary" />}
             </SheetTitle>
-            <SheetDescription className="text-xs">
+            <SheetDescription className="text-[12.5px] leading-[1.5] text-secondary-fg">
               {splitting ? "AI is splitting your tasks…" : "Drag to reorder · top = highest priority"} ·{" "}
               <span className={overCapacity ? "text-destructive font-medium" : "text-primary font-medium"}>
                 {hours > 0 ? `${hours}h ` : ""}{mins}m total
@@ -312,7 +311,7 @@ export function ClarifySheet({ open, onOpenChange, rawInput, onConfirm, planDate
         </div>
 
         {/* Footer */}
-        <div className="px-5 pb-6 pt-3 sticky bottom-0 bg-background border-t border-border">
+        <div className="px-5 pb-6 pt-3 sticky bottom-0 bg-background/95 backdrop-blur-md border-t border-border/50 supports-[backdrop-filter]:bg-background/80">
           <Button
             onClick={() =>
               onConfirm(
@@ -320,7 +319,7 @@ export function ClarifySheet({ open, onOpenChange, rawInput, onConfirm, planDate
               )
             }
             disabled={tasks.length === 0 || hasPastFixed}
-            className="w-full h-12 rounded-xl bg-primary hover:bg-primary/92 text-primary-foreground text-[15px] font-medium pressable shadow-card"
+            className="w-full h-12 rounded-[14px] bg-primary hover:bg-primary/92 text-primary-foreground text-[15px] font-medium pressable shadow-card"
            
           >
             {hasPastFixed ? "Fix past times to continue" : <>Plan my day <Sparkles className="h-4 w-4 ml-1" /></>}
@@ -370,7 +369,7 @@ function SortableTaskCard({ id, index: i, task: t, loadingAI, onUpdate, onRemove
         : "bg-primary";
 
   return (
-    <div ref={setNodeRef} style={style} className="rounded-xl border border-border bg-surface p-3">
+    <div ref={setNodeRef} style={style} className="rounded-[16px] border border-border/50 bg-surface/70 backdrop-blur-sm p-3.5 shadow-card">
       {/* Row 1 — drag handle, priority dot, title, remove */}
       <div className="flex items-center gap-2">
         <button

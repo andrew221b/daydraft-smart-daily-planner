@@ -10,10 +10,10 @@
 
 @layer base {
   :root, :root.dark {
-    --background: 222 18% 7%;            /* #0F1115 */
-    --foreground: 0 0% 90%;              /* #E6E6E6 */
-    --surface: 222 14% 10%;              /* #171A21 */
-    --surface-elevated: 222 12% 13%;     /* #1D2027 */
+    --background: 222 16% 8%;
+    --foreground: 220 12% 94%;
+    --surface: 222 14% 11%;
+    --surface-elevated: 222 12% 14%;
     --card: 222 14% 10%;
     --card-foreground: 0 0% 90%;
     --popover: 222 12% 13%;
@@ -36,7 +36,7 @@
     --destructive: 4 70% 60%;
     --destructive-foreground: 0 0% 100%;
 
-    --border: 222 10% 18%;               /* hairline */
+    --border: 220 10% 22%;
     --input: 222 10% 18%;
     --ring: 168 50% 66%;
 
@@ -44,13 +44,16 @@
     --type-comm: 32 80% 65%;
     --type-routine: 220 15% 55%;
 
-    --radius: 1rem;
+    --radius: 1.125rem;
 
-    --shadow-card: 0 1px 0 rgba(255,255,255,0.02), 0 1px 2px rgba(0,0,0,0.3);
-    --shadow-elevated: 0 8px 28px rgba(0,0,0,0.45), 0 2px 6px rgba(0,0,0,0.3);
+    --shadow-card: 0 1px 0 rgba(255,255,255,0.045), 0 4px 28px rgba(0,0,0,0.24);
+    --shadow-card-inset: inset 0 1px 0 rgba(255,255,255,0.06);
+    --shadow-elevated: 0 12px 40px rgba(0,0,0,0.28), 0 2px 8px rgba(0,0,0,0.18);
     --shadow-glow: 0 0 0 4px hsl(var(--primary) / 0.18);
+    --shadow-tab: 0 12px 44px -14px rgba(0,0,0,0.48), inset 0 1px 0 rgba(255,255,255,0.07);
     --gradient-primary: linear-gradient(135deg, hsl(var(--primary)), hsl(var(--primary-glow)));
-    --gradient-glow: radial-gradient(60% 50% at 50% 0%, hsl(var(--primary) / 0.10), transparent 70%);
+    --gradient-glow: radial-gradient(55% 42% at 50% -8%, hsl(var(--primary) / 0.075), transparent 72%);
+    --gradient-floor: radial-gradient(ellipse 72% 46% at 50% 100%, hsl(var(--primary) / 0.05), transparent 68%);
   }
 
   /* Light mode kept as a thin override (most users stay dark) */
@@ -82,8 +85,12 @@
     --type-deep: 168 50% 40%;
     --type-comm: 32 75% 50%;
     --type-routine: 220 10% 50%;
-    --shadow-card: 0 1px 2px rgba(15,17,21,0.04);
+    --shadow-card: 0 1px 2px rgba(15,17,21,0.05);
+    --shadow-card-inset: inset 0 1px 0 rgba(255,255,255,0.55);
     --shadow-elevated: 0 4px 16px rgba(15,17,21,0.06);
+    --shadow-tab: 0 10px 36px -12px rgba(15,17,21,0.1), inset 0 1px 0 rgba(255,255,255,0.95);
+    --gradient-glow: radial-gradient(55% 40% at 50% -6%, hsl(var(--primary) / 0.11), transparent 70%);
+    --gradient-floor: radial-gradient(ellipse 70% 42% at 50% 100%, hsl(var(--primary) / 0.06), transparent 68%);
   }
 }
 
@@ -100,6 +107,7 @@
     overscroll-behavior-y: none;
     touch-action: manipulation;
     letter-spacing: -0.005em;
+    line-height: 1.55;
   }
   body {
     padding-top: env(safe-area-inset-top);
@@ -116,6 +124,10 @@
     user-select: text;
   }
   input, textarea, select { font-size: 16px; }
+  ::selection {
+    background-color: hsl(var(--primary) / 0.22);
+    color: hsl(var(--foreground));
+  }
   h1, h2, h3, h4, h5 {
     font-family: "Sora", -apple-system, BlinkMacSystemFont, system-ui, sans-serif;
     letter-spacing: -0.025em;
@@ -126,9 +138,10 @@
 @layer utilities {
   .font-display { font-family: "Sora", -apple-system, system-ui, sans-serif; letter-spacing: -0.025em; }
   .font-mono-sf { font-family: "JetBrains Mono", "SF Mono", ui-monospace, Menlo, monospace; }
-  .shadow-card { box-shadow: var(--shadow-card); }
+  .shadow-card { box-shadow: var(--shadow-card), var(--shadow-card-inset); }
   .shadow-elevated { box-shadow: var(--shadow-elevated); }
   .shadow-glow { box-shadow: var(--shadow-glow); }
+  .shadow-tab { box-shadow: var(--shadow-tab); }
   .bg-surface { background-color: hsl(var(--surface)); }
   .bg-surface-elevated { background-color: hsl(var(--surface-elevated)); }
   .text-secondary-fg { color: hsl(var(--muted-foreground)); }
@@ -192,8 +205,56 @@
   .eyebrow {
     font-size: 10px;
     font-weight: 600;
-    letter-spacing: 0.18em;
+    letter-spacing: 0.16em;
     text-transform: uppercase;
-    color: hsl(var(--muted-foreground));
+    color: hsl(var(--muted-foreground) / 0.92);
+  }
+
+  /** Premium surface: softer edge, slight translucency — use on stacked cards */
+  .app-card {
+    border-radius: calc(var(--radius) + 2px);
+    border: 1px solid hsl(var(--border) / 0.5);
+    background: linear-gradient(
+      165deg,
+      hsl(var(--surface) / 0.78) 0%,
+      hsl(var(--surface) / 0.68) 100%
+    );
+    backdrop-filter: blur(16px) saturate(1.12);
+    -webkit-backdrop-filter: blur(16px) saturate(1.12);
+    box-shadow: var(--shadow-card), var(--shadow-card-inset);
+  }
+
+  /** Ambient layers behind the app column (Shell) */
+  .shell-glow-top {
+    background: var(--gradient-glow);
+  }
+  .shell-glow-floor {
+    background: var(--gradient-floor);
+  }
+
+  @media (prefers-reduced-motion: no-preference) {
+    .shell-glow-breathe {
+      animation: shellGlowBreathe 16s ease-in-out infinite;
+    }
+    @keyframes shellGlowBreathe {
+      0%, 100% { opacity: 0.88; }
+      50% { opacity: 1; }
+    }
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .page-enter,
+  .fade-in,
+  .animate-in,
+  .shimmer,
+  .dot-bounce > span,
+  .ring-pulse,
+  .check-pop,
+  .shell-glow-breathe {
+    animation: none !important;
+  }
+  .pressable:active {
+    transform: none;
   }
 }

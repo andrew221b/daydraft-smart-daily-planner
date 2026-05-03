@@ -9,14 +9,14 @@ import { peakWindow } from "@/lib/daydraft";
 import { ThemeToggle } from "@/components/app/ThemeToggle";
 import { Fingerprint, Sparkles, Bell, Calendar, FileText, Shield, Trash2, HelpCircle, MessageCircle, Clock, ChevronDown } from "lucide-react";
 import { Textarea } from "@/components/ui/textarea";
-import { Link } from "react-router-dom";
+import { Link, useNavigate } from "react-router-dom";
 import { clearStoredPasskey, enrollPasskey, getStoredPasskey, passkeySupported } from "@/lib/passkeys";
 import { toast } from "sonner";
 import { useEntitlement } from "@/hooks/useEntitlement";
 import { UpgradeSheet } from "@/components/app/UpgradeSheet";
 import { enablePush, disablePush, pushSupported } from "@/lib/push";
 import { useTour, TOUR_TODAY } from "@/components/app/Tour";
-import { useNavigate } from "react-router-dom";
+import { getWeekIntention, setWeekIntention } from "@/lib/weekIntention";
 
 const energies = [
   { key: "morning" as const, label: "Morning person" },
@@ -46,6 +46,14 @@ export default function Settings() {
   const [calConnecting, setCalConnecting] = useState(false);
   const [advancedOpen, setAdvancedOpen] = useState(false);
   useEffect(() => { if (profile) setName(profile.display_name || ""); }, [profile?.id]);
+
+  useEffect(() => {
+    if (window.location.hash !== "#week-intention") return;
+    const id = requestAnimationFrame(() => {
+      document.getElementById("week-intention")?.scrollIntoView({ behavior: "smooth", block: "start" });
+    });
+    return () => cancelAnimationFrame(id);
+  }, []);
 
   const togglePasskey = async () => {
     if (hasPasskey) {
@@ -110,9 +118,9 @@ export default function Settings() {
     <Shell>
       <div className="px-6 pt-12">
         <p className="eyebrow">Account</p>
-        <h1 className="font-display text-[28px] font-semibold tracking-tight mt-1.5">Settings</h1>
+        <h1 className="font-display text-[26px] font-semibold tracking-tight mt-2 text-balance">Settings</h1>
 
-        <div className="mt-7 space-y-7">
+        <div className="mt-8 space-y-8">
           {/* 1. Plan card — most important context */}
           <ProCard
             entitlement={entitlement} isPro={isPro}
@@ -120,9 +128,15 @@ export default function Settings() {
             onUpgrade={() => setUpgradeOpen(true)}
           />
 
+          <div id="week-intention" className="scroll-mt-28">
+            <Section title="This week's focus">
+              <WeekIntentionEditor />
+            </Section>
+          </div>
+
           {/* 2. Profile — name + appearance grouped */}
           <Section title="You">
-            <div className="rounded-xl border border-border bg-surface divide-y divide-border overflow-hidden">
+            <div className="rounded-[18px] border border-border/50 bg-surface/70 backdrop-blur-sm divide-y divide-border/50 overflow-hidden">
               <div className="px-3 py-2.5">
                 <div className="text-[11px] text-secondary-fg mb-1">Name</div>
                 <Input value={name} onChange={e => setName(e.target.value)} onBlur={() => update({ display_name: name })}
@@ -137,7 +151,7 @@ export default function Settings() {
 
           {/* 3. AI tone — single most-used preference */}
           <Section title="AI tone">
-            <div className="rounded-xl border border-border bg-surface divide-y divide-border overflow-hidden">
+            <div className="rounded-[18px] border border-border/50 bg-surface/70 backdrop-blur-sm divide-y divide-border/50 overflow-hidden">
               {TONES.map(t => {
                 const active = (profile?.ai_tone || "motivational") === t.key;
                 return (
@@ -167,7 +181,7 @@ export default function Settings() {
 
           {/* 4. Notifications + Calendar — connected channels */}
           <Section title="Connections">
-            <div className="rounded-xl border border-border bg-surface divide-y divide-border overflow-hidden">
+            <div className="rounded-[18px] border border-border/50 bg-surface/70 backdrop-blur-sm divide-y divide-border/50 overflow-hidden">
               <div className="flex items-center justify-between px-4 py-3">
                 <div className="flex items-center gap-3">
                   <Bell className="h-4 w-4 text-secondary-fg" />
@@ -200,14 +214,14 @@ export default function Settings() {
           <Section title="Advanced">
             <button
               onClick={() => setAdvancedOpen(o => !o)}
-              className="w-full flex items-center justify-between px-4 py-3 rounded-xl border border-border bg-surface pressable hover:bg-surface-elevated"
+              className="w-full flex items-center justify-between px-4 py-3 rounded-[16px] border border-border/50 bg-surface/65 backdrop-blur-sm pressable hover:bg-surface-elevated/80"
             >
               <span className="text-[14px]">Active hours & energy</span>
               <ChevronDown className={`h-4 w-4 text-secondary-fg transition-transform ${advancedOpen ? "rotate-180" : ""}`} />
             </button>
             {advancedOpen && (
               <div className="mt-2 space-y-2">
-                <div className="rounded-xl bg-surface border border-border p-3 space-y-2.5">
+                <div className="app-card p-3 space-y-2.5">
                   <div className="text-[11px] text-secondary-fg">Active hours — when AI may schedule tasks.</div>
                   <div className="flex items-center gap-3">
                     <label className="flex-1">
@@ -230,7 +244,7 @@ export default function Settings() {
                     </label>
                   </div>
                 </div>
-                <div className="rounded-xl border border-border bg-surface divide-y divide-border overflow-hidden">
+                <div className="rounded-[18px] border border-border/50 bg-surface/70 backdrop-blur-sm divide-y divide-border/50 overflow-hidden">
                   {energies.map(e => {
                     const active = profile?.energy_preference === e.key;
                     return (
@@ -248,7 +262,7 @@ export default function Settings() {
 
           {/* 6. Help + legal — quiet, terminal items */}
           <Section title="More">
-            <div className="rounded-xl border border-border bg-surface divide-y divide-border overflow-hidden">
+            <div className="rounded-[18px] border border-border/50 bg-surface/70 backdrop-blur-sm divide-y divide-border/50 overflow-hidden">
               <button
                 onClick={async () => {
                   await tour.resetAll();
@@ -291,6 +305,52 @@ export default function Settings() {
   );
 }
 
+function WeekIntentionEditor() {
+  const [txt, setTxt] = useState("");
+  useEffect(() => {
+    setTxt(getWeekIntention()?.text ?? "");
+  }, []);
+  return (
+    <div className="app-card overflow-hidden p-0 border-border/55">
+      <p className="text-[12.5px] text-secondary-fg px-4 pt-4 leading-relaxed">
+        One line that stays pinned on <strong className="text-foreground font-medium">Today</strong> until Monday. Use it for a theme, a deadline, or how you want to feel — not a task list.
+      </p>
+      <Textarea
+        value={txt}
+        onChange={(e) => setTxt(e.target.value)}
+        placeholder="e.g. Ship the beta · stay calm under load"
+        className="mx-3 my-3 min-h-[72px] bg-background border-border rounded-xl text-[13px]"
+      />
+      <div className="flex gap-2 px-3 pb-3">
+        <Button
+          type="button"
+          className="flex-1 h-10 rounded-xl text-[13px]"
+          onClick={() => {
+            setWeekIntention(txt);
+            window.dispatchEvent(new Event("dd-week-intent"));
+            toast.success("Saved — check Today");
+          }}
+        >
+          Save for this week
+        </Button>
+        <Button
+          type="button"
+          variant="outline"
+          className="h-10 rounded-xl text-[12px] px-3"
+          onClick={() => {
+            setTxt("");
+            setWeekIntention("");
+            window.dispatchEvent(new Event("dd-week-intent"));
+            toast("Cleared");
+          }}
+        >
+          Clear
+        </Button>
+      </div>
+    </div>
+  );
+}
+
 const Section = ({ title, children }: { title: string; children: React.ReactNode }) => (
   <div>
     <div className="text-[10px] uppercase tracking-[0.14em] text-secondary-fg mb-2 font-medium">{title}</div>
@@ -310,7 +370,7 @@ const ProCard = ({ entitlement, isPro, planQuotaUsed, planQuotaLimit, onUpgrade 
     : tier === "trial" ? `Trial · ${entitlement?.daysLeftInTrial}d left`
     : "Free";
   return (
-    <div className="rounded-xl border border-primary/25 bg-primary/[0.04] p-4">
+    <div className="rounded-[18px] border border-primary/15 bg-primary/[0.03] backdrop-blur-sm p-4 shadow-card">
       <div className="flex items-center gap-1.5">
         <Sparkles className="h-3.5 w-3.5 text-primary" />
         <span className="text-[10px] font-semibold text-primary uppercase tracking-[0.14em]">{badge}</span>
@@ -318,8 +378,13 @@ const ProCard = ({ entitlement, isPro, planQuotaUsed, planQuotaLimit, onUpgrade 
       <div className="text-[13px] mt-1.5 text-foreground">
         {isPro
           ? "Unlimited plans, calendar sync, and everything."
-          : `${planQuotaUsed} of ${planQuotaLimit} free plans used this week.`}
+          : `${planQuotaUsed} of ${planQuotaLimit} free planning days used in the last 7 days.`}
       </div>
+      {!isPro && (
+        <p className="text-[11px] text-secondary-fg mt-2 leading-relaxed">
+          Each calendar day you run <strong className="text-foreground font-medium">Generate plan</strong> counts once. Re-planning the same day doesn&apos;t cost extra slots.
+        </p>
+      )}
       {!isPro && (
         <Button onClick={onUpgrade} className="w-full mt-3 h-10 rounded-lg bg-primary hover:bg-primary/92 text-primary-foreground text-[13px] font-medium pressable">
           Start free trial
@@ -327,7 +392,7 @@ const ProCard = ({ entitlement, isPro, planQuotaUsed, planQuotaLimit, onUpgrade 
       )}
       {isPro && (
         <button onClick={() => toast("Subscription management coming soon")}
-          className="w-full mt-3 h-9 rounded-lg text-[12px] text-secondary-fg border border-border bg-surface pressable hover:text-foreground">
+          className="w-full mt-3 h-9 rounded-[12px] text-[12px] text-secondary-fg border border-border/50 bg-surface/70 pressable hover:text-foreground">
           Manage subscription
         </button>
       )}

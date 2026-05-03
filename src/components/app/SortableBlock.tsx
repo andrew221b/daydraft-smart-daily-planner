@@ -1,14 +1,16 @@
 import { useSortable } from "@dnd-kit/sortable";
 import { CSS } from "@dnd-kit/utilities";
 import { Block, fmtTime, typeColor } from "@/lib/daydraft";
-import { Check, Calendar } from "lucide-react";
+import { Check, Calendar, Sparkles } from "lucide-react";
 
 export const SortableBlock = ({
-  block, editing, onTap,
+  block, editing, onTap, tourSpotlight,
 }: {
   block: Block & { ai_reasoning?: string | null; location?: string | null; location_lat?: number | null; location_lng?: number | null; is_calendar_event?: boolean };
   editing: boolean;
   onTap?: (b: any) => void;
+  /** First visible row — tour hotspot only on one element. */
+  tourSpotlight?: boolean;
 }) => {
   const { attributes, listeners, setNodeRef, transform, transition, isDragging } = useSortable({ id: block.id, disabled: block.is_calendar_event });
   const style = {
@@ -24,7 +26,7 @@ export const SortableBlock = ({
     <div
       ref={setNodeRef}
       style={style}
-      data-tour="dayview-block"
+      data-tour={tourSpotlight ? "dayview-block" : undefined}
       {...(isCal ? {} : attributes)}
       {...(isCal ? {} : listeners)}
       onClick={() => onTap?.(block)}
@@ -38,15 +40,20 @@ export const SortableBlock = ({
         <div className={`text-[14.5px] leading-tight flex items-center gap-1.5 min-w-0 ${block.completed ? "line-through text-secondary-fg" : "text-foreground"}`}>
           {isCal && <Calendar className="h-3 w-3 text-secondary-fg shrink-0" />}
           <span className="truncate">{block.title}</span>
+          {!isCal && block.ai_reasoning && (
+            <span className="shrink-0 text-primary/70" title="Why this slot">
+              <Sparkles className="h-3 w-3" aria-hidden />
+            </span>
+          )}
         </div>
         <div className="text-[11px] text-secondary-fg mt-1 tabular-nums">{dur}</div>
       </div>
       {block.completed ? (
-        <div data-tour="dayview-complete" className="h-5 w-5 rounded-full bg-success flex items-center justify-center shrink-0">
+        <div data-tour={tourSpotlight ? "dayview-complete" : undefined} className="h-5 w-5 rounded-full bg-success flex items-center justify-center shrink-0">
           <Check className="h-3 w-3 text-success-foreground" strokeWidth={3} />
         </div>
       ) : (
-        <div data-tour="dayview-complete" className="h-5 w-5 rounded-full border-[1.5px] border-border shrink-0" />
+        <div data-tour={tourSpotlight ? "dayview-complete" : undefined} className="h-5 w-5 rounded-full border-[1.5px] border-border shrink-0" />
       )}
     </div>
   );

@@ -25,10 +25,33 @@ Deno.serve(async (req) => {
       (sub?.status === "trialing" && sub?.trial_ends_at && new Date(sub.trial_ends_at) > new Date());
     if (isPro) return json({ allowed: true, used: 0, limit: null, tier: sub?.status === "active" ? "pro" : "trial" });
 
-    const since = new Date(); since.setDate(since.getDate() - 6);
-    const { data: plans } = await supabase.from("plans").select("date")
-      .eq("user_id", user.id).gte("date", since.toISOString().slice(0, 10));
-    const used = new Set((plans || []).map((p: any) => p.date)).size;
+    let sinceStr: string;
+    try {
+      const body = await req.json();
+      sinceStr =
+        typeof body?.since_date === "string" && /^\d{4}-\d{2}-\d{2}$/.test(body.since_date)
+          ? body.since_date
+          : (() => {
+              const s = new Date();
+              s.setDate(s.getDate() - 6);
+              return s.toISOString().slice(0, 10);
+            })();
+    } catch {
+      const s = new Date();
+      s.setDate(s.getDate() - 6);
+      sinceStr = s.toISOString().slice(0, 10);
+    }
+
+    const { data: plans } = await supabase
+      .from("plans")
+      .select("date, blocks(id)")
+      .eq("user_id", user.id)
+      .gte("date", sinceStr);
+    const used = new Set(
+      (plans || [])
+        .filter((p: { blocks?: { id: string }[] | null }) => Array.isArray(p.blocks) && p.blocks.length > 0)
+        .map((p: { date: string }) => p.date),
+    ).size;
     const allowed = used < FREE_LIMIT;
     return json({ allowed, used, limit: FREE_LIMIT, tier: "free" });
   } catch (e) {

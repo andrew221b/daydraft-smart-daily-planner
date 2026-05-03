@@ -1,10 +1,10 @@
-import { useEffect, useState } from "react";
+import { useCallback, useEffect, useState } from "react";
 import { useNavigate, useSearchParams } from "react-router-dom";
 import { Shell } from "@/components/app/Shell";
 import { useAuth } from "@/hooks/useAuth";
 import { supabase } from "@/integrations/supabase/client";
-import { Block, fmtTime, todayDateStr, parseDateStr, friendlyDateFor, isFutureDateStr } from "@/lib/daydraft";
-import { ChevronLeft, Sparkles, Play, RefreshCw, Plus, Coffee, ChevronDown, CalendarDays, Trash2, Bell, BellOff, MoreHorizontal, Clock, Info, MapPin } from "lucide-react";
+import { Block, fmtTime, todayDateStr, parseDateStr, friendlyDateFor, isFutureDateStr, isUserTask } from "@/lib/daydraft";
+import { ChevronLeft, Sparkles, Play, RefreshCw, Plus, Coffee, ChevronDown, CalendarDays, Trash2, Bell, BellOff, MoreHorizontal, Clock, Info, MapPin, Copy } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { DndContext, closestCenter, PointerSensor, TouchSensor, useSensor, useSensors, DragEndEvent } from "@dnd-kit/core";
 import { SortableContext, arrayMove, verticalListSortingStrategy } from "@dnd-kit/sortable";
@@ -29,6 +29,9 @@ import { SkeletonBlock } from "@/components/app/SkeletonBlock";
 import { scheduleBlockReminders, ensureNotificationPermission, clearScheduledReminders, getReminderConfig, setReminderConfig, ReminderConfig } from "@/lib/blockReminders";
 import { DurationPicker } from "@/components/app/DurationPicker";
 import { mapsUrl } from "@/lib/maps";
+import { firstTaskCompleteMessage } from "@/lib/microDelights";
+import { PullToRefresh } from "@/components/app/PullToRefresh";
+import { formatPlanAsPlainText, copyTextToClipboard } from "@/lib/planTextExport";
 
 type ExBlock = Block & {
   ai_reasoning?: string | null;
@@ -109,26 +112,37 @@ export default function DayView() {
     return () => clearInterval(t);
   }, []);
 
-  useEffect(() => {
+  const fetchPlan = useCallback(async () => {
     if (!user) return;
-    (async () => {
-      setLoading(true);
-      setPlanMissing(false);
-      const { data: p } = await supabase.from("plans").select("id, ai_summary, ai_subtext")
-        .eq("user_id", user.id).eq("date", viewDate).maybeSingle();
-      if (!p) {
-        setPlan(null);
-        setBlocks([]);
-        setPlanMissing(true);
-        setLoading(false);
-        return;
-      }
-      setPlan(p);
-      const { data: bs } = await supabase.from("blocks").select("*").eq("plan_id", p.id).order("position");
-      setBlocks((bs || []) as ExBlock[]);
+    setLoading(true);
+    setPlanMissing(false);
+    const { data: p } = await supabase.from("plans").select("id, ai_summary, ai_subtext")
+      .eq("user_id", user.id).eq("date", viewDate).maybeSingle();
+    if (!p) {
+      setPlan(null);
+      setBlocks([]);
+      setPlanMissing(true);
       setLoading(false);
-    })();
+      return;
+    }
+    setPlan(p);
+    const { data: bs } = await supabase.from("blocks").select("*").eq("plan_id", p.id).order("position");
+    setBlocks((bs || []) as ExBlock[]);
+    setLoading(false);
   }, [user?.id, viewDate]);
+
+  useEffect(() => {
+    void fetchPlan();
+  }, [fetchPlan]);
+
+  const copyDayOutline = async () => {
+    if (!blocks.length) return;
+    const headline = plan?.ai_summary || `Plan · ${friendlyDateFor(parseDateStr(viewDate))}`;
+    const text = formatPlanAsPlainText({ headline, blocks: blocks as any });
+    const ok = await copyTextToClipboard(text);
+    if (ok) toast.success("Copied outline");
+    else toast.error("Could not copy");
+  };
 
   useEffect(() => {
     if (!isToday || blocks.length === 0) return;
@@ -154,34 +168,55 @@ export default function DayView() {
       duration: 5000,
     });
     setTimeout(async () => {
-      if (undone) return;
+      if (undone) {
+        if (isToday) window.dispatchEvent(new Event("dd-today-refresh"));
+        return;
+      }
       await supabase.from("blocks").delete().eq("id", id);
       if (plan && next.length === 0) {
         await supabase.from("plans").delete().eq("id", plan.id);
         setPlan(null);
         setPlanMissing(true);
+        if (isToday) window.dispatchEvent(new Event("dd-today-refresh"));
         return;
       }
       await persistOrder(next);
+      if (isToday) window.dispatchEvent(new Event("dd-today-refresh"));
     }, 5200);
   };
 
   const completeBlock = async (id: string) => {
     const snapshot = blocks;
     const wasDone = blocks.find(b => b.id === id)?.completed;
+    const toggled = snapshot.find(b => b.id === id);
+    const userTasks = snapshot.filter(isUserTask);
+    const doneBefore = userTasks.filter(b => b.completed).length;
+    const firstUserTaskDoneToday =
+      isToday && toggled && isUserTask(toggled) && !wasDone && doneBefore === 0;
     setBlocks(bs => bs.map(b => b.id === id ? { ...b, completed: !b.completed } : b));
+    if (isToday) window.dispatchEvent(new Event("dd-today-refresh"));
     haptics.notify("success");
     let undone = false;
     toast.success(wasDone ? "Reopened" : "Done", {
-      action: { label: "Undo", onClick: () => { undone = true; setBlocks(snapshot); } },
+      description: firstUserTaskDoneToday ? firstTaskCompleteMessage(viewDate) : undefined,
+      action: {
+        label: "Undo",
+        onClick: () => {
+          undone = true;
+          setBlocks(snapshot);
+          if (isToday) window.dispatchEvent(new Event("dd-today-refresh"));
+        },
+      },
       duration: 4000,
     });
     setTimeout(async () => {
       if (undone) {
         await supabase.from("blocks").update({ completed: !!wasDone }).eq("id", id);
+        if (isToday) window.dispatchEvent(new Event("dd-today-refresh"));
         return;
       }
       await supabase.from("blocks").update({ completed: !wasDone }).eq("id", id);
+      if (isToday) window.dispatchEvent(new Event("dd-today-refresh"));
     }, 4200);
   };
 
@@ -248,7 +283,7 @@ export default function DayView() {
     setMoreOpen(false);
     setReplanning(true);
     try {
-      const remaining = blocks.filter(b => b.kind === "task" && !b.completed);
+      const remaining = blocks.filter(b => isUserTask(b) && !b.completed);
       const nowHM = `${String(now.getHours()).padStart(2,"0")}:${String(now.getMinutes()).padStart(2,"0")}`;
       const tz = profile?.timezone || Intl.DateTimeFormat().resolvedOptions().timeZone;
       const { data, error } = await supabase.functions.invoke("generate-plan", {
@@ -265,8 +300,18 @@ export default function DayView() {
       });
       if (error) throw error;
       if (data?.error) throw new Error(data.error);
-      const keep = blocks.filter(b => b.kind === "task" ? b.completed : false);
-      await supabase.from("blocks").delete().eq("plan_id", plan.id).eq("completed", false);
+      const toRemoveIds = blocks
+        .filter((b) => {
+          if (b.is_calendar_event) return false;
+          if (isUserTask(b) && !b.completed) return true;
+          if ((b.kind === "break" || b.kind === "lunch") && !b.completed) return true;
+          return false;
+        })
+        .map((b) => b.id);
+      const keep = blocks.filter((b) => !toRemoveIds.includes(b.id));
+      if (toRemoveIds.length) {
+        await supabase.from("blocks").delete().in("id", toRemoveIds);
+      }
       const startPos = keep.length;
       const newBlocks = (data.blocks || []).map((b: any, i: number) => ({
         plan_id: plan.id, user_id: user.id,
@@ -286,30 +331,49 @@ export default function DayView() {
     } finally { setReplanning(false); }
   };
 
-  const firstUnfinishedTask = blocks.find(b => b.kind === "task" && !b.completed && !b.is_calendar_event);
-  const totalTasks = blocks.filter(b => b.kind === "task").length;
-  const doneTasks = blocks.filter(b => b.kind === "task" && b.completed).length;
+  const firstUnfinishedTask = blocks.find(b => isUserTask(b) && !b.completed);
+  const userTasks = blocks.filter(isUserTask);
+  const totalTasks = userTasks.length;
+  const doneTasks = userTasks.filter(b => b.completed).length;
 
   const upcomingBlocks = blocks.filter(b => !(b.kind === "task" && b.completed));
   const completedBlocks = blocks.filter(b => b.kind === "task" && b.completed);
 
   return (
     <Shell>
-      <div className="px-6 pt-12 flex items-center justify-between">
-        <button onClick={() => nav("/today")} className="h-9 w-9 -ml-2 rounded-full flex items-center justify-center text-secondary-fg hover:text-foreground hover:bg-surface pressable">
+      <PullToRefresh
+        onRefresh={async () => {
+          await fetchPlan();
+          if (isToday) window.dispatchEvent(new Event("dd-today-refresh"));
+        }}
+      >
+      <div className="px-6 pt-12 flex items-center justify-between gap-2">
+        <button onClick={() => nav("/today")} className="h-9 w-9 -ml-2 shrink-0 rounded-full flex items-center justify-center text-secondary-fg hover:text-foreground hover:bg-surface pressable">
           <ChevronLeft className="h-5 w-5" />
         </button>
-        <h1 className="font-display text-[16px] font-semibold tracking-tight">
+        <h1 className="font-display text-[16px] font-semibold tracking-tight flex-1 text-center min-w-0 truncate">
           {isToday ? "Today" : friendlyDateFor(parseDateStr(viewDate))}
         </h1>
-        <button
-          onClick={() => setMoreOpen(true)}
-          disabled={planMissing}
-          className="h-9 w-9 -mr-2 rounded-full flex items-center justify-center text-secondary-fg hover:text-foreground hover:bg-surface pressable disabled:opacity-30"
-          aria-label="More"
-        >
-          <MoreHorizontal className="h-5 w-5" />
-        </button>
+        <div className="flex items-center shrink-0 -mr-2">
+          {!planMissing && blocks.length > 0 && (
+            <button
+              type="button"
+              onClick={() => void copyDayOutline()}
+              className="h-9 w-9 rounded-full flex items-center justify-center text-secondary-fg hover:text-foreground hover:bg-surface pressable"
+              aria-label="Copy plan as text"
+            >
+              <Copy className="h-4 w-4" />
+            </button>
+          )}
+          <button
+            onClick={() => setMoreOpen(true)}
+            disabled={planMissing}
+            className="h-9 w-9 rounded-full flex items-center justify-center text-secondary-fg hover:text-foreground hover:bg-surface pressable disabled:opacity-30"
+            aria-label="More"
+          >
+            <MoreHorizontal className="h-5 w-5" />
+          </button>
+        </div>
       </div>
 
       {/* Compact progress strip — single line, no boxed card */}
@@ -321,7 +385,7 @@ export default function DayView() {
               <span className="text-secondary-fg">/{totalTasks} done</span>
             </div>
             <div className="text-[11.5px] text-secondary-fg tabular-nums">
-              {Math.round(blocks.filter(b => b.kind === "task").reduce((s,b) => s + b.duration_min, 0) / 6) / 10}h planned
+              {Math.round(userTasks.reduce((s, b) => s + b.duration_min, 0) / 6) / 10}h planned
             </div>
           </div>
           <div className="mt-2 h-1 rounded-full bg-muted overflow-hidden">
@@ -332,7 +396,7 @@ export default function DayView() {
 
       <div className="px-3 mt-5">
         {planMissing && (
-          <div className="mx-2 rounded-xl bg-card border border-border shadow-card p-6 text-center">
+          <div className="mx-2 app-card p-6 text-center">
             <CalendarDays className="h-6 w-6 mx-auto text-secondary-fg mb-2" />
             <div className="text-sm font-medium">
               {isFuture ? `No plan for ${friendlyDateFor(parseDateStr(viewDate))} yet`
@@ -356,8 +420,8 @@ export default function DayView() {
               <DndContext sensors={sensors} collisionDetection={closestCenter} onDragEnd={onDragEnd}>
                 <SortableContext items={upcomingBlocks.map(b => b.id)} strategy={verticalListSortingStrategy}>
                   <div className="space-y-0.5">
-                    {upcomingBlocks.map((b) => (
-                      <SortableBlock key={b.id} block={b} editing={false} onTap={(blk) => setTappedBlock(blk)} />
+                    {upcomingBlocks.map((b, i) => (
+                      <SortableBlock key={b.id} block={b} editing={false} tourSpotlight={i === 0} onTap={(blk) => setTappedBlock(blk)} />
                     ))}
                     {upcomingBlocks.length === 0 && completedBlocks.length === 0 && (
                       <div className="text-center text-secondary-fg py-12 text-sm">Nothing scheduled.</div>
@@ -398,9 +462,10 @@ export default function DayView() {
           </>
         )}
       </div>
+      </PullToRefresh>
 
       {!planMissing && !isFuture && firstUnfinishedTask && (
-        <div className="fixed bottom-[68px] left-1/2 -translate-x-1/2 w-full max-w-[420px] px-5 z-30">
+        <div className="fixed bottom-[76px] left-1/2 -translate-x-1/2 w-full max-w-[400px] px-5 z-30">
           <Button onClick={() => nav(`/focus/${firstUnfinishedTask.id}`)}
             className="w-full h-12 rounded-xl bg-primary hover:bg-primary/92 text-primary-foreground text-[15px] font-medium pressable shadow-elevated">
             <Play className="h-4 w-4" fill="currentColor" /> {toneCopy(getTone(profile as any), doneTasks === 0 ? "start_first" : "start_next")}
@@ -408,7 +473,7 @@ export default function DayView() {
         </div>
       )}
       {!planMissing && !isFuture && !firstUnfinishedTask && totalTasks > 0 && (
-        <div className="fixed bottom-[68px] left-1/2 -translate-x-1/2 w-full max-w-[420px] px-5 z-30">
+        <div className="fixed bottom-[76px] left-1/2 -translate-x-1/2 w-full max-w-[400px] px-5 z-30">
           <Button onClick={() => nav(isToday ? "/recap" : `/recap?date=${viewDate}`)} className="w-full h-12 rounded-xl bg-success text-success-foreground hover:bg-success/90 text-[15px] font-medium pressable shadow-elevated">
             {toneCopy(getTone(profile as any), "recap_cta")} →
           </Button>

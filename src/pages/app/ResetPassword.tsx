@@ -3,7 +3,6 @@ import { useNavigate } from "react-router-dom";
 import { supabase } from "@/integrations/supabase/client";
 import { Input } from "@/components/ui/input";
 import { Button } from "@/components/ui/button";
-import { Blobs } from "@/components/app/Blobs";
 import { toast } from "sonner";
 
 export default function ResetPassword() {
@@ -39,20 +38,20 @@ export default function ResetPassword() {
 
   return (
     <div className="min-h-screen w-full bg-background flex justify-center">
-      <div className="relative w-full max-w-[390px] min-h-screen flex flex-col">
-        <Blobs />
-        <div className="relative z-10 flex-1 flex flex-col px-6 pt-20 pb-10">
-          <h1 className="text-4xl font-semibold leading-tight">New password</h1>
-          <p className="text-secondary-fg mt-2">
+      <div className="relative w-full max-w-[400px] min-h-screen flex flex-col">
+        <div className="pointer-events-none absolute inset-x-0 top-0 h-[200px]" style={{ background: "var(--gradient-glow)" }} />
+        <div className="relative z-10 flex-1 flex flex-col px-6 pt-16 pb-10">
+          <h1 className="font-display text-[26px] font-semibold leading-tight text-balance">New password</h1>
+          <p className="text-secondary-fg mt-2.5 text-[13px] leading-[1.55]">
             {ready ? "Pick something you'll remember." : "Verifying reset link..."}
           </p>
           {ready && (
-            <form onSubmit={submit} className="mt-10 space-y-3">
+            <form onSubmit={submit} className="mt-9 space-y-3">
               <Input type="password" required minLength={6} value={pw} onChange={e => setPw(e.target.value)} placeholder="New password"
-                className="h-12 bg-surface border-border rounded-xl" />
+                className="h-12 bg-surface/80 border-border/50 rounded-[14px]" />
               <Input type="password" required minLength={6} value={pw2} onChange={e => setPw2(e.target.value)} placeholder="Confirm password"
-                className="h-12 bg-surface border-border rounded-xl" />
-              <Button type="submit" disabled={busy} className="w-full h-12 rounded-xl bg-primary text-primary-foreground hover:bg-primary/90 pressable text-base font-medium">
+                className="h-12 bg-surface/80 border-border/50 rounded-[14px]" />
+              <Button type="submit" disabled={busy} className="w-full h-12 rounded-[14px] bg-primary text-primary-foreground hover:bg-primary/90 pressable text-base font-medium shadow-card">
                 {busy ? "..." : "Update password"}
               </Button>
             </form>

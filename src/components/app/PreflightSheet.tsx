@@ -41,20 +41,20 @@ export const PreflightSheet = ({
 
   return (
     <Sheet open={open} onOpenChange={onOpenChange}>
-      <SheetContent side="bottom" className="rounded-t-3xl border-border bg-surface-elevated">
+      <SheetContent side="bottom" className="rounded-t-[24px] border-border/50 bg-background/95 backdrop-blur-xl">
         <SheetHeader>
-          <SheetTitle>Ready to focus?</SheetTitle>
+          <SheetTitle className="font-display text-[20px]">Ready to focus?</SheetTitle>
         </SheetHeader>
-        <p className="text-sm text-secondary-fg mt-2">A few seconds of prep doubles your odds.</p>
+        <p className="text-[13px] text-secondary-fg mt-2 leading-[1.55]">A few seconds of prep doubles your odds.</p>
         <div className="mt-4 space-y-2">
           {items.map(({ key, Icon, label }) => (
             <button
               key={key}
               onClick={() => toggle(key)}
-              className={`w-full flex items-center gap-3 px-4 py-3 rounded-xl border pressable transition-colors ${
+              className={`w-full flex items-center gap-3 px-4 py-3 rounded-[14px] border pressable transition-colors backdrop-blur-sm ${
                 checks[key]
-                  ? "border-primary/40 bg-primary/10"
-                  : "border-border bg-surface"
+                  ? "border-primary/28 bg-primary/[0.08]"
+                  : "border-border/50 bg-surface/60"
               }`}
             >
               <div className={`h-9 w-9 rounded-full flex items-center justify-center shrink-0 ${
@@ -69,7 +69,7 @@ export const PreflightSheet = ({
         <div className="mt-5 space-y-2 pb-2">
           <Button
             onClick={startWithPref}
-            className="w-full h-12 rounded-xl bg-primary hover:bg-primary/92 text-primary-foreground font-medium pressable shadow-card"
+            className="w-full h-12 rounded-[14px] bg-primary hover:bg-primary/92 text-primary-foreground font-medium pressable shadow-card"
            
           >
             {allChecked ? "Let's go" : "Start anyway"}

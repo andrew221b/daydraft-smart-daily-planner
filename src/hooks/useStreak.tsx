@@ -13,7 +13,7 @@ export interface Streak {
   updated_at: string;
 }
 
-const daysBetween = (a: string, b: string) => {
+export const daysBetweenDateKeys = (a: string, b: string) => {
   const da = new Date(a + "T00:00:00").getTime();
   const db = new Date(b + "T00:00:00").getTime();
   return Math.round((db - da) / 86400000);
@@ -25,7 +25,7 @@ export const useStreak = () => {
   const [loading, setLoading] = useState(true);
   // Idempotency guard: prevents double-recording within the same session if
   // recordPlanToday is invoked twice in quick succession (double-tap on Plan).
-  const recordingRef = useRef<Promise<any> | null>(null);
+  const recordingRef = useRef<Promise<unknown> | null>(null);
 
   const refresh = useCallback(async () => {
     if (!user) { setStreak(null); setLoading(false); return; }
@@ -72,7 +72,7 @@ export const useStreak = () => {
     if (!s.last_planned_date) {
       current = 1;
     } else {
-      const gap = daysBetween(s.last_planned_date, today);
+      const gap = daysBetweenDateKeys(s.last_planned_date, today);
       if (gap === 1) current = current + 1;
       else if (gap > 1) {
         // missed days; consume freezes if possible to bridge a single missed day
@@ -111,7 +111,7 @@ export const useStreak = () => {
     if (streak.freezes_remaining < 1) return false;
     const today = todayDateStr();
     if (!streak.last_planned_date) return false;
-    const gap = daysBetween(streak.last_planned_date, today);
+    const gap = daysBetweenDateKeys(streak.last_planned_date, today);
     // Only valid when exactly one day was missed (yesterday was skipped).
     if (gap !== 2) return false;
     const yesterday = new Date(); yesterday.setDate(yesterday.getDate() - 1);
@@ -124,5 +124,11 @@ export const useStreak = () => {
     return true;
   }, [user?.id, streak]);
 
-  return { streak, loading, refresh, recordPlanToday, restoreWithFreeze };
+  const todayKey = todayDateStr();
+  const showRestoreOffer =
+    !!streak?.last_planned_date &&
+    (streak.freezes_remaining ?? 0) > 0 &&
+    daysBetweenDateKeys(streak.last_planned_date, todayKey) === 2;
+
+  return { streak, loading, refresh, recordPlanToday, restoreWithFreeze, showRestoreOffer };
 };

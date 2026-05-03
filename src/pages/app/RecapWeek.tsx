@@ -3,7 +3,7 @@ import { useNavigate } from "react-router-dom";
 import { Shell } from "@/components/app/Shell";
 import { useAuth } from "@/hooks/useAuth";
 import { supabase } from "@/integrations/supabase/client";
-import { Block, dateStr } from "@/lib/daydraft";
+import { Block, dateStr, isUserTask } from "@/lib/daydraft";
 import { CalendarDays, Target, Clock, Trophy, ArrowRight } from "lucide-react";
 import { Button } from "@/components/ui/button";
 
@@ -30,7 +30,7 @@ export default function RecapWeek() {
   }, [user?.id]);
 
   const stats = useMemo(() => {
-    const tasks = blocks.filter(b => b.kind === "task");
+    const tasks = blocks.filter(isUserTask);
     const completed = tasks.filter(b => b.completed);
     const focusMin = completed.filter(b => b.type === "deep_work").reduce((s, b) => s + b.duration_min, 0);
     const completionPct = tasks.length ? Math.round((completed.length / tasks.length) * 100) : 0;
@@ -48,12 +48,12 @@ export default function RecapWeek() {
   return (
     <Shell>
       <div className="relative">
-        <div className="absolute inset-x-0 top-0 h-72 pointer-events-none" style={{ background: "var(--gradient-glow)" }} />
-        <div className="relative px-6 pt-16">
-          <h1 className="text-[34px] font-semibold leading-tight">Your week.</h1>
-          <p className="text-secondary-fg mt-1">Last 7 days at a glance</p>
+        <div className="absolute inset-x-0 top-0 h-52 pointer-events-none" style={{ background: "var(--gradient-glow)" }} />
+        <div className="relative px-6 pt-14">
+          <h1 className="font-display text-[26px] font-semibold leading-tight text-balance">Your week</h1>
+          <p className="text-[13px] text-secondary-fg mt-2 leading-relaxed">Last 7 days at a glance</p>
 
-          <div className="grid grid-cols-2 gap-3 mt-8">
+          <div className="grid grid-cols-2 gap-3 mt-9">
             <Card icon={<Clock className="h-4 w-4" />} label="Focus time" value={`${fh}h ${fm}m`} />
             <Card icon={<Target className="h-4 w-4" />} label="Completion" value={`${stats.completionPct}%`} sub={`${stats.done}/${stats.planned}`} />
             <Card icon={<Trophy className="h-4 w-4" />} label="Top category" value={stats.topLabel} />
@@ -89,11 +89,12 @@ export default function RecapWeek() {
 }
 
 const Card = ({ icon, label, value, sub }: { icon: React.ReactNode; label: string; value: string; sub?: string }) => (
-  <div className="rounded-xl bg-surface border border-border p-4 shadow-card">
-    <div className="flex items-center gap-1.5 text-secondary-fg text-[11px] uppercase tracking-wide">
-      {icon}<span>{label}</span>
+  <div className="app-card p-4">
+    <div className="flex items-center gap-1.5 text-secondary-fg">
+      <span className="text-primary/90">{icon}</span>
+      <span className="eyebrow">{label}</span>
     </div>
-    <div className="text-2xl font-semibold mt-2">{value}</div>
-    {sub && <div className="text-xs text-secondary-fg mt-0.5">{sub}</div>}
+    <div className="font-display text-[22px] font-semibold tabular-nums mt-2 leading-tight">{value}</div>
+    {sub && <div className="text-[11px] text-secondary-fg mt-1">{sub}</div>}
   </div>
 );
