@@ -402,56 +402,56 @@ function TrackerInner({ embedded = false, onClose }: { embedded?: boolean; onClo
         {/* TODAY TAB — categories + start/stop + today summary */}
         {tab === "today" && (
           <>
-            {/* Hero stopwatch — big, scannable */}
+            {/* Hero stopwatch — premium, centered */}
             <div className="px-5 pt-5">
               <div
-                className={`rounded-xl border p-5 transition-colors ${
+                className={`relative overflow-hidden rounded-[22px] border p-6 transition-all duration-500 ${
                   active
-                    ? "border-primary/50 bg-gradient-to-br from-primary/10 via-primary/5 to-transparent"
+                    ? "border-primary/40 bg-surface-elevated"
                     : "border-border bg-surface"
                 }`}
+                style={active ? { boxShadow: "0 20px 60px -20px hsl(var(--primary) / 0.35), inset 0 1px 0 hsl(var(--primary) / 0.08)" } : undefined}
               >
+                {active && (
+                  <>
+                    <div className="pointer-events-none absolute -top-24 -left-24 h-64 w-64 rounded-full opacity-30 blur-3xl"
+                         style={{ background: `radial-gradient(circle, ${activeCat?.color || 'hsl(var(--primary))'} 0%, transparent 70%)` }} />
+                    <div className="pointer-events-none absolute -bottom-24 -right-16 h-56 w-56 rounded-full opacity-20 blur-3xl"
+                         style={{ background: `radial-gradient(circle, hsl(var(--primary)) 0%, transparent 70%)` }} />
+                  </>
+                )}
                 {active && activeCat ? (
-                  <div className="flex items-center gap-4">
-                    <div className="relative shrink-0">
-                      <span
-                        className="absolute inset-0 rounded-full animate-ping opacity-40"
-                        style={{ background: activeCat.color }}
-                      />
-                      <span
-                        className="relative block h-3.5 w-3.5 rounded-full"
-                        style={{ background: activeCat.color }}
-                      />
+                  <div className="relative flex flex-col items-center text-center gap-4 fade-in">
+                    <div className="flex items-center gap-2">
+                      <span className="relative flex h-2 w-2">
+                        <span className="absolute inset-0 rounded-full animate-ping opacity-70" style={{ background: activeCat.color }} />
+                        <span className="relative h-2 w-2 rounded-full" style={{ background: activeCat.color }} />
+                      </span>
+                      <span className="text-[10px] font-semibold uppercase tracking-[0.18em] text-secondary-fg">Now tracking</span>
                     </div>
-                    <div className="flex-1 min-w-0">
-                      <div className="text-[10px] font-semibold uppercase tracking-wider text-secondary-fg">Now tracking</div>
-                      <div className="text-base font-semibold truncate">{activeCat.name}</div>
-                    </div>
-                    <div className="font-mono tabular-nums text-3xl font-bold leading-none">
+                    <div className="font-display tabular-nums text-[44px] font-semibold leading-none tracking-tight">
                       {fmtHMS(elapsedSec)}
+                    </div>
+                    <div className="text-[14px] font-medium text-foreground/90 truncate max-w-full">
+                      {activeCat.name}
                     </div>
                     <button
                       onClick={handleStop}
-                      className="shrink-0 inline-flex items-center justify-center h-11 w-11 rounded-full bg-primary text-primary-foreground pressable"
+                      className="mt-1 inline-flex items-center justify-center gap-2 h-11 px-6 rounded-full bg-primary text-primary-foreground text-[13.5px] font-semibold pressable shadow-glow"
                       aria-label="Stop"
                     >
-                      <Pause className="h-4 w-4" fill="currentColor" />
+                      <Pause className="h-3.5 w-3.5" fill="currentColor" /> Stop
                     </button>
                   </div>
                 ) : (
-                  <div className="flex items-center gap-3">
-                    <div className="h-10 w-10 rounded-full bg-muted flex items-center justify-center shrink-0">
-                      <Hourglass className="h-4 w-4 text-secondary-fg" />
+                  <div className="relative flex flex-col items-center text-center gap-2">
+                    <span className="text-[10px] font-semibold uppercase tracking-[0.18em] text-secondary-fg">Today</span>
+                    <div className="font-display tabular-nums text-[40px] font-semibold leading-none tracking-tight">
+                      {fmtHM(todayTotalSec)}
                     </div>
-                    <div className="flex-1 min-w-0">
-                      <div className="text-[10px] font-semibold uppercase tracking-wider text-secondary-fg">Today</div>
-                      <div className="font-mono tabular-nums text-2xl font-bold leading-tight">
-                        {fmtHM(todayTotalSec)}
-                      </div>
-                    </div>
-                    <div className="text-right text-[11px] text-secondary-fg max-w-[110px] leading-tight">
-                      {todayTotalSec === 0 ? "Pick a category below to start" : "Idle — ready to track"}
-                    </div>
+                    <p className="text-[12px] text-secondary-fg mt-1">
+                      {todayTotalSec === 0 ? "Pick a category to start tracking" : "Idle — ready when you are"}
+                    </p>
                   </div>
                 )}
               </div>
