@@ -5,8 +5,7 @@ import { useTimeTracker, fmtHMS } from "@/hooks/useTimeTracker";
 const tabs = [
   { to: "/today", icon: Home, label: "Today", tour: "tab-today" },
   { to: "/tracker", icon: Timer, label: "Timer", tour: "tab-tracker" },
-  { to: "/history", icon: Clock3, label: "History", tour: "tab-history" },
-  { to: "/stats", icon: BarChart2, label: "Stats", tour: "tab-stats" },
+  { to: "/history", icon: BarChart2, label: "Insights", tour: "tab-history" },
   { to: "/settings", icon: SettingsIcon, label: "Settings", tour: "tab-settings" },
 ];
 

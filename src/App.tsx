@@ -72,7 +72,7 @@ const App = () => (
             <Route path="/recap" element={<RequireAuth><Recap /></RequireAuth>} />
             <Route path="/recap/week" element={<RequireAuth><RecapWeek /></RequireAuth>} />
             <Route path="/history" element={<RequireAuth><History /></RequireAuth>} />
-            <Route path="/stats" element={<RequireAuth><Stats /></RequireAuth>} />
+            <Route path="/stats" element={<Navigate to="/history" replace />} />
             <Route path="/settings" element={<RequireAuth><Settings /></RequireAuth>} />
             <Route path="/privacy" element={<Privacy />} />
             <Route path="/terms" element={<Terms />} />
