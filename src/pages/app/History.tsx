@@ -6,9 +6,8 @@ import { useAuth } from "@/hooks/useAuth";
 import { supabase } from "@/integrations/supabase/client";
 import { parseDateStr, todayDateStr, isUserTask } from "@/lib/daydraft";
 import { useNavigate } from "react-router-dom";
-import { CheckCircle2, Circle, CalendarDays, Flame, Timer as TimerIcon, Target, LayoutList } from "lucide-react";
+import { CheckCircle2, Circle, CalendarDays, Timer as TimerIcon, Target, LayoutList } from "lucide-react";
 import { useTimeTracker, fmtHM } from "@/hooks/useTimeTracker";
-import { useStreak } from "@/hooks/useStreak";
 import { KpiCard } from "@/components/app/KpiCard";
 
 interface BlockLite { plan_id: string; kind: string; completed: boolean; title: string; is_calendar_event?: boolean | null; }
@@ -25,7 +24,6 @@ export default function History() {
   const { user } = useAuth();
   const nav = useNavigate();
   const { weekTotalSec, todayTotalSec } = useTimeTracker();
-  const { streak } = useStreak();
   const [plans, setPlans] = useState<PlanRow[]>([]);
   const [loading, setLoading] = useState(true);
 
@@ -114,7 +112,7 @@ export default function History() {
         </div>
 
         {/* At-a-glance — the only numbers a busy person actually needs */}
-        <div className="mt-6 grid grid-cols-2 gap-3 section-switch-stagger">
+        <div className="mt-6 grid grid-cols-3 gap-3 section-switch-stagger">
           <KpiCard
             icon={<TimerIcon className="h-3.5 w-3.5" />}
             label="Tracked this week"
@@ -128,13 +126,6 @@ export default function History() {
             label="Tasks done"
             value={`${completionPct}%`}
             sub={`${totalDone} of ${totalTasks} planned`}
-          />
-          <KpiCard
-            icon={<Flame className="h-3.5 w-3.5" />}
-            label="Current streak"
-            value={`${streak?.current_streak ?? 0}d`}
-            sub={`Best ${streak?.longest_streak ?? 0}d`}
-            tone="success"
           />
           <KpiCard
             icon={<CalendarDays className="h-3.5 w-3.5" />}
