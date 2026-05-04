@@ -70,6 +70,13 @@ export default function Today() {
   const [input, setInput] = useState("");
   const [busy, setBusy] = useState(false);
   const queryClient = useQueryClient();
+  const [templates, setTemplates] = useState<{ id: string; name: string; raw_input: string }[]>([]);
+  const [clarifyOpen, setClarifyOpen] = useState(false);
+  const [planDate, setPlanDate] = useState<string>(todayDateStr());
+  const [datePopoverOpen, setDatePopoverOpen] = useState(false);
+  const [moreOpen, setMoreOpen] = useState(false);
+  const [composerOpen, setComposerOpen] = useState(false);
+  const [pendingCaptureIds, setPendingCaptureIds] = useState<string[]>([]);
   const { data: planData } = useQuery({
     queryKey: planDashboardQueryKey(user?.id ?? "", planDate),
     queryFn: () => fetchPlanDashboard(user!.id, planDate),
@@ -80,13 +87,6 @@ export default function Today() {
   const planBlocks = planData?.planBlocks ?? [];
   const hasPlanForDate = planData?.hasPlanForDate ?? false;
   const planSummary = planData?.planSummary ?? null;
-  const [templates, setTemplates] = useState<{ id: string; name: string; raw_input: string }[]>([]);
-  const [clarifyOpen, setClarifyOpen] = useState(false);
-  const [planDate, setPlanDate] = useState<string>(todayDateStr());
-  const [datePopoverOpen, setDatePopoverOpen] = useState(false);
-  const [moreOpen, setMoreOpen] = useState(false);
-  const [composerOpen, setComposerOpen] = useState(false);
-  const [pendingCaptureIds, setPendingCaptureIds] = useState<string[]>([]);
   const [nowHM, setNowHM] = useState(() => {
     const n = new Date();
     return `${String(n.getHours()).padStart(2, "0")}:${String(n.getMinutes()).padStart(2, "0")}`;
