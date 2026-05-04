@@ -27,7 +27,6 @@ import {
   Bookmark,
   Plus,
   Pencil,
-  Flame,
   Target,
   ListChecks,
   Inbox,
@@ -92,7 +91,6 @@ export default function Today() {
   const planBlocks = planData?.planBlocks ?? [];
   const hasPlanForDate = planData?.hasPlanForDate ?? false;
   const planSummary = planData?.planSummary ?? null;
-  const [showContext, setShowContext] = useState(false);
   const [calmMode] = useCalmMode();
   const [energyState, setEnergyState] = useState<EnergyState>(() => readEnergyState());
   const [rescueMode, setRescueMode] = useState<RescueMode>("stabilize");
