@@ -14,17 +14,19 @@ const benefits = [
   { icon: Music, label: "Focus soundscapes", sub: "Rain, café, lofi & more" },
 ];
 
-export type UpgradeReason = "quota" | "feature" | "trial-banner";
+export type UpgradeReason = "quota" | "feature" | "trial-banner" | "momentum";
 
 const reasonHeadline: Record<UpgradeReason, string> = {
   quota: "You're on a roll.",
   feature: "Unlock the full DayDraft.",
   "trial-banner": "Two weeks in. Make it forever.",
+  momentum: "Keep your momentum compounding.",
 };
 const reasonSub: Record<UpgradeReason, string> = {
   quota: "Free is 5 plans a week. Pro is unlimited.",
   feature: "This feature is part of DayDraft Pro.",
   "trial-banner": "Lock in everything you've been using.",
+  momentum: "You are building consistency. Pro keeps coaching and planning unlimited.",
 };
 
 export const UpgradeSheet = ({

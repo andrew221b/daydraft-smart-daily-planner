@@ -14,6 +14,8 @@ import { Confetti } from "@/components/app/Confetti";
 import { formatPlanAsPlainText, copyTextToClipboard } from "@/lib/planTextExport";
 import { KpiCard } from "@/components/app/KpiCard";
 import { smartDailyOutcome, weeklyProductScore } from "@/lib/productPolish";
+import { useEntitlement } from "@/hooks/useEntitlement";
+import { UpgradeSheet } from "@/components/app/UpgradeSheet";
 
 export default function Recap() {
   const { user } = useAuth();
@@ -30,6 +32,8 @@ export default function Recap() {
   const [lastWeekFocusMin, setLastWeekFocusMin] = useState<number | null>(null);
   const [confettiFired, setConfettiFired] = useState(false);
   const [weeklyScore, setWeeklyScore] = useState<{ score: number; tips: string[] } | null>(null);
+  const [upgradeOpen, setUpgradeOpen] = useState(false);
+  const { isPro } = useEntitlement();
 
   useEffect(() => {
     if (!user) return;
@@ -410,6 +414,15 @@ export default function Recap() {
               </div>
             </div>
           )}
+          {!isPro && weeklyScore && weeklyScore.score >= 65 && isTodayRecap && (
+            <button
+              type="button"
+              onClick={() => setUpgradeOpen(true)}
+              className="mt-3 w-full h-10 rounded-xl border border-accent surface-accent text-[12px] text-primary font-medium pressable"
+            >
+              Unlock Pro coaching from this momentum
+            </button>
+          )}
 
           {/* "Tomorrow looks like" was a static placeholder — removed. The
               insight card above and the carry-over button cover what users
@@ -445,6 +458,7 @@ export default function Recap() {
           )}
         </div>
       </div>
+      <UpgradeSheet open={upgradeOpen} onOpenChange={setUpgradeOpen} reason="momentum" />
     </Shell>
   );
 }

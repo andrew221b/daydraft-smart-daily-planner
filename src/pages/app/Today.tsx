@@ -70,7 +70,7 @@ export default function Today() {
   const nav = useNavigate();
   const [searchParams, setSearchParams] = useSearchParams();
   const { streak, recordPlanToday, restoreWithFreeze, showRestoreOffer } = useStreak();
-  const { isPro, planQuotaRemaining, entitlement } = useEntitlement();
+  const { isPro, planQuotaRemaining, planQuotaUsed, planQuotaLimit, entitlement } = useEntitlement();
   const tour = useTour();
   const [upgradeOpen, setUpgradeOpen] = useState(false);
   const [upgradeReason, setUpgradeReason] = useState<"quota" | "feature" | "trial-banner">("feature");
@@ -346,20 +346,18 @@ export default function Today() {
   const openClarify = async () => {
     if (!input.trim()) { toast.error("Add at least one task"); return; }
     if (!user || !profile) return;
-    if (planDate === todayDateStr()) {
-      try {
-        const since = new Date();
-        since.setDate(since.getDate() - 6);
-        const { data: q } = await supabase.functions.invoke("check-plan-quota", {
-          body: { since_date: dateStr(since) },
-        });
-        if (q && q.allowed === false) {
-          setUpgradeReason("quota");
-          setUpgradeOpen(true);
-          return;
-        }
-      } catch {/* fail open */}
-    }
+    try {
+      const since = new Date();
+      since.setDate(since.getDate() - 6);
+      const { data: q } = await supabase.functions.invoke("check-plan-quota", {
+        body: { since_date: dateStr(since) },
+      });
+      if (q && q.allowed === false) {
+        setUpgradeReason("quota");
+        setUpgradeOpen(true);
+        return;
+      }
+    } catch {/* fail open */}
     setClarifyOpen(true);
   };
 
@@ -819,6 +817,21 @@ export default function Today() {
             Free plans for this week are used.{" "}
             <button onClick={() => { setUpgradeReason("feature"); setUpgradeOpen(true); }}
               className="text-primary hover:underline">Go unlimited</button>
+          </p>
+        )}
+        {!isPro && planQuotaRemaining > 0 && planQuotaRemaining <= 2 && !showTrialBanner && (
+          <button
+            type="button"
+            onClick={() => { setUpgradeReason("quota"); setUpgradeOpen(true); }}
+            className="mt-4 w-full h-10 rounded-xl border border-soft surface-soft text-[12px] text-secondary-fg hover:text-foreground pressable inline-flex items-center justify-center gap-1.5"
+          >
+            {planQuotaRemaining} free planning day{planQuotaRemaining === 1 ? "" : "s"} left this week
+            <span className="text-primary font-medium">Upgrade</span>
+          </button>
+        )}
+        {!isPro && planQuotaUsed >= Math.min(3, Number.isFinite(planQuotaLimit) ? planQuotaLimit : 3) && !showTrialBanner && (
+          <p className="mt-3 text-[11px] text-secondary-fg text-center">
+            You are at {planQuotaUsed}/{Number.isFinite(planQuotaLimit) ? planQuotaLimit : "∞"} weekly free planning days.
           </p>
         )}
       </div>

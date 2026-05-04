@@ -5,6 +5,7 @@ const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
   "Access-Control-Allow-Headers": "authorization, x-client-info, apikey, content-type",
 };
+const FREE_PLAN_LIMIT = 5;
 
 serve(async (req) => {
   if (req.method === "OPTIONS") return new Response(null, { headers: corsHeaders });
@@ -19,6 +20,8 @@ serve(async (req) => {
     // Optional: pull user_patterns + calendar events if authenticated
     let pattern: any = null;
     let calendarEvents: any[] = [];
+    let authedUserId: string | null = null;
+    let tier: "free" | "trial" | "pro" = "free";
     const auth = req.headers.get("Authorization");
     if (auth) {
       try {
@@ -29,11 +32,13 @@ serve(async (req) => {
         );
         const { data: u } = await supabase.auth.getUser();
         if (u?.user) {
+          authedUserId = u.user.id;
           const { data: p } = await supabase.from("user_patterns").select("*").eq("user_id", u.user.id).maybeSingle();
           pattern = p;
           // Pro: pull today's calendar events if connected
           const { data: sub } = await supabase.from("subscriptions").select("status").eq("user_id", u.user.id).maybeSingle();
           const isPro = sub?.status === "active" || sub?.status === "trialing";
+          tier = sub?.status === "active" ? "pro" : sub?.status === "trialing" ? "trial" : "free";
           const { data: tok } = await supabase.from("calendar_tokens").select("user_id").eq("user_id", u.user.id).maybeSingle();
           if (isPro && tok) {
             const ev = await fetch(`${Deno.env.get("SUPABASE_URL")}/functions/v1/fetch-calendar-events`, {
@@ -88,6 +93,55 @@ serve(async (req) => {
     const isReplan = mode === "replan";
     const activeStart = (typeof active_hours_start === "string" && /^\d{2}:\d{2}$/.test(active_hours_start)) ? active_hours_start : "09:00";
     const activeEnd = (typeof active_hours_end === "string" && /^\d{2}:\d{2}$/.test(active_hours_end)) ? active_hours_end : "22:00";
+
+    // Server-side quota enforcement (free tier): prevents bypassing UI checks.
+    // Re-planning an already-counted date is allowed.
+    if (authedUserId && tier === "free") {
+      const toLocalDate = (d: Date) => {
+        try {
+          return new Intl.DateTimeFormat("en-CA", { timeZone: timezone || "UTC" }).format(d);
+        } catch {
+          return d.toISOString().slice(0, 10);
+        }
+      };
+      const since = new Date(nowDate);
+      since.setDate(since.getDate() - 6);
+      const sinceStr = toLocalDate(since);
+      const targetDate =
+        typeof plan_date === "string" && /^\d{4}-\d{2}-\d{2}$/.test(plan_date)
+          ? plan_date
+          : todayLocal;
+
+      const supabase = createClient(
+        Deno.env.get("SUPABASE_URL")!,
+        Deno.env.get("SUPABASE_ANON_KEY")!,
+        { global: { headers: { Authorization: auth || "" } } }
+      );
+      const { data: plans } = await supabase
+        .from("plans")
+        .select("date, blocks(id)")
+        .eq("user_id", authedUserId)
+        .gte("date", sinceStr);
+      const usedDates = new Set(
+        (plans || [])
+          .filter((p: { blocks?: { id: string }[] | null }) => Array.isArray(p.blocks) && p.blocks.length > 0)
+          .map((p: { date: string }) => p.date)
+      );
+      const alreadyCounted = usedDates.has(targetDate);
+      if (!alreadyCounted && usedDates.size >= FREE_PLAN_LIMIT) {
+        return new Response(
+          JSON.stringify({
+            error: `Free plan limit reached (${FREE_PLAN_LIMIT} planning days in the last 7 days).`,
+            code: "PLAN_QUOTA_REACHED",
+            tier: "free",
+            limit: FREE_PLAN_LIMIT,
+            used: usedDates.size,
+          }),
+          { status: 402, headers: { ...corsHeaders, "Content-Type": "application/json" } }
+        );
+      }
+    }
+
     const toneMap: Record<string, string> = {
       professional: `Tone profile: PROFESSIONAL
 - Voice: concise, executive, practical.
