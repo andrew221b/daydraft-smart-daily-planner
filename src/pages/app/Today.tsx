@@ -520,36 +520,8 @@ export default function Today() {
 
         {profile?.onboarded && planDate === todayDateStr() && (
           <div className="mt-5 space-y-3">
-            {showRestoreOffer && (
-              <div className="rounded-[20px] border border-amber-500/20 bg-amber-500/[0.045] backdrop-blur-sm px-4 py-3.5 shadow-card">
-                <p className="text-[12.5px] leading-relaxed text-foreground">
-                  You skipped a planning day. Use your <strong className="font-semibold">weekly freeze</strong> once to bridge the gap and keep your streak.
-                </p>
-                <Button
-                  size="sm"
-                  variant="secondary"
-                  className="mt-2.5 h-10 rounded-lg text-[12px]"
-                  onClick={async () => {
-                    const ok = await restoreWithFreeze();
-                    if (ok) toast.success("Streak restored — plan today to continue");
-                    else toast.error("Could not apply freeze");
-                  }}
-                >
-                  Restore streak
-                </Button>
-              </div>
-            )}
             {!calmMode && <TodayInsight />}
-            {!calmMode && (weekIntention || (streak && streak.current_streak >= 1)) && (
-              <button
-                onClick={() => setShowContext((v) => !v)}
-                className="w-full h-10 rounded-xl border border-soft surface-soft text-[12px] text-secondary-fg hover:text-foreground pressable inline-flex items-center justify-center gap-1.5"
-              >
-                {showContext ? "Hide context signals" : "Show context signals"}
-                <ChevronDown className={`h-3.5 w-3.5 transition-transform ${showContext ? "rotate-180" : ""}`} />
-              </button>
-            )}
-            {!calmMode && showContext && weekIntention && (
+            {!calmMode && weekIntention && (
               <div className="flex items-start gap-3 rounded-[20px] border border-accent surface-accent backdrop-blur-sm px-4 py-3.5 shadow-card animate-in fade-in slide-in-from-bottom-2 duration-500 fill-mode-both">
                 <Target className="h-4 w-4 text-primary shrink-0 mt-0.5" strokeWidth={2} />
                 <div className="min-w-0 flex-1">
@@ -560,20 +532,6 @@ export default function Today() {
                   Edit
                 </Link>
               </div>
-            )}
-            {!calmMode && showContext && streak && streak.current_streak >= 1 && (
-              <Link
-                to="/history"
-                className="inline-flex items-center gap-2 rounded-[14px] border border-soft surface-soft backdrop-blur-sm px-3 py-2 text-[12.5px] text-secondary-fg transition-colors hover:border-primary/25 hover:text-foreground"
-              >
-                <Flame className="h-4 w-4 text-primary shrink-0" />
-                <span>
-                  <span className="font-semibold tabular-nums text-foreground">{streak.current_streak}</span> day planning streak
-                  {streak.longest_streak > streak.current_streak && (
-                    <span className="text-secondary-fg"> · best {streak.longest_streak}</span>
-                  )}
-                </span>
-              </Link>
             )}
           </div>
         )}
