@@ -10,7 +10,6 @@ import { Button } from "@/components/ui/button";
 import { useTimeTracker, fmtHM } from "@/hooks/useTimeTracker";
 import { toast } from "sonner";
 import { haptics } from "@/lib/haptics";
-import { Confetti } from "@/components/app/Confetti";
 import { formatPlanAsPlainText, copyTextToClipboard } from "@/lib/planTextExport";
 import { KpiCard } from "@/components/app/KpiCard";
 import { smartDailyOutcome, weeklyProductScore } from "@/lib/productPolish";
@@ -30,7 +29,6 @@ export default function Recap() {
   const [carriedOver, setCarriedOver] = useState(false);
   const [mood, setMood] = useState<"good" | "ok" | "bad" | null>(null);
   const [lastWeekFocusMin, setLastWeekFocusMin] = useState<number | null>(null);
-  const [confettiFired, setConfettiFired] = useState(false);
   const [weeklyScore, setWeeklyScore] = useState<{ score: number; tips: string[] } | null>(null);
   const [upgradeOpen, setUpgradeOpen] = useState(false);
   const { isPro } = useEntitlement();
@@ -119,16 +117,15 @@ export default function Recap() {
   const eff = plannedMin ? Math.round((completedMin / plannedMin) * 100) : 0;
   const fh = Math.floor(focusMin / 60), fm = focusMin % 60;
 
-  // Fire confetti once when 100% of tasks are done — only on today's recap.
-  // Past days are always "100% done in retrospect"; we don't want a celebration
-  // every time the user browses history.
+  // Tiny haptic when the day reaches 100% — quiet, no confetti.
+  const celebratedRef = useRef(false);
   useEffect(() => {
     if (viewDate !== todayDateStr()) return;
-    if (tasks.length > 0 && done === tasks.length && !confettiFired) {
-      setConfettiFired(true);
+    if (tasks.length > 0 && done === tasks.length && !celebratedRef.current) {
+      celebratedRef.current = true;
       haptics.notify("success");
     }
-  }, [tasks.length, done, confettiFired, viewDate]);
+  }, [tasks.length, done, viewDate]);
 
   // Restore previously recorded mood for this day (local-only).
   useEffect(() => {
@@ -251,7 +248,6 @@ export default function Recap() {
 
   return (
     <Shell>
-      <Confetti fire={confettiFired} />
       <div className="relative">
         <div className="absolute inset-x-0 top-0 h-52 pointer-events-none" style={{ background: "var(--gradient-glow)" }} />
         <div className="relative px-5 pt-10">
