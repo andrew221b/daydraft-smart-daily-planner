@@ -50,7 +50,6 @@ import { BeginnerTip } from "@/components/app/BeginnerTip";
 import { useTour, TOUR_TODAY } from "@/components/app/Tour";
 import { haptics } from "@/lib/haptics";
 import { Sheet, SheetContent, SheetDescription, SheetHeader, SheetTitle } from "@/components/ui/sheet";
-import { useStreak } from "@/hooks/useStreak";
 import { TodayInsight } from "@/components/app/TodayInsight";
 import { NextUpCard } from "@/components/app/NextUpCard";
 import { getWeekIntention } from "@/lib/weekIntention";
@@ -69,7 +68,6 @@ export default function Today() {
   const { user } = useAuth();
   const nav = useNavigate();
   const [searchParams, setSearchParams] = useSearchParams();
-  const { streak, recordPlanToday, restoreWithFreeze, showRestoreOffer } = useStreak();
   const { isPro, planQuotaRemaining, planQuotaUsed, planQuotaLimit, entitlement } = useEntitlement();
   const tour = useTour();
   const [upgradeOpen, setUpgradeOpen] = useState(false);
@@ -442,18 +440,6 @@ export default function Today() {
           JSON.stringify(trackTitles),
         );
       } catch {/* ignore */}
-      if (planDate === todayDateStr()) {
-        try {
-          const r = await recordPlanToday();
-          if (r && typeof r === "object" && "milestone" in r && (r as { milestone?: number | null }).milestone) {
-            const m = (r as { milestone: number }).milestone;
-            toast.success(`${m}-day planning streak`);
-            haptics.notify("success");
-          }
-        } catch {
-          /* streak is best-effort */
-        }
-      }
       clearComposerDraft(planDate);
       sessionStorage.removeItem("dd_planning_input");
       sessionStorage.removeItem("dd_planning_plan_date");
