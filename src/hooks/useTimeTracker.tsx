@@ -49,45 +49,50 @@ export function TimeTrackerProvider({ children }: { children: ReactNode }) {
   const refresh = useCallback(async () => {
     if (!user) return;
     setLoading(true);
-    const [catsRes, runRes, weekRes] = await Promise.all([
-      supabase.from("time_categories").select("*").eq("user_id", user.id).order("created_at"),
-      supabase.from("time_entries").select("*").eq("user_id", user.id).is("ended_at", null).order("started_at", { ascending: false }).limit(1),
-      (() => {
-        const since = new Date(); since.setDate(since.getDate() - 7); since.setHours(0,0,0,0);
-        return supabase.from("time_entries").select("started_at,ended_at").eq("user_id", user.id).gte("started_at", since.toISOString());
-      })(),
-    ]);
-    setCategories((catsRes.data || []) as TimeCategory[]);
-    let running = (runRes.data?.[0] as TimeEntry) || null;
-    // Auto-close stale runs: anything still open after 8h is almost certainly
-    // a forgotten timer (e.g. user fell asleep). DROP it rather than crediting
-    // the user with hours they didn't actually work — false data is worse than
-    // missing data. We delete the entry entirely and notify on recovery.
-    if (running) {
-      const startedMs = new Date(running.started_at).getTime();
-      const ageHours = (Date.now() - startedMs) / 3_600_000;
-      if (ageHours > 8) {
-        await supabase.from("time_entries").delete().eq("id", running.id);
-        toast("Stopped a stale timer older than 8 hours. Log it manually if needed.", { duration: 5000 });
-        running = null;
+    try {
+      const [catsRes, runRes, weekRes] = await Promise.all([
+        supabase.from("time_categories").select("*").eq("user_id", user.id).order("created_at"),
+        supabase.from("time_entries").select("*").eq("user_id", user.id).is("ended_at", null).order("started_at", { ascending: false }).limit(1),
+        (() => {
+          const since = new Date(); since.setDate(since.getDate() - 7); since.setHours(0,0,0,0);
+          return supabase.from("time_entries").select("started_at,ended_at").eq("user_id", user.id).gte("started_at", since.toISOString());
+        })(),
+      ]);
+      setCategories((catsRes.data || []) as TimeCategory[]);
+      let running = (runRes.data?.[0] as TimeEntry) || null;
+      // Auto-close stale runs: anything still open after 8h is almost certainly
+      // a forgotten timer (e.g. user fell asleep). DROP it rather than crediting
+      // the user with hours they didn't actually work — false data is worse than
+      // missing data. We delete the entry entirely and notify on recovery.
+      if (running) {
+        const startedMs = new Date(running.started_at).getTime();
+        const ageHours = (Date.now() - startedMs) / 3_600_000;
+        if (ageHours > 8) {
+          await supabase.from("time_entries").delete().eq("id", running.id);
+          toast("Stopped a stale timer older than 8 hours. Log it manually if needed.", { duration: 5000 });
+          running = null;
+        }
       }
-    }
-    setActive(running);
+      setActive(running);
 
-    const now = Date.now();
-    const startOfToday = new Date(); startOfToday.setHours(0,0,0,0);
-    let today = 0, week = 0;
-    (weekRes.data || []).forEach((e: any) => {
-      const s = new Date(e.started_at).getTime();
-      const en = e.ended_at ? new Date(e.ended_at).getTime() : now;
-      const dur = Math.max(0, (en - s) / 1000);
-      week += dur;
-      const overlap = Math.max(s, startOfToday.getTime());
-      if (en > overlap) today += Math.max(0, (en - overlap) / 1000);
-    });
-    setTodayTotalSec(today);
-    setWeekTotalSec(week);
-    setLoading(false);
+      const now = Date.now();
+      const startOfToday = new Date(); startOfToday.setHours(0,0,0,0);
+      let today = 0, week = 0;
+      (weekRes.data || []).forEach((e: any) => {
+        const s = new Date(e.started_at).getTime();
+        const en = e.ended_at ? new Date(e.ended_at).getTime() : now;
+        const dur = Math.max(0, (en - s) / 1000);
+        week += dur;
+        const overlap = Math.max(s, startOfToday.getTime());
+        if (en > overlap) today += Math.max(0, (en - overlap) / 1000);
+      });
+      setTodayTotalSec(today);
+      setWeekTotalSec(week);
+    } catch {
+      /* network / misconfigured preview — avoid infinite loading shell */
+    } finally {
+      setLoading(false);
+    }
   }, [user?.id]);
 
   // Defer first load so shell + tab bar can paint before three parallel Supabase

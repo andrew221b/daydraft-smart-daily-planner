@@ -6,6 +6,8 @@ const config: CapacitorConfig = {
   webDir: "dist",
   ios: {
     contentInset: "automatic",
+    /** Mobile content mode keeps layout predictable on iPad-class devices. */
+    preferredContentMode: "mobile",
   },
 };
 

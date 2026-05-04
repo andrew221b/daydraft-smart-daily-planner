@@ -1,8 +1,7 @@
 import { ReactNode, useEffect } from "react";
 import { useLocation } from "react-router-dom";
 import { TabBar } from "./TabBar";
-import { readPremiumTheme } from "@/lib/premiumTheme";
-import { readPremiumQuality } from "@/lib/premiumQuality";
+import { syncPremiumHtmlAttributes } from "@/lib/syncHtmlPreferences";
 
 export const Shell = ({
   children,
@@ -23,10 +22,7 @@ export const Shell = ({
       : "page-switch-luxe";
 
   useEffect(() => {
-    document.documentElement.setAttribute("data-premium-theme", readPremiumTheme());
-    const quality = readPremiumQuality();
-    if (quality === "auto") document.documentElement.removeAttribute("data-premium-quality");
-    else document.documentElement.setAttribute("data-premium-quality", quality);
+    syncPremiumHtmlAttributes();
   }, []);
 
   // Warm lazy route chunks after first paint — same module paths as App.tsx lazy().
@@ -46,7 +42,7 @@ export const Shell = ({
     if (typeof requestIdleCallback !== "undefined") {
       idleHandle = requestIdleCallback(prefetchNeighbors, { timeout: 5000 });
     } else {
-      t = setTimeout(schedule, 350);
+      t = setTimeout(prefetchNeighbors, 350);
     }
     return () => {
       if (idleHandle !== undefined) cancelIdleCallback(idleHandle);

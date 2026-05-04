@@ -2,8 +2,17 @@
 import { createClient } from '@supabase/supabase-js';
 import type { Database } from './types';
 
-const SUPABASE_URL = import.meta.env.VITE_SUPABASE_URL;
-const SUPABASE_PUBLISHABLE_KEY = import.meta.env.VITE_SUPABASE_PUBLISHABLE_KEY;
+const rawUrl = import.meta.env.VITE_SUPABASE_URL as string | undefined;
+const rawKey = import.meta.env.VITE_SUPABASE_PUBLISHABLE_KEY as string | undefined;
+const SUPABASE_URL = (typeof rawUrl === "string" && rawUrl.trim()) || "https://missing-env.supabase.co";
+const SUPABASE_PUBLISHABLE_KEY = (typeof rawKey === "string" && rawKey.trim()) || "missing-env-publishable-key";
+
+if (!(typeof rawUrl === "string" && rawUrl.trim()) || !(typeof rawKey === "string" && rawKey.trim())) {
+  // Lovable / preview builds without secrets used to throw at import → blank dark screen.
+  console.warn(
+    "[DayDraft] VITE_SUPABASE_URL or VITE_SUPABASE_PUBLISHABLE_KEY is missing. Add them in project env; preview UI loads but auth/data will not work.",
+  );
+}
 
 // Import the supabase client like this:
 // import { supabase } from "@/integrations/supabase/client";

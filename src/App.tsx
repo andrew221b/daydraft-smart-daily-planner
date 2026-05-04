@@ -1,4 +1,5 @@
 import { lazy, Suspense, type ReactNode } from "react";
+import { Capacitor } from "@capacitor/core";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { BrowserRouter, Navigate, Route, Routes, useLocation } from "react-router-dom";
 import { Toaster as Sonner } from "@/components/ui/sonner";
@@ -35,7 +36,8 @@ const queryClient = new QueryClient({
       staleTime: 30_000,
       gcTime: 10 * 60_000,
       retry: 1,
-      refetchOnWindowFocus: true,
+      // Native WebView "focus" events are noisy; refetching every tab return causes jank.
+      refetchOnWindowFocus: !Capacitor.isNativePlatform(),
     },
   },
 });
