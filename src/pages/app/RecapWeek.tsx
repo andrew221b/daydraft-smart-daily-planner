@@ -70,7 +70,7 @@ export default function RecapWeek() {
                 const label = d.toLocaleDateString(undefined, { weekday: "short" })[0];
                 return (
                   <div key={k} className="flex-1 flex flex-col items-center gap-1">
-                    <div className={`h-10 w-full rounded-lg ${planned ? "bg-primary" : "bg-surface border border-border"}`} />
+                    <div className={`h-10 w-full rounded-lg ${planned ? "bg-primary" : "surface-card border border-soft"}`} />
                     <span className="text-[10px] text-secondary-fg">{label}</span>
                   </div>
                 );

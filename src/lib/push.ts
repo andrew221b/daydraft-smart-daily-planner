@@ -24,12 +24,18 @@ export const enablePush = async (userId: string) => {
     applicationServerKey: urlBase64ToUint8(PUBLIC_VAPID_KEY),
   });
   const json: any = sub.toJSON();
-  await supabase.from("push_subscriptions").insert({
-    user_id: userId,
-    endpoint: json.endpoint,
-    p256dh: json.keys.p256dh,
-    auth: json.keys.auth,
-  } as any);
+  const { error } = await supabase
+    .from("push_subscriptions")
+    .upsert(
+      {
+        user_id: userId,
+        endpoint: json.endpoint,
+        p256dh: json.keys.p256dh,
+        auth: json.keys.auth,
+      } as any,
+      { onConflict: "user_id,endpoint", ignoreDuplicates: false }
+    );
+  if (error) throw error;
 };
 
 export const disablePush = async (userId: string) => {

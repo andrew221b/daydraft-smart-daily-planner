@@ -30,14 +30,17 @@ export const SortableBlock = ({
       {...(isCal ? {} : attributes)}
       {...(isCal ? {} : listeners)}
       onClick={() => onTap?.(block)}
-      className={`group flex items-center gap-3 py-3 px-3 rounded-xl cursor-pointer pressable transition-colors ${
-        block.completed ? "opacity-55" : ""
-      } ${isCal ? "bg-surface/40" : "hover:bg-surface"}`}
+      className={`group cursor-pointer pressable transition-all duration-200 app-card p-3 ${
+        block.completed ? "opacity-65" : ""
+      } ${isCal ? "border-soft" : "hover:border-primary/30 hover:-translate-y-[1px]"}`}
     >
-      <div className="w-12 text-right text-secondary-fg text-[12px] font-mono-sf tabular-nums shrink-0">{fmtTime(block.start_time)}</div>
-      <div className="w-[3px] h-7 rounded-full shrink-0" style={{ background: isCal ? "hsl(var(--border))" : typeColor(block.type) }} />
-      <div className="flex-1 min-w-0">
-        <div className={`text-[14.5px] leading-tight flex items-center gap-1.5 min-w-0 ${block.completed ? "line-through text-secondary-fg" : "text-foreground"}`}>
+      <div className="flex items-center gap-3">
+        <div className="shrink-0 min-w-[56px] h-10 rounded-xl border border-strong bg-background/45 backdrop-blur-sm px-2 inline-flex items-center justify-center text-secondary-fg text-[11.5px] font-mono-sf tabular-nums">
+          {fmtTime(block.start_time)}
+        </div>
+        <div className="w-[4px] h-9 rounded-full shrink-0" style={{ background: isCal ? "hsl(var(--border))" : typeColor(block.type) }} />
+        <div className="flex-1 min-w-0">
+          <div className={`text-[14.5px] leading-tight flex items-center gap-1.5 min-w-0 ${block.completed ? "line-through text-secondary-fg" : "text-foreground"}`}>
           {isCal && <Calendar className="h-3 w-3 text-secondary-fg shrink-0" />}
           <span className="truncate">{block.title}</span>
           {!isCal && block.ai_reasoning && (
@@ -45,16 +48,17 @@ export const SortableBlock = ({
               <Sparkles className="h-3 w-3" aria-hidden />
             </span>
           )}
+          </div>
+          <div className="text-[11px] text-secondary-fg mt-1 tabular-nums">{dur}</div>
         </div>
-        <div className="text-[11px] text-secondary-fg mt-1 tabular-nums">{dur}</div>
+        {block.completed ? (
+          <div data-tour={tourSpotlight ? "dayview-complete" : undefined} className="h-6 w-6 rounded-full bg-success flex items-center justify-center shrink-0">
+            <Check className="h-3 w-3 text-success-foreground" strokeWidth={3} />
+          </div>
+        ) : (
+          <div data-tour={tourSpotlight ? "dayview-complete" : undefined} className="h-6 w-6 rounded-full border-[1.5px] border-soft shrink-0" />
+        )}
       </div>
-      {block.completed ? (
-        <div data-tour={tourSpotlight ? "dayview-complete" : undefined} className="h-5 w-5 rounded-full bg-success flex items-center justify-center shrink-0">
-          <Check className="h-3 w-3 text-success-foreground" strokeWidth={3} />
-        </div>
-      ) : (
-        <div data-tour={tourSpotlight ? "dayview-complete" : undefined} className="h-5 w-5 rounded-full border-[1.5px] border-border shrink-0" />
-      )}
     </div>
   );
 };

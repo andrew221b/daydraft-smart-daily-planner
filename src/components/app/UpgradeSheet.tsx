@@ -61,9 +61,9 @@ export const UpgradeSheet = ({
 
   return (
     <Sheet open={open} onOpenChange={onOpenChange}>
-      <SheetContent side="bottom" className="rounded-t-[24px] border-border/50 bg-background/95 backdrop-blur-xl max-h-[92vh] overflow-y-auto p-0">
+      <SheetContent side="bottom" className="rounded-t-[24px] border-soft bg-background/95 backdrop-blur-xl max-h-[92vh] overflow-y-auto p-0">
         <div className="relative px-6 pt-7 pb-6 rounded-t-[24px]" style={{ background: "var(--gradient-glow)" }}>
-          <div className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full bg-primary/[0.1] border border-primary/18">
+          <div className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full surface-accent border border-accent">
             <Sparkles className="h-3.5 w-3.5 text-primary" />
             <span className="eyebrow text-primary">DayDraft Pro</span>
           </div>
@@ -75,7 +75,7 @@ export const UpgradeSheet = ({
           <ul className="mt-4 space-y-3">
             {benefits.map(({ icon: Icon, label, sub }) => (
               <li key={label} className="flex items-start gap-3">
-                <div className="h-8 w-8 rounded-[10px] bg-primary/[0.08] border border-primary/15 flex items-center justify-center shrink-0">
+                <div className="h-8 w-8 rounded-[10px] surface-accent border border-accent flex items-center justify-center shrink-0">
                   <Icon className="h-4 w-4 text-primary" />
                 </div>
                 <div>
@@ -107,7 +107,7 @@ export const UpgradeSheet = ({
           <p className="text-[11px] text-secondary-fg text-center mt-2">No charge today · Cancel anytime</p>
 
           {isDev && (
-            <button onClick={simulatePro} className="block mx-auto mt-4 text-[11px] text-secondary-fg/70 hover:text-primary underline">
+            <button onClick={simulatePro} className="block mx-auto mt-4 text-[11px] text-faint hover:text-primary underline">
               dev: simulate Pro
             </button>
           )}
@@ -122,7 +122,7 @@ const PlanCard = ({ active, onClick, title, price, sub, badge }: {
 }) => (
   <button onClick={onClick}
     className={`relative text-left rounded-[14px] border p-3.5 pressable transition-all backdrop-blur-sm ${
-      active ? "border-primary/35 bg-primary/[0.05] ring-1 ring-primary/10" : "border-border/50 bg-surface/70"
+      active ? "border-accent surface-accent ring-1 ring-primary/10" : "border-soft surface-card"
     }`}>
     {badge && (
       <span className="absolute -top-2 right-2 text-[10px] font-semibold px-1.5 py-0.5 rounded-full bg-primary text-primary-foreground">{badge}</span>

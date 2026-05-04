@@ -21,7 +21,7 @@ export const StreakBadge = () => {
       <button
         onClick={() => setOpen(true)}
         className={`relative inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full border pressable ${
-          active ? "bg-primary/10 border-primary/30" : "bg-surface border-border"
+          active ? "bg-primary/10 border-primary/30" : "surface-card border-soft"
         }`}
         aria-label={`Streak ${count} days${atRisk ? " — at risk" : ""}`}
       >

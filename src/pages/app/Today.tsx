@@ -21,7 +21,6 @@ import {
 import { getTone, t as toneCopy, greetingFor } from "@/lib/tone";
 import {
   Mic,
-  Sparkles,
   ArrowRight,
   CalendarDays,
   MoreHorizontal,
@@ -32,6 +31,11 @@ import {
   Target,
   ListChecks,
   Inbox,
+  CheckCircle2,
+  Clock3,
+  Zap,
+  ShieldAlert,
+  Info,
 } from "lucide-react";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
 import { Calendar } from "@/components/ui/calendar";
@@ -53,6 +57,9 @@ import { getWeekIntention } from "@/lib/weekIntention";
 import { dayShapeHint } from "@/lib/microDelights";
 import { readComposerDraft, writeComposerDraft, clearComposerDraft } from "@/lib/composerDraft";
 import { fetchPlanDashboard, planDashboardQueryKey } from "@/lib/planQueries";
+import { KpiCard } from "@/components/app/KpiCard";
+import { useCalmMode } from "@/lib/calmMode";
+import { EnergyState, RescueMode, readEnergyState, rescuePlanFromBlocks, writeEnergyState } from "@/lib/productPolish";
 
 const DEFAULT_PLACEHOLDER =
   "Brain-dump your day…\nfinish deck · gym 45m · call mom 15m · ship invoice";
@@ -87,12 +94,18 @@ export default function Today() {
   const planBlocks = planData?.planBlocks ?? [];
   const hasPlanForDate = planData?.hasPlanForDate ?? false;
   const planSummary = planData?.planSummary ?? null;
+  const [showContext, setShowContext] = useState(false);
+  const [calmMode] = useCalmMode();
+  const [energyState, setEnergyState] = useState<EnergyState>(() => readEnergyState());
+  const [rescueMode, setRescueMode] = useState<RescueMode>("stabilize");
+  const [rescueRationale, setRescueRationale] = useState<string>("");
   const [nowHM, setNowHM] = useState(() => {
     const n = new Date();
     return `${String(n.getHours()).padStart(2, "0")}:${String(n.getMinutes()).padStart(2, "0")}`;
   });
   const [intentTick, setIntentTick] = useState(0);
   const weekIntention = useMemo(() => getWeekIntention(), [intentTick]);
+  const hourNow = new Date().getHours();
 
   useEffect(() => {
     const t = setInterval(() => {
@@ -101,6 +114,10 @@ export default function Today() {
     }, 30_000);
     return () => clearInterval(t);
   }, []);
+
+  useEffect(() => {
+    writeEnergyState(energyState);
+  }, [energyState]);
 
   useEffect(() => {
     const h = () => setIntentTick((x) => x + 1);
@@ -134,7 +151,7 @@ export default function Today() {
     const next = new URLSearchParams(searchParams);
     next.delete("composer");
     setSearchParams(next, { replace: true });
-    toast("Your list is here — edit and try again when you’re ready.");
+    toast("Draft restored. Review and generate when ready.");
   }, [searchParams, setSearchParams]);
 
   const draftTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
@@ -182,7 +199,7 @@ export default function Today() {
       setInput(prev => prev ? block + "\n" + prev : block);
       setComposerOpen(true);
       setPendingCaptureIds(matching.map((c: any) => c.id));
-      toast(`Added ${matching.length} from quick capture`);
+      toast(`Imported ${matching.length} item${matching.length === 1 ? "" : "s"} from Capture`);
     })();
   }, [user?.id, planDate]);
 
@@ -193,8 +210,8 @@ export default function Today() {
     return () => clearTimeout(t);
   }, [profile?.onboarded, profile?.tour_seen]);
 
-  const useYesterday = async () => {
-    if (!user) return;
+  const useYesterday = async (): Promise<boolean> => {
+    if (!user) return false;
     const { data } = await supabase
       .from("plans")
       .select("raw_input")
@@ -208,12 +225,17 @@ export default function Today() {
       .map(line => line.replace(/^\[(today|for:\d{4}-\d{2}-\d{2})\]\s*/i, "").trim())
       .filter(Boolean)
       .join("\n");
-    if (raw) { setInput(raw); setComposerOpen(true); toast.success("Loaded previous tasks"); }
-    else toast("No previous tasks found");
+    if (raw) {
+      setInput(raw);
+      setComposerOpen(true);
+      toast.success("Loaded previous tasks");
+      return true;
+    }
+    return false;
   };
 
-  const carryOverUnfinished = async () => {
-    if (!user) return;
+  const carryOverUnfinished = async (): Promise<boolean> => {
+    if (!user) return false;
     const { data: prevPlan } = await supabase
       .from("plans")
       .select("id")
@@ -223,8 +245,8 @@ export default function Today() {
       .limit(1)
       .maybeSingle();
     if (!prevPlan?.id) {
-      toast("No earlier plan found");
-      return;
+      toast("No previous plan available");
+      return false;
     }
     const { data: bs } = await supabase
       .from("blocks")
@@ -237,14 +259,59 @@ export default function Today() {
       .map((b: { title: string }) => (b.title || "").trim())
       .filter(Boolean);
     if (!titles.length) {
-      toast("Nothing unfinished on your last planned day");
-      return;
+      toast("No unfinished tasks found in your last plan");
+      return false;
     }
     const block = titles.join("\n");
     setInput((prev) => (prev ? `${prev}\n${block}` : block));
     setComposerOpen(true);
     haptics.selection();
     toast.success(`Added ${titles.length} open task${titles.length === 1 ? "" : "s"} — tweak times, then generate`);
+    return true;
+  };
+
+  const reusePreviousPlan = async () => {
+    const carried = await carryOverUnfinished();
+    if (carried) return;
+    const loaded = await useYesterday();
+    if (!loaded) toast("No reusable tasks found in previous plans");
+  };
+
+  const rescueMyDay = () => {
+    if (!hasPlanForDate || !planBlocks.length) return;
+    const rescue = rescuePlanFromBlocks(planBlocks as Block[], {
+      nowHHMM: nowHM,
+      activeHoursEnd: (profile as any)?.active_hours_end || "22:00",
+      energyState,
+      mode: rescueMode,
+    });
+    const rescueInput = rescue.input;
+    if (!rescueInput.trim()) {
+      toast("No rescue needed. Your plan is already clear.");
+      return;
+    }
+    setInput(rescueInput);
+    setRescueRationale(rescue.rationale);
+    setComposerOpen(true);
+    haptics.impact("light");
+    toast.success(`Rescue ready · ${rescue.selectedCount} priorities · ${rescue.budgetMin}m window`);
+  };
+
+  const recalculateRescue = () => {
+    if (!hasPlanForDate || !planBlocks.length) return;
+    const rescue = rescuePlanFromBlocks(planBlocks as Block[], {
+      nowHHMM: nowHM,
+      activeHoursEnd: (profile as any)?.active_hours_end || "22:00",
+      energyState,
+      mode: rescueMode,
+    });
+    if (!rescue.input.trim()) {
+      toast("No rescue suggestions available right now.");
+      return;
+    }
+    setInput(rescue.input);
+    setRescueRationale(rescue.rationale);
+    toast.success("Rescue recalculated");
   };
 
   const saveAsTemplate = async () => {
@@ -271,9 +338,9 @@ export default function Today() {
     if (!SR) { toast.error("Voice input not supported in this browser"); return; }
     const r = new SR(); r.lang = "en-US"; r.interimResults = false;
     r.onresult = (e: any) => { setInput(prev => prev + (prev ? "\n" : "") + e.results[0][0].transcript); setComposerOpen(true); };
-    r.onerror = () => toast.error("Couldn't capture voice");
+    r.onerror = () => toast.error("Voice capture failed");
     r.start();
-    toast("Listening…");
+    toast("Listening...");
   };
 
   const openClarify = async () => {
@@ -324,6 +391,7 @@ export default function Today() {
         body: {
           raw_input: input,
           energy_preference: profile.energy_preference,
+          energy_state: energyState,
           name: profile.display_name,
           clarified_tasks: clarified,
           plan_date: planDate,
@@ -332,7 +400,7 @@ export default function Today() {
           hours_already_committed: hoursAlreadyCommitted,
           active_hours_start: (profile as any).active_hours_start || "09:00",
           active_hours_end: (profile as any).active_hours_end || "22:00",
-          ai_tone: (profile as any).ai_tone || "motivational",
+          ai_tone: (profile as any).ai_tone || "professional",
           ai_tone_custom: (profile as any).ai_tone_custom || null,
         },
       });
@@ -424,27 +492,33 @@ export default function Today() {
           await queryClient.invalidateQueries({ queryKey: planDashboardQueryKey(user.id, planDate) });
         }}
       >
-      <div className="px-6 pt-12">
+      <div className="px-5 pt-10">
         {/* ── Header ─────────────────────────── */}
-        <div className="flex items-start justify-between gap-3">
-          <div className="min-w-0 flex-1">
-            <p className="eyebrow">{friendlyDate()}</p>
-            <h1 className="font-display text-[26px] font-semibold leading-[1.12] mt-2 truncate text-balance">
+        <div className="hero-glass p-5 md:p-6">
+          <div className="flex items-start justify-between gap-3">
+            <div className="min-w-0 flex-1">
+              <p className="kicker">{friendlyDate()}</p>
+              <h1 className="font-display text-[31px] font-semibold leading-[1.05] mt-2 truncate text-balance">
               {greetingFor(tone, profile?.display_name)}
-            </h1>
-            {!profile?.onboarded ? (
-              <p className="text-[12.5px] text-secondary-fg leading-relaxed mt-2">
-                Bottom bar: <span className="text-foreground/80">Today</span> · <span className="text-foreground/80">Timer</span> ·{" "}
-                <span className="text-foreground/80">History</span> · <span className="text-foreground/80">Settings</span>
-              </p>
-            ) : hasPlanForDate && planDate === todayDateStr() ? (
-              <p className="text-[12.5px] text-secondary-fg leading-relaxed mt-2">
-                <span className="text-foreground/85">Next up</span> jumps into Focus; open the plan card to tick tasks off.
-              </p>
-            ) : null}
+              </h1>
+              {!profile?.onboarded ? (
+                <p className="text-[12.5px] text-secondary-fg leading-relaxed mt-2.5">
+                  Bottom bar: <span className="text-subtle">Today</span> · <span className="text-subtle">Timer</span> ·{" "}
+                  <span className="text-subtle">History</span> · <span className="text-subtle">Settings</span>
+                </p>
+              ) : hasPlanForDate && planDate === todayDateStr() ? (
+                <p className="text-[12.5px] text-secondary-fg leading-relaxed mt-2.5">
+                  <span className="text-subtle">Next up</span> jumps into Focus; open the plan card to tick tasks off.
+                </p>
+              ) : null}
+            </div>
+            <div className="flex shrink-0 items-start gap-1.5">
+              <ProBadge />
+            </div>
           </div>
-          <div className="flex shrink-0 items-start gap-1.5 pr-10">
-            <ProBadge />
+          <div className="mt-4 h-px w-full bg-gradient-to-r from-transparent via-border/80 to-transparent" />
+          <div className="mt-3 text-[11.5px] text-secondary-fg">
+            {hasPlanForDate ? "Plan ready" : "No plan yet"} · {isToday ? "Today" : friendlyDateFor(parseDateStr(planDate))}
           </div>
         </div>
 
@@ -470,7 +544,7 @@ export default function Today() {
                 <Button
                   size="sm"
                   variant="secondary"
-                  className="mt-2.5 h-9 rounded-lg text-[12px]"
+                  className="mt-2.5 h-10 rounded-lg text-[12px]"
                   onClick={async () => {
                     const ok = await restoreWithFreeze();
                     if (ok) toast.success("Streak restored — plan today to continue");
@@ -481,8 +555,18 @@ export default function Today() {
                 </Button>
               </div>
             )}
-            {weekIntention && (
-              <div className="flex items-start gap-3 rounded-[20px] border border-primary/12 bg-primary/[0.03] backdrop-blur-sm px-4 py-3.5 shadow-card animate-in fade-in slide-in-from-bottom-2 duration-500 fill-mode-both">
+            {!calmMode && <TodayInsight />}
+            {!calmMode && (weekIntention || (streak && streak.current_streak >= 1)) && (
+              <button
+                onClick={() => setShowContext((v) => !v)}
+                className="w-full h-10 rounded-xl border border-soft surface-soft text-[12px] text-secondary-fg hover:text-foreground pressable inline-flex items-center justify-center gap-1.5"
+              >
+                {showContext ? "Hide context signals" : "Show context signals"}
+                <ChevronDown className={`h-3.5 w-3.5 transition-transform ${showContext ? "rotate-180" : ""}`} />
+              </button>
+            )}
+            {!calmMode && showContext && weekIntention && (
+              <div className="flex items-start gap-3 rounded-[20px] border border-accent surface-accent backdrop-blur-sm px-4 py-3.5 shadow-card animate-in fade-in slide-in-from-bottom-2 duration-500 fill-mode-both">
                 <Target className="h-4 w-4 text-primary shrink-0 mt-0.5" strokeWidth={2} />
                 <div className="min-w-0 flex-1">
                   <div className="text-[10px] font-semibold uppercase tracking-wider text-secondary-fg">This week&apos;s focus</div>
@@ -493,11 +577,10 @@ export default function Today() {
                 </Link>
               </div>
             )}
-            <TodayInsight />
-            {streak && streak.current_streak >= 1 && (
+            {!calmMode && showContext && streak && streak.current_streak >= 1 && (
               <Link
                 to="/history"
-                className="inline-flex items-center gap-2 rounded-[14px] border border-border/60 bg-surface/50 backdrop-blur-sm px-3 py-2 text-[12.5px] text-secondary-fg transition-colors hover:border-primary/25 hover:text-foreground"
+                className="inline-flex items-center gap-2 rounded-[14px] border border-soft surface-soft backdrop-blur-sm px-3 py-2 text-[12.5px] text-secondary-fg transition-colors hover:border-primary/25 hover:text-foreground"
               >
                 <Flame className="h-4 w-4 text-primary shrink-0" />
                 <span>
@@ -511,9 +594,90 @@ export default function Today() {
           </div>
         )}
 
+        {profile?.onboarded && (
+          <div className="mt-4 app-card p-3.5">
+            <div className="flex items-center justify-between gap-2">
+              <span className="text-[11px] uppercase tracking-wider text-secondary-fg inline-flex items-center gap-1.5"><Zap className="h-3.5 w-3.5 text-primary" />Energy check-in</span>
+              <span className="text-[11px] text-secondary-fg">Now {nowHM}</span>
+            </div>
+            <div className="mt-2.5 grid grid-cols-3 gap-2">
+              {([
+                { key: "low" as EnergyState, label: "Low" },
+                { key: "medium" as EnergyState, label: "Medium" },
+                { key: "high" as EnergyState, label: "High" },
+              ]).map((e) => (
+                <button
+                  key={e.key}
+                  type="button"
+                  onClick={() => setEnergyState(e.key)}
+                  className={`h-10 rounded-xl border text-[12px] font-medium pressable ${
+                    energyState === e.key ? "surface-accent border-accent text-primary" : "surface-soft border-soft text-secondary-fg"
+                  }`}
+                >
+                  {e.label}
+                </button>
+              ))}
+            </div>
+            {hourNow >= 18 && hasPlanForDate && (
+              <div className="mt-3 space-y-2">
+                <div className="grid grid-cols-2 gap-2">
+                  <button
+                    type="button"
+                    onClick={() => setRescueMode("stabilize")}
+                    className={`h-9 rounded-lg border text-[11px] font-medium pressable ${rescueMode === "stabilize" ? "surface-accent border-accent text-primary" : "surface-soft border-soft text-secondary-fg"}`}
+                  >
+                    Stabilize
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => setRescueMode("push")}
+                    className={`h-9 rounded-lg border text-[11px] font-medium pressable ${rescueMode === "push" ? "surface-accent border-accent text-primary" : "surface-soft border-soft text-secondary-fg"}`}
+                  >
+                    Push
+                  </button>
+                </div>
+                <button
+                  type="button"
+                  onClick={rescueMyDay}
+                  className="w-full h-10 rounded-xl border border-soft surface-soft text-[12px] text-secondary-fg hover:text-foreground pressable inline-flex items-center justify-center gap-1.5"
+                >
+                  <ShieldAlert className="h-3.5 w-3.5" />
+                  Rescue my day ({rescueMode})
+                </button>
+                {rescueRationale && (
+                  <p className="text-[11px] text-secondary-fg leading-relaxed px-1">
+                    {rescueRationale}
+                  </p>
+                )}
+              </div>
+            )}
+          </div>
+        )}
+
         {/* ── Plan — primary surface when present ─ */}
         {hasPlanForDate ? (
           <div className="mt-7 space-y-4">
+            {!calmMode && (
+              <div className="grid grid-cols-3 gap-2.5 section-switch-stagger">
+                <KpiCard
+                  label="Done"
+                  value={`${planStats.done}/${planStats.total}`}
+                  icon={<CheckCircle2 className="h-3.5 w-3.5" />}
+                  tone="primary"
+                />
+                <KpiCard
+                  label="Planned"
+                  value={`${planStats.hours}h`}
+                  icon={<Clock3 className="h-3.5 w-3.5" />}
+                />
+                <KpiCard
+                  label="Status"
+                  value={planStats.total > 0 && planStats.done === planStats.total ? "Done" : "Active"}
+                  tone={planStats.total > 0 && planStats.done === planStats.total ? "success" : "neutral"}
+                />
+              </div>
+            )}
+
             {isToday && (
               <NextUpCard
                 blocks={planBlocks}
@@ -521,67 +685,71 @@ export default function Today() {
                 onOpenPlan={() => nav("/today/plan")}
               />
             )}
-            {dayShapeLine && (
+            {!calmMode && dayShapeLine && (
               <p
-                className="text-[11.5px] leading-snug text-secondary-fg/90 pl-1 border-l-2 border-primary/25 pl-3 py-0.5 animate-in fade-in duration-300"
+                className="text-[11.5px] leading-snug text-subtle pl-1 border-l-2 border-primary/25 pl-3 py-0.5 animate-in fade-in duration-300"
                 aria-live="polite"
               >
                 {dayShapeLine}
               </p>
             )}
+
             <button
               data-tour="today-plan"
               onClick={() => nav(isToday ? "/today/plan" : `/today/plan?date=${planDate}`)}
-              className="w-full text-left app-card p-5 pressable hover:border-primary/28 transition-colors group"
+              className="w-full text-left hero-glass p-5 pressable hover:border-primary/28 transition-colors group"
             >
               <div className="flex items-center justify-between">
-                <span className="eyebrow text-primary">{isToday ? "Today's plan" : friendlyDateFor(parseDateStr(planDate))}</span>
-                <span className="text-[11px] text-secondary-fg tabular-nums">
-                  <span className="text-foreground font-semibold">{planStats.done}</span>
-                  /{planStats.total} · {planStats.hours}h
-                </span>
+                <span className="kicker">{isToday ? "Timeline preview" : friendlyDateFor(parseDateStr(planDate))}</span>
+                <span className="text-[11px] text-secondary-fg">Tap to open full editor</span>
               </div>
 
               {planSummary && (
-                <p className="font-display text-[18px] leading-snug text-foreground mt-3">
+                <p className="font-display text-[20px] leading-snug text-foreground mt-3">
                   {planSummary}
                 </p>
               )}
 
-              {/* First 3 blocks — peek */}
-              <div className="mt-4 space-y-2">
-                {planStats.tasks.slice(0, 3).map(b => (
-                  <div key={b.id} className="flex items-center gap-3">
-                    <span className="text-[11px] text-secondary-fg font-mono-sf w-10 tabular-nums">{fmtTime(b.start_time)}</span>
-                    <span className="w-1 h-4 rounded-full" style={{ background: typeColor(b.type) }} />
+              <div className="mt-4 space-y-2.5">
+                {planStats.tasks.slice(0, 4).map(b => (
+                  <div key={b.id} className="flex items-center gap-3 rounded-xl border border-soft surface-soft px-3 py-2">
+                    <span className="text-[11px] text-secondary-fg font-mono-sf w-11 tabular-nums">{fmtTime(b.start_time)}</span>
+                    <span className="w-1 h-5 rounded-full" style={{ background: typeColor(b.type) }} />
                     <span className={`text-[13.5px] flex-1 truncate ${b.completed ? "line-through text-secondary-fg" : "text-foreground"}`}>
                       {b.title}
                     </span>
                   </div>
                 ))}
-                {planStats.total > 3 && (
-                  <div className="text-[11.5px] text-secondary-fg pl-[52px]">+ {planStats.total - 3} more</div>
+                {planStats.total > 4 && (
+                  <div className="text-[11.5px] text-secondary-fg pl-1">+ {planStats.total - 4} more blocks</div>
                 )}
               </div>
 
               <div className="mt-4 flex items-center justify-between">
-                <span className="text-[12.5px] text-primary inline-flex items-center gap-1 group-hover:gap-2 transition-all">
-                  Open plan <ArrowRight className="h-3.5 w-3.5" />
+                <span className="text-[13px] text-primary inline-flex items-center gap-1 group-hover:gap-2 transition-all">
+                  Open plan editor <ArrowRight className="h-3.5 w-3.5" />
                 </span>
               </div>
             </button>
 
-            {/* Re-plan affordance — quiet */}
             <button
               onClick={() => setComposerOpen(true)}
-              className="mt-3 w-full flex items-center justify-center gap-2 h-10 rounded-full text-[12.5px] text-secondary-fg hover:text-foreground border border-border bg-surface/50 pressable"
+              className="mt-3 w-full flex items-center justify-center gap-2 h-11 rounded-2xl text-[13px] text-secondary-fg hover:text-foreground border border-soft surface-soft pressable"
             >
-              <Pencil className="h-3.5 w-3.5" /> Add more or re-plan
+              <Pencil className="h-3.5 w-3.5" /> Re-plan with more tasks
             </button>
+            {hourNow >= 18 && (
+              <button
+                onClick={rescueMyDay}
+                className="w-full flex items-center justify-center gap-2 h-11 rounded-2xl text-[13px] text-secondary-fg hover:text-foreground border border-soft surface-soft pressable"
+              >
+                <ShieldAlert className="h-3.5 w-3.5" /> Rescue my day
+              </button>
+            )}
           </div>
         ) : (
           /* ── Empty state — single question ── */
-          <div className="mt-10">
+          <div className="mt-10 hero-glass p-5">
             <p className="font-display text-[22px] leading-snug text-foreground">
               {toneCopy(tone, "plan_cta") || "What's on your plate today?"}
             </p>
@@ -592,14 +760,14 @@ export default function Today() {
             <Button
               onClick={() => setComposerOpen(true)}
               data-tour="today-plan"
-              className="w-full mt-6 h-14 rounded-2xl bg-primary hover:bg-primary/92 text-primary-foreground text-[15.5px] font-semibold pressable shadow-card"
+              className="w-full mt-6 h-14 rounded-2xl bg-primary hover:bg-primary/92 text-primary-foreground text-[15.5px] font-semibold pressable shadow-elevated"
             >
               <Plus className="h-4 w-4" strokeWidth={2.5} /> Plan my day
             </Button>
 
             <div className="mt-3 flex items-center gap-2">
               <button onClick={voice}
-                className="flex-1 h-11 rounded-xl border border-border bg-surface/50 text-[12.5px] text-secondary-fg hover:text-foreground pressable inline-flex items-center justify-center gap-1.5">
+                className="flex-1 h-11 rounded-xl border border-soft surface-soft text-[12.5px] text-secondary-fg hover:text-foreground pressable inline-flex items-center justify-center gap-1.5">
                 <Mic className="h-3.5 w-3.5" /> Speak it
               </button>
               <Popover open={datePopoverOpen} onOpenChange={setDatePopoverOpen}>
@@ -608,8 +776,8 @@ export default function Today() {
                     className={cn(
                       "flex-1 h-11 rounded-xl border text-[12.5px] font-medium pressable inline-flex items-center justify-center gap-1.5",
                       isToday
-                        ? "bg-surface/50 border-border text-secondary-fg hover:text-foreground"
-                        : "bg-primary/10 border-primary/30 text-primary"
+                        ? "surface-soft border-soft text-secondary-fg hover:text-foreground"
+                        : "surface-accent border-accent text-primary"
                     )}
                   >
                     <CalendarDays className="h-3.5 w-3.5" />
@@ -629,7 +797,7 @@ export default function Today() {
               </Popover>
               <button
                 onClick={() => setMoreOpen(true)}
-                className="h-11 w-11 rounded-xl border border-border bg-surface/50 text-secondary-fg hover:text-foreground pressable inline-flex items-center justify-center"
+                className="h-11 w-11 rounded-xl border border-soft surface-soft text-secondary-fg hover:text-foreground pressable inline-flex items-center justify-center"
                 aria-label="More"
               >
                 <MoreHorizontal className="h-4 w-4" />
@@ -641,7 +809,7 @@ export default function Today() {
         {/* ── Trial / quota whisper ─────────── */}
         {showTrialBanner && (
           <button onClick={() => { setUpgradeReason("trial-banner"); setUpgradeOpen(true); }}
-            className="mt-5 w-full flex items-center justify-between px-4 h-11 rounded-xl border border-primary/25 bg-primary/[0.06] pressable">
+            className="mt-5 w-full flex items-center justify-between px-4 h-11 rounded-xl border border-accent surface-accent pressable">
             <span className="text-[12.5px] text-foreground">{entitlement!.daysLeftInTrial} days left in trial</span>
             <span className="text-[12px] font-semibold text-primary">Upgrade →</span>
           </button>
@@ -658,7 +826,7 @@ export default function Today() {
 
       {/* ─── Composer sheet — write tasks here ─── */}
       <Sheet open={composerOpen} onOpenChange={setComposerOpen}>
-        <SheetContent side="bottom" className="rounded-t-[24px] border-border bg-popover p-5 max-h-[88vh]">
+        <SheetContent side="bottom" className="rounded-t-[24px] border-soft bg-popover p-5 max-h-[88vh]">
           <SheetHeader className="text-left mb-3">
             <SheetTitle className="font-display text-[18px]">
               {hasPlanForDate ? "Add or re-plan" : (isToday ? "Plan today" : `Plan ${friendlyDateFor(parseDateStr(planDate))}`)}
@@ -669,17 +837,37 @@ export default function Today() {
                 : "List everything you hope to do — bullets, commas, shorthand, rough times. You'll confirm durations on the next step before the schedule is built."}
             </SheetDescription>
           </SheetHeader>
+          {rescueRationale && (
+            <div className="mb-3 rounded-xl border border-soft surface-soft px-3 py-2.5">
+              <div className="flex items-center justify-between gap-2">
+                <div className="text-[11px] uppercase tracking-wider text-secondary-fg inline-flex items-center gap-1.5">
+                  <Info className="h-3.5 w-3.5 text-primary" />
+                  Why these tasks
+                </div>
+                <button
+                  type="button"
+                  onClick={recalculateRescue}
+                  className="h-7 px-2.5 rounded-md border border-soft surface-card text-[11px] text-secondary-fg hover:text-foreground pressable"
+                >
+                  Recalculate
+                </button>
+              </div>
+              <p className="text-[12px] text-subtle leading-relaxed mt-1">
+                {rescueRationale}
+              </p>
+            </div>
+          )}
           <Textarea
             data-tour="today-input"
             autoFocus
             value={input}
             onChange={e => setInput(e.target.value)}
             placeholder={DEFAULT_PLACEHOLDER}
-            className="min-h-[180px] bg-surface-elevated border-border rounded-2xl p-4 text-[15px] leading-relaxed resize-none placeholder:text-secondary-fg/60 focus-visible:ring-2 focus-visible:ring-primary/30 focus-visible:border-primary/40"
+            className="min-h-[180px] bg-surface-elevated border-soft rounded-2xl p-4 text-[15px] leading-relaxed resize-none placeholder:text-faint focus-visible:ring-2 focus-visible:ring-primary/30 focus-visible:border-primary/40"
           />
           <div className="flex items-center gap-2 mt-3">
             <button onClick={voice}
-              className="h-9 w-9 rounded-lg border border-border bg-surface text-secondary-fg pressable hover:text-foreground inline-flex items-center justify-center"
+              className="h-11 w-11 rounded-xl border border-soft surface-card text-secondary-fg pressable hover:text-foreground inline-flex items-center justify-center"
               aria-label="Voice"
             >
               <Mic className="h-3.5 w-3.5" />
@@ -687,8 +875,8 @@ export default function Today() {
             <Popover open={datePopoverOpen} onOpenChange={setDatePopoverOpen}>
               <PopoverTrigger asChild>
                 <button className={cn(
-                  "h-9 px-3 rounded-lg border text-[12px] font-medium pressable inline-flex items-center gap-1.5",
-                  isToday ? "border-border bg-surface text-secondary-fg" : "border-primary/30 bg-primary/10 text-primary"
+                  "h-11 px-3 rounded-xl border text-[12px] font-medium pressable inline-flex items-center gap-1.5",
+                  isToday ? "border-soft surface-soft text-secondary-fg" : "border-accent surface-accent text-primary"
                 )}>
                   <CalendarDays className="h-3.5 w-3.5" />
                   {isToday ? "Today" : friendlyDateFor(parseDateStr(planDate))}
@@ -702,7 +890,7 @@ export default function Today() {
               </PopoverContent>
             </Popover>
             <button onClick={() => setMoreOpen(true)}
-              className="ml-auto h-9 w-9 rounded-lg border border-border bg-surface text-secondary-fg pressable hover:text-foreground inline-flex items-center justify-center">
+              className="ml-auto h-11 w-11 rounded-xl border border-soft surface-card text-secondary-fg pressable hover:text-foreground inline-flex items-center justify-center">
               <MoreHorizontal className="h-4 w-4" />
             </button>
           </div>
@@ -715,19 +903,18 @@ export default function Today() {
 
       {/* ── More sheet ─────────────────────── */}
       <Sheet open={moreOpen} onOpenChange={setMoreOpen}>
-        <SheetContent side="bottom" className="rounded-t-[24px] border-border bg-popover">
+        <SheetContent side="bottom" className="rounded-t-[24px] border-soft bg-popover">
           <SheetHeader className="text-left mb-3">
             <SheetTitle className="font-display text-[18px]">Quick actions</SheetTitle>
             <SheetDescription className="text-left text-[13px] text-secondary-fg">
-              Templates, carry-over, yesterday&apos;s brain-dump, and quick capture.
+              Reuse previous plans, templates, and quick capture inbox.
             </SheetDescription>
           </SheetHeader>
           <div className="space-y-1">
-            <MoreRow onClick={() => { setMoreOpen(false); carryOverUnfinished(); }} icon={<ListChecks className="h-4 w-4" />} label="Carry over unfinished" />
-            <MoreRow onClick={() => { setMoreOpen(false); useYesterday(); }} icon={<Sparkles className="h-4 w-4" />} label="Use yesterday's tasks" />
+            <MoreRow onClick={() => { setMoreOpen(false); reusePreviousPlan(); }} icon={<ListChecks className="h-4 w-4" />} label="Reuse previous plan tasks" />
             <MoreRow onClick={() => { setMoreOpen(false); saveAsTemplate(); }} icon={<Bookmark className="h-4 w-4" />} label="Save current as template" />
             {templates.length > 0 && (
-              <div className="pt-2 mt-2 border-t border-border">
+              <div className="pt-2 mt-2 border-t border-soft">
                 <div className="px-3 py-1.5 eyebrow">Templates</div>
                 {templates.map(t => (
                   <MoreRow key={t.id} onClick={() => { setMoreOpen(false); applyTemplate(t); }} icon={<Bookmark className="h-4 w-4" />} label={t.name} />

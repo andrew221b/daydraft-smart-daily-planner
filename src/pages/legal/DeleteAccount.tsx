@@ -58,7 +58,7 @@ export default function DeleteAccount() {
 
       <div className="mt-8 p-4 rounded-2xl border border-destructive/30 bg-destructive/5 space-y-3">
         <label className="text-sm font-medium text-foreground">Type <span className="font-mono">DELETE</span> to confirm</label>
-        <Input value={confirm} onChange={e => setConfirm(e.target.value)} placeholder="DELETE" className="bg-surface" />
+        <Input value={confirm} onChange={e => setConfirm(e.target.value)} placeholder="DELETE" className="surface-card" />
         <Button
           variant="destructive"
           disabled={busy || confirm !== "DELETE"}

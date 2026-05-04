@@ -41,7 +41,7 @@ export const PreflightSheet = ({
 
   return (
     <Sheet open={open} onOpenChange={onOpenChange}>
-      <SheetContent side="bottom" className="rounded-t-[24px] border-border/50 bg-background/95 backdrop-blur-xl">
+      <SheetContent side="bottom" className="rounded-t-[24px] border-soft bg-background/95 backdrop-blur-xl">
         <SheetHeader>
           <SheetTitle className="font-display text-[20px]">Ready to focus?</SheetTitle>
         </SheetHeader>
@@ -53,8 +53,8 @@ export const PreflightSheet = ({
               onClick={() => toggle(key)}
               className={`w-full flex items-center gap-3 px-4 py-3 rounded-[14px] border pressable transition-colors backdrop-blur-sm ${
                 checks[key]
-                  ? "border-primary/28 bg-primary/[0.08]"
-                  : "border-border/50 bg-surface/60"
+                  ? "border-accent surface-accent"
+                  : "border-soft surface-card"
               }`}
             >
               <div className={`h-9 w-9 rounded-full flex items-center justify-center shrink-0 ${

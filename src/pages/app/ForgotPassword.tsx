@@ -43,7 +43,7 @@ export default function ForgotPassword() {
           {!sent && (
             <form onSubmit={submit} className="mt-9 space-y-3">
               <Input type="email" required value={email} onChange={e => setEmail(e.target.value)} placeholder="Email"
-                className="h-12 bg-surface/80 border-border/50 rounded-[14px]" />
+                className="h-12 surface-card border-soft rounded-[14px]" />
               <Button type="submit" disabled={busy} className="w-full h-12 rounded-[14px] bg-primary text-primary-foreground hover:bg-primary/90 pressable text-base font-medium shadow-card">
                 {busy ? "..." : "Send reset link"}
               </Button>
@@ -51,7 +51,7 @@ export default function ForgotPassword() {
           )}
 
           {sent && (
-            <Button onClick={() => nav("/auth")} variant="outline" className="mt-8 h-12 rounded-[14px] border-border/50">
+            <Button onClick={() => nav("/auth")} variant="outline" className="mt-8 h-12 rounded-[14px] border-soft">
               Back to sign in
             </Button>
           )}

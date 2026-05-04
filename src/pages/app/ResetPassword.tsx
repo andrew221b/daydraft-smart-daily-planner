@@ -48,9 +48,9 @@ export default function ResetPassword() {
           {ready && (
             <form onSubmit={submit} className="mt-9 space-y-3">
               <Input type="password" required minLength={6} value={pw} onChange={e => setPw(e.target.value)} placeholder="New password"
-                className="h-12 bg-surface/80 border-border/50 rounded-[14px]" />
+                className="h-12 surface-card border-soft rounded-[14px]" />
               <Input type="password" required minLength={6} value={pw2} onChange={e => setPw2(e.target.value)} placeholder="Confirm password"
-                className="h-12 bg-surface/80 border-border/50 rounded-[14px]" />
+                className="h-12 surface-card border-soft rounded-[14px]" />
               <Button type="submit" disabled={busy} className="w-full h-12 rounded-[14px] bg-primary text-primary-foreground hover:bg-primary/90 pressable text-base font-medium shadow-card">
                 {busy ? "..." : "Update password"}
               </Button>

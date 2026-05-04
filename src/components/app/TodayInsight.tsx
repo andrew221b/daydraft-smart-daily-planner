@@ -22,22 +22,22 @@ const QUOTES: Record<CoreTone, string[]> = {
     "The only bad plan is the one you don't start.",
   ],
   playful: [
-    "Today's vibe: focused chaos. ✨",
-    "Let's make today's to-do list jealous.",
-    "Coffee in. Plans out. Let's roll. ☕",
-    "Plot twist: you crush this list.",
+    "Today's vibe: focused and calm. ✨",
+    "Let's turn this list into visible progress.",
+    "Coffee in, priorities clear, let's go. ☕",
+    "Small wins first, momentum follows.",
   ],
   motivational: [
-    "🔥 You don't rise to the level of your goals — you fall to the level of your systems.",
-    "🚀 Small daily improvements compound into stunning results.",
-    "💪 The day is yours. Make it count.",
-    "⚡ Action is the antidote to anxiety.",
+    "You don't rise to goals, you fall to systems.",
+    "Small daily improvements compound quickly.",
+    "The day is yours. Make it count.",
+    "Action reduces anxiety. Start the next block.",
   ],
   tough_love: [
-    "Stop scrolling. Start the first block.",
-    "Nobody's coming to save your day. You are.",
-    "Excuses don't ship. Tasks do.",
-    "Discomfort is the price of growth. Pay it.",
+    "Start the first block now.",
+    "Own the day before it owns you.",
+    "Output beats intention.",
+    "Do the hard task first.",
   ],
   philosophical: [
     "\"We are what we repeatedly do.\" — Aristotle",
@@ -51,8 +51,8 @@ const ctxMessages = (h: number, tone: CoreTone, doneRatio: number | null): strin
   // Context-aware overlay only ~30% of the time so cycling through quotes still happens.
   const ctx: string[] = [];
   if (doneRatio != null && doneRatio >= 0.8) {
-    ctx.push(tone === "tough_love" ? "Yesterday was solid. Don't coast." :
-             tone === "playful" ? "Yesterday slapped. Let's encore. 🎯" :
+    ctx.push(tone === "tough_love" ? "Yesterday was strong. Maintain the standard." :
+             tone === "playful" ? "Yesterday went well. Let's repeat it. 🎯" :
              tone === "philosophical" ? "Momentum is a debt the present owes the past." :
              "Yesterday's win is today's fuel.");
   }
@@ -132,7 +132,7 @@ export const TodayInsight = () => {
       {isQuote
         ? <Quote className="h-3.5 w-3.5 text-primary shrink-0 mt-0.5" strokeWidth={2} />
         : <Sparkles className="h-3.5 w-3.5 text-primary shrink-0 mt-0.5" />}
-      <span className="text-[12.5px] leading-snug text-foreground/85">{text}</span>
+      <span className="text-[12.5px] leading-snug text-subtle">{text}</span>
     </div>
   );
 };

@@ -2,8 +2,9 @@ import { useEffect, useRef, useState } from "react";
 import { useNavigate, useParams } from "react-router-dom";
 import { supabase } from "@/integrations/supabase/client";
 import { Block, todayDateStr } from "@/lib/daydraft";
-import { Check, ChevronRight, Plus, Sparkles, MapPin, ExternalLink, Loader2, Lightbulb, Copy, Phone, CalendarPlus, Mail, Timer, Square, X } from "lucide-react";
+import { Check, ChevronRight, Plus, Sparkles, MapPin, ExternalLink, Loader2, Lightbulb, Copy, Phone, CalendarPlus, Mail, Timer, Square, X, ShieldAlert } from "lucide-react";
 import { useAuth } from "@/hooks/useAuth";
+import { useProfile } from "@/hooks/useProfile";
 import { mapsUrl } from "@/lib/maps";
 import { toast } from "sonner";
 import { useTimeTracker, fmtHMS } from "@/hooks/useTimeTracker";
@@ -14,6 +15,7 @@ import {
 } from "@/components/ui/popover";
 import { haptics } from "@/lib/haptics";
 import { PreflightSheet } from "@/components/app/PreflightSheet";
+import { getCalmMode, setCalmMode } from "@/lib/calmMode";
 import {
   AlertDialog,
   AlertDialogAction,
@@ -36,6 +38,7 @@ export default function Focus() {
   const { blockId } = useParams();
   const nav = useNavigate();
   const { user } = useAuth();
+  const { profile } = useProfile();
   const { active: tracking, start: startTracking, stop: stopTracking, elapsedSec, categories } = useTimeTracker();
   const [block, setBlock] = useState<any | null>(null);
   const [next, setNext] = useState<Block | null>(null);
@@ -59,6 +62,21 @@ export default function Focus() {
   const [catPickerOpen, setCatPickerOpen] = useState(false);
   /** Plan calendar day (YYYY-MM-DD) — for recap / back navigation off the default "today". */
   const [planDate, setPlanDate] = useState<string | null>(null);
+  const calmAutoEnabledRef = useRef(false);
+  const guardrailToastShownRef = useRef(false);
+
+  useEffect(() => {
+    const wasCalm = getCalmMode();
+    if (!wasCalm) {
+      calmAutoEnabledRef.current = true;
+      setCalmMode(true);
+    }
+    return () => {
+      if (calmAutoEnabledRef.current) {
+        setCalmMode(false);
+      }
+    };
+  }, []);
 
   useEffect(() => {
     if (!blockId || !user) return;
@@ -81,7 +99,7 @@ export default function Focus() {
     (async () => {
       const { data } = await supabase.from("blocks").select("*").eq("id", blockId).maybeSingle();
       if (!data) {
-        toast("This block no longer exists");
+        toast("This block is no longer available");
         nav("/today/plan");
         return;
       }
@@ -155,7 +173,7 @@ export default function Focus() {
   const [extendedMin, setExtendedMin] = useState(0);
   const extendFiveMin = () => {
     if (extendedMin + 5 > EXTEND_CAP_MIN) {
-      toast("Already extended an hour. Wrap up or mark complete.", { duration: 3500 });
+      toast("You have already extended this block by 60 minutes. Wrap up or complete it.", { duration: 3500 });
       return;
     }
     setRemaining(r => r + 5 * 60);
@@ -207,13 +225,15 @@ export default function Focus() {
           type: block.type,
           location: block.location,
           duration_min: block.duration_min,
+          ai_tone: (profile as any)?.ai_tone || "professional",
+          ai_tone_custom: (profile as any)?.ai_tone_custom || null,
         },
       });
       if (error) throw error;
       setHelp(data as AIHelp);
     } catch (e: any) {
       console.error(e);
-      setHelpError(e?.message || "Couldn't load assistant");
+      setHelpError(e?.message || "Unable to load AI assistant");
     } finally {
       setHelpLoading(false);
     }
@@ -234,7 +254,7 @@ export default function Focus() {
     const { error } = await supabase.from("blocks").update({ completed: true }).eq("id", block.id);
     if (error) {
       setShowCheck(false);
-      toast.error("Couldn't save — try again");
+      toast.error("Unable to save. Please try again.");
       return;
     }
     // Only credit time-tracker hours if the user EXPLICITLY tracked this block
@@ -283,6 +303,23 @@ export default function Focus() {
     nav(backPlan);
   };
 
+  const lateDeepWork = !!block && block.type === "deep_work" && new Date().getHours() >= 18;
+  const longSession = !!block && block.duration_min >= 90;
+
+  useEffect(() => {
+    if (!armed || guardrailToastShownRef.current) return;
+    if (!block) return;
+    if (lateDeepWork) {
+      guardrailToastShownRef.current = true;
+      toast("Guardrail: keep this block focused, then switch to lighter work.");
+      return;
+    }
+    if (longSession) {
+      guardrailToastShownRef.current = true;
+      toast("Guardrail: take a short break after this focus block.");
+    }
+  }, [armed, lateDeepWork, longSession]);
+
   if (!block) return <div className="min-h-screen bg-background" />;
 
   const pct = 1 - remaining / total;
@@ -316,7 +353,7 @@ export default function Focus() {
       await navigator.clipboard.writeText(txt);
       toast.success("Draft copied");
     } catch {
-      toast.error("Couldn't copy");
+      toast.error("Unable to copy draft");
     }
   };
 
@@ -327,17 +364,23 @@ export default function Focus() {
         {/* Cancel — top-left, returns to plan without altering anything */}
         <button
           onClick={() => (startedHereRef.current && tracking) ? setConfirmCancelOpen(true) : cancel()}
-          className="absolute top-4 left-4 h-9 w-9 rounded-full border border-border/50 bg-background/70 backdrop-blur-md flex items-center justify-center text-secondary-fg hover:text-foreground pressable shadow-card"
+          className="absolute top-4 left-4 h-11 w-11 rounded-full border border-soft bg-background/70 backdrop-blur-md flex items-center justify-center text-secondary-fg hover:text-foreground pressable shadow-card"
           aria-label="Cancel focus session"
         >
           <X className="h-4 w-4" />
         </button>
-        <div className="px-3 py-1 rounded-full bg-primary/[0.08] border border-primary/18 text-[10px] tracking-[0.14em] text-primary font-semibold uppercase">Focus</div>
+        <div className="px-3 py-1 rounded-full surface-accent border border-accent text-[10px] tracking-[0.14em] text-primary font-semibold uppercase">Focus</div>
         {/* Tracking pill removed — the main timer + the inline "Stop tracking"
             button below already convey state. Two timers on one screen was
             redundant and confusing. */}
 
         <h1 className="mt-10 font-display text-[24px] font-semibold text-center leading-snug max-w-[300px] line-clamp-3 text-balance">{block.title}</h1>
+        {(lateDeepWork || longSession) && (
+          <div className="mt-3 inline-flex items-center gap-1.5 px-3 py-1.5 rounded-full border border-soft surface-soft text-[11px] text-secondary-fg">
+            <ShieldAlert className="h-3.5 w-3.5 text-primary" />
+            {lateDeepWork ? "Late-day guardrail: one priority, then wind down." : "Guardrail: take a short reset right after this block."}
+          </div>
+        )}
 
         <div className="relative mt-12">
           {/* Ambient breathing ring (subtle pulse around the timer) */}
@@ -379,8 +422,8 @@ export default function Focus() {
             onClick={extendFiveMin}
             className={`h-12 px-3 rounded-[14px] text-sm font-medium pressable flex items-center gap-1.5 transition-colors backdrop-blur-sm ${
               timeUp
-                ? "bg-primary/[0.12] border border-primary/35 text-primary"
-                : "app-card py-0 border-border/50"
+                ? "surface-accent border border-accent text-primary"
+                : "app-card py-0 border-soft"
             }`}
           >
             <Plus className="h-3.5 w-3.5" /> 5 min
@@ -396,7 +439,7 @@ export default function Focus() {
         {!tracking && armed && categories.length > 0 && (
           <Popover open={catPickerOpen} onOpenChange={setCatPickerOpen}>
             <PopoverTrigger asChild>
-              <button className="mt-3 inline-flex items-center gap-1.5 px-3 py-1.5 rounded-full border border-border/50 bg-background/60 backdrop-blur-sm text-[12px] text-secondary-fg hover:text-foreground pressable">
+              <button className="mt-3 inline-flex items-center gap-1.5 px-3 py-1.5 rounded-full border border-soft bg-background/60 backdrop-blur-sm text-[12px] text-secondary-fg hover:text-foreground pressable">
                 <Timer className="h-3.5 w-3.5" /> Track time…
               </button>
             </PopoverTrigger>
@@ -424,7 +467,7 @@ export default function Focus() {
         {tracking && startedHereRef.current && trackingCat && (
           <button
             onClick={() => { stopTracking(); startedHereRef.current = false; }}
-            className="mt-3 inline-flex items-center gap-1.5 px-3 py-1.5 rounded-full border border-border/50 bg-background/60 backdrop-blur-sm text-[12px] text-secondary-fg hover:text-foreground pressable"
+            className="mt-3 inline-flex items-center gap-1.5 px-3 py-1.5 rounded-full border border-soft bg-background/60 backdrop-blur-sm text-[12px] text-secondary-fg hover:text-foreground pressable"
           >
             <span className="h-2 w-2 rounded-full animate-pulse" style={{ background: trackingCat.color }} />
             <span className="text-foreground font-medium">{trackingCat.name}</span>
@@ -469,7 +512,7 @@ export default function Focus() {
                   href={mapsUrl(block.location, block.location_lat, block.location_lng)}
                   target="_blank"
                   rel="noreferrer"
-                  className="flex items-center gap-2 text-sm text-foreground bg-background/80 rounded-[12px] px-3 py-2 border border-border/50 pressable"
+                  className="flex items-center gap-2 text-sm text-foreground bg-background/80 rounded-[12px] px-3 py-2 border border-soft pressable"
                 >
                   <MapPin className="h-4 w-4 text-primary shrink-0" />
                   <span className="truncate flex-1">{block.location}</span>
@@ -480,17 +523,17 @@ export default function Focus() {
               {(isCall || isMeeting || isEmail) && (
                 <div className="flex gap-1.5 flex-wrap">
                   {isCall && (
-                    <a href={telUrl} className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-background border border-border text-xs font-medium text-foreground pressable">
+                    <a href={telUrl} className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-background border border-soft text-xs font-medium text-foreground pressable">
                       <Phone className="h-3.5 w-3.5 text-primary" /> Call
                     </a>
                   )}
                   {isMeeting && (
-                    <a href={calendarUrl} target="_blank" rel="noreferrer" className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-background border border-border text-xs font-medium text-foreground pressable">
+                    <a href={calendarUrl} target="_blank" rel="noreferrer" className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-background border border-soft text-xs font-medium text-foreground pressable">
                       <CalendarPlus className="h-3.5 w-3.5 text-primary" /> Add to calendar
                     </a>
                   )}
                   {isEmail && (
-                    <a href={mailtoUrl} className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-background border border-border text-xs font-medium text-foreground pressable">
+                    <a href={mailtoUrl} className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-background border border-soft text-xs font-medium text-foreground pressable">
                       <Mail className="h-3.5 w-3.5 text-primary" /> New email
                     </a>
                   )}
@@ -507,8 +550,8 @@ export default function Focus() {
               {help && (
                 <>
                   {help.draft && (
-                    <div className="rounded-[14px] border border-primary/18 bg-primary/[0.04] overflow-hidden">
-                      <div className="flex items-center justify-between px-3 py-2 border-b border-primary/12">
+                    <div className="rounded-[14px] border border-accent surface-accent overflow-hidden">
+                      <div className="flex items-center justify-between px-3 py-2 border-b border-accent">
                         <div className="flex items-center gap-1.5 eyebrow text-primary">
                           <Mail className="h-3 w-3" /> Draft
                         </div>
@@ -557,7 +600,7 @@ export default function Focus() {
                     </div>
                   )}
                   {help.tip && (
-                    <div className="flex items-start gap-2 bg-primary/[0.04] border border-primary/15 rounded-[12px] px-3 py-2 text-sm text-foreground">
+                    <div className="flex items-start gap-2 surface-accent border border-accent rounded-[12px] px-3 py-2 text-sm text-foreground">
                       <Lightbulb className="h-4 w-4 text-primary shrink-0 mt-0.5" />
                       <span>{help.tip}</span>
                     </div>

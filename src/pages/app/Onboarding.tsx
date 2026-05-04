@@ -79,8 +79,8 @@ export default function Onboarding() {
                 <p className="eyebrow">DayDraft</p>
                 <h1 className="font-display text-[40px] font-semibold leading-[1.05] tracking-tight mt-3 text-balance">Your day, designed.</h1>
                 <p className="text-secondary-fg mt-5 text-[15px] leading-[1.55] max-w-sm">
-                  For busy pros. Drop your tasks. Get a focused schedule in seconds.{" "}
-                  <span className="text-foreground/90">Four tabs along the bottom</span> take you between planning, tracking time, history, and settings.
+                  Built for focused professionals. Add your tasks and get a realistic schedule in seconds.{" "}
+                  <span className="text-subtle">Four tabs at the bottom</span> guide you through planning, focus, history, and settings.
                 </p>
               </div>
               <Button onClick={() => setStep(1)} className="w-full h-12 rounded-[14px] bg-primary text-primary-foreground hover:bg-primary/92 pressable text-[15px] font-medium shadow-card">
@@ -93,19 +93,19 @@ export default function Onboarding() {
             <div className="flex-1 flex flex-col">
               <p className="eyebrow">Step 2 of 2</p>
               <h1 className="font-display text-[26px] font-semibold leading-tight mt-2 tracking-tight text-balance">How should we talk to you?</h1>
-              <p className="text-secondary-fg mt-2 text-[13px] leading-[1.55]">Sets the tone for nudges, plans and recaps. Change anytime in Settings.</p>
+              <p className="text-secondary-fg mt-2 text-[13px] leading-[1.55]">This style is applied to plans, nudges, AI help, and recap insights. You can change it anytime in Settings.</p>
               <div className="space-y-2 mt-6 flex-1 overflow-y-auto">
                 {TONE_OPTIONS.map(e => {
                   const active = tone === e.key;
                   return (
                     <button key={e.key} onClick={() => setTone(e.key)}
-                      className={`w-full flex items-center gap-3 p-3.5 rounded-[16px] border pressable transition-all backdrop-blur-sm ${active ? "border-primary/25 bg-primary/[0.05]" : "border-border/50 bg-surface/60 hover:border-border"}`}>
+                      className={`w-full flex items-center gap-3 p-3.5 rounded-[16px] border pressable transition-all backdrop-blur-sm ${active ? "border-accent surface-accent" : "border-soft surface-card hover:border-strong"}`}>
                       <span className="text-lg">{e.emoji}</span>
                       <div className="flex-1 text-left">
                         <div className="font-medium text-[14px]">{e.title}</div>
                         <div className="text-[11.5px] text-secondary-fg leading-snug mt-0.5">{e.sub}</div>
                       </div>
-                      <span className={`h-[18px] w-[18px] rounded-full border flex items-center justify-center transition-all shrink-0 ${active ? "border-primary bg-primary" : "border-border"}`}>
+                      <span className={`h-[18px] w-[18px] rounded-full border flex items-center justify-center transition-all shrink-0 ${active ? "border-primary bg-primary" : "border-soft"}`}>
                         {active && <Check className="h-3 w-3 text-primary-foreground" strokeWidth={3} />}
                       </span>
                     </button>

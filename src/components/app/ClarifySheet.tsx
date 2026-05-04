@@ -99,6 +99,7 @@ export function ClarifySheet({ open, onOpenChange, rawInput, onConfirm, planDate
     [rawInput],
   );
   const [tasks, setTasks] = useState<Row[]>(initial);
+  const [showAdvanced, setShowAdvanced] = useState(false);
   const [loadingAI, setLoadingAI] = useState(false);
   const [splitting, setSplitting] = useState(false);
   const sensors = useSensors(
@@ -109,6 +110,7 @@ export function ClarifySheet({ open, onOpenChange, rawInput, onConfirm, planDate
   useEffect(() => {
     if (!open) return;
     setTasks(initial);
+    setShowAdvanced(false);
     splitWithAI(rawInput, initial);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [open, rawInput]);
@@ -253,8 +255,8 @@ export function ClarifySheet({ open, onOpenChange, rawInput, onConfirm, planDate
 
   return (
     <Sheet open={open} onOpenChange={onOpenChange}>
-      <SheetContent side="bottom" className="rounded-t-[24px] max-h-[94vh] overflow-y-auto p-0 border-border/50 bg-background/95 backdrop-blur-xl">
-        <div className="px-5 pt-6 pb-4 sticky top-0 z-10 border-b border-border/50 bg-background/90 backdrop-blur-md supports-[backdrop-filter]:bg-background/75">
+      <SheetContent side="bottom" className="rounded-t-[24px] max-h-[94vh] overflow-y-auto p-0 border-soft bg-background/95 backdrop-blur-xl">
+        <div className="px-5 pt-6 pb-4 sticky top-0 z-10 border-b border-soft bg-background/90 backdrop-blur-md supports-[backdrop-filter]:bg-background/75">
           <SheetHeader className="text-left">
             <SheetTitle className="flex items-center gap-2 font-display text-[19px] font-semibold tracking-tight">
               Review tasks
@@ -299,6 +301,7 @@ export function ClarifySheet({ open, onOpenChange, rawInput, onConfirm, planDate
                   id={String(i)}
                   index={i}
                   task={t}
+                  showAdvanced={showAdvanced}
                   loadingAI={loadingAI}
                   onUpdate={update}
                   onRemove={remove}
@@ -311,7 +314,14 @@ export function ClarifySheet({ open, onOpenChange, rawInput, onConfirm, planDate
         </div>
 
         {/* Footer */}
-        <div className="px-5 pb-6 pt-3 sticky bottom-0 bg-background/95 backdrop-blur-md border-t border-border/50 supports-[backdrop-filter]:bg-background/80">
+        <div className="px-5 pb-6 pt-3 sticky bottom-0 bg-background/95 backdrop-blur-md border-t border-soft supports-[backdrop-filter]:bg-background/80">
+          <button
+            type="button"
+            onClick={() => setShowAdvanced((v) => !v)}
+            className="mb-3 w-full text-center text-[12px] text-secondary-fg hover:text-foreground pressable"
+          >
+            {showAdvanced ? "Hide advanced controls" : "Show advanced controls"}
+          </button>
           <Button
             onClick={() =>
               onConfirm(
@@ -335,6 +345,7 @@ type CardProps = {
   id: string;
   index: number;
   task: Row;
+  showAdvanced: boolean;
   loadingAI: boolean;
   onUpdate: (i: number, patch: Partial<Row>) => void;
   onRemove: (i: number) => void;
@@ -342,7 +353,7 @@ type CardProps = {
   onSplit: (i: number) => void;
 };
 
-function SortableTaskCard({ id, index: i, task: t, loadingAI, onUpdate, onRemove, onBump, onSplit }: CardProps) {
+function SortableTaskCard({ id, index: i, task: t, showAdvanced, loadingAI, onUpdate, onRemove, onBump, onSplit }: CardProps) {
   const { attributes, listeners, setNodeRef, transform, transition, isDragging } = useSortable({ id });
   const [expanded, setExpanded] = useState(false);
   const [durOpen, setDurOpen] = useState(false);
@@ -369,7 +380,7 @@ function SortableTaskCard({ id, index: i, task: t, loadingAI, onUpdate, onRemove
         : "bg-primary";
 
   return (
-    <div ref={setNodeRef} style={style} className="rounded-[16px] border border-border/50 bg-surface/70 backdrop-blur-sm p-3.5 shadow-card">
+    <div ref={setNodeRef} style={style} className="rounded-[16px] border border-soft surface-card backdrop-blur-sm p-3.5 shadow-card">
       {/* Row 1 — drag handle, priority dot, title, remove */}
       <div className="flex items-center gap-2">
         <button
@@ -407,7 +418,7 @@ function SortableTaskCard({ id, index: i, task: t, loadingAI, onUpdate, onRemove
         </div>
         <button
           onClick={() => setDurOpen(true)}
-          className="h-8 px-3 rounded-lg bg-background border border-border pressable text-sm font-semibold tabular-nums hover:border-primary/40"
+          className="h-8 px-3 rounded-lg bg-background border border-soft pressable text-sm font-semibold tabular-nums hover:border-primary/40"
           aria-label="Edit estimate"
         >
           {fmt(t.estimate_min)}
@@ -421,32 +432,33 @@ function SortableTaskCard({ id, index: i, task: t, loadingAI, onUpdate, onRemove
         />
       </div>
 
-      {/* Row 2b — track time toggle (Activity icon = visibly different from Clock) */}
-      <div className="mt-2 flex items-center justify-between gap-2 pl-7">
-        <div className="flex items-center gap-1.5 text-[12px] text-secondary-fg">
-          <Activity className="h-3.5 w-3.5" />
-          <span>{toneCopy(tone, "track_label")}</span>
-        </div>
-        <button
-          type="button"
-          role="switch"
-          aria-checked={!!t.track_time}
-          onClick={() => onUpdate(i, { track_time: !t.track_time })}
-          className={`relative h-7 w-12 rounded-full transition-colors pressable shrink-0 ${
-            t.track_time ? "bg-primary" : "bg-muted border border-border"
-          }`}
-          aria-label="Toggle time tracking for this task"
-        >
-          <span
-            className={`absolute top-1 h-5 w-5 rounded-full bg-white shadow-md transition-transform ${
-              t.track_time ? "translate-x-[26px]" : "translate-x-1"
+      {showAdvanced && (
+        <div className="mt-2 flex items-center justify-between gap-2 pl-7">
+          <div className="flex items-center gap-1.5 text-[12px] text-secondary-fg">
+            <Activity className="h-3.5 w-3.5" />
+            <span>{toneCopy(tone, "track_label")}</span>
+          </div>
+          <button
+            type="button"
+            role="switch"
+            aria-checked={!!t.track_time}
+            onClick={() => onUpdate(i, { track_time: !t.track_time })}
+            className={`relative h-7 w-12 rounded-full transition-colors pressable shrink-0 ${
+              t.track_time ? "bg-primary" : "bg-muted border border-soft"
             }`}
-          />
-        </button>
-      </div>
+            aria-label="Toggle time tracking for this task"
+          >
+            <span
+              className={`absolute top-1 h-5 w-5 rounded-full bg-white shadow-md transition-transform ${
+                t.track_time ? "translate-x-[26px]" : "translate-x-1"
+              }`}
+            />
+          </button>
+        </div>
+      )}
 
       {/* Row 3 — More toggle, only if there are extras */}
-      {hasExtras && (
+      {showAdvanced && hasExtras && (
         <button
           onClick={() => setExpanded(v => !v)}
           className="mt-2 ml-7 inline-flex items-center gap-1 text-[11px] text-secondary-fg hover:text-foreground pressable"
@@ -457,7 +469,7 @@ function SortableTaskCard({ id, index: i, task: t, loadingAI, onUpdate, onRemove
       )}
 
       {/* Expanded extras */}
-      {expanded && (
+      {showAdvanced && expanded && (
         <div className="mt-2 ml-7 space-y-2">
           {t.ai_reason && (
             <p className="text-[11px] text-secondary-fg italic">AI: {t.ai_reason}</p>
@@ -467,7 +479,7 @@ function SortableTaskCard({ id, index: i, task: t, loadingAI, onUpdate, onRemove
           {t.ai_should_split && t.ai_split_into && t.ai_split_into.length > 1 && (
             <button
               onClick={() => onSplit(i)}
-              className="w-full inline-flex items-center justify-center gap-1.5 px-2 py-1.5 rounded-lg bg-primary/10 border border-primary/30 text-[12px] font-medium text-primary pressable"
+              className="w-full inline-flex items-center justify-center gap-1.5 px-2 py-1.5 rounded-lg surface-accent border border-accent text-[12px] font-medium text-primary pressable"
             >
               <Split className="h-3 w-3" />
               Split into {t.ai_split_into.length} blocks
@@ -486,7 +498,7 @@ function SortableTaskCard({ id, index: i, task: t, loadingAI, onUpdate, onRemove
                   href={l.url}
                   target="_blank"
                   rel="noreferrer"
-                  className="inline-flex items-center gap-1 px-2 py-1 rounded-lg bg-background border border-border text-[11px] text-foreground hover:border-primary/40 pressable max-w-full"
+                  className="inline-flex items-center gap-1 px-2 py-1 rounded-lg bg-background border border-soft text-[11px] text-foreground hover:border-primary/40 pressable max-w-full"
                   title={l.url}
                 >
                   <ExternalLink className="h-3 w-3 text-primary shrink-0" />
@@ -508,9 +520,9 @@ function SortableTaskCard({ id, index: i, task: t, loadingAI, onUpdate, onRemove
                     ? p === "high"
                       ? "bg-destructive/10 text-destructive border-destructive/30"
                       : p === "low"
-                        ? "bg-muted text-muted-foreground border-border"
-                        : "bg-primary/10 text-primary border-primary/30"
-                    : "bg-background text-secondary-fg border-border"
+                        ? "bg-muted text-muted-foreground border-soft"
+                        : "surface-accent text-primary border-accent"
+                    : "bg-background text-secondary-fg border-soft"
                 }`}
               >
                 {p}
@@ -526,7 +538,7 @@ function SortableTaskCard({ id, index: i, task: t, loadingAI, onUpdate, onRemove
               type="time"
               value={t.fixed_time || ""}
               onChange={e => onUpdate(i, { fixed_time: e.target.value || undefined })}
-              className="bg-background border border-border rounded-md px-2 py-1 text-xs text-foreground ml-auto"
+              className="bg-background border border-soft rounded-md px-2 py-1 text-xs text-foreground ml-auto"
             />
             {t.fixed_time && (
               <button

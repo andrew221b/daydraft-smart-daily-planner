@@ -17,6 +17,7 @@ import { UpgradeSheet } from "@/components/app/UpgradeSheet";
 import { enablePush, disablePush, pushSupported } from "@/lib/push";
 import { useTour, TOUR_TODAY } from "@/components/app/Tour";
 import { getWeekIntention, setWeekIntention } from "@/lib/weekIntention";
+import { useCalmMode } from "@/lib/calmMode";
 
 const energies = [
   { key: "morning" as const, label: "Morning person" },
@@ -25,13 +26,13 @@ const energies = [
 ];
 
 const TONES: Array<{ key: NonNullable<ReturnType<typeof useProfile>["profile"]>["ai_tone"]; label: string; sub: string }> = [
-  { key: "professional", label: "Professional", sub: "Direct, no fluff" },
-  { key: "coach", label: "Coach", sub: "Warm, encouraging" },
-  { key: "playful", label: "Playful", sub: "Light, witty" },
-  { key: "motivational", label: "Motivational", sub: "High energy" },
-  { key: "tough_love", label: "Tough love", sub: "Blunt, no excuses" },
-  { key: "philosophical", label: "Philosophical", sub: "Quotes & reflection" },
-  { key: "custom", label: "Custom", sub: "Describe your own" },
+  { key: "professional", label: "Professional", sub: "Clear, concise, practical" },
+  { key: "coach", label: "Coach", sub: "Supportive and structured" },
+  { key: "playful", label: "Playful", sub: "Light and friendly" },
+  { key: "motivational", label: "Motivational", sub: "Energetic and momentum-first" },
+  { key: "tough_love", label: "Tough love", sub: "Direct accountability" },
+  { key: "philosophical", label: "Philosophical", sub: "Reflective and thoughtful" },
+  { key: "custom", label: "Custom", sub: "Define your own voice" },
 ];
 
 export default function Settings() {
@@ -45,6 +46,7 @@ export default function Settings() {
   const [upgradeOpen, setUpgradeOpen] = useState(false);
   const [calConnecting, setCalConnecting] = useState(false);
   const [advancedOpen, setAdvancedOpen] = useState(false);
+  const [calmMode, setCalmMode] = useCalmMode();
   useEffect(() => { if (profile) setName(profile.display_name || ""); }, [profile?.id]);
 
   useEffect(() => {
@@ -75,7 +77,7 @@ export default function Settings() {
       update({ passkey_enabled: true } as any);
       toast.success("Face ID / fingerprint enabled");
     } catch (e: any) {
-      toast.error(e?.message || "Couldn't enroll");
+      toast.error(e?.message || "Unable to enable passkey");
     }
   };
 
@@ -92,7 +94,7 @@ export default function Settings() {
         update({ notifications_enabled: false });
       }
     } catch (e: any) {
-      toast.error(e.message || "Couldn't change notifications");
+      toast.error(e.message || "Unable to update notification settings");
     }
   };
 
@@ -102,7 +104,7 @@ export default function Settings() {
     try {
       const clientId = import.meta.env.VITE_GOOGLE_CALENDAR_CLIENT_ID as string | undefined;
       if (!clientId) {
-        toast("Calendar sync isn't configured yet — we'll let you know when it's live.");
+        toast("Calendar sync is not configured yet. We will notify you when it becomes available.");
         return;
       }
       const redirect = `${window.location.origin}/settings`;
@@ -136,7 +138,7 @@ export default function Settings() {
 
           {/* 2. Profile — name + appearance grouped */}
           <Section title="You">
-            <div className="rounded-[18px] border border-border/50 bg-surface/70 backdrop-blur-sm divide-y divide-border/50 overflow-hidden">
+            <div className="rounded-[18px] border border-soft surface-card backdrop-blur-sm divide-y divide-border/50 overflow-hidden">
               <div className="px-3 py-2.5">
                 <div className="text-[11px] text-secondary-fg mb-1">Name</div>
                 <Input value={name} onChange={e => setName(e.target.value)} onBlur={() => update({ display_name: name })}
@@ -151,14 +153,17 @@ export default function Settings() {
 
           {/* 3. AI tone — single most-used preference */}
           <Section title="AI tone">
-            <div className="rounded-[18px] border border-border/50 bg-surface/70 backdrop-blur-sm divide-y divide-border/50 overflow-hidden">
+            <p className="text-[12px] text-secondary-fg mb-2 leading-relaxed">
+              This affects how AI writes plans, task help, nudges, and recap insights.
+            </p>
+            <div className="rounded-[18px] border border-soft surface-card backdrop-blur-sm divide-y divide-border/50 overflow-hidden">
               {TONES.map(t => {
-                const active = (profile?.ai_tone || "motivational") === t.key;
+                const active = (profile?.ai_tone || "professional") === t.key;
                 return (
                   <button
                     key={t.key}
                     onClick={() => update({ ai_tone: t.key } as any)}
-                    className={`w-full flex items-center justify-between px-4 py-3 pressable transition-colors ${active ? "bg-primary/[0.06]" : "hover:bg-surface-elevated"}`}
+                    className={`w-full flex items-center justify-between px-4 py-3 pressable transition-colors ${active ? "surface-accent" : "hover:bg-surface-elevated"}`}
                   >
                     <div className="text-left">
                       <div className="text-[14px] text-foreground">{t.label}</div>
@@ -174,14 +179,14 @@ export default function Settings() {
                 value={profile?.ai_tone_custom || ""}
                 onChange={(e) => update({ ai_tone_custom: e.target.value } as any)}
                 placeholder="e.g. talk to me like a calm Stoic mentor; no emojis; concise"
-                className="mt-2 min-h-[70px] bg-surface border-border rounded-xl text-[13px]"
+                className="mt-2 min-h-[70px] surface-card border-soft rounded-xl text-[13px]"
               />
             )}
           </Section>
 
           {/* 4. Notifications + Calendar — connected channels */}
           <Section title="Connections">
-            <div className="rounded-[18px] border border-border/50 bg-surface/70 backdrop-blur-sm divide-y divide-border/50 overflow-hidden">
+            <div className="rounded-[18px] border border-soft surface-card backdrop-blur-sm divide-y divide-border/50 overflow-hidden">
               <div className="flex items-center justify-between px-4 py-3">
                 <div className="flex items-center gap-3">
                   <Bell className="h-4 w-4 text-secondary-fg" />
@@ -210,11 +215,25 @@ export default function Settings() {
             </div>
           </Section>
 
+          <Section title="Focus experience">
+            <div className="rounded-[18px] border border-soft surface-card backdrop-blur-sm overflow-hidden">
+              <div className="flex items-center justify-between px-4 py-3">
+                <div>
+                  <div className="text-[14px]">Calm mode</div>
+                  <p className="text-[11px] text-secondary-fg mt-0.5">
+                    Show only essential actions on Today and DayView.
+                  </p>
+                </div>
+                <Switch checked={calmMode} onCheckedChange={setCalmMode} />
+              </div>
+            </div>
+          </Section>
+
           {/* 5. Advanced — collapsed by default */}
           <Section title="Advanced">
             <button
               onClick={() => setAdvancedOpen(o => !o)}
-              className="w-full flex items-center justify-between px-4 py-3 rounded-[16px] border border-border/50 bg-surface/65 backdrop-blur-sm pressable hover:bg-surface-elevated/80"
+              className="w-full flex items-center justify-between px-4 py-3 rounded-[16px] border border-soft surface-card backdrop-blur-sm pressable hover:bg-surface-elevated/80"
             >
               <span className="text-[14px]">Active hours & energy</span>
               <ChevronDown className={`h-4 w-4 text-secondary-fg transition-transform ${advancedOpen ? "rotate-180" : ""}`} />
@@ -230,7 +249,7 @@ export default function Settings() {
                         type="time"
                         value={profile?.active_hours_start || "09:00"}
                         onChange={(e) => update({ active_hours_start: e.target.value } as any)}
-                        className="w-full h-9 px-3 rounded-lg bg-background border border-border text-[13px] tabular-nums"
+                        className="w-full h-9 px-3 rounded-lg bg-background border border-soft text-[13px] tabular-nums"
                       />
                     </label>
                     <label className="flex-1">
@@ -239,17 +258,17 @@ export default function Settings() {
                         type="time"
                         value={profile?.active_hours_end || "22:00"}
                         onChange={(e) => update({ active_hours_end: e.target.value } as any)}
-                        className="w-full h-9 px-3 rounded-lg bg-background border border-border text-[13px] tabular-nums"
+                        className="w-full h-9 px-3 rounded-lg bg-background border border-soft text-[13px] tabular-nums"
                       />
                     </label>
                   </div>
                 </div>
-                <div className="rounded-[18px] border border-border/50 bg-surface/70 backdrop-blur-sm divide-y divide-border/50 overflow-hidden">
+                <div className="rounded-[18px] border border-soft surface-card backdrop-blur-sm divide-y divide-border/50 overflow-hidden">
                   {energies.map(e => {
                     const active = profile?.energy_preference === e.key;
                     return (
                       <button key={e.key} onClick={() => update({ energy_preference: e.key })}
-                        className={`w-full flex items-center justify-between px-4 py-3 pressable transition-colors ${active ? "bg-primary/[0.06]" : "hover:bg-surface-elevated"}`}>
+                        className={`w-full flex items-center justify-between px-4 py-3 pressable transition-colors ${active ? "surface-accent" : "hover:bg-surface-elevated"}`}>
                         <span className="text-[13px]">{e.label}</span>
                         <span className="text-[11px] text-secondary-fg tabular-nums">{peakWindow(e.key)}</span>
                       </button>
@@ -262,7 +281,7 @@ export default function Settings() {
 
           {/* 6. Help + legal — quiet, terminal items */}
           <Section title="More">
-            <div className="rounded-[18px] border border-border/50 bg-surface/70 backdrop-blur-sm divide-y divide-border/50 overflow-hidden">
+            <div className="rounded-[18px] border border-soft surface-card backdrop-blur-sm divide-y divide-border/50 overflow-hidden">
               <button
                 onClick={async () => {
                   await tour.resetAll();
@@ -293,7 +312,7 @@ export default function Settings() {
             </div>
           </Section>
 
-          <Button onClick={signOut} variant="outline" className="w-full h-11 rounded-xl border-border bg-surface hover:bg-surface-elevated pressable text-[13px]">
+          <Button onClick={signOut} variant="outline" className="w-full h-11 rounded-xl border-soft surface-card hover:bg-surface-elevated pressable text-[13px]">
             Sign out
           </Button>
 
@@ -311,7 +330,7 @@ function WeekIntentionEditor() {
     setTxt(getWeekIntention()?.text ?? "");
   }, []);
   return (
-    <div className="app-card overflow-hidden p-0 border-border/55">
+    <div className="app-card overflow-hidden p-0 border-soft">
       <p className="text-[12.5px] text-secondary-fg px-4 pt-4 leading-relaxed">
         One line that stays pinned on <strong className="text-foreground font-medium">Today</strong> until Monday. Use it for a theme, a deadline, or how you want to feel — not a task list.
       </p>
@@ -319,7 +338,7 @@ function WeekIntentionEditor() {
         value={txt}
         onChange={(e) => setTxt(e.target.value)}
         placeholder="e.g. Ship the beta · stay calm under load"
-        className="mx-3 my-3 min-h-[72px] bg-background border-border rounded-xl text-[13px]"
+        className="mx-3 my-3 min-h-[72px] bg-background border-soft rounded-xl text-[13px]"
       />
       <div className="flex gap-2 px-3 pb-3">
         <Button
@@ -341,7 +360,7 @@ function WeekIntentionEditor() {
             setTxt("");
             setWeekIntention("");
             window.dispatchEvent(new Event("dd-week-intent"));
-            toast("Cleared");
+            toast("Weekly focus cleared");
           }}
         >
           Clear
@@ -370,7 +389,7 @@ const ProCard = ({ entitlement, isPro, planQuotaUsed, planQuotaLimit, onUpgrade 
     : tier === "trial" ? `Trial · ${entitlement?.daysLeftInTrial}d left`
     : "Free";
   return (
-    <div className="rounded-[18px] border border-primary/15 bg-primary/[0.03] backdrop-blur-sm p-4 shadow-card">
+    <div className="rounded-[18px] border border-accent surface-accent backdrop-blur-sm p-4 shadow-card">
       <div className="flex items-center gap-1.5">
         <Sparkles className="h-3.5 w-3.5 text-primary" />
         <span className="text-[10px] font-semibold text-primary uppercase tracking-[0.14em]">{badge}</span>
@@ -391,8 +410,8 @@ const ProCard = ({ entitlement, isPro, planQuotaUsed, planQuotaLimit, onUpgrade 
         </Button>
       )}
       {isPro && (
-        <button onClick={() => toast("Subscription management coming soon")}
-          className="w-full mt-3 h-9 rounded-[12px] text-[12px] text-secondary-fg border border-border/50 bg-surface/70 pressable hover:text-foreground">
+        <button onClick={() => toast("Subscription management will be available soon")}
+          className="w-full mt-3 h-10 rounded-[12px] text-[12px] text-secondary-fg border border-soft surface-card pressable hover:text-foreground">
           Manage subscription
         </button>
       )}

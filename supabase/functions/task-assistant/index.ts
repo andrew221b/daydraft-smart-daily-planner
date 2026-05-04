@@ -8,7 +8,7 @@ const corsHeaders = {
 serve(async (req) => {
   if (req.method === "OPTIONS") return new Response(null, { headers: corsHeaders });
   try {
-    const { title, type, location, duration_min } = await req.json();
+    const { title, type, location, duration_min, ai_tone, ai_tone_custom } = await req.json();
     if (!title || typeof title !== "string") {
       return new Response(JSON.stringify({ error: "title required" }), {
         status: 400, headers: { ...corsHeaders, "Content-Type": "application/json" },
@@ -17,7 +17,20 @@ serve(async (req) => {
     const LOVABLE_API_KEY = Deno.env.get("LOVABLE_API_KEY");
     if (!LOVABLE_API_KEY) throw new Error("LOVABLE_API_KEY missing");
 
+    const toneMap: Record<string, string> = {
+      professional: "Tone: concise and professional. Prioritize clarity. No emojis.",
+      coach: "Tone: supportive coach. Encourage while giving practical actions.",
+      playful: "Tone: light and friendly. Keep it useful and concise. Max one subtle emoji.",
+      motivational: "Tone: energetic and action-driven. Keep recommendations concrete.",
+      tough_love: "Tone: direct and accountable. Firm but respectful. No emojis.",
+      philosophical: "Tone: reflective and calm, with practical execution advice.",
+    };
+    const toneLine = ai_tone === "custom" && ai_tone_custom
+      ? `Custom tone guidance: ${String(ai_tone_custom).slice(0, 250)}`
+      : (toneMap[ai_tone] || toneMap.professional);
+
     const system = `You are a focused execution coach. The user is about to start a single task.
+${toneLine}
 Return:
 - 3-5 concrete sub-steps (verb-led, max 8 words each) that break the task down.
 - 2-4 useful resource links (real, well-known URLs only — docs, official sites, common tools). If you're not certain a URL is correct, omit it. Do not invent links.

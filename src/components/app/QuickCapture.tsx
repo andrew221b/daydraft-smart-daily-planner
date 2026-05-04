@@ -6,6 +6,7 @@ import { Inbox, Sunrise, Sun, Trash2, Mic } from "lucide-react";
 import { useAuth } from "@/hooks/useAuth";
 import { supabase } from "@/integrations/supabase/client";
 import { toast } from "sonner";
+import { parseQuickCaptureText } from "@/lib/productPolish";
 
 type Capture = { id: string; content: string; consumed: boolean; created_at: string };
 
@@ -43,15 +44,13 @@ export function QuickCaptureButton({ className = "", variant = "icon" }: { class
   const save = async () => {
     if (!text.trim() || !user) return;
     setBusy(true);
-    // Add a marker prefix when destination is "today" so Today screen can pick it up immediately
-    const content = destination === "today" ? `[today] ${text.trim()}` : text.trim();
-    const { error } = await supabase.from("quick_captures").insert({
-      user_id: user.id, content,
-    } as any);
+    const parsedItems = parseQuickCaptureText(text.trim(), destination);
+    const rows = parsedItems.map((content) => ({ user_id: user.id, content })) as any[];
+    const { error } = await supabase.from("quick_captures").insert(rows);
     setBusy(false);
     if (error) { toast.error(error.message); return; }
     setText("");
-    toast.success(destination === "today" ? "Captured · added to today" : "Captured · added to tomorrow");
+    toast.success(`Captured ${parsedItems.length} item${parsedItems.length === 1 ? "" : "s"}`);
     refresh();
   };
 
@@ -63,12 +62,12 @@ export function QuickCaptureButton({ className = "", variant = "icon" }: { class
 
   const voice = () => {
     const SR = (window as any).SpeechRecognition || (window as any).webkitSpeechRecognition;
-    if (!SR) { toast.error("Voice not supported in this browser"); return; }
+    if (!SR) { toast.error("Voice capture is not supported in this browser"); return; }
     const r = new SR(); r.lang = "en-US"; r.interimResults = false;
     r.onresult = (e: any) => setText(prev => prev + (prev ? " " : "") + e.results[0][0].transcript);
-    r.onerror = () => toast.error("Couldn't capture voice");
+    r.onerror = () => toast.error("Voice capture failed");
     r.start();
-    toast("Listening…");
+    toast("Listening...");
   };
 
   if (!user) return null;
@@ -80,8 +79,8 @@ export function QuickCaptureButton({ className = "", variant = "icon" }: { class
         data-tour="today-inbox"
         aria-label={`Capture · ${pendingCount} pending`}
         className={variant === "chip"
-          ? `shrink-0 inline-flex items-center gap-1.5 h-7 px-2.5 rounded-[10px] bg-background/70 border border-border/50 text-[11px] font-medium text-secondary-fg pressable hover:text-foreground hover:border-border transition-colors backdrop-blur-sm ${className}`
-          : `relative h-9 w-9 rounded-[12px] bg-background/70 border border-border/50 flex items-center justify-center text-secondary-fg hover:text-foreground pressable backdrop-blur-sm ${className}`}
+          ? `shrink-0 inline-flex items-center gap-1.5 h-7 px-2.5 rounded-[10px] bg-background/70 border border-soft text-[11px] font-medium text-secondary-fg pressable hover:text-foreground hover:border-strong transition-colors backdrop-blur-sm ${className}`
+          : `relative h-11 w-11 rounded-[14px] bg-background/70 border border-soft flex items-center justify-center text-secondary-fg hover:text-foreground pressable backdrop-blur-sm ${className}`}
       >
         <Inbox className={variant === "chip" ? "h-3.5 w-3.5" : "h-[18px] w-[18px]"} strokeWidth={1.75} />
         {variant === "chip" && <span>Capture</span>}
@@ -93,12 +92,12 @@ export function QuickCaptureButton({ className = "", variant = "icon" }: { class
       </button>
 
       <Sheet open={open} onOpenChange={setOpen}>
-        <SheetContent side="bottom" className="rounded-t-[24px] border-border/50 bg-background/95 backdrop-blur-xl max-h-[90vh] overflow-y-auto">
+        <SheetContent side="bottom" className="rounded-t-[24px] border-soft bg-background/95 backdrop-blur-xl max-h-[90vh] overflow-y-auto">
           <SheetHeader className="text-left">
             <SheetTitle className="font-display text-[19px] font-semibold">Capture</SheetTitle>
             <SheetDescription className="text-[12.5px] text-secondary-fg leading-[1.5]">
               Jot thoughts as they come. They&apos;ll appear on your next plan automatically.
-              <span className="block mt-1 text-[11px] text-secondary-fg/80">Tip: ⌘⇧C (Ctrl⇧C) opens this from anywhere.</span>
+              <span className="block mt-1 text-[11px] text-subtle">Tip: ⌘⇧C (Ctrl⇧C) opens this from anywhere.</span>
             </SheetDescription>
           </SheetHeader>
 
@@ -107,12 +106,12 @@ export function QuickCaptureButton({ className = "", variant = "icon" }: { class
               <Textarea
                 autoFocus value={text} onChange={e => setText(e.target.value)}
                 placeholder="A task, an idea, a follow-up…"
-                className="min-h-[100px] bg-surface/70 border-border/50 rounded-[14px] text-[15px] pr-12"
+                className="min-h-[100px] surface-card border-soft rounded-[14px] text-[15px] pr-12"
               />
               <button
                 onClick={voice}
                 aria-label="Voice capture"
-                className="absolute right-3 top-3 h-8 w-8 rounded-full bg-background/80 border border-border/50 flex items-center justify-center text-secondary-fg hover:text-primary pressable backdrop-blur-sm"
+                className="absolute right-3 top-3 h-10 w-10 rounded-full bg-background/80 border border-soft flex items-center justify-center text-secondary-fg hover:text-primary pressable backdrop-blur-sm"
               >
                 <Mic className="h-3.5 w-3.5" />
               </button>
@@ -122,7 +121,7 @@ export function QuickCaptureButton({ className = "", variant = "icon" }: { class
               <button
                 onClick={() => setDestination("today")}
                 className={`flex-1 inline-flex items-center justify-center gap-1.5 px-3 py-2 rounded-[12px] border text-xs font-medium pressable backdrop-blur-sm ${
-                  destination === "today" ? "border-primary/30 bg-primary/[0.08] text-primary" : "border-border/50 bg-surface/60 text-secondary-fg"
+                  destination === "today" ? "border-accent surface-accent text-primary" : "border-soft surface-card text-secondary-fg"
                 }`}
               >
                 <Sun className="h-3.5 w-3.5" /> Today
@@ -130,7 +129,7 @@ export function QuickCaptureButton({ className = "", variant = "icon" }: { class
               <button
                 onClick={() => setDestination("tomorrow")}
                 className={`flex-1 inline-flex items-center justify-center gap-1.5 px-3 py-2 rounded-[12px] border text-xs font-medium pressable backdrop-blur-sm ${
-                  destination === "tomorrow" ? "border-primary/30 bg-primary/[0.08] text-primary" : "border-border/50 bg-surface/60 text-secondary-fg"
+                  destination === "tomorrow" ? "border-accent surface-accent text-primary" : "border-soft surface-card text-secondary-fg"
                 }`}
               >
                 <Sunrise className="h-3.5 w-3.5" /> Tomorrow
@@ -152,13 +151,23 @@ export function QuickCaptureButton({ className = "", variant = "icon" }: { class
               <div className="space-y-1.5">
                 {items.map(it => {
                   const forToday = it.content.startsWith("[today]");
-                  const display = forToday ? it.content.replace(/^\[today\]\s*/, "") : it.content;
+                  const forDate = it.content.match(/^\[for:(\d{4}-\d{2}-\d{2})\]\s*/);
+                  const display = it.content
+                    .replace(/^\[today\]\s*/, "")
+                    .replace(/^\[for:\d{4}-\d{2}-\d{2}\]\s*/, "");
                   return (
                     <div key={it.id} className="flex items-start gap-2 px-3 py-2.5 app-card">
-                      {forToday
-                        ? <Sun className="h-3.5 w-3.5 text-primary mt-0.5 shrink-0" />
-                        : <Sunrise className="h-3.5 w-3.5 text-secondary-fg mt-0.5 shrink-0" />}
-                      <p className="flex-1 text-sm leading-snug whitespace-pre-wrap break-words">{display}</p>
+                      {forToday ? (
+                        <Sun className="h-3.5 w-3.5 text-primary mt-0.5 shrink-0" />
+                      ) : (
+                        <Sunrise className="h-3.5 w-3.5 text-secondary-fg mt-0.5 shrink-0" />
+                      )}
+                      <div className="flex-1 min-w-0">
+                        <p className="text-sm leading-snug whitespace-pre-wrap break-words">{display}</p>
+                        {forDate && (
+                          <p className="text-[11px] text-secondary-fg mt-1">For {forDate[1]}</p>
+                        )}
+                      </div>
                       <button onClick={() => remove(it.id)} aria-label="Delete" className="text-secondary-fg hover:text-destructive pressable shrink-0">
                         <Trash2 className="h-3.5 w-3.5" />
                       </button>
@@ -174,8 +183,8 @@ export function QuickCaptureButton({ className = "", variant = "icon" }: { class
 
           {items.length === 0 && (
             <div className="mt-8 text-center py-6">
-              <Inbox className="h-8 w-8 text-secondary-fg/40 mx-auto mb-2" />
-              <p className="text-xs text-secondary-fg">Nothing captured yet.</p>
+              <Inbox className="h-8 w-8 text-faint mx-auto mb-2" />
+              <p className="text-xs text-secondary-fg">No captured items yet.</p>
             </div>
           )}
         </SheetContent>

@@ -10,7 +10,7 @@ const opts: { v: Theme; label: string; Icon: any }[] = [
 export const ThemeToggle = () => {
   const { theme, setTheme } = useTheme();
   return (
-    <div className="flex gap-1 p-1 rounded-xl bg-surface border border-border">
+    <div className="flex gap-1 p-1 rounded-xl surface-card border border-soft">
       {opts.map(({ v, label, Icon }) => {
         const active = theme === v;
         return (

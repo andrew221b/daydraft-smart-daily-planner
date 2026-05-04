@@ -145,7 +145,7 @@ export default function Auth() {
                 </button>
                 {canUsePasskey && (
                   <button onClick={passkeyLogin} disabled={busy}
-                    className="w-full h-12 rounded-[14px] border border-primary/18 bg-primary/[0.04] backdrop-blur-sm text-primary hover:bg-primary/[0.07] pressable text-sm font-medium inline-flex items-center justify-center gap-2">
+                    className="w-full h-12 rounded-[14px] border border-accent surface-accent backdrop-blur-sm text-primary hover:bg-primary/[0.07] pressable text-sm font-medium inline-flex items-center justify-center gap-2">
                     <Fingerprint className="h-4 w-4" /> Use Face ID / fingerprint
                   </button>
                 )}
@@ -158,7 +158,7 @@ export default function Auth() {
 
               <form onSubmit={submit} className="space-y-3">
                 {mode === "signup" && (
-                  <Input value={name} onChange={e => setName(e.target.value)} placeholder="Your name" className="h-12 bg-surface/80 border-border/50 rounded-[14px]" />
+                  <Input value={name} onChange={e => setName(e.target.value)} placeholder="Your name" className="h-12 surface-card border-soft rounded-[14px]" />
                 )}
                 <Input
                   type="email"
@@ -173,9 +173,9 @@ export default function Auth() {
                     }
                   }}
                   placeholder="Email"
-                  className="h-12 bg-surface/80 border-border/50 rounded-[14px]"
+                  className="h-12 surface-card border-soft rounded-[14px]"
                 />
-                <Input type="password" required minLength={6} value={pw} onChange={e => setPw(e.target.value)} placeholder="Password" className="h-12 bg-surface/80 border-border/50 rounded-[14px]" />
+                <Input type="password" required minLength={6} value={pw} onChange={e => setPw(e.target.value)} placeholder="Password" className="h-12 surface-card border-soft rounded-[14px]" />
                 <Button type="submit" disabled={busy} className="w-full h-12 rounded-[14px] bg-primary text-primary-foreground hover:bg-primary/90 pressable text-base font-medium shadow-card">
                   {busy ? "..." : mode === "signup" ? "Create account" : "Sign in"}
                 </Button>

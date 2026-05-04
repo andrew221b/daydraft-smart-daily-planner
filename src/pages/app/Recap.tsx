@@ -5,13 +5,15 @@ import { useAuth } from "@/hooks/useAuth";
 import { useProfile } from "@/hooks/useProfile";
 import { supabase } from "@/integrations/supabase/client";
 import { Block, todayDateStr, parseDateStr, friendlyDateFor, dateStr, isUserTask } from "@/lib/daydraft";
-import { Sparkles, Clock, RotateCcw, TrendingUp, Smile, Meh, Frown, Copy } from "lucide-react";
+import { Sparkles, Clock, RotateCcw, TrendingUp, Smile, Meh, Frown, Copy, Gauge, ListChecks } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { useTimeTracker, fmtHM } from "@/hooks/useTimeTracker";
 import { toast } from "sonner";
 import { haptics } from "@/lib/haptics";
 import { Confetti } from "@/components/app/Confetti";
 import { formatPlanAsPlainText, copyTextToClipboard } from "@/lib/planTextExport";
+import { KpiCard } from "@/components/app/KpiCard";
+import { smartDailyOutcome, weeklyProductScore } from "@/lib/productPolish";
 
 export default function Recap() {
   const { user } = useAuth();
@@ -27,6 +29,7 @@ export default function Recap() {
   const [mood, setMood] = useState<"good" | "ok" | "bad" | null>(null);
   const [lastWeekFocusMin, setLastWeekFocusMin] = useState<number | null>(null);
   const [confettiFired, setConfettiFired] = useState(false);
+  const [weeklyScore, setWeeklyScore] = useState<{ score: number; tips: string[] } | null>(null);
 
   useEffect(() => {
     if (!user) return;
@@ -60,12 +63,49 @@ export default function Recap() {
       }
       try {
         const { data } = await supabase.functions.invoke("generate-insight", {
-          body: { blocks: list, energy_preference: profile?.energy_preference || "morning" },
+          body: {
+            blocks: list,
+            energy_preference: profile?.energy_preference || "morning",
+            ai_tone: (profile as any)?.ai_tone || "professional",
+            ai_tone_custom: (profile as any)?.ai_tone_custom || null,
+          },
         });
         if (data?.insight) setInsight(data.insight);
       } catch {/* ignore */}
     })();
   }, [user?.id, profile?.energy_preference, viewDate]);
+
+  useEffect(() => {
+    if (!user) return;
+    (async () => {
+      const since = new Date();
+      since.setDate(since.getDate() - 6);
+      const { data: plans } = await supabase
+        .from("plans")
+        .select("id,date")
+        .eq("user_id", user.id)
+        .gte("date", dateStr(since))
+        .order("date", { ascending: true });
+      const planIds = (plans || []).map((p: any) => p.id).filter(Boolean);
+      if (!planIds.length) {
+        setWeeklyScore(null);
+        return;
+      }
+      const { data: weeklyBlocks } = await supabase
+        .from("blocks")
+        .select("*")
+        .in("plan_id", planIds)
+        .order("position", { ascending: true });
+      const grouped = new Map<string, Block[]>();
+      (weeklyBlocks || []).forEach((b: any) => {
+        const list = grouped.get(b.plan_id) || [];
+        list.push(b as Block);
+        grouped.set(b.plan_id, list);
+      });
+      const days = planIds.map((id) => grouped.get(id) || []);
+      setWeeklyScore(weeklyProductScore(days));
+    })();
+  }, [user?.id, viewDate]);
 
   const tasks = blocks.filter(isUserTask);
   const done = tasks.filter(b => b.completed).length;
@@ -151,6 +191,17 @@ export default function Recap() {
   // Carry unfinished tasks to tomorrow's quick_captures inbox so they're
   // pre-loaded into the next plan. One-tap shortcut for the 80% case.
   const unfinished = tasks.filter(b => !b.completed);
+  const outcomeLines = smartDailyOutcome(tasks);
+
+  const buildTomorrowFromOutcome = () => {
+    const tomorrow = new Date(parseDateStr(viewDate));
+    tomorrow.setDate(tomorrow.getDate() + 1);
+    const tomorrowDate = dateStr(tomorrow);
+    const carry = unfinished.slice(0, 4).map((b) => `${b.title} (${Math.max(20, b.duration_min)}m)`).join("\n");
+    if (carry) sessionStorage.setItem("dd_planning_input", carry);
+    sessionStorage.setItem("dd_planning_plan_date", tomorrowDate);
+    nav(`/today?date=${tomorrowDate}&composer=1`);
+  };
   const copyRecapOutline = async () => {
     if (!blocks.length) return;
     const headline = `Recap · ${parseDateStr(viewDate).toLocaleDateString(undefined, { weekday: "long", month: "long", day: "numeric" })}`;
@@ -187,7 +238,7 @@ export default function Recap() {
           if (!ids.length) return;
           await supabase.from("quick_captures").delete().in("id", ids);
           setCarriedOver(false);
-          toast("Carry-over undone");
+          toast("Carry-forward reverted");
         },
       },
       duration: 6000,
@@ -199,28 +250,30 @@ export default function Recap() {
       <Confetti fire={confettiFired} />
       <div className="relative">
         <div className="absolute inset-x-0 top-0 h-52 pointer-events-none" style={{ background: "var(--gradient-glow)" }} />
-        <div className="relative px-6 pt-14">
-          <h1 className="font-display text-[26px] font-semibold leading-tight text-balance">
-            {viewDate === todayDateStr() ? "Day complete." : `Recap · ${friendlyDateFor(parseDateStr(viewDate))}`}
-          </h1>
-          <div className="mt-1 flex items-center justify-between gap-3">
-            <p className="text-secondary-fg flex-1 min-w-0">
-              {parseDateStr(viewDate).toLocaleDateString(undefined, { weekday: "long", month: "long", day: "numeric" })}
-            </p>
-            {blocks.length > 0 && (
-              <button
-                type="button"
-                onClick={() => void copyRecapOutline()}
-                className="shrink-0 inline-flex items-center gap-1.5 h-8 px-2.5 rounded-lg border border-border/60 bg-surface/50 text-[11px] font-medium text-secondary-fg hover:text-foreground pressable"
-              >
-                <Copy className="h-3.5 w-3.5" /> Copy outline
-              </button>
-            )}
+        <div className="relative px-5 pt-10">
+          <div className="hero-glass p-5 md:p-6">
+            <h1 className="font-display text-[30px] font-semibold leading-[1.07] text-balance">
+              {viewDate === todayDateStr() ? "Day complete." : `Recap · ${friendlyDateFor(parseDateStr(viewDate))}`}
+            </h1>
+            <div className="mt-2 flex items-center justify-between gap-3">
+              <p className="text-secondary-fg flex-1 min-w-0">
+                {parseDateStr(viewDate).toLocaleDateString(undefined, { weekday: "long", month: "long", day: "numeric" })}
+              </p>
+              {blocks.length > 0 && (
+                <button
+                  type="button"
+                  onClick={() => void copyRecapOutline()}
+                  className="shrink-0 inline-flex items-center gap-1.5 h-10 px-3 rounded-xl border border-soft surface-soft text-[11px] font-medium text-secondary-fg hover:text-foreground pressable"
+                >
+                  <Copy className="h-3.5 w-3.5" /> Copy outline
+                </button>
+              )}
+            </div>
           </div>
 
           {tasks.length === 0 && (
             <div className="mt-8 app-card p-6 text-center">
-              <div className="text-sm font-medium">Nothing to recap yet</div>
+              <div className="text-sm font-medium">No recap available yet</div>
               <p className="text-xs text-secondary-fg mt-1">No plan exists for this day.</p>
               <Button onClick={() => nav(viewDate === todayDateStr() ? "/today" : `/today?date=${viewDate}`)}
                 className="mt-4 h-10 px-5 rounded-xl text-primary-foreground text-sm font-medium pressable"
@@ -233,15 +286,14 @@ export default function Recap() {
           {tasks.length > 0 && (
           <>
 
-          <div className="grid grid-cols-3 gap-2.5 mt-8">
-            <Stat label="Tasks done" value={`${done}/${tasks.length}`} />
-            <Stat label="Focus time" value={`${fh}h ${fm}m`} />
-            <Stat label="Efficiency" value={`${eff}%`} />
+          <div className="grid grid-cols-3 gap-2.5 mt-6 section-switch-stagger">
+            <KpiCard label="Tasks done" value={`${done}/${tasks.length}`} tone="primary" />
+            <KpiCard label="Focus time" value={`${fh}h ${fm}m`} />
+            <KpiCard label="Efficiency" value={`${eff}%`} tone={eff >= 70 ? "success" : "neutral"} />
           </div>
 
           {/* Negative-delta callouts removed — recap should encourage, not
-              shame. We only celebrate gains; setbacks are visible in Stats
-              for users who want them. */}
+              shame. We only celebrate gains; deeper trends live in History. */}
           {weekDelta != null && weekDelta > 0 && (
             <div className="mt-3 flex items-center justify-center gap-1.5 text-xs text-secondary-fg">
               <TrendingUp className="h-3.5 w-3.5 text-success" />
@@ -268,7 +320,7 @@ export default function Recap() {
                   key={k}
                   onClick={() => recordMood(k)}
                   className={`flex-1 flex flex-col items-center gap-1 py-2.5 rounded-xl border pressable ${
-                    mood === k ? "bg-primary/10 border-primary/40 text-primary" : "bg-background border-border text-secondary-fg"
+                    mood === k ? "surface-accent border-accent text-primary" : "bg-background border-soft text-secondary-fg"
                   }`}
                 >
                   <Icon className="h-5 w-5" />
@@ -282,7 +334,7 @@ export default function Recap() {
           {showRecover && (
             <button
               onClick={backfill}
-              className="mt-6 w-full flex items-center gap-3 px-4 py-3 rounded-xl border border-primary/30 bg-primary/5 text-left pressable"
+              className="mt-6 w-full flex items-center gap-3 px-4 py-3 rounded-xl border border-accent surface-accent text-left pressable"
             >
               <div className="h-9 w-9 rounded-full bg-primary/10 flex items-center justify-center shrink-0">
                 <Clock className="h-4 w-4 text-primary" />
@@ -298,7 +350,7 @@ export default function Recap() {
           {isTodayRecap && unfinished.length > 0 && !carriedOver && (
             <button
               onClick={carryOver}
-              className="mt-3 w-full flex items-center gap-3 px-4 py-3 rounded-xl border border-border bg-surface text-left pressable hover:border-primary/30"
+              className="mt-3 w-full flex items-center gap-3 px-4 py-3 rounded-xl border border-soft surface-card text-left pressable hover:border-primary/30"
             >
               <div className="h-9 w-9 rounded-full bg-primary/10 flex items-center justify-center shrink-0">
                 <RotateCcw className="h-4 w-4 text-primary" />
@@ -316,10 +368,48 @@ export default function Recap() {
               <Sparkles className="h-4 w-4" />
               <span className="eyebrow">Today&apos;s insight</span>
             </div>
-            <p className="text-[14.5px] leading-[1.55] mt-2.5 text-foreground/90">
+            <p className="text-[14.5px] leading-[1.55] mt-2.5 text-subtle">
               {insight || "Reflecting on your day..."}
             </p>
           </div>
+
+          <div className="mt-3 app-card p-4">
+            <div className="flex items-center gap-2 text-primary">
+              <ListChecks className="h-4 w-4" />
+              <span className="eyebrow">Smart daily outcome</span>
+            </div>
+            <div className="mt-2.5 space-y-1.5">
+              {outcomeLines.map((line) => (
+                <p key={line} className="text-[13px] leading-relaxed text-subtle">
+                  {line}
+                </p>
+              ))}
+            </div>
+            <button
+              type="button"
+              onClick={buildTomorrowFromOutcome}
+              className="mt-3 w-full h-10 rounded-xl border border-soft surface-soft text-[12px] text-secondary-fg hover:text-foreground pressable"
+            >
+              Build tomorrow from outcome
+            </button>
+          </div>
+
+          {weeklyScore && (
+            <div className="mt-3 app-card p-4">
+              <div className="flex items-center gap-2 text-primary">
+                <Gauge className="h-4 w-4" />
+                <span className="eyebrow">Weekly product score</span>
+              </div>
+              <div className="mt-2 text-[26px] font-semibold font-display">{weeklyScore.score}<span className="text-[14px] text-secondary-fg">/100</span></div>
+              <div className="mt-2 space-y-1.5">
+                {weeklyScore.tips.map((tip) => (
+                  <p key={tip} className="text-[12.5px] text-secondary-fg leading-relaxed">
+                    {tip}
+                  </p>
+                ))}
+              </div>
+            </div>
+          )}
 
           {/* "Tomorrow looks like" was a static placeholder — removed. The
               insight card above and the carry-over button cover what users
@@ -341,7 +431,7 @@ export default function Recap() {
                   See your week →
                 </button>
                 <button onClick={() => nav("/today")} className="w-full text-secondary-fg text-sm hover:text-foreground transition-colors">
-                  Done for today
+                  Close for today
                 </button>
               </>
             ) : (
@@ -358,10 +448,3 @@ export default function Recap() {
     </Shell>
   );
 }
-
-const Stat = ({ label, value }: { label: string; value: string }) => (
-  <div className="app-card p-3.5 text-center">
-    <div className="font-display text-xl font-semibold tabular-nums">{value}</div>
-    <div className="text-[11px] text-secondary-fg mt-1.5 leading-tight">{label}</div>
-  </div>
-);

@@ -89,16 +89,37 @@ serve(async (req) => {
     const activeStart = (typeof active_hours_start === "string" && /^\d{2}:\d{2}$/.test(active_hours_start)) ? active_hours_start : "09:00";
     const activeEnd = (typeof active_hours_end === "string" && /^\d{2}:\d{2}$/.test(active_hours_end)) ? active_hours_end : "22:00";
     const toneMap: Record<string, string> = {
-      professional: "Tone: professional, direct, no fluff. No emojis.",
-      coach: "Tone: warm coach. Encouraging but concrete.",
-      playful: "Tone: light and witty. One playful emoji max.",
-      motivational: "Tone: high-energy motivational. Strong verbs.",
-      tough_love: "Tone: blunt tough-love. No sugar coating, no emojis.",
-      philosophical: "Tone: philosophical. Occasional brief quote-like phrasing.",
+      professional: `Tone profile: PROFESSIONAL
+- Voice: concise, executive, practical.
+- Style: clear verbs, concrete outcomes, no slang.
+- Constraints: no emojis; avoid hype; avoid vague inspiration.`,
+      coach: `Tone profile: COACH
+- Voice: warm, supportive, action-oriented.
+- Style: encouragement + specific next action in the same sentence.
+- Constraints: no empty praise; keep advice operational.`,
+      playful: `Tone profile: PLAYFUL
+- Voice: light, friendly, confident.
+- Style: keep language clear and useful with subtle personality.
+- Constraints: max one emoji in subtext; never reduce clarity.`,
+      motivational: `Tone profile: MOTIVATIONAL
+- Voice: energetic, decisive, momentum-first.
+- Style: strong verbs, confident framing, action bias.
+- Constraints: keep it grounded in schedule reality (no overpromising).`,
+      tough_love: `Tone profile: TOUGH_LOVE
+- Voice: direct, disciplined, accountable.
+- Style: short firm lines, prioritization pressure, explicit trade-offs.
+- Constraints: no insults, no hostility, no emojis.`,
+      philosophical: `Tone profile: PHILOSOPHICAL
+- Voice: calm, reflective, perspective-driven.
+- Style: concise insight framing + practical execution step.
+- Constraints: max one brief quote-like phrase; avoid abstraction without action.`,
     };
     const toneLine = ai_tone === "custom" && ai_tone_custom
-      ? `Tone (user-defined): ${String(ai_tone_custom).slice(0, 300)}`
-      : (toneMap[ai_tone] || toneMap.motivational);
+      ? `Tone profile: CUSTOM
+- Follow this user-defined style exactly where possible: ${String(ai_tone_custom).slice(0, 300)}
+- Keep output concrete, structured, and useful.
+- Never violate safety and scheduling constraints.`
+      : (toneMap[ai_tone] || toneMap.professional);
     // Hours already accounted for elsewhere on the same date (completed
     // blocks from earlier today, fixed calendar events, etc.). The AI must
     // subtract this from the available window so it never over-promises.

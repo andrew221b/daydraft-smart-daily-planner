@@ -11,7 +11,6 @@ import { TourProvider } from "@/components/app/Tour";
 import { TimeTrackerProvider } from "@/hooks/useTimeTracker";
 import { PageFallback } from "@/components/app/PageFallback";
 import { RouteErrorBoundary } from "@/components/app/RouteErrorBoundary";
-import { PlanCacheBridge } from "@/components/app/PlanCacheBridge";
 import ForgotPassword from "./pages/app/ForgotPassword";
 import ResetPassword from "./pages/app/ResetPassword";
 import Privacy from "./pages/legal/Privacy";
@@ -77,7 +76,6 @@ const App = () => (
       <BrowserRouter>
         <AuthProvider>
         <ProfileProvider>
-        <PlanCacheBridge />
         <TourProvider>
         <TimeTrackerProvider>
           <Routes>

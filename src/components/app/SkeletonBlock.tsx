@@ -10,7 +10,7 @@ export const SkeletonBlock = ({ count = 3 }: { count?: number }) => (
           <div className="h-3 w-10 rounded shimmer" />
         </div>
         <div className="w-[3px] rounded-full bg-border" />
-        <div className="flex-1 rounded-xl border border-border bg-surface p-4 shadow-card">
+        <div className="flex-1 rounded-xl border border-soft surface-card p-4 shadow-card">
           <div className="h-4 w-3/4 rounded shimmer" />
           <div className="mt-3 flex gap-2">
             <div className="h-3 w-14 rounded-full shimmer" />

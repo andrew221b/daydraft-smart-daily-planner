@@ -9,6 +9,7 @@ import { useNavigate } from "react-router-dom";
 import { CheckCircle2, Circle, CalendarDays, Flame, Timer as TimerIcon, Target, LayoutList } from "lucide-react";
 import { useTimeTracker, fmtHM } from "@/hooks/useTimeTracker";
 import { useStreak } from "@/hooks/useStreak";
+import { KpiCard } from "@/components/app/KpiCard";
 
 interface BlockLite { plan_id: string; kind: string; completed: boolean; title: string; is_calendar_event?: boolean | null; }
 interface PlanRow {
@@ -103,35 +104,39 @@ export default function History() {
   return (
     <Shell>
       <PullToRefresh onRefresh={async () => { await load(); }}>
-      <div className="px-6 pt-12">
-        <PageHeader
-          eyebrow="Your week"
-          title="History"
-          hint="Planned days and tracked time. Tap a day for recap — only tasks you mark done count toward completion; open items stay open."
-        />
+      <div className="px-5 pt-10">
+        <div className="hero-glass p-5 md:p-6">
+          <PageHeader
+            eyebrow="Your week"
+            title="History"
+            hint="Planned days and tracked time. Tap a day for recap — only tasks you mark done count toward completion; open items stay open."
+          />
+        </div>
 
         {/* At-a-glance — the only numbers a busy person actually needs */}
-        <div className="mt-9 grid grid-cols-2 gap-3">
-          <StatCard
+        <div className="mt-6 grid grid-cols-2 gap-3 section-switch-stagger">
+          <KpiCard
             icon={<TimerIcon className="h-3.5 w-3.5" />}
             label="Tracked this week"
             value={fmtHM(weekTotalSec)}
             sub={`${fmtHM(todayTotalSec)} today`}
+            tone="primary"
             onClick={() => nav("/tracker")}
           />
-          <StatCard
+          <KpiCard
             icon={<Target className="h-3.5 w-3.5" />}
             label="Tasks done"
             value={`${completionPct}%`}
             sub={`${totalDone} of ${totalTasks} planned`}
           />
-          <StatCard
+          <KpiCard
             icon={<Flame className="h-3.5 w-3.5" />}
             label="Current streak"
             value={`${streak?.current_streak ?? 0}d`}
             sub={`Best ${streak?.longest_streak ?? 0}d`}
+            tone="success"
           />
-          <StatCard
+          <KpiCard
             icon={<CalendarDays className="h-3.5 w-3.5" />}
             label="Days planned"
             value={`${plans.length}`}
@@ -144,7 +149,7 @@ export default function History() {
         {loading && (
           <div className="mt-3 space-y-2">
             {[0, 1, 2].map(i => (
-              <div key={i} className="h-[88px] rounded-2xl bg-surface border border-border animate-pulse" />
+              <div key={i} className="h-[88px] rounded-2xl surface-card border border-soft animate-pulse" />
             ))}
           </div>
         )}
@@ -165,7 +170,7 @@ export default function History() {
                     return (
                       <div
                         key={p.id}
-                        className="app-card p-0 flex overflow-hidden hover:border-primary/25 transition-colors border-border"
+                        className="app-card p-0 flex overflow-hidden hover:border-primary/25 transition-colors border-soft"
                       >
                         <button
                           type="button"
@@ -176,7 +181,7 @@ export default function History() {
                             {allDone ? (
                               <CheckCircle2 className="h-3.5 w-3.5 text-success shrink-0" />
                             ) : (
-                              <Circle className="h-3.5 w-3.5 text-secondary-fg/60 shrink-0" />
+                              <Circle className="h-3.5 w-3.5 text-faint shrink-0" />
                             )}
                             <div className="text-[11.5px] text-secondary-fg font-medium">
                               {parseDateStr(p.date).toLocaleDateString(undefined, { weekday: "long", month: "long", day: "numeric" })}
@@ -202,7 +207,7 @@ export default function History() {
                             e.stopPropagation();
                             nav(`/today/plan?date=${p.date}`);
                           }}
-                          className="shrink-0 w-[52px] flex flex-col items-center justify-center gap-1 border-l border-border/60 bg-surface/40 text-[10px] font-semibold uppercase tracking-wide text-secondary-fg hover:text-primary hover:bg-primary/[0.06] pressable"
+                          className="shrink-0 w-[52px] flex flex-col items-center justify-center gap-1 border-l border-soft surface-soft text-[10px] font-semibold uppercase tracking-wide text-secondary-fg hover:text-primary hover:bg-primary/[0.06] pressable"
                           aria-label={`Open plan for ${p.date}`}
                         >
                           <LayoutList className="h-4 w-4" />
@@ -216,7 +221,7 @@ export default function History() {
             ))}
             {plans.length === 0 && (
               <div className="text-center py-20">
-                <CalendarDays className="h-8 w-8 text-secondary-fg/40 mx-auto mb-3" />
+                <CalendarDays className="h-8 w-8 text-faint mx-auto mb-3" />
                 <div className="font-display text-[16px] font-medium">No plans yet</div>
                 <p className="text-[12.5px] text-secondary-fg mt-1.5">Plan a day and your insights will appear here.</p>
                 <button
@@ -232,22 +237,5 @@ export default function History() {
       </div>
       </PullToRefresh>
     </Shell>
-  );
-}
-
-function StatCard({ icon, label, value, sub, onClick }: { icon: React.ReactNode; label: string; value: string; sub?: string; onClick?: () => void }) {
-  const Comp: any = onClick ? "button" : "div";
-  return (
-    <Comp
-      onClick={onClick}
-      className={`text-left app-card p-4 ${onClick ? "pressable hover:border-primary/25 transition-colors" : ""}`}
-    >
-      <div className="flex items-center gap-1.5 text-secondary-fg">
-        {icon}
-        <span className="eyebrow">{label}</span>
-      </div>
-      <div className="mt-2 font-display text-[22px] font-semibold tabular-nums leading-none">{value}</div>
-      {sub && <div className="mt-1.5 text-[11px] text-secondary-fg tabular-nums">{sub}</div>}
-    </Comp>
   );
 }

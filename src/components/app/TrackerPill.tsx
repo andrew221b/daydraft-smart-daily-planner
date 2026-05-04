@@ -364,13 +364,13 @@ function TrackerInner({ embedded = false, onClose }: { embedded?: boolean; onClo
   const Wrapper: React.FC<{ children: React.ReactNode }> = ({ children }) =>
     embedded
       ? <div className="bg-background">{children}</div>
-      : <div className="rounded-t-[24px] p-0 border border-border/50 max-h-[92vh] overflow-y-auto bg-background/85 backdrop-blur-xl">{children}</div>;
+      : <div className="rounded-t-[24px] p-0 border border-soft max-h-[92vh] overflow-y-auto bg-background/85 backdrop-blur-xl">{children}</div>;
 
   return (
     <>
     <Wrapper>
         {/* Header */}
-        <div className="px-5 pt-7 pb-5 border-b border-border/50">
+        <div className="px-5 pt-7 pb-5 border-b border-soft">
           {/* PDF moved to the bottom of the sheet — the close (X) sits in the
               top-right of SheetContent and any button placed beside it gets
               accidentally tapped when the user reaches to dismiss. */}
@@ -410,8 +410,8 @@ function TrackerInner({ embedded = false, onClose }: { embedded?: boolean; onClo
               <div
                 className={`relative overflow-hidden rounded-[20px] border p-6 transition-all duration-500 backdrop-blur-sm ${
                   active
-                    ? "border-primary/25 bg-surface/90 shadow-card"
-                    : "border-border/50 bg-surface/65"
+                    ? "border-accent surface-card shadow-card"
+                    : "border-soft surface-card"
                 }`}
               >
                 {active && (
@@ -434,7 +434,7 @@ function TrackerInner({ embedded = false, onClose }: { embedded?: boolean; onClo
                     <div className="font-display tabular-nums text-[44px] font-semibold leading-none tracking-tight">
                       {fmtHMS(elapsedSec)}
                     </div>
-                    <div className="text-[14px] font-medium text-foreground/90 truncate max-w-full">
+                    <div className="text-[14px] font-medium text-subtle truncate max-w-full">
                       {activeCat.name}
                     </div>
                     <button
@@ -487,7 +487,7 @@ function TrackerInner({ embedded = false, onClose }: { embedded?: boolean; onClo
             {/* Empty state when no entries today and no active */}
             {!active && todayByCat.length === 0 && categories.length > 0 && (
               <div className="px-5 pt-4">
-                <div className="rounded-[18px] border border-dashed border-border/45 bg-surface/40 backdrop-blur-sm px-4 py-5 text-center">
+                <div className="rounded-[18px] border border-dashed border-soft surface-soft backdrop-blur-sm px-4 py-5 text-center">
                   <div className="mx-auto h-10 w-10 rounded-full bg-muted flex items-center justify-center mb-2">
                     <Clock className="h-4 w-4 text-secondary-fg" />
                   </div>
@@ -505,7 +505,7 @@ function TrackerInner({ embedded = false, onClose }: { embedded?: boolean; onClo
                 const periodSec = stat?.sec || 0;
                 return (
                   <SwipeRow key={c.id} disabled={c.is_default || isActive || editingCat === c.id} onDelete={() => setConfirmDeleteCat(c.id)}>
-                  <div className={`rounded-[16px] border transition-colors ${isActive ? "border-primary/35 bg-primary/[0.05] ring-2 ring-primary/12 ring-offset-2 ring-offset-background" : "border-border/50 bg-surface/70"} overflow-hidden backdrop-blur-sm`}>
+                  <div className={`rounded-[16px] border transition-colors ${isActive ? "border-accent surface-accent ring-2 ring-primary/12 ring-offset-2 ring-offset-background" : "border-soft surface-card"} overflow-hidden backdrop-blur-sm`}>
                     <div className="flex items-center gap-2 px-3 py-2.5">
                       {editingCat === c.id ? (
                         <form
@@ -602,7 +602,7 @@ function TrackerInner({ embedded = false, onClose }: { embedded?: boolean; onClo
                   const c = await addCategory(newName);
                   if (c) setNewName("");
                 }}
-                className="flex items-center gap-2 rounded-[14px] border border-dashed border-border/45 bg-surface/45 backdrop-blur-sm px-3 py-2"
+                className="flex items-center gap-2 rounded-[14px] border border-dashed border-soft surface-soft backdrop-blur-sm px-3 py-2"
               >
                 <Plus className="h-4 w-4 text-secondary-fg shrink-0" />
                 <Input
@@ -636,7 +636,7 @@ function TrackerInner({ embedded = false, onClose }: { embedded?: boolean; onClo
                       onClick={() => setSelectedDay(isSelected ? null : d.key)}
                       className="flex-1 flex flex-col items-center gap-1.5 pressable group"
                     >
-                      <span className={`text-[10px] font-mono tabular-nums ${d.total > 0 ? "text-secondary-fg" : "text-secondary-fg/40"}`}>
+                      <span className={`text-[10px] font-mono tabular-nums ${d.total > 0 ? "text-secondary-fg" : "text-faint"}`}>
                         {d.total > 0 ? fmtHM(d.total) : "–"}
                       </span>
                       <div className="w-full flex-1 flex items-end">
@@ -652,7 +652,7 @@ function TrackerInner({ embedded = false, onClose }: { embedded?: boolean; onClo
                   );
                 })}
               </div>
-              <div className="mt-3 pt-3 border-t border-border/50 flex items-center justify-between text-[11px]">
+              <div className="mt-3 pt-3 border-t border-soft flex items-center justify-between text-[11px]">
                 <span className="text-secondary-fg">Tap a bar for details</span>
                 <span className="font-medium">Total <span className="font-mono tabular-nums">{fmtHM(weekTotal)}</span></span>
               </div>
@@ -706,7 +706,7 @@ function TrackerInner({ embedded = false, onClose }: { embedded?: boolean; onClo
                 })}
               </div>
 
-              <div className="mt-3 pt-3 border-t border-border/50 flex items-center justify-between text-[11px]">
+              <div className="mt-3 pt-3 border-t border-soft flex items-center justify-between text-[11px]">
                 <div className="flex items-center gap-1.5">
                   <span className="text-secondary-fg">Less</span>
                   {[0.15, 0.4, 0.65, 1].map((o, i) => (
@@ -779,7 +779,7 @@ export function TrackerView() {
 export function TrackerSheet({ open, onOpenChange }: { open: boolean; onOpenChange: (v: boolean) => void }) {
   return (
     <Sheet open={open} onOpenChange={onOpenChange}>
-      <SheetContent side="bottom" className="rounded-t-[24px] p-0 border-border/50 max-h-[92vh] overflow-y-auto bg-background/95 backdrop-blur-xl">
+      <SheetContent side="bottom" className="rounded-t-[24px] p-0 border-soft max-h-[92vh] overflow-y-auto bg-background/95 backdrop-blur-xl">
         <TrackerInner onClose={() => onOpenChange(false)} />
       </SheetContent>
     </Sheet>
@@ -843,7 +843,7 @@ function DayDetail({ detail, catMap }: { detail: NonNullable<ReturnType<() => an
           </div>
 
           {detail.items.length > 0 && (
-            <div className="pt-2 mt-2 border-t border-border/50">
+            <div className="pt-2 mt-2 border-t border-soft">
               <div className="text-[11px] font-medium uppercase tracking-wide text-secondary-fg mb-2">Sessions</div>
               <div className="space-y-1.5 max-h-48 overflow-y-auto">
                 {detail.items.map((it: any) => {
@@ -895,7 +895,7 @@ function DayTimeline24h({ segments }: { segments: Array<{ id: string; start: num
         })}
         {/* "now" indicator only if it's today (caller controls by passing today segments) */}
       </div>
-      <div className="mt-1 flex justify-between text-[9px] font-mono tabular-nums text-secondary-fg/70">
+      <div className="mt-1 flex justify-between text-[9px] font-mono tabular-nums text-faint">
         <span>0</span><span>6</span><span>12</span><span>18</span><span>24</span>
       </div>
     </div>
@@ -939,7 +939,7 @@ function CategoryDetail({
 
   if (sec === 0) {
     return (
-      <div className="px-3 pb-3 pt-1 border-t border-border bg-background/50">
+      <div className="px-3 pb-3 pt-1 border-t border-soft bg-background/50">
         <div className="py-3 text-center text-[12px] text-secondary-fg">
           No activity in <span className="text-foreground">{period.label.toLowerCase()}</span> yet
         </div>
@@ -948,7 +948,7 @@ function CategoryDetail({
   }
 
   return (
-    <div className="px-3 pb-3 pt-2 border-t border-border bg-background/40 space-y-3 animate-in fade-in slide-in-from-top-1 duration-150">
+    <div className="px-3 pb-3 pt-2 border-t border-soft bg-background/40 space-y-3 animate-in fade-in slide-in-from-top-1 duration-150">
       {/* Stats row */}
       <div className="grid grid-cols-3 gap-2">
         <Stat label={period.label} value={fmtHM(sec)} />
@@ -973,7 +973,7 @@ function CategoryDetail({
             />
           ))}
         </div>
-        <div className="mt-1 flex justify-between text-[9px] font-mono tabular-nums text-secondary-fg/70">
+        <div className="mt-1 flex justify-between text-[9px] font-mono tabular-nums text-faint">
           <span>0</span><span>6</span><span>12</span><span>18</span><span>24</span>
         </div>
       </div>
@@ -997,7 +997,7 @@ function CategoryDetail({
           })}
         </div>
         {sessions.length > recent.length && (
-          <div className="mt-1.5 text-[10px] text-secondary-fg/70">
+          <div className="mt-1.5 text-[10px] text-faint">
             + {sessions.length - recent.length} more in this period
           </div>
         )}
@@ -1008,7 +1008,7 @@ function CategoryDetail({
 
 function Stat({ label, value }: { label: string; value: string }) {
   return (
-    <div className="rounded-lg bg-muted/60 px-2 py-1.5">
+    <div className="rounded-lg surface-soft px-2 py-1.5">
       <div className="text-[9px] font-medium uppercase tracking-wide text-secondary-fg truncate">{label}</div>
       <div className="text-[13px] font-mono tabular-nums font-semibold mt-0.5">{value}</div>
     </div>
@@ -1133,7 +1133,7 @@ function ManualEntryRow({
     setCustom(""); setNote("");
   };
   return (
-    <div className="px-3 pb-3 pt-1 border-t border-border bg-background/50 space-y-2 animate-in fade-in slide-in-from-top-1 duration-150">
+      <div className="px-3 pb-3 pt-1 border-t border-soft bg-background/50 space-y-2 animate-in fade-in slide-in-from-top-1 duration-150">
       <div className="flex items-center gap-1.5 pt-2">
         <span className="text-[10px] font-semibold uppercase tracking-wider text-secondary-fg mr-1">Log past</span>
         {QUICK.map(q => (

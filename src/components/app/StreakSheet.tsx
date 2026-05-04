@@ -94,7 +94,7 @@ export const StreakSheet = ({ open, onOpenChange }: { open: boolean; onOpenChang
 
   return (
     <Sheet open={open} onOpenChange={onOpenChange}>
-      <SheetContent side="bottom" className="rounded-t-3xl border-border bg-surface-elevated max-h-[85vh] overflow-y-auto">
+      <SheetContent side="bottom" className="rounded-t-3xl border-soft bg-surface-elevated max-h-[85vh] overflow-y-auto">
         <SheetHeader>
           <SheetTitle className="flex items-center gap-2">
             <Flame className="h-5 w-5 text-primary" fill="currentColor" />
@@ -122,9 +122,9 @@ export const StreakSheet = ({ open, onOpenChange }: { open: boolean; onOpenChang
                       key={k}
                       title={k}
                       className={`h-3 w-3 rounded-[3px] ${
-                        isFuture ? "bg-surface border border-border/50"
+                        isFuture ? "surface-card border border-soft"
                           : isPlanned ? "bg-primary"
-                          : "bg-surface border border-border"
+                          : "surface-card border border-soft"
                       }`}
                     />
                   );
@@ -140,8 +140,8 @@ export const StreakSheet = ({ open, onOpenChange }: { open: boolean; onOpenChang
             {milestones.map(m => {
               const reached = longest >= m.n;
               return (
-                <div key={m.n} className={`rounded-xl border p-3 text-center ${reached ? "border-primary/40 bg-primary/5" : "border-border bg-surface"}`}>
-                  <Trophy className={`h-4 w-4 mx-auto ${reached ? "text-primary" : "text-secondary-fg/50"}`} />
+                <div key={m.n} className={`rounded-xl border p-3 text-center ${reached ? "border-primary/40 bg-primary/5" : "border-soft surface-card"}`}>
+                  <Trophy className={`h-4 w-4 mx-auto ${reached ? "text-primary" : "text-faint"}`} />
                   <div className={`text-sm font-semibold mt-1 ${reached ? "text-primary" : "text-foreground"}`}>{m.n}</div>
                   <div className="text-[10px] text-secondary-fg leading-tight">{m.label}</div>
                 </div>
@@ -180,10 +180,10 @@ export const StreakSheet = ({ open, onOpenChange }: { open: boolean; onOpenChang
 
 const Stat = forwardRef<HTMLDivElement, { label: string; value: string; sub: string; highlight?: boolean }>(
   ({ label, value, sub, highlight }, ref) => (
-    <div ref={ref} className={`rounded-xl border p-3 text-center ${highlight ? "border-primary/40 bg-primary/5" : "border-border bg-surface"}`}>
+    <div ref={ref} className={`rounded-xl border p-3 text-center ${highlight ? "border-primary/40 bg-primary/5" : "border-soft surface-card"}`}>
       <div className={`text-2xl font-semibold ${highlight ? "text-primary" : "text-foreground"}`}>{value}</div>
       <div className="text-[10px] text-secondary-fg uppercase tracking-wide mt-1">{label}</div>
-      <div className="text-[10px] text-secondary-fg/70">{sub}</div>
+      <div className="text-[10px] text-faint">{sub}</div>
     </div>
   )
 );

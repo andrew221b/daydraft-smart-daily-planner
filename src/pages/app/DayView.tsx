@@ -1,4 +1,5 @@
-import { useCallback, useEffect, useState } from "react";
+import { useEffect, useState } from "react";
+import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { useNavigate, useSearchParams } from "react-router-dom";
 import { Shell } from "@/components/app/Shell";
 import { useAuth } from "@/hooks/useAuth";
@@ -32,6 +33,8 @@ import { mapsUrl } from "@/lib/maps";
 import { firstTaskCompleteMessage } from "@/lib/microDelights";
 import { PullToRefresh } from "@/components/app/PullToRefresh";
 import { formatPlanAsPlainText, copyTextToClipboard } from "@/lib/planTextExport";
+import { fetchDayPlan, planDashboardQueryKey, planDayQueryKey } from "@/lib/planQueries";
+import { useCalmMode } from "@/lib/calmMode";
 
 type ExBlock = Block & {
   ai_reasoning?: string | null;
@@ -58,15 +61,13 @@ export default function DayView() {
   const nav = useNavigate();
   const tour = useTour();
   const [searchParams] = useSearchParams();
+  const queryClient = useQueryClient();
   const viewDate = searchParams.get("date") || todayDateStr();
   const isFuture = isFutureDateStr(viewDate);
   const isToday = viewDate === todayDateStr();
-  const [plan, setPlan] = useState<{ id: string; ai_summary: string | null; ai_subtext: string | null } | null>(null);
   const [blocks, setBlocks] = useState<ExBlock[]>([]);
-  const [planMissing, setPlanMissing] = useState(false);
   const [now, setNow] = useState(new Date());
   const [replanning, setReplanning] = useState(false);
-  const [loading, setLoading] = useState(true);
   const [collapseDone, setCollapseDone] = useState(true);
   const [addOpen, setAddOpen] = useState(false);
   const [newTitle, setNewTitle] = useState("");
@@ -79,6 +80,27 @@ export default function DayView() {
   const [reminderBlockId, setReminderBlockId] = useState<string | null>(null);
   const [reminderCfg, setReminderCfg] = useState<ReminderConfig>({ enabled: true, leadsMin: [2], repeats: 0 });
   const [durationEditId, setDurationEditId] = useState<string | null>(null);
+  const [calmMode] = useCalmMode();
+
+  const tomorrowDate = (() => {
+    const d = parseDateStr(viewDate);
+    d.setDate(d.getDate() + 1);
+    return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
+  })();
+
+  const { data: dayData, isLoading: loading, refetch } = useQuery({
+    queryKey: planDayQueryKey(user?.id ?? "", viewDate),
+    queryFn: () => fetchDayPlan(user!.id, viewDate),
+    enabled: !!user?.id,
+    staleTime: 15_000,
+    refetchOnWindowFocus: true,
+  });
+  const plan = dayData?.plan ?? null;
+  const planMissing = !loading && !plan;
+
+  useEffect(() => {
+    setBlocks((dayData?.blocks || []) as ExBlock[]);
+  }, [dayData?.plan?.id, dayData?.blocks]);
 
   const openReminders = (id: string) => {
     setReminderCfg(getReminderConfig(id));
@@ -112,29 +134,6 @@ export default function DayView() {
     return () => clearInterval(t);
   }, []);
 
-  const fetchPlan = useCallback(async () => {
-    if (!user) return;
-    setLoading(true);
-    setPlanMissing(false);
-    const { data: p } = await supabase.from("plans").select("id, ai_summary, ai_subtext")
-      .eq("user_id", user.id).eq("date", viewDate).maybeSingle();
-    if (!p) {
-      setPlan(null);
-      setBlocks([]);
-      setPlanMissing(true);
-      setLoading(false);
-      return;
-    }
-    setPlan(p);
-    const { data: bs } = await supabase.from("blocks").select("*").eq("plan_id", p.id).order("position");
-    setBlocks((bs || []) as ExBlock[]);
-    setLoading(false);
-  }, [user?.id, viewDate]);
-
-  useEffect(() => {
-    void fetchPlan();
-  }, [fetchPlan]);
-
   const copyDayOutline = async () => {
     if (!blocks.length) return;
     const headline = plan?.ai_summary || `Plan · ${friendlyDateFor(parseDateStr(viewDate))}`;
@@ -155,34 +154,62 @@ export default function DayView() {
     return () => { cancelled = true; clearScheduledReminders(); };
   }, [blocks, isToday, viewDate]);
 
+  const invalidatePlanCaches = async () => {
+    if (!user) return;
+    await Promise.all([
+      queryClient.invalidateQueries({ queryKey: planDayQueryKey(user.id, viewDate) }),
+      queryClient.invalidateQueries({ queryKey: planDashboardQueryKey(user.id, viewDate) }),
+    ]);
+  };
+
   const removeBlock = async (id: string) => {
     const snapshot = blocks;
-    const removed = blocks.find(b => b.id === id);
+    const removed = snapshot.find(b => b.id === id);
     if (!removed) return;
     const next = retime(blocks.filter(x => x.id !== id));
     setBlocks(next);
     haptics.impact("light");
-    let undone = false;
-    toast("Removed", {
-      action: { label: "Undo", onClick: () => { undone = true; setBlocks(snapshot); } },
-      duration: 5000,
-    });
-    setTimeout(async () => {
-      if (undone) {
-        if (isToday) window.dispatchEvent(new Event("dd-today-refresh"));
-        return;
-      }
+    try {
       await supabase.from("blocks").delete().eq("id", id);
       if (plan && next.length === 0) {
         await supabase.from("plans").delete().eq("id", plan.id);
-        setPlan(null);
-        setPlanMissing(true);
-        if (isToday) window.dispatchEvent(new Event("dd-today-refresh"));
+        setBlocks([]);
+        await invalidatePlanCaches();
         return;
       }
       await persistOrder(next);
-      if (isToday) window.dispatchEvent(new Event("dd-today-refresh"));
-    }, 5200);
+      await invalidatePlanCaches();
+      toast("Block removed", {
+        action: {
+          label: "Undo",
+          onClick: async () => {
+            setBlocks(snapshot);
+            await supabase.from("blocks").upsert({
+              id: removed.id,
+              plan_id: removed.plan_id,
+              user_id: removed.user_id,
+              start_time: removed.start_time,
+              duration_min: removed.duration_min,
+              title: removed.title,
+              type: removed.type,
+              kind: removed.kind,
+              completed: removed.completed,
+              position: removed.position,
+              ai_reasoning: removed.ai_reasoning ?? null,
+              location: removed.location ?? null,
+              location_lat: removed.location_lat ?? null,
+              location_lng: removed.location_lng ?? null,
+              is_calendar_event: removed.is_calendar_event ?? null,
+            } as any);
+            await persistOrder(snapshot);
+            await invalidatePlanCaches();
+          },
+        },
+      });
+    } catch (e: any) {
+      setBlocks(snapshot);
+      toast.error(e?.message || "Unable to remove block");
+    }
   };
 
   const completeBlock = async (id: string) => {
@@ -194,30 +221,25 @@ export default function DayView() {
     const firstUserTaskDoneToday =
       isToday && toggled && isUserTask(toggled) && !wasDone && doneBefore === 0;
     setBlocks(bs => bs.map(b => b.id === id ? { ...b, completed: !b.completed } : b));
-    if (isToday) window.dispatchEvent(new Event("dd-today-refresh"));
     haptics.notify("success");
-    let undone = false;
-    toast.success(wasDone ? "Reopened" : "Done", {
-      description: firstUserTaskDoneToday ? firstTaskCompleteMessage(viewDate) : undefined,
-      action: {
-        label: "Undo",
-        onClick: () => {
-          undone = true;
-          setBlocks(snapshot);
-          if (isToday) window.dispatchEvent(new Event("dd-today-refresh"));
-        },
-      },
-      duration: 4000,
-    });
-    setTimeout(async () => {
-      if (undone) {
-        await supabase.from("blocks").update({ completed: !!wasDone }).eq("id", id);
-        if (isToday) window.dispatchEvent(new Event("dd-today-refresh"));
-        return;
-      }
+    try {
       await supabase.from("blocks").update({ completed: !wasDone }).eq("id", id);
-      if (isToday) window.dispatchEvent(new Event("dd-today-refresh"));
-    }, 4200);
+      await invalidatePlanCaches();
+      toast.success(wasDone ? "Reopened" : "Done", {
+        description: firstUserTaskDoneToday ? firstTaskCompleteMessage(viewDate) : undefined,
+        action: {
+          label: "Undo",
+          onClick: async () => {
+            setBlocks(snapshot);
+            await supabase.from("blocks").update({ completed: !!wasDone }).eq("id", id);
+            await invalidatePlanCaches();
+          },
+        },
+      });
+    } catch (e: any) {
+      setBlocks(snapshot);
+      toast.error(e?.message || "Unable to update task");
+    }
   };
 
   const addInlineBlock = async () => {
@@ -259,6 +281,7 @@ export default function DayView() {
       position: item.position,
     });
     await persistOrder(next);
+    await invalidatePlanCaches();
   };
 
   const persistOrder = async (list: ExBlock[]) => {
@@ -275,7 +298,7 @@ export default function DayView() {
     if (oldIdx === -1 || newIdx === -1) return;
     const reordered = retime(arrayMove(blocks, oldIdx, newIdx));
     setBlocks(reordered);
-    persistOrder(reordered);
+    void persistOrder(reordered).then(() => invalidatePlanCaches());
   };
 
   const replanRest = async () => {
@@ -325,10 +348,36 @@ export default function DayView() {
       if (newBlocks.length) await supabase.from("blocks").insert(newBlocks);
       const { data: bs } = await supabase.from("blocks").select("*").eq("plan_id", plan.id).order("position");
       setBlocks((bs || []) as ExBlock[]);
+      await invalidatePlanCaches();
       toast.success("Re-planned");
     } catch (e: any) {
-      toast.error(e.message || "Couldn't re-plan");
+      toast.error(e.message || "Unable to re-plan remaining tasks");
     } finally { setReplanning(false); }
+  };
+
+  const rollOverUnfinishedToTomorrow = async () => {
+    if (!user) return;
+    const openTasks = blocks
+      .filter((b) => isUserTask(b) && !b.completed && !b.is_calendar_event)
+      .map((b) => b.title?.trim())
+      .filter(Boolean) as string[];
+    if (!openTasks.length) {
+      toast("No unfinished tasks to carry forward");
+      return;
+    }
+    try {
+      await supabase.from("quick_captures").insert(
+        openTasks.map((title) => ({
+          user_id: user.id,
+          content: `[for:${tomorrowDate}] ${title}`,
+        })) as any
+      );
+      setMoreOpen(false);
+      toast.success(`Moved ${openTasks.length} task${openTasks.length === 1 ? "" : "s"} to tomorrow`);
+      nav(`/today?date=${tomorrowDate}`);
+    } catch (e: any) {
+      toast.error(e?.message || "Unable to carry tasks forward");
+    }
   };
 
   const firstUnfinishedTask = blocks.find(b => isUserTask(b) && !b.completed);
@@ -343,23 +392,24 @@ export default function DayView() {
     <Shell>
       <PullToRefresh
         onRefresh={async () => {
-          await fetchPlan();
-          if (isToday) window.dispatchEvent(new Event("dd-today-refresh"));
+          await refetch();
+          await invalidatePlanCaches();
         }}
       >
-      <div className="px-6 pt-12 flex items-center justify-between gap-2">
-        <button onClick={() => nav("/today")} className="h-9 w-9 -ml-2 shrink-0 rounded-full flex items-center justify-center text-secondary-fg hover:text-foreground hover:bg-surface pressable">
+      <div className="px-5 pt-10">
+      <div className="hero-glass p-4 md:p-5 flex items-center justify-between gap-2">
+        <button onClick={() => nav("/today")} className="h-11 w-11 shrink-0 rounded-full flex items-center justify-center text-secondary-fg hover:text-foreground hover:bg-surface/50 pressable">
           <ChevronLeft className="h-5 w-5" />
         </button>
-        <h1 className="font-display text-[16px] font-semibold tracking-tight flex-1 text-center min-w-0 truncate">
+        <h1 className="font-display text-[20px] font-semibold tracking-tight flex-1 text-center min-w-0 truncate">
           {isToday ? "Today" : friendlyDateFor(parseDateStr(viewDate))}
         </h1>
-        <div className="flex items-center shrink-0 -mr-2">
-          {!planMissing && blocks.length > 0 && (
+        <div className="flex items-center shrink-0">
+          {!calmMode && !planMissing && blocks.length > 0 && (
             <button
               type="button"
               onClick={() => void copyDayOutline()}
-              className="h-9 w-9 rounded-full flex items-center justify-center text-secondary-fg hover:text-foreground hover:bg-surface pressable"
+              className="h-11 w-11 rounded-full flex items-center justify-center text-secondary-fg hover:text-foreground hover:bg-surface/50 pressable"
               aria-label="Copy plan as text"
             >
               <Copy className="h-4 w-4" />
@@ -368,17 +418,18 @@ export default function DayView() {
           <button
             onClick={() => setMoreOpen(true)}
             disabled={planMissing}
-            className="h-9 w-9 rounded-full flex items-center justify-center text-secondary-fg hover:text-foreground hover:bg-surface pressable disabled:opacity-30"
+            className="h-11 w-11 rounded-full flex items-center justify-center text-secondary-fg hover:text-foreground hover:bg-surface/50 pressable disabled:opacity-30"
             aria-label="More"
           >
             <MoreHorizontal className="h-5 w-5" />
           </button>
         </div>
       </div>
+      </div>
 
       {/* Compact progress strip — single line, no boxed card */}
       {!planMissing && totalTasks > 0 && (
-        <div className="px-6 mt-5">
+        <div className="px-5 mt-4">
           <div className="flex items-baseline justify-between">
             <div className="text-[13.5px] text-foreground tabular-nums">
               <span className="font-semibold">{doneTasks}</span>
@@ -394,7 +445,7 @@ export default function DayView() {
         </div>
       )}
 
-      <div className="px-3 mt-5">
+      <div className="px-4 mt-4">
         {planMissing && (
           <div className="mx-2 app-card p-6 text-center">
             <CalendarDays className="h-6 w-6 mx-auto text-secondary-fg mb-2" />
@@ -407,7 +458,7 @@ export default function DayView() {
               {isToday || isFuture ? "Head back to the planner." : "This day was never planned."}
             </p>
             <Button onClick={() => nav(isToday ? "/today" : `/today?date=${viewDate}`)}
-              className="mt-4 h-9 px-4 rounded-lg bg-primary hover:bg-primary/92 text-primary-foreground text-[13px] font-medium pressable">
+              className="mt-4 h-10 px-4 rounded-lg bg-primary hover:bg-primary/92 text-primary-foreground text-[13px] font-medium pressable">
               Open planner
             </Button>
           </div>
@@ -419,12 +470,12 @@ export default function DayView() {
             {!loading && (
               <DndContext sensors={sensors} collisionDetection={closestCenter} onDragEnd={onDragEnd}>
                 <SortableContext items={upcomingBlocks.map(b => b.id)} strategy={verticalListSortingStrategy}>
-                  <div className="space-y-0.5">
+                  <div className="space-y-2">
                     {upcomingBlocks.map((b, i) => (
                       <SortableBlock key={b.id} block={b} editing={false} tourSpotlight={i === 0} onTap={(blk) => setTappedBlock(blk)} />
                     ))}
                     {upcomingBlocks.length === 0 && completedBlocks.length === 0 && (
-                      <div className="text-center text-secondary-fg py-12 text-sm">Nothing scheduled.</div>
+                      <div className="text-center text-secondary-fg py-12 text-sm">No tasks scheduled.</div>
                     )}
                   </div>
                 </SortableContext>
@@ -435,13 +486,13 @@ export default function DayView() {
             {!isFuture && (
               <button
                 onClick={() => setAddOpen(true)}
-                className="mt-3 ml-[60px] inline-flex items-center gap-1.5 text-[12px] text-secondary-fg hover:text-primary pressable"
+                className="mt-3 w-full inline-flex items-center justify-center gap-1.5 text-[12px] text-secondary-fg hover:text-primary border border-soft rounded-xl h-10 surface-soft pressable"
               >
                 <Plus className="h-3.5 w-3.5" /> Add task
               </button>
             )}
 
-            {completedBlocks.length > 0 && (
+            {!calmMode && completedBlocks.length > 0 && (
               <div className="mt-6">
                 <button
                   onClick={() => setCollapseDone(c => !c)}
@@ -451,7 +502,7 @@ export default function DayView() {
                   <ChevronDown className={`h-3.5 w-3.5 transition-transform ${collapseDone ? "" : "rotate-180"}`} />
                 </button>
                 {!collapseDone && (
-                  <div className="space-y-0.5 mt-1">
+                  <div className="space-y-2 mt-1.5">
                     {completedBlocks.map(b => (
                       <SortableBlock key={b.id} block={b} editing={false} onTap={(blk) => setTappedBlock(blk)} />
                     ))}
@@ -465,7 +516,7 @@ export default function DayView() {
       </PullToRefresh>
 
       {!planMissing && !isFuture && firstUnfinishedTask && (
-        <div className="fixed bottom-[76px] left-1/2 -translate-x-1/2 w-full max-w-[400px] px-5 z-30">
+        <div className="fixed bottom-[76px] left-1/2 -translate-x-1/2 w-full max-w-[440px] px-6 z-30">
           <Button onClick={() => nav(`/focus/${firstUnfinishedTask.id}`)}
             className="w-full h-12 rounded-xl bg-primary hover:bg-primary/92 text-primary-foreground text-[15px] font-medium pressable shadow-elevated">
             <Play className="h-4 w-4" fill="currentColor" /> {toneCopy(getTone(profile as any), doneTasks === 0 ? "start_first" : "start_next")}
@@ -473,7 +524,7 @@ export default function DayView() {
         </div>
       )}
       {!planMissing && !isFuture && !firstUnfinishedTask && totalTasks > 0 && (
-        <div className="fixed bottom-[76px] left-1/2 -translate-x-1/2 w-full max-w-[400px] px-5 z-30">
+        <div className="fixed bottom-[76px] left-1/2 -translate-x-1/2 w-full max-w-[440px] px-6 z-30">
           <Button onClick={() => nav(isToday ? "/recap" : `/recap?date=${viewDate}`)} className="w-full h-12 rounded-xl bg-success text-success-foreground hover:bg-success/90 text-[15px] font-medium pressable shadow-elevated">
             {toneCopy(getTone(profile as any), "recap_cta")} →
           </Button>
@@ -482,7 +533,7 @@ export default function DayView() {
 
       {/* Block tap sheet — single place for all per-block actions */}
       <Sheet open={!!tappedBlock} onOpenChange={(v) => !v && setTappedBlock(null)}>
-        <SheetContent side="bottom" className="rounded-t-2xl border-border bg-popover">
+        <SheetContent side="bottom" className="rounded-t-2xl border-soft bg-popover">
           {tappedBlock && (
             <div className="space-y-1">
               <SheetHeader className="text-left mb-3">
@@ -505,25 +556,25 @@ export default function DayView() {
                   label="Change duration"
                 />
               )}
-              {!tappedBlock.is_calendar_event && isToday && (
+              {!calmMode && !tappedBlock.is_calendar_event && isToday && (
                 <ActionRow
                   onClick={() => openReminders(tappedBlock.id)}
                   icon={getReminderConfig(tappedBlock.id).enabled ? <Bell className="h-4 w-4" /> : <BellOff className="h-4 w-4" />}
                   label="Reminders"
                 />
               )}
-              {tappedBlock.location && (
+              {!calmMode && tappedBlock.location && (
                 <a
                   href={mapsUrl(tappedBlock.location, tappedBlock.location_lat, tappedBlock.location_lng)}
                   target="_blank" rel="noopener noreferrer"
-                  className="flex items-center gap-3 px-3 py-3 rounded-lg hover:bg-muted/40 pressable text-[14px]"
+                  className="flex items-center gap-3 px-3 py-3 rounded-lg hover:bg-surface/50 pressable text-[14px]"
                 >
                   <MapPin className="h-4 w-4 text-secondary-fg" />
                   <span className="flex-1">{tappedBlock.location}</span>
                 </a>
               )}
-              {tappedBlock.ai_reasoning && (
-                <div className="px-3 py-3 rounded-lg bg-muted/40 text-[13px] text-secondary-fg leading-relaxed">
+              {!calmMode && tappedBlock.ai_reasoning && (
+                <div className="px-3 py-3 rounded-lg surface-soft text-[13px] text-secondary-fg leading-relaxed">
                   <div className="flex items-center gap-1.5 mb-1 text-foreground text-[12px] font-medium">
                     <Info className="h-3.5 w-3.5 text-primary" /> Why
                   </div>
@@ -545,7 +596,7 @@ export default function DayView() {
 
       {/* Header "more" sheet — Re-plan, Delete plan */}
       <Sheet open={moreOpen} onOpenChange={setMoreOpen}>
-        <SheetContent side="bottom" className="rounded-t-2xl border-border bg-popover">
+        <SheetContent side="bottom" className="rounded-t-2xl border-soft bg-popover">
           <SheetHeader className="text-left mb-3">
             <SheetTitle className="text-[16px]">Plan options</SheetTitle>
           </SheetHeader>
@@ -554,6 +605,13 @@ export default function DayView() {
               onClick={replanRest}
               icon={<RefreshCw className={`h-4 w-4 ${replanning ? "animate-spin" : ""}`} />}
               label={replanning ? "Re-planning…" : "Re-plan rest of day"}
+            />
+          )}
+          {!isFuture && (
+            <ActionRow
+              onClick={rollOverUnfinishedToTomorrow}
+              icon={<CalendarDays className="h-4 w-4" />}
+              label="Carry unfinished to tomorrow"
             />
           )}
           <ActionRow
@@ -567,7 +625,7 @@ export default function DayView() {
 
       {/* Add task sheet */}
       <Sheet open={addOpen} onOpenChange={setAddOpen}>
-        <SheetContent side="bottom" className="rounded-t-2xl border-border bg-popover">
+        <SheetContent side="bottom" className="rounded-t-2xl border-soft bg-popover">
           <SheetHeader className="text-left">
             <SheetTitle className="flex items-center gap-2 text-[16px]">
               <Plus className="h-4 w-4 text-primary" /> Add to day
@@ -577,11 +635,11 @@ export default function DayView() {
             <div className="flex gap-2">
               <button
                 onClick={() => setNewKind("task")}
-                className={`flex-1 h-10 rounded-lg border text-[13px] font-medium pressable transition-colors ${newKind === "task" ? "bg-primary/8 border-primary/40 text-primary" : "bg-card border-border text-secondary-fg"}`}
+                className={`flex-1 h-10 rounded-lg border text-[13px] font-medium pressable transition-colors ${newKind === "task" ? "surface-accent border-accent text-primary" : "bg-card border-soft text-secondary-fg"}`}
               >Task</button>
               <button
                 onClick={() => { setNewKind("break"); if (!newTitle) setNewTitle("Break"); }}
-                className={`flex-1 h-10 rounded-lg border text-[13px] font-medium pressable inline-flex items-center justify-center gap-1.5 transition-colors ${newKind === "break" ? "bg-primary/8 border-primary/40 text-primary" : "bg-card border-border text-secondary-fg"}`}
+                className={`flex-1 h-10 rounded-lg border text-[13px] font-medium pressable inline-flex items-center justify-center gap-1.5 transition-colors ${newKind === "break" ? "surface-accent border-accent text-primary" : "bg-card border-soft text-secondary-fg"}`}
               ><Coffee className="h-3.5 w-3.5" /> Break</button>
             </div>
             <input
@@ -589,11 +647,11 @@ export default function DayView() {
               value={newTitle}
               onChange={e => setNewTitle(e.target.value)}
               placeholder={newKind === "break" ? "Break name (optional)" : "What's the task?"}
-              className="w-full h-11 px-3 rounded-lg bg-card border border-border text-[14px] text-foreground placeholder:text-secondary-fg/70 focus:outline-none focus:border-primary/50 focus:ring-2 focus:ring-primary/15"
+              className="w-full h-11 px-3 rounded-lg bg-card border border-soft text-[14px] text-foreground placeholder:text-faint focus:outline-none focus:border-primary/50 focus:ring-2 focus:ring-primary/15"
             />
             <button
               onClick={() => setNewDurationOpen(true)}
-              className="w-full flex items-center justify-between bg-card border border-border rounded-lg px-3 py-2.5 pressable hover:border-primary/40 transition-colors"
+              className="w-full flex items-center justify-between bg-card border border-soft rounded-lg px-3 py-2.5 pressable hover:border-primary/40 transition-colors"
             >
               <span className="text-[12px] text-secondary-fg">Duration</span>
               <span className="text-[13px] font-semibold tabular-nums">
@@ -625,6 +683,7 @@ export default function DayView() {
                 setConfirmDeletePlan(false);
                 await supabase.from("blocks").delete().eq("plan_id", plan.id);
                 await supabase.from("plans").delete().eq("id", plan.id);
+                await invalidatePlanCaches();
                 toast.success("Plan deleted");
                 nav(isToday ? "/today" : `/today?date=${viewDate}`);
               }}
@@ -634,7 +693,7 @@ export default function DayView() {
       </AlertDialog>
 
       <Sheet open={!!reminderBlockId} onOpenChange={(v) => !v && setReminderBlockId(null)}>
-        <SheetContent side="bottom" className="rounded-t-3xl border-border bg-surface-elevated">
+        <SheetContent side="bottom" className="rounded-t-3xl border-soft bg-surface-elevated">
           <SheetHeader>
             <SheetTitle className="flex items-center gap-2"><Bell className="h-4 w-4 text-primary" /> Reminders</SheetTitle>
           </SheetHeader>
@@ -654,7 +713,7 @@ export default function DayView() {
               <div className="mt-4 space-y-4">
                 <div className="text-sm text-foreground font-medium">{b.title}</div>
                 <div className="text-xs text-secondary-fg">Starts at {b.start_time}</div>
-                <div className="flex items-center justify-between rounded-xl bg-surface border border-border px-3 py-2.5">
+                <div className="flex items-center justify-between rounded-xl surface-card border border-soft px-3 py-2.5">
                   <span className="text-sm">Notify me</span>
                   <button
                     onClick={() => saveReminders({ ...reminderCfg, enabled: !reminderCfg.enabled })}
@@ -670,7 +729,7 @@ export default function DayView() {
                         <button
                           key={n}
                           onClick={() => toggleLead(n)}
-                          className={`h-8 px-3 rounded-full text-[12px] font-medium pressable border ${on ? "bg-primary/10 border-primary/40 text-primary" : "bg-surface border-border text-secondary-fg"}`}
+                          className={`h-8 px-3 rounded-full text-[12px] font-medium pressable border ${on ? "surface-accent border-accent text-primary" : "surface-soft border-soft text-secondary-fg"}`}
                         >{n === 0 ? "At start" : `${n} min`}</button>
                       );
                     })}
@@ -681,7 +740,7 @@ export default function DayView() {
                       <button
                         key={n}
                         onClick={() => saveReminders({ ...reminderCfg, repeats: n })}
-                        className={`h-8 px-3 rounded-full text-[12px] font-medium pressable border ${reminderCfg.repeats === n ? "bg-primary/10 border-primary/40 text-primary" : "bg-surface border-border text-secondary-fg"}`}
+                        className={`h-8 px-3 rounded-full text-[12px] font-medium pressable border ${reminderCfg.repeats === n ? "surface-accent border-accent text-primary" : "surface-soft border-soft text-secondary-fg"}`}
                       >{n === 0 ? "Don't repeat" : `${n}× every 5 min`}</button>
                     ))}
                   </div>
@@ -702,15 +761,15 @@ export default function DayView() {
         onChange={async (v) => {
           const id = durationEditId;
           if (!id) return;
-          setBlocks(bs => {
-            const idx = bs.findIndex(b => b.id === id);
-            if (idx < 0) return bs;
-            const updated = [...bs];
-            updated[idx] = { ...updated[idx], duration_min: v };
-            return retime(updated);
-          });
+          const idx = blocks.findIndex(b => b.id === id);
+          if (idx < 0) return;
+          const updated = [...blocks];
+          updated[idx] = { ...updated[idx], duration_min: v };
+          const next = retime(updated);
+          setBlocks(next);
           await supabase.from("blocks").update({ duration_min: v }).eq("id", id);
-          await persistOrder(blocks);
+          await persistOrder(next);
+          await invalidatePlanCaches();
         }}
         title="Duration"
       />

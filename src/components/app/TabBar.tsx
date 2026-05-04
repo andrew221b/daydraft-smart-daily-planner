@@ -15,6 +15,7 @@ export const TabBar = () => {
   const { active, elapsedSec } = useTimeTracker();
   const { pathname } = useLocation();
   const prevPath = useRef<string | null>(null);
+  const activeIdx = Math.max(0, tabs.findIndex((t) => pathname.startsWith(t.to)));
   useEffect(() => {
     if (prevPath.current !== null && prevPath.current !== pathname) haptics.selection();
     prevPath.current = pathname;
@@ -26,7 +27,7 @@ export const TabBar = () => {
       style={{ marginBottom: "env(safe-area-inset-bottom)" }}
     >
       {active && (
-        <div className="mb-2 mx-auto w-max max-w-full px-3 py-1.5 rounded-full bg-background/72 backdrop-blur-xl border border-primary/22 shadow-card flex items-center gap-2 fade-in ring-1 ring-black/[0.04] dark:ring-white/[0.05]">
+        <div className="mb-2 mx-auto w-max max-w-full px-3 py-1.5 rounded-full bg-background/72 backdrop-blur-xl border border-accent shadow-card flex items-center gap-2 fade-in ring-1 ring-black/[0.04] dark:ring-white/[0.05]">
           <span className="relative flex h-2 w-2">
             <span className="absolute inset-0 rounded-full bg-primary animate-ping opacity-60" />
             <span className="relative h-2 w-2 rounded-full bg-primary" />
@@ -35,7 +36,15 @@ export const TabBar = () => {
           <span className="text-[12px] font-mono-sf tabular-nums text-foreground">{fmtHMS(elapsedSec)}</span>
         </div>
       )}
-      <div className="bg-background/[0.68] backdrop-blur-2xl border border-border/45 rounded-[22px] shadow-tab flex items-center px-1 py-1 ring-1 ring-black/[0.04] dark:ring-white/[0.06]">
+      <div className="relative bg-background/[0.68] backdrop-blur-2xl border border-soft rounded-[22px] shadow-tab flex items-center px-1 py-1 ring-1 ring-black/[0.04] dark:ring-white/[0.06] overflow-hidden">
+        <span
+          aria-hidden
+          className="pointer-events-none absolute top-1 bottom-1 rounded-[14px] surface-accent border border-accent shadow-[inset_0_1px_0_rgba(255,255,255,0.14)] transition-all duration-300 ease-out"
+          style={{
+            left: `calc(${activeIdx * 25}% + 4px)`,
+            width: "calc(25% - 8px)",
+          }}
+        />
         {tabs.map((it) => (
           <TabItem key={it.to} {...it} pulse={it.to === "/tracker" && !!active} />
         ))}
@@ -50,10 +59,10 @@ function TabItem({ to, icon: Icon, label, tour, pulse }: { to: string; icon: any
       to={to}
       data-tour={tour}
       className={({ isActive }) =>
-        `relative flex min-h-[46px] flex-col items-center justify-center gap-0.5 flex-1 rounded-[14px] py-1.5 px-0.5 pressable transition-all duration-200 ${
+        `relative z-[1] flex min-h-[46px] flex-col items-center justify-center gap-0.5 flex-1 rounded-[14px] py-1.5 px-0.5 pressable transition-all duration-200 ${
           isActive
-            ? "bg-primary/[0.12] text-primary shadow-[inset_0_1px_0_rgba(15,23,42,0.06)] dark:shadow-[inset_0_1px_0_rgba(255,255,255,0.07)]"
-            : "text-secondary-fg hover:text-foreground/90 hover:bg-foreground/[0.03]"
+            ? "text-primary"
+            : "text-secondary-fg hover:text-subtle hover:bg-foreground/[0.03]"
         }`
       }
       aria-label={label}
@@ -61,7 +70,7 @@ function TabItem({ to, icon: Icon, label, tour, pulse }: { to: string; icon: any
       {({ isActive }) => (
         <>
           <Icon className="h-[18px] w-[18px]" strokeWidth={isActive ? 2.2 : 1.8} aria-hidden />
-          <span className="max-w-full truncate px-0.5 text-center text-[9px] font-semibold leading-tight tracking-tight">
+          <span className="max-w-full truncate px-0.5 text-center text-[10px] font-semibold leading-tight tracking-tight">
             {label}
           </span>
           {pulse && <span className="absolute right-[18%] top-1 h-1.5 w-1.5 rounded-full bg-primary animate-pulse" aria-hidden />}
