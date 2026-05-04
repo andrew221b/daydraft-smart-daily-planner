@@ -36,11 +36,17 @@ export const TabBar = () => {
           <span className="text-[12px] font-mono-sf tabular-nums text-foreground">{fmtHMS(elapsedSec)}</span>
         </div>
       )}
-      <div className="relative bg-background/[0.68] backdrop-blur-2xl border border-soft rounded-[22px] shadow-tab flex items-center px-1 py-1 ring-1 ring-black/[0.04] dark:ring-white/[0.06] overflow-hidden">
+      <div className="relative bg-background/[0.72] backdrop-blur-2xl border border-soft rounded-[22px] shadow-tab flex items-center px-1 py-1 ring-1 ring-black/[0.04] dark:ring-white/[0.1] overflow-hidden">
         <span
           aria-hidden
-          className="pointer-events-none absolute top-1 bottom-1 rounded-[14px] surface-accent border border-accent shadow-[inset_0_1px_0_rgba(255,255,255,0.14)] transition-all duration-300 ease-out"
+          className="pointer-events-none absolute inset-x-8 top-0 h-8 opacity-70"
+          style={{ background: "linear-gradient(180deg, hsl(var(--primary) / 0.24), transparent)" }}
+        />
+        <span
+          aria-hidden
+          className="pointer-events-none absolute top-1 bottom-1 rounded-[14px] border border-accent shadow-[inset_0_1px_0_rgba(255,255,255,0.2),0_8px_22px_-10px_hsl(var(--primary)/0.52)] transition-all duration-300 ease-out tab-indicator-luxe"
           style={{
+            background: "linear-gradient(132deg, hsl(var(--primary) / 0.3), hsl(var(--primary-glow) / 0.24))",
             left: `calc(${activeIdx * 25}% + 4px)`,
             width: "calc(25% - 8px)",
           }}

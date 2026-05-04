@@ -90,7 +90,36 @@ export function TimeTrackerProvider({ children }: { children: ReactNode }) {
     setLoading(false);
   }, [user?.id]);
 
-  useEffect(() => { refresh(); }, [refresh]);
+  // Defer first load so shell + tab bar can paint before three parallel Supabase
+  // queries (mobile/low-end CPUs benefit noticeably).
+  useEffect(() => {
+    if (!user?.id) {
+      setCategories([]);
+      setActive(null);
+      setTodayTotalSec(0);
+      setWeekTotalSec(0);
+      setElapsedSec(0);
+      setLoading(false);
+      return;
+    }
+    setLoading(true);
+    let cancelled = false;
+    const run = () => {
+      if (!cancelled) void refresh();
+    };
+    let idleHandle: ReturnType<typeof requestIdleCallback> | undefined;
+    let timeoutFallback: ReturnType<typeof setTimeout> | undefined;
+    if (typeof requestIdleCallback !== "undefined") {
+      idleHandle = requestIdleCallback(run, { timeout: 2500 });
+    } else {
+      timeoutFallback = setTimeout(run, 1);
+    }
+    return () => {
+      cancelled = true;
+      if (idleHandle !== undefined) cancelIdleCallback(idleHandle);
+      if (timeoutFallback !== undefined) clearTimeout(timeoutFallback);
+    };
+  }, [user?.id, refresh]);
 
   // tick for elapsed display
   useEffect(() => {

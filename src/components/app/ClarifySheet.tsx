@@ -115,13 +115,21 @@ export function ClarifySheet({ open, onOpenChange, rawInput, onConfirm, planDate
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [open, rawInput]);
 
+  const invokeWithTimeout = async (name: string, body: unknown, timeoutMs: number) => {
+    const timeout = new Promise<never>((_, reject) => {
+      window.setTimeout(() => reject(new Error(`${name} timed out`)), timeoutMs);
+    });
+    return await Promise.race([
+      supabase.functions.invoke(name, { body }),
+      timeout,
+    ]);
+  };
+
   const splitWithAI = async (raw: string, fallback: Row[]) => {
     if (!raw.trim()) return;
     setSplitting(true);
     try {
-      const { data, error } = await supabase.functions.invoke("split-tasks", {
-        body: { raw_input: raw },
-      });
+      const { data, error } = await invokeWithTimeout("split-tasks", { raw_input: raw }, 9000);
       if (error) throw error;
       const split: string[] = Array.isArray(data?.tasks) ? data.tasks : [];
       const rows = split.map(parseLine);
@@ -141,9 +149,7 @@ export function ClarifySheet({ open, onOpenChange, rawInput, onConfirm, planDate
   const fetchSuggestions = async (rows: Row[]) => {
     setLoadingAI(true);
     try {
-      const { data, error } = await supabase.functions.invoke("suggest-estimates", {
-        body: { tasks: rows.map(r => r.title) },
-      });
+      const { data, error } = await invokeWithTimeout("suggest-estimates", { tasks: rows.map(r => r.title) }, 9000);
       if (error) throw error;
       const ests: Array<any> = data?.estimates || [];
       // Auto-apply AI estimate so the user doesn't have to "Accept" anything.
@@ -164,7 +170,7 @@ export function ClarifySheet({ open, onOpenChange, rawInput, onConfirm, planDate
       }));
     } catch (e: any) {
       console.error(e);
-      // Quiet failure — user still has their own estimates.
+      toast("AI suggestions took too long. Using your current estimates.");
     } finally {
       setLoadingAI(false);
     }
@@ -323,11 +329,36 @@ export function ClarifySheet({ open, onOpenChange, rawInput, onConfirm, planDate
             {showAdvanced ? "Hide advanced controls" : "Show advanced controls"}
           </button>
           <Button
-            onClick={() =>
-              onConfirm(
-                tasks.map(({ ai_estimate_min, ai_reason, ai_links, ai_should_split, ai_split_into, ...rest }) => rest),
-              )
-            }
+            onClick={() => {
+              const normalized = tasks.flatMap((task) => {
+                const cleaned = {
+                  title: task.title,
+                  estimate_min: task.estimate_min,
+                  priority: task.priority,
+                  fixed_time: task.fixed_time,
+                  notes: task.notes,
+                  track_time: task.track_time,
+                };
+                const suggested = task.ai_split_into || [];
+                const shouldSplit = task.estimate_min > 90 || !!task.ai_should_split;
+                if (!shouldSplit) return [cleaned];
+                if (suggested.length > 1) {
+                  return suggested.map((s, idx) => ({
+                    ...cleaned,
+                    title: s.title || cleaned.title,
+                    estimate_min: Math.max(20, Math.min(90, s.estimate_min || Math.round(cleaned.estimate_min / suggested.length))),
+                    fixed_time: idx === 0 ? cleaned.fixed_time : undefined,
+                  }));
+                }
+                const first = Math.max(30, Math.min(90, Math.round(cleaned.estimate_min / 2 / 5) * 5));
+                const second = Math.max(20, cleaned.estimate_min - first);
+                return [
+                  { ...cleaned, title: `${cleaned.title} · part 1`, estimate_min: first },
+                  { ...cleaned, title: `${cleaned.title} · part 2`, estimate_min: second, fixed_time: undefined },
+                ];
+              });
+              onConfirm(normalized);
+            }}
             disabled={tasks.length === 0 || hasPastFixed}
             className="w-full h-12 rounded-[14px] bg-primary hover:bg-primary/92 text-primary-foreground text-[15px] font-medium pressable shadow-card"
            

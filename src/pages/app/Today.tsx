@@ -61,6 +61,7 @@ import { EnergyState, RescueMode, readEnergyState, rescuePlanFromBlocks, writeEn
 
 const DEFAULT_PLACEHOLDER =
   "Brain-dump your day…\nfinish deck · gym 45m · call mom 15m · ship invoice";
+const TODAY_TIP_DISMISSED_KEY = "dd_today_tip_dismissed";
 
 export default function Today() {
   const { profile } = useProfile();
@@ -70,7 +71,7 @@ export default function Today() {
   const { isPro, planQuotaRemaining, planQuotaUsed, planQuotaLimit, entitlement } = useEntitlement();
   const tour = useTour();
   const [upgradeOpen, setUpgradeOpen] = useState(false);
-  const [upgradeReason, setUpgradeReason] = useState<"quota" | "feature" | "trial-banner">("feature");
+  const [upgradeReason, setUpgradeReason] = useState<"quota" | "feature" | "trial-banner" | "momentum">("feature");
   const [input, setInput] = useState("");
   const [busy, setBusy] = useState(false);
   const queryClient = useQueryClient();
@@ -80,6 +81,7 @@ export default function Today() {
   const [datePopoverOpen, setDatePopoverOpen] = useState(false);
   const [moreOpen, setMoreOpen] = useState(false);
   const [composerOpen, setComposerOpen] = useState(false);
+  const [composerExtrasOpen, setComposerExtrasOpen] = useState(false);
   const [pendingCaptureIds, setPendingCaptureIds] = useState<string[]>([]);
   const { data: planData } = useQuery({
     queryKey: planDashboardQueryKey(user?.id ?? "", planDate),
@@ -95,6 +97,13 @@ export default function Today() {
   const [energyState, setEnergyState] = useState<EnergyState>(() => readEnergyState());
   const [rescueMode, setRescueMode] = useState<RescueMode>("stabilize");
   const [rescueRationale, setRescueRationale] = useState<string>("");
+  const [tipDismissed, setTipDismissed] = useState<boolean>(() => {
+    try {
+      return localStorage.getItem(TODAY_TIP_DISMISSED_KEY) === "1";
+    } catch {
+      return false;
+    }
+  });
   const [nowHM, setNowHM] = useState(() => {
     const n = new Date();
     return `${String(n.getHours()).padStart(2, "0")}:${String(n.getMinutes()).padStart(2, "0")}`;
@@ -102,6 +111,10 @@ export default function Today() {
   const [intentTick, setIntentTick] = useState(0);
   const weekIntention = useMemo(() => getWeekIntention(), [intentTick]);
   const hourNow = new Date().getHours();
+  const openUpgrade = (reason: "quota" | "feature" | "trial-banner" | "momentum") => {
+    setUpgradeReason(reason);
+    setUpgradeOpen(true);
+  };
 
   useEffect(() => {
     const t = setInterval(() => {
@@ -114,6 +127,13 @@ export default function Today() {
   useEffect(() => {
     writeEnergyState(energyState);
   }, [energyState]);
+  useEffect(() => {
+    try {
+      localStorage.setItem(TODAY_TIP_DISMISSED_KEY, tipDismissed ? "1" : "0");
+    } catch {
+      // ignore
+    }
+  }, [tipDismissed]);
 
   useEffect(() => {
     const h = () => setIntentTick((x) => x + 1);
@@ -366,8 +386,10 @@ export default function Today() {
     sessionStorage.setItem("dd_planning_plan_date", planDate);
     nav("/today/planning");
     try {
-      const minWait = new Promise(r => setTimeout(r, 1500));
+      const startedAt = Date.now();
       let hoursAlreadyCommitted = 0;
+      let behaviorSignals: { completion_rate_14d?: number; avg_completed_task_min_14d?: number; tracking_coverage_7d?: number } = {};
+      let completedMin14 = 0;
       try {
         if (planDate === todayDateStr()) {
           const { data: existingPlan } = await supabase
@@ -379,6 +401,42 @@ export default function Today() {
             const min = (completed || []).reduce((s: number, b: any) => s + (b.duration_min || 0), 0);
             hoursAlreadyCommitted = min / 60;
           }
+        }
+        const since14 = new Date();
+        since14.setDate(since14.getDate() - 13);
+        const { data: recentPlans } = await supabase
+          .from("plans")
+          .select("id,date")
+          .eq("user_id", user.id)
+          .gte("date", dateStr(since14));
+        const recentPlanIds = (recentPlans || []).map((p: any) => p.id).filter(Boolean);
+        if (recentPlanIds.length) {
+          const { data: recentBlocks } = await supabase
+            .from("blocks")
+            .select("plan_id,duration_min,kind,completed,is_calendar_event")
+            .in("plan_id", recentPlanIds);
+          const userBlocks = (recentBlocks || []).filter((b: any) => b.kind === "task" && !b.is_calendar_event);
+          const completed = userBlocks.filter((b: any) => b.completed);
+          const completedMin = completed.reduce((sum: number, b: any) => sum + (b.duration_min || 0), 0);
+          completedMin14 = completedMin;
+          const plannedMin = userBlocks.reduce((sum: number, b: any) => sum + (b.duration_min || 0), 0);
+          behaviorSignals.completion_rate_14d = plannedMin > 0 ? completedMin / plannedMin : 0;
+          behaviorSignals.avg_completed_task_min_14d = completed.length > 0 ? completedMin / completed.length : 0;
+        }
+        const since7 = new Date();
+        since7.setDate(since7.getDate() - 6);
+        const { data: entries } = await supabase
+          .from("time_entries")
+          .select("started_at,ended_at")
+          .eq("user_id", user.id)
+          .gte("started_at", since7.toISOString());
+        const trackedSec = (entries || []).reduce((sum: number, row: any) => {
+          const s = new Date(row.started_at).getTime();
+          const e = row.ended_at ? new Date(row.ended_at).getTime() : Date.now();
+          return sum + Math.max(0, (e - s) / 1000);
+        }, 0);
+        if (trackedSec > 0 && completedMin14 > 0) {
+          behaviorSignals.tracking_coverage_7d = Math.min(1.5, trackedSec / (completedMin14 * 60));
         }
       } catch {/* non-fatal */}
       const { data, error } = await supabase.functions.invoke("generate-plan", {
@@ -396,9 +454,11 @@ export default function Today() {
           active_hours_end: (profile as any).active_hours_end || "22:00",
           ai_tone: (profile as any).ai_tone || "professional",
           ai_tone_custom: (profile as any).ai_tone_custom || null,
+          behavior_signals: behaviorSignals,
         },
       });
-      await minWait;
+      const elapsed = Date.now() - startedAt;
+      if (elapsed < 500) await new Promise((r) => setTimeout(r, 500 - elapsed));
       if (error) throw error;
       if (data?.error) throw new Error(data.error);
 
@@ -474,9 +534,9 @@ export default function Today() {
           await queryClient.invalidateQueries({ queryKey: planDashboardQueryKey(user.id, planDate) });
         }}
       >
-      <div className="px-5 pt-10">
+      <div className="px-5 pt-9">
         {/* ── Header ─────────────────────────── */}
-        <div className="hero-glass p-5 md:p-6">
+        <div className="hero-glass p-5 md:p-6 shadow-elevated">
           <div className="flex items-start justify-between gap-3">
             <div className="min-w-0 flex-1">
               <p className="kicker">{friendlyDate()}</p>
@@ -499,14 +559,14 @@ export default function Today() {
             </div>
           </div>
           <div className="mt-4 h-px w-full bg-gradient-to-r from-transparent via-border/80 to-transparent" />
-          <div className="mt-3 text-[11.5px] text-secondary-fg">
+          <div className="mt-3 text-[11px] text-secondary-fg uppercase tracking-[0.08em]">
             {hasPlanForDate ? "Plan ready" : "No plan yet"} · {isToday ? "Today" : friendlyDateFor(parseDateStr(planDate))}
           </div>
         </div>
 
-        {profile?.onboarded && !hasPlanForDate && planDate === todayDateStr() && (
+        {profile?.onboarded && !hasPlanForDate && planDate === todayDateStr() && !tipDismissed && (
           <div className="mt-5">
-            <BeginnerTip>
+            <BeginnerTip onDismiss={() => setTipDismissed(true)}>
               <strong className="text-foreground font-medium">How it works:</strong> tap{" "}
               <strong className="text-foreground font-medium">Plan my day</strong>, write tasks in any format, then{" "}
               <strong className="text-foreground font-medium">Generate plan</strong>.{" "}
@@ -534,12 +594,15 @@ export default function Today() {
           </div>
         )}
 
-        {profile?.onboarded && (
+        {profile?.onboarded && !calmMode && (
           <div className="mt-4 app-card p-3.5">
             <div className="flex items-center justify-between gap-2">
               <span className="text-[11px] uppercase tracking-wider text-secondary-fg inline-flex items-center gap-1.5"><Zap className="h-3.5 w-3.5 text-primary" />Energy check-in</span>
               <span className="text-[11px] text-secondary-fg">Now {nowHM}</span>
             </div>
+            <p className="mt-1 text-[11px] text-secondary-fg leading-relaxed">
+              Used by AI to tune plan intensity: low = lighter blocks, high = harder work first.
+            </p>
             <div className="mt-2.5 grid grid-cols-3 gap-2">
               {([
                 { key: "low" as EnergyState, label: "Low" },
@@ -591,6 +654,18 @@ export default function Today() {
                 )}
               </div>
             )}
+          </div>
+        )}
+        {profile?.onboarded && calmMode && (
+          <div className="mt-4 rounded-xl border border-soft surface-soft px-3 py-2.5 text-[11px] text-secondary-fg flex items-center justify-between gap-2">
+            <span>Calm Mode is on: insights, energy controls, and non-essential cards are hidden.</span>
+            <button
+              type="button"
+              onClick={() => nav("/settings")}
+              className="text-primary font-medium whitespace-nowrap"
+            >
+              Edit
+            </button>
           </div>
         )}
 
@@ -676,25 +751,20 @@ export default function Today() {
               onClick={() => setComposerOpen(true)}
               className="mt-3 w-full flex items-center justify-center gap-2 h-11 rounded-2xl text-[13px] text-secondary-fg hover:text-foreground border border-soft surface-soft pressable"
             >
-              <Pencil className="h-3.5 w-3.5" /> Re-plan with more tasks
+              <Pencil className="h-3.5 w-3.5" /> Adjust plan
             </button>
-            {hourNow >= 18 && (
-              <button
-                onClick={rescueMyDay}
-                className="w-full flex items-center justify-center gap-2 h-11 rounded-2xl text-[13px] text-secondary-fg hover:text-foreground border border-soft surface-soft pressable"
-              >
-                <ShieldAlert className="h-3.5 w-3.5" /> Rescue my day
-              </button>
-            )}
           </div>
         ) : (
           /* ── Empty state — single question ── */
-          <div className="mt-10 hero-glass p-5">
+          <div className="mt-10 hero-glass p-5 shadow-elevated">
             <p className="font-display text-[22px] leading-snug text-foreground">
               {toneCopy(tone, "plan_cta") || "What's on your plate today?"}
             </p>
             <p className="text-[13.5px] text-secondary-fg mt-2 leading-relaxed">
               Brain-dump in any format. AI shapes it into a focused day.
+            </p>
+            <p className="text-[11.5px] text-secondary-fg mt-2">
+              Next step: add 3-5 tasks, then tap Generate plan.
             </p>
 
             <Button
@@ -705,50 +775,59 @@ export default function Today() {
               <Plus className="h-4 w-4" strokeWidth={2.5} /> Plan my day
             </Button>
 
-            <div className="mt-3 flex items-center gap-2">
-              <button onClick={voice}
-                className="flex-1 h-11 rounded-xl border border-soft surface-soft text-[12.5px] text-secondary-fg hover:text-foreground pressable inline-flex items-center justify-center gap-1.5">
-                <Mic className="h-3.5 w-3.5" /> Speak it
-              </button>
-              <Popover open={datePopoverOpen} onOpenChange={setDatePopoverOpen}>
-                <PopoverTrigger asChild>
-                  <button
-                    className={cn(
-                      "flex-1 h-11 rounded-xl border text-[12.5px] font-medium pressable inline-flex items-center justify-center gap-1.5",
-                      isToday
-                        ? "surface-soft border-soft text-secondary-fg hover:text-foreground"
-                        : "surface-accent border-accent text-primary"
-                    )}
-                  >
-                    <CalendarDays className="h-3.5 w-3.5" />
-                    {isToday ? "Today" : friendlyDateFor(parseDateStr(planDate))}
-                  </button>
-                </PopoverTrigger>
-                <PopoverContent className="w-auto p-0" align="end">
-                  <Calendar
-                    mode="single"
-                    selected={parseDateStr(planDate)}
-                    onSelect={(d) => { if (d) { setPlanDate(dateStr(d)); setDatePopoverOpen(false); } }}
-                    disabled={(d) => { const today = new Date(); today.setHours(0,0,0,0); return d < today; }}
-                    initialFocus
-                    className="p-3 pointer-events-auto"
-                  />
-                </PopoverContent>
-              </Popover>
-              <button
-                onClick={() => setMoreOpen(true)}
-                className="h-11 w-11 rounded-xl border border-soft surface-soft text-secondary-fg hover:text-foreground pressable inline-flex items-center justify-center"
-                aria-label="More"
-              >
-                <MoreHorizontal className="h-4 w-4" />
-              </button>
-            </div>
+            <button
+              type="button"
+              onClick={() => setComposerExtrasOpen((v) => !v)}
+              className="mt-3 w-full h-10 rounded-xl border border-soft surface-soft text-[12px] text-secondary-fg hover:text-foreground pressable inline-flex items-center justify-center gap-1.5"
+            >
+              {composerExtrasOpen ? "Hide extra options" : "More options"}
+            </button>
+            {composerExtrasOpen && (
+              <div className="mt-2.5 flex items-center gap-2">
+                <button onClick={voice}
+                  className="flex-1 h-11 rounded-xl border border-soft surface-soft text-[12.5px] text-secondary-fg hover:text-foreground pressable inline-flex items-center justify-center gap-1.5">
+                  <Mic className="h-3.5 w-3.5" /> Speak
+                </button>
+                <Popover open={datePopoverOpen} onOpenChange={setDatePopoverOpen}>
+                  <PopoverTrigger asChild>
+                    <button
+                      className={cn(
+                        "flex-1 h-11 rounded-xl border text-[12.5px] font-medium pressable inline-flex items-center justify-center gap-1.5",
+                        isToday
+                          ? "surface-soft border-soft text-secondary-fg hover:text-foreground"
+                          : "surface-accent border-accent text-primary"
+                      )}
+                    >
+                      <CalendarDays className="h-3.5 w-3.5" />
+                      {isToday ? "Today" : friendlyDateFor(parseDateStr(planDate))}
+                    </button>
+                  </PopoverTrigger>
+                  <PopoverContent className="w-auto p-0" align="end">
+                    <Calendar
+                      mode="single"
+                      selected={parseDateStr(planDate)}
+                      onSelect={(d) => { if (d) { setPlanDate(dateStr(d)); setDatePopoverOpen(false); } }}
+                      disabled={(d) => { const today = new Date(); today.setHours(0,0,0,0); return d < today; }}
+                      initialFocus
+                      className="p-3 pointer-events-auto"
+                    />
+                  </PopoverContent>
+                </Popover>
+                <button
+                  onClick={() => setMoreOpen(true)}
+                  className="h-11 w-11 rounded-xl border border-soft surface-soft text-secondary-fg hover:text-foreground pressable inline-flex items-center justify-center"
+                  aria-label="More"
+                >
+                  <MoreHorizontal className="h-4 w-4" />
+                </button>
+              </div>
+            )}
           </div>
         )}
 
         {/* ── Trial / quota whisper ─────────── */}
         {showTrialBanner && (
-          <button onClick={() => { setUpgradeReason("trial-banner"); setUpgradeOpen(true); }}
+          <button onClick={() => openUpgrade("trial-banner")}
             className="mt-5 w-full flex items-center justify-between px-4 h-11 rounded-xl border border-accent surface-accent pressable">
             <span className="text-[12.5px] text-foreground">{entitlement!.daysLeftInTrial} days left in trial</span>
             <span className="text-[12px] font-semibold text-primary">Upgrade →</span>
@@ -757,14 +836,14 @@ export default function Today() {
         {!isPro && planQuotaRemaining === 0 && !showTrialBanner && (
           <p className="mt-4 text-[11.5px] text-secondary-fg">
             Free plans for this week are used.{" "}
-            <button onClick={() => { setUpgradeReason("feature"); setUpgradeOpen(true); }}
+            <button onClick={() => openUpgrade("feature")}
               className="text-primary hover:underline">Go unlimited</button>
           </p>
         )}
         {!isPro && planQuotaRemaining > 0 && planQuotaRemaining <= 2 && !showTrialBanner && (
           <button
             type="button"
-            onClick={() => { setUpgradeReason("quota"); setUpgradeOpen(true); }}
+            onClick={() => openUpgrade("quota")}
             className="mt-4 w-full h-10 rounded-xl border border-soft surface-soft text-[12px] text-secondary-fg hover:text-foreground pressable inline-flex items-center justify-center gap-1.5"
           >
             {planQuotaRemaining} free planning day{planQuotaRemaining === 1 ? "" : "s"} left this week
@@ -867,6 +946,9 @@ export default function Today() {
           </SheetHeader>
           <div className="space-y-1">
             <MoreRow onClick={() => { setMoreOpen(false); reusePreviousPlan(); }} icon={<ListChecks className="h-4 w-4" />} label="Reuse previous plan tasks" />
+            {hourNow >= 18 && hasPlanForDate && (
+              <MoreRow onClick={() => { setMoreOpen(false); rescueMyDay(); }} icon={<ShieldAlert className="h-4 w-4" />} label="Rescue my day" />
+            )}
             <MoreRow onClick={() => { setMoreOpen(false); saveAsTemplate(); }} icon={<Bookmark className="h-4 w-4" />} label="Save current as template" />
             {templates.length > 0 && (
               <div className="pt-2 mt-2 border-t border-soft">

@@ -15,6 +15,7 @@ export default function RecapWeek() {
   const nav = useNavigate();
   const [blocks, setBlocks] = useState<Block[]>([]);
   const [planDays, setPlanDays] = useState<string[]>([]);
+  const [trackedSec, setTrackedSec] = useState(0);
 
   useEffect(() => {
     if (!user) return;
@@ -26,6 +27,17 @@ export default function RecapWeek() {
       if (!ids.length) { setBlocks([]); return; }
       const { data: bs } = await supabase.from("blocks").select("*").in("plan_id", ids);
       setBlocks((bs || []) as Block[]);
+      const { data: entries } = await supabase
+        .from("time_entries")
+        .select("started_at,ended_at")
+        .eq("user_id", user.id)
+        .gte("started_at", since.toISOString());
+      const sec = (entries || []).reduce((sum: number, row: any) => {
+        const s = new Date(row.started_at).getTime();
+        const e = row.ended_at ? new Date(row.ended_at).getTime() : Date.now();
+        return sum + Math.max(0, (e - s) / 1000);
+      }, 0);
+      setTrackedSec(sec);
     })();
   }, [user?.id]);
 
@@ -43,6 +55,7 @@ export default function RecapWeek() {
     return { focusMin, completionPct, topLabel, planned: tasks.length, done: completed.length };
   }, [blocks]);
 
+  const plannedDoneSec = stats.focusMin * 60;
   const fh = Math.floor(stats.focusMin / 60), fm = stats.focusMin % 60;
 
   return (
@@ -54,11 +67,15 @@ export default function RecapWeek() {
           <p className="text-[13px] text-secondary-fg mt-2 leading-relaxed">Last 7 days at a glance</p>
 
           <div className="grid grid-cols-2 gap-3 mt-9">
-            <Card icon={<Clock className="h-4 w-4" />} label="Focus time" value={`${fh}h ${fm}m`} />
+            <Card icon={<Clock className="h-4 w-4" />} label="Planned focus" value={`${fh}h ${fm}m`} />
+            <Card icon={<Clock className="h-4 w-4" />} label="Actual tracked" value={trackedSec < 3600 ? `${Math.round(trackedSec / 60)}m` : `${Math.floor(trackedSec / 3600)}h ${Math.floor((trackedSec % 3600) / 60)}m`} />
             <Card icon={<Target className="h-4 w-4" />} label="Completion" value={`${stats.completionPct}%`} sub={`${stats.done}/${stats.planned}`} />
             <Card icon={<Trophy className="h-4 w-4" />} label="Top category" value={stats.topLabel} />
             <Card icon={<CalendarDays className="h-4 w-4" />} label="Days planned" value={`${planDays.length}/7`} sub={planDays.length === 7 ? "Every day" : "this week"} />
           </div>
+          <p className="mt-3 text-[11px] text-secondary-fg">
+            Planned completed focus: {Math.round(plannedDoneSec / 60)}m · Actual tracked: {Math.round(trackedSec / 60)}m.
+          </p>
 
           <div className="mt-8">
             <div className="text-xs text-secondary-fg uppercase tracking-wide mb-2">Days you planned</div>

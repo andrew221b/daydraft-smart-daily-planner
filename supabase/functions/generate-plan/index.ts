@@ -10,7 +10,7 @@ const FREE_PLAN_LIMIT = 5;
 serve(async (req) => {
   if (req.method === "OPTIONS") return new Response(null, { headers: corsHeaders });
   try {
-    const { raw_input, energy_preference, name, mode, start_time, clarified_tasks, plan_date, now_iso, timezone, hours_already_committed, active_hours_start, active_hours_end, ai_tone, ai_tone_custom } = await req.json();
+    const { raw_input, energy_preference, name, mode, start_time, clarified_tasks, plan_date, now_iso, timezone, hours_already_committed, active_hours_start, active_hours_end, ai_tone, ai_tone_custom, behavior_signals } = await req.json();
     if (!raw_input || typeof raw_input !== "string") {
       return new Response(JSON.stringify({ error: "raw_input required" }), { status: 400, headers: { ...corsHeaders, "Content-Type": "application/json" } });
     }
@@ -199,6 +199,12 @@ User patterns (use to compound intelligence):
 - Deep work overrun: ${Number(pattern.deep_work_overrun_pct || 0).toFixed(0)}% (account for it; pad deep blocks if positive)
 - Top abandoned types: ${JSON.stringify(pattern.abandoned_types || [])}
 - Completion by hour: ${JSON.stringify(pattern.completion_by_hour || {})}` : "";
+    const behaviorHints = behavior_signals ? `
+Recent behavior signals:
+- Completion rate (14d): ${Number(behavior_signals.completion_rate_14d || 0).toFixed(2)}
+- Average completed task duration (14d): ${Math.round(Number(behavior_signals.avg_completed_task_min_14d || 0))}m
+- Tracking coverage (7d): ${Number(behavior_signals.tracking_coverage_7d || 0).toFixed(2)}
+Use this to keep plans realistic: if completion rate < 0.65, trim low-priority volume by default; if avg completed task duration is short, prefer smaller blocks.` : "";
 
     const calHints = calendarEvents.length ? `
 FIXED calendar events you must schedule around (do not move, do not duplicate; emit them as kind="task" with type="communication" and a reasoning that mentions "from your calendar"):
@@ -224,10 +230,11 @@ Rules:
 - Use kind="task" for actual tasks, "break" for breaks, "lunch" for lunch.
 - Extract location hints from raw text (e.g. "gym at 2pm", "lunch at Blue Bottle Mission") and include a short location string.
 - For EVERY task, include a one-sentence "reasoning" explaining placement (e.g. "Deep work first — your peak").
+- Never return a task block longer than 90 minutes. Split longer work into sequential sub-blocks.
 - LIGHT-DAY DETECTION: if the user only listed a tiny amount of work (≤ 60 min total) AND there is plenty of time left in the day (trueHoursLeft ≥ 4h), do NOT pad with invented tasks. Instead, schedule ONLY what the user gave you and START the subtext with "✨ Light day — " followed by a warm one-liner suggesting a self-care or restorative activity (walk, stretch, read, call a friend). Do not add those activities as blocks unless the user mentions them.
 - SELF-CARE NUDGE: if the day is heavy (≥ 6h of deep_work) consider inserting one short "Recharge" break (kind="break", 10-15 min, type="routine") between deep blocks, with a reasoning like "Quick reset to keep your focus sharp."
 - Summary: short, e.g. "5 tasks · 3 focus blocks · Done by 5pm".
-- Subtext: one short sentence.${clarifiedHints}${patternHints}${calHints}`;
+- Subtext: one short sentence.${clarifiedHints}${patternHints}${behaviorHints}${calHints}`;
 
     const tools = [{
       type: "function",
@@ -288,7 +295,35 @@ Rules:
     const call = data.choices?.[0]?.message?.tool_calls?.[0];
     if (!call) throw new Error("No tool call returned");
     const args = JSON.parse(call.function.arguments);
-    return new Response(JSON.stringify(args), { headers: { ...corsHeaders, "Content-Type": "application/json" } });
+    const splitLongTask = (b: any, idxSeed: number) => {
+      const total = Number(b.duration_min) || 0;
+      const pieces: any[] = [];
+      let left = total;
+      let cursor = b.start_time;
+      let idx = idxSeed;
+      while (left > 0) {
+        const pieceMin = Math.max(20, Math.min(90, left));
+        pieces.push({
+          ...b,
+          title: left === total ? b.title : `${b.title} · part ${idx + 1}`,
+          duration_min: pieceMin,
+          start_time: cursor,
+        });
+        const [h, m] = String(cursor).split(":").map(Number);
+        const next = (Number.isFinite(h) ? h : 0) * 60 + (Number.isFinite(m) ? m : 0) + pieceMin;
+        cursor = `${String(Math.floor(next / 60)).padStart(2, "0")}:${String(next % 60).padStart(2, "0")}`;
+        left -= pieceMin;
+        idx += 1;
+      }
+      return pieces;
+    };
+    const normalizedBlocks = Array.isArray(args.blocks)
+      ? args.blocks.flatMap((b: any, i: number) => (b?.kind === "task" && Number(b?.duration_min || 0) > 90 ? splitLongTask(b, i) : [b]))
+      : [];
+    return new Response(
+      JSON.stringify({ ...args, blocks: normalizedBlocks }),
+      { headers: { ...corsHeaders, "Content-Type": "application/json" } }
+    );
   } catch (e) {
     console.error(e);
     return new Response(JSON.stringify({ error: e instanceof Error ? e.message : "Unknown" }), { status: 500, headers: { ...corsHeaders, "Content-Type": "application/json" } });

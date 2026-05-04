@@ -21,7 +21,8 @@ export default function Recap() {
   const { profile } = useProfile();
   const nav = useNavigate();
   const [searchParams] = useSearchParams();
-  const viewDate = searchParams.get("date") || todayDateStr();
+  const rawDate = searchParams.get("date");
+  const viewDate = rawDate && /^\d{4}-\d{2}-\d{2}$/.test(rawDate) ? rawDate : todayDateStr();
   const [blocks, setBlocks] = useState<Block[]>([]);
   const [insight, setInsight] = useState<string | null>(null);
   const { todayTotalSec, categories, refresh: refreshTracker } = useTimeTracker();
@@ -31,6 +32,7 @@ export default function Recap() {
   const [lastWeekFocusMin, setLastWeekFocusMin] = useState<number | null>(null);
   const [weeklyScore, setWeeklyScore] = useState<{ score: number; tips: string[] } | null>(null);
   const [upgradeOpen, setUpgradeOpen] = useState(false);
+  const [actualTrackedSec, setActualTrackedSec] = useState(0);
   const { isPro } = useEntitlement();
 
   useEffect(() => {
@@ -108,6 +110,27 @@ export default function Recap() {
       setWeeklyScore(weeklyProductScore(days));
     })();
   }, [user?.id, viewDate]);
+  useEffect(() => {
+    if (!user) return;
+    (async () => {
+      const dayStart = new Date(parseDateStr(viewDate));
+      dayStart.setHours(0, 0, 0, 0);
+      const dayEnd = new Date(dayStart);
+      dayEnd.setDate(dayEnd.getDate() + 1);
+      const { data: entries } = await supabase
+        .from("time_entries")
+        .select("started_at,ended_at")
+        .eq("user_id", user.id)
+        .gte("started_at", dayStart.toISOString())
+        .lt("started_at", dayEnd.toISOString());
+      const sec = (entries || []).reduce((sum: number, row: any) => {
+        const s = new Date(row.started_at).getTime();
+        const e = row.ended_at ? new Date(row.ended_at).getTime() : Date.now();
+        return sum + Math.max(0, (e - s) / 1000);
+      }, 0);
+      setActualTrackedSec(sec);
+    })();
+  }, [user?.id, viewDate]);
 
   const tasks = blocks.filter(isUserTask);
   const done = tasks.filter(b => b.completed).length;
@@ -115,6 +138,7 @@ export default function Recap() {
   const plannedMin = tasks.reduce((s, b) => s + b.duration_min, 0);
   const completedMin = tasks.filter(b => b.completed).reduce((s, b) => s + b.duration_min, 0);
   const eff = plannedMin ? Math.round((completedMin / plannedMin) * 100) : 0;
+  const trackingCoverage = completedMin > 0 ? Math.round((actualTrackedSec / (completedMin * 60)) * 100) : 0;
   const fh = Math.floor(focusMin / 60), fm = focusMin % 60;
 
   // Tiny haptic when the day reaches 100% — quiet, no confetti.
@@ -288,9 +312,12 @@ export default function Recap() {
 
           <div className="grid grid-cols-3 gap-2.5 mt-6 section-switch-stagger">
             <KpiCard label="Tasks done" value={`${done}/${tasks.length}`} tone="primary" />
-            <KpiCard label="Focus time" value={`${fh}h ${fm}m`} />
-            <KpiCard label="Efficiency" value={`${eff}%`} tone={eff >= 70 ? "success" : "neutral"} />
+            <KpiCard label="Planned done" value={fmtHM(completedMin * 60)} />
+            <KpiCard label="Actual tracked" value={fmtHM(actualTrackedSec)} tone={trackingCoverage >= 70 ? "success" : "neutral"} />
           </div>
+          <p className="mt-2 text-[11px] text-secondary-fg text-center">
+            Completion quality: {eff}% planned finished · Tracking coverage: {Math.max(0, trackingCoverage)}%
+          </p>
 
           {/* Negative-delta callouts removed — recap should encourage, not
               shame. We only celebrate gains; deeper trends live in History. */}

@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useRef, useState } from "react";
-import { Play, Pause, Plus, Check, Trash2, ChevronLeft, ChevronRight, Download, ChevronDown, Lock, Pencil, X, Hourglass, Clock } from "lucide-react";
+import { Play, Pause, Plus, Check, Trash2, ChevronLeft, ChevronRight, Download, ChevronDown, Lock, Pencil, X, Hourglass, Clock, SlidersHorizontal } from "lucide-react";
 import { useTimeTracker, fmtHMS, fmtHM, TimeCategory } from "@/hooks/useTimeTracker";
 import { Sheet, SheetContent, SheetHeader, SheetTitle, SheetDescription } from "@/components/ui/sheet";
 import { Input } from "@/components/ui/input";
@@ -65,6 +65,15 @@ function TrackerInner({ embedded = false, onClose }: { embedded?: boolean; onClo
   const [exporting, setExporting] = useState(false);
   const [manualForCat, setManualForCat] = useState<string | null>(null);
   const [confirmDeleteCat, setConfirmDeleteCat] = useState<string | null>(null);
+  const [nowSec, setNowSec] = useState<number>(() => Date.now());
+  const [simpleMode, setSimpleMode] = useState<boolean>(() => {
+    try {
+      return localStorage.getItem("dd_tracker_simple_mode") !== "0";
+    } catch {
+      return true;
+    }
+  });
+  const [showAllCategories, setShowAllCategories] = useState(false);
 
   const activeCat = categories.find(c => c.id === active?.category_id);
   const catMap = useMemo(() => new Map(categories.map(c => [c.id, c])), [categories]);
@@ -87,7 +96,21 @@ function TrackerInner({ embedded = false, onClose }: { embedded?: boolean; onClo
   }, [user?.id, active?.id, todayTotalSec]);
 
   // ----- Aggregations -----
-  const now = Date.now();
+  useEffect(() => {
+    const id = window.setInterval(() => setNowSec(Date.now()), 30_000);
+    return () => window.clearInterval(id);
+  }, []);
+
+  useEffect(() => {
+    try {
+      localStorage.setItem("dd_tracker_simple_mode", simpleMode ? "1" : "0");
+    } catch {
+      // ignore
+    }
+    if (simpleMode) setTab("today");
+  }, [simpleMode]);
+
+  const now = nowSec;
 
   // Week (last 7 days, oldest first)
   const weekDays = useMemo(() => {
@@ -226,6 +249,15 @@ function TrackerInner({ embedded = false, onClose }: { embedded?: boolean; onClo
   const headerLabel = tab === "today" ? "Today" : tab === "week" ? "This week" : monthCursor.toLocaleDateString(undefined, { month: "long", year: "numeric" });
 
   const monthLabel = monthCursor.toLocaleDateString(undefined, { month: "long", year: "numeric" });
+  const visibleCategories = useMemo(() => {
+    if (!simpleMode || showAllCategories) return categories;
+    const first = categories.slice(0, 2);
+    if (active && !first.some((c) => c.id === active.category_id)) {
+      const activeCategory = categories.find((c) => c.id === active.category_id);
+      if (activeCategory) return [...first, activeCategory];
+    }
+    return first;
+  }, [categories, simpleMode, showAllCategories, active?.category_id]);
 
   // Smart stop: if running session is < 60s, confirm (likely accidental tap).
   const handleStop = async () => {
@@ -387,19 +419,41 @@ function TrackerInner({ embedded = false, onClose }: { embedded?: boolean; onClo
               </>
             )}
           </div>
+          {!active && !simpleMode && (
+            <button
+              type="button"
+              onClick={() => setSimpleMode(true)}
+              className="mt-3 h-9 px-3 rounded-lg border border-soft surface-soft text-[11px] text-secondary-fg hover:text-foreground pressable inline-flex items-center gap-1.5"
+            >
+              <SlidersHorizontal className="h-3.5 w-3.5" /> Quick mode
+            </button>
+          )}
 
           {/* Tabs */}
-          <div className="mt-5 inline-flex w-full rounded-[14px] bg-muted/80 p-1">
-            {(["today","week","month"] as Tab[]).map(t => (
+          {!simpleMode ? (
+            <div className="mt-5 inline-flex w-full rounded-[14px] bg-muted/80 p-1">
+              {(["today","week","month"] as Tab[]).map(t => (
+                <button
+                  key={t}
+                  onClick={() => { setTab(t); setSelectedDay(null); }}
+                  className={`flex-1 px-3 py-1.5 rounded-lg text-xs font-medium capitalize pressable transition-colors ${tab === t ? "bg-background text-foreground shadow-sm" : "text-secondary-fg"}`}
+                >
+                  {t}
+                </button>
+              ))}
+            </div>
+          ) : (
+            <div className="mt-5 rounded-[14px] border border-soft surface-soft px-3 py-2.5 text-[11px] text-secondary-fg flex items-center justify-between gap-2">
+              <span>Quick mode: focused on start/stop and today only.</span>
               <button
-                key={t}
-                onClick={() => { setTab(t); setSelectedDay(null); }}
-                className={`flex-1 px-3 py-1.5 rounded-lg text-xs font-medium capitalize pressable transition-colors ${tab === t ? "bg-background text-foreground shadow-sm" : "text-secondary-fg"}`}
+                type="button"
+                onClick={() => setSimpleMode(false)}
+                className="text-primary font-medium inline-flex items-center gap-1"
               >
-                {t}
+                <SlidersHorizontal className="h-3.5 w-3.5" /> Advanced
               </button>
-            ))}
-          </div>
+            </div>
+          )}
         </div>
 
         {/* TODAY TAB — categories + start/stop + today summary */}
@@ -460,7 +514,7 @@ function TrackerInner({ embedded = false, onClose }: { embedded?: boolean; onClo
             </div>
 
             {/* Today proportional breakdown (only if any time) */}
-            {todayByCat.length > 0 && (
+            {!simpleMode && todayByCat.length > 0 && (
               <div className="px-5 pt-4">
                 <div className="text-[10px] font-semibold uppercase tracking-wider text-secondary-fg mb-2">Where today went</div>
                 <div className="space-y-1.5">
@@ -498,14 +552,14 @@ function TrackerInner({ embedded = false, onClose }: { embedded?: boolean; onClo
             )}
 
             <div className="px-4 py-4 space-y-2">
-              {categories.map(c => {
+              {visibleCategories.map(c => {
                 const isActive = active?.category_id === c.id;
                 const isOpen = selectedCat === c.id;
                 const stat = periodCatStats.get(c.id);
                 const periodSec = stat?.sec || 0;
                 return (
                   <SwipeRow key={c.id} disabled={c.is_default || isActive || editingCat === c.id} onDelete={() => setConfirmDeleteCat(c.id)}>
-                  <div className={`rounded-[16px] border transition-colors ${isActive ? "border-accent surface-accent ring-2 ring-primary/12 ring-offset-2 ring-offset-background" : "border-soft surface-card"} overflow-hidden backdrop-blur-sm`}>
+                  <div className={`rounded-[16px] border transition-colors shadow-card ${isActive ? "border-accent surface-accent ring-2 ring-primary/12 ring-offset-2 ring-offset-background" : "border-soft surface-card"} overflow-hidden backdrop-blur-sm`}>
                     <div className="flex items-center gap-2 px-3 py-2.5">
                       {editingCat === c.id ? (
                         <form
@@ -536,7 +590,10 @@ function TrackerInner({ embedded = false, onClose }: { embedded?: boolean; onClo
                         </form>
                       ) : (
                         <LongPressButton
-                          onClick={() => setSelectedCat(isOpen ? null : c.id)}
+                          onClick={() => {
+                            if (simpleMode) return;
+                            setSelectedCat(isOpen ? null : c.id);
+                          }}
                           onLongPress={() => { setEditingName(c.name); setEditingCat(c.id); }}
                           className="flex-1 flex items-center gap-2 min-w-0 text-left pressable"
                           ariaLabel={`${c.name} details — long press to rename`}
@@ -552,7 +609,7 @@ function TrackerInner({ embedded = false, onClose }: { embedded?: boolean; onClo
                           </span>
                           <span className="flex-1 text-[15px] font-medium truncate">{c.name}</span>
                           <span className="font-mono tabular-nums text-[11px] text-secondary-fg shrink-0">{fmtHM(periodSec)}</span>
-                          <ChevronDown className={`h-3.5 w-3.5 text-secondary-fg shrink-0 transition-transform ${isOpen ? "rotate-180" : ""}`} />
+                          {!simpleMode && <ChevronDown className={`h-3.5 w-3.5 text-secondary-fg shrink-0 transition-transform ${isOpen ? "rotate-180" : ""}`} />}
                         </LongPressButton>
                       )}
                       {editingCat === c.id ? null : isActive ? (
@@ -561,14 +618,16 @@ function TrackerInner({ embedded = false, onClose }: { embedded?: boolean; onClo
                         </button>
                       ) : (
                         <>
-                          <button
-                            onClick={() => setManualForCat(manualForCat === c.id ? null : c.id)}
-                            className="p-1.5 text-secondary-fg hover:text-foreground pressable"
-                            aria-label="Add past time"
-                            title="Log past time"
-                          >
-                            <Plus className="h-3.5 w-3.5" />
-                          </button>
+                          {!simpleMode && (
+                            <button
+                              onClick={() => setManualForCat(manualForCat === c.id ? null : c.id)}
+                              className="p-1.5 text-secondary-fg hover:text-foreground pressable"
+                              aria-label="Add past time"
+                              title="Log past time"
+                            >
+                              <Plus className="h-3.5 w-3.5" />
+                            </button>
+                          )}
                           {!active && (
                             <button onClick={() => start(c.id)} className="inline-flex items-center gap-1 px-3 py-1.5 rounded-lg bg-foreground text-background text-xs font-medium pressable">
                               <Play className="h-3 w-3" fill="currentColor" /> Start
@@ -577,7 +636,7 @@ function TrackerInner({ embedded = false, onClose }: { embedded?: boolean; onClo
                         </>
                       )}
                     </div>
-                    {manualForCat === c.id && (
+                    {!simpleMode && manualForCat === c.id && (
                       <ManualEntryRow
                         color={c.color}
                         onSubmit={async (mins, note) => {
@@ -587,7 +646,7 @@ function TrackerInner({ embedded = false, onClose }: { embedded?: boolean; onClo
                         onCancel={() => setManualForCat(null)}
                       />
                     )}
-                    {isOpen && (
+                    {!simpleMode && isOpen && (
                       <CategoryDetail cat={c} stat={stat} period={period} />
                     )}
                   </div>
@@ -595,6 +654,17 @@ function TrackerInner({ embedded = false, onClose }: { embedded?: boolean; onClo
                 );
               })}
 
+              {simpleMode && !showAllCategories && categories.length > visibleCategories.length && (
+                <button
+                  type="button"
+                  onClick={() => setShowAllCategories(true)}
+                  className="w-full h-10 rounded-[14px] border border-soft surface-soft text-[12px] text-secondary-fg hover:text-foreground pressable"
+                >
+                  Show all categories
+                </button>
+              )}
+
+              {!simpleMode && (
               <form
                 onSubmit={async (e) => {
                   e.preventDefault();
@@ -617,6 +687,7 @@ function TrackerInner({ embedded = false, onClose }: { embedded?: boolean; onClo
                   </button>
                 )}
               </form>
+              )}
             </div>
           </>
         )}
@@ -739,7 +810,7 @@ function TrackerInner({ embedded = false, onClose }: { embedded?: boolean; onClo
           Tracking runs in the background — close the app and it keeps counting.
         </div>
       </Wrapper>
-    <UpgradeSheet open={upgradeOpen} onOpenChange={setUpgradeOpen} reason="quota" />
+    <UpgradeSheet open={upgradeOpen} onOpenChange={setUpgradeOpen} reason="feature" />
     <AlertDialog open={!!confirmDeleteCat} onOpenChange={(v) => { if (!v) setConfirmDeleteCat(null); }}>
       <AlertDialogContent>
         <AlertDialogHeader>
@@ -1065,6 +1136,8 @@ function SwipeRow({
   const [dx, setDx] = useState(0);
   const [dragging, setDragging] = useState(false);
   const startX = useRef<number | null>(null);
+  const startY = useRef<number | null>(null);
+  const lock = useRef<"none" | "x" | "y">("none");
   const THRESHOLD = 88;
   const MAX = 120;
 
@@ -1072,12 +1145,20 @@ function SwipeRow({
 
   const onPointerDown = (e: React.PointerEvent) => {
     startX.current = e.clientX;
+    startY.current = e.clientY;
+    lock.current = "none";
     setDragging(true);
     (e.target as HTMLElement).setPointerCapture?.(e.pointerId);
   };
   const onPointerMove = (e: React.PointerEvent) => {
-    if (startX.current === null) return;
+    if (startX.current === null || startY.current === null) return;
     const delta = e.clientX - startX.current;
+    const deltaY = e.clientY - startY.current;
+    if (lock.current === "none") {
+      if (Math.abs(delta) < 8 && Math.abs(deltaY) < 8) return;
+      lock.current = Math.abs(delta) > Math.abs(deltaY) ? "x" : "y";
+    }
+    if (lock.current === "y") return;
     if (delta < 0) setDx(Math.max(-MAX, delta));
     else if (dx < 0) setDx(Math.min(0, delta + dx));
   };
@@ -1091,11 +1172,13 @@ function SwipeRow({
       setDx(0);
     }
     startX.current = null;
+    startY.current = null;
+    lock.current = "none";
   };
 
   return (
     <div className="relative">
-      <div className="absolute inset-0 flex items-center justify-end pr-5 rounded-xl bg-destructive/90 text-destructive-foreground">
+      <div className={`absolute inset-0 flex items-center justify-end pr-5 rounded-xl transition-colors ${dx <= -THRESHOLD ? "bg-destructive/90 text-destructive-foreground" : "bg-muted text-secondary-fg"}`}>
         <div className="flex items-center gap-1.5 text-[12px] font-semibold">
           <Trash2 className="h-3.5 w-3.5" /> Delete
         </div>

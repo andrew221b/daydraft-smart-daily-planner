@@ -4,9 +4,9 @@ import { PageHeader } from "@/components/app/PageHeader";
 import { PullToRefresh } from "@/components/app/PullToRefresh";
 import { useAuth } from "@/hooks/useAuth";
 import { supabase } from "@/integrations/supabase/client";
-import { parseDateStr, todayDateStr, isUserTask } from "@/lib/daydraft";
+import { parseDateStr, todayDateStr, isUserTask, dateStr } from "@/lib/daydraft";
 import { useNavigate } from "react-router-dom";
-import { CheckCircle2, Circle, CalendarDays, Timer as TimerIcon, Target, LayoutList } from "lucide-react";
+import { CheckCircle2, Circle, CalendarDays, Timer as TimerIcon, Target } from "lucide-react";
 import { useTimeTracker, fmtHM } from "@/hooks/useTimeTracker";
 import { KpiCard } from "@/components/app/KpiCard";
 
@@ -18,6 +18,8 @@ interface PlanRow {
   total: number;
   done: number;
   preview: string;
+  plannedDoneMin: number;
+  trackedSec: number;
 }
 
 export default function History() {
@@ -40,30 +42,55 @@ export default function History() {
     const list = (rawPlans || []) as { id: string; date: string; ai_summary: string | null }[];
     if (!list.length) { setPlans([]); setLoading(false); return; }
     const ids = list.map(p => p.id);
-    const { data: blocks } = await supabase
-      .from("blocks")
-      .select("plan_id,kind,completed,title,position,is_calendar_event")
-      .in("plan_id", ids)
-      .order("position");
+    const since = parseDateStr(list[list.length - 1]?.date || todayDateStr());
+    since.setHours(0, 0, 0, 0);
+    const [{ data: blocks }, { data: entries }] = await Promise.all([
+      supabase
+        .from("blocks")
+        .select("plan_id,kind,completed,title,position,is_calendar_event,duration_min")
+        .in("plan_id", ids)
+        .order("position"),
+      supabase
+        .from("time_entries")
+        .select("started_at,ended_at")
+        .eq("user_id", user.id)
+        .gte("started_at", since.toISOString()),
+    ]);
+    const trackedByDate = new Map<string, number>();
+    (entries || []).forEach((e: any) => {
+      const s = new Date(e.started_at).getTime();
+      const en = e.ended_at ? new Date(e.ended_at).getTime() : Date.now();
+      if (!Number.isFinite(s) || !Number.isFinite(en) || en <= s) return;
+      let cursor = s;
+      while (cursor < en) {
+        const d = new Date(cursor);
+        d.setHours(0, 0, 0, 0);
+        const dayStart = d.getTime();
+        const dayEnd = dayStart + 86_400_000;
+        const clippedEnd = Math.min(en, dayEnd);
+        const sec = Math.max(0, (clippedEnd - cursor) / 1000);
+        const key = dateStr(new Date(dayStart));
+        trackedByDate.set(key, (trackedByDate.get(key) || 0) + sec);
+        cursor = clippedEnd;
+      }
+    });
     const byPlan = new Map<string, BlockLite[]>();
     (blocks || []).forEach((b: any) => {
       if (!byPlan.has(b.plan_id)) byPlan.set(b.plan_id, []);
       byPlan.get(b.plan_id)!.push(b as BlockLite);
     });
-    // Quietly clean up orphaned plans (created but no blocks were ever saved).
-    // These are usually leftovers from a failed `generate-plan` invocation and
-    // serve no purpose to the user — they confuse history and lead to dead-end
-    // empty DayViews.
+    // Hide orphaned plans in UI only.
+    // Read-path must never mutate user data from a client screen.
     const orphans = list.filter(p => !(byPlan.get(p.id) || []).length).map(p => p.id);
-    if (orphans.length) {
-      try { await supabase.from("plans").delete().in("id", orphans); } catch {/* ignore */}
-    }
     const enriched: PlanRow[] = list
       .filter(p => !orphans.includes(p.id))
       .map(p => {
         const bs = byPlan.get(p.id) || [];
         const tasks = bs.filter(b => isUserTask(b));
         const done = tasks.filter(b => b.completed).length;
+        const plannedDoneMin = tasks
+          .filter((b) => b.completed)
+          .reduce((s, b) => s + (((b as any).duration_min as number) || 0), 0);
         const preview = tasks.slice(0, 3).map(t => t.title).filter(Boolean).join(" · ");
         return {
           id: p.id,
@@ -72,6 +99,8 @@ export default function History() {
           total: tasks.length,
           done,
           preview,
+          plannedDoneMin,
+          trackedSec: trackedByDate.get(p.date) || 0,
         };
       });
     setPlans(enriched);
@@ -190,19 +219,9 @@ export default function History() {
                             </span>
                             <span className={`tabular-nums ${allDone ? "text-success font-medium" : ""}`}>{completionPct}%</span>
                           </div>
-                        </button>
-                        <button
-                          type="button"
-                          onClick={(e) => {
-                            e.preventDefault();
-                            e.stopPropagation();
-                            nav(`/today/plan?date=${p.date}`);
-                          }}
-                          className="shrink-0 w-[52px] flex flex-col items-center justify-center gap-1 border-l border-soft surface-soft text-[10px] font-semibold uppercase tracking-wide text-secondary-fg hover:text-primary hover:bg-primary/[0.06] pressable"
-                          aria-label={`Open plan for ${p.date}`}
-                        >
-                          <LayoutList className="h-4 w-4" />
-                          Plan
+                          <div className="mt-1 text-[10.5px] text-secondary-fg">
+                            Planned done: {Math.round(p.plannedDoneMin)}m · Actual tracked: {fmtHM(p.trackedSec)}
+                          </div>
                         </button>
                       </div>
                     );

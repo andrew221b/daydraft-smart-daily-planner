@@ -18,6 +18,10 @@ import { enablePush, disablePush, pushSupported } from "@/lib/push";
 import { useTour, TOUR_TODAY } from "@/components/app/Tour";
 import { getWeekIntention, setWeekIntention } from "@/lib/weekIntention";
 import { useCalmMode } from "@/lib/calmMode";
+import { PremiumTheme, usePremiumTheme } from "@/lib/premiumTheme";
+import { PremiumQuality, usePremiumQuality } from "@/lib/premiumQuality";
+import { haptics } from "@/lib/haptics";
+const TODAY_TIP_DISMISSED_KEY = "dd_today_tip_dismissed";
 
 const energies = [
   { key: "morning" as const, label: "Morning person" },
@@ -47,6 +51,9 @@ export default function Settings() {
   const [calConnecting, setCalConnecting] = useState(false);
   const [advancedOpen, setAdvancedOpen] = useState(false);
   const [calmMode, setCalmMode] = useCalmMode();
+  const [premiumTheme, setPremiumTheme] = usePremiumTheme();
+  const [premiumQuality, setPremiumQuality] = usePremiumQuality();
+  const [qualityPreviewPulse, setQualityPreviewPulse] = useState(false);
   useEffect(() => { if (profile) setName(profile.display_name || ""); }, [profile?.id]);
 
   useEffect(() => {
@@ -56,6 +63,18 @@ export default function Settings() {
     });
     return () => cancelAnimationFrame(id);
   }, []);
+
+  useEffect(() => {
+    if (!qualityPreviewPulse) return;
+    const id = window.setTimeout(() => setQualityPreviewPulse(false), 900);
+    return () => window.clearTimeout(id);
+  }, [qualityPreviewPulse]);
+
+  const qualityLabel = premiumQuality === "auto"
+    ? "Auto"
+    : premiumQuality === "performance"
+      ? "Performance"
+      : "Premium";
 
   const togglePasskey = async () => {
     if (hasPasskey) {
@@ -147,6 +166,66 @@ export default function Settings() {
               <div className="px-3 py-3">
                 <div className="text-[11px] text-secondary-fg mb-2">Appearance</div>
                 <ThemeToggle />
+                <div className="mt-3">
+                  <div className="text-[11px] text-secondary-fg mb-1.5">Premium style</div>
+                  <div className="grid grid-cols-3 gap-2">
+                    {([
+                      { key: "aurora", label: "Aurora" },
+                      { key: "obsidian", label: "Obsidian" },
+                      { key: "neon", label: "Neon" },
+                    ] as Array<{ key: PremiumTheme; label: string }>).map((opt) => (
+                      <button
+                        key={opt.key}
+                        type="button"
+                        onClick={() => setPremiumTheme(opt.key)}
+                        className={`h-9 rounded-lg border text-[11px] font-medium pressable ${
+                          premiumTheme === opt.key
+                            ? "surface-accent border-accent text-primary"
+                            : "surface-soft border-soft text-secondary-fg"
+                        }`}
+                      >
+                        {opt.label}
+                      </button>
+                    ))}
+                  </div>
+                </div>
+                <div className="mt-3">
+                  <div className="text-[11px] text-secondary-fg mb-1.5">Visual quality</div>
+                  <div className="grid grid-cols-3 gap-2">
+                    {([
+                      { key: "auto", label: "Auto" },
+                      { key: "performance", label: "Performance" },
+                      { key: "premium", label: "Premium" },
+                    ] as Array<{ key: PremiumQuality; label: string }>).map((opt) => (
+                      <button
+                        key={opt.key}
+                        type="button"
+                        onClick={() => {
+                          if (premiumQuality === opt.key) return;
+                          setPremiumQuality(opt.key);
+                          setQualityPreviewPulse(true);
+                          haptics.selection();
+                        }}
+                        className={`h-9 rounded-lg border text-[11px] font-medium pressable ${
+                          premiumQuality === opt.key
+                            ? "surface-accent border-accent text-primary"
+                            : "surface-soft border-soft text-secondary-fg"
+                        }`}
+                      >
+                        {opt.label}
+                      </button>
+                    ))}
+                  </div>
+                  <p className="mt-2 text-[11px] text-secondary-fg leading-relaxed">
+                    Auto follows device preferences. Performance reduces visual intensity. Premium keeps the richest glass effects.
+                  </p>
+                  <div className={`mt-2 inline-flex items-center gap-1.5 rounded-full border px-2.5 py-1 text-[10px] tracking-[0.08em] uppercase ${
+                    qualityPreviewPulse ? "border-accent surface-accent text-primary fade-in" : "border-soft surface-soft text-secondary-fg"
+                  }`}>
+                    <span className="h-1.5 w-1.5 rounded-full bg-current" />
+                    Applied now: {qualityLabel}
+                  </div>
+                </div>
               </div>
             </div>
           </Section>
@@ -226,6 +305,9 @@ export default function Settings() {
                 </div>
                 <Switch checked={calmMode} onCheckedChange={setCalmMode} />
               </div>
+              <div className="px-4 pb-3 text-[11px] text-secondary-fg leading-relaxed">
+                Calm mode hides context signals, insights, rescue hints, and extra controls so Today/DayView stay minimal.
+              </div>
             </div>
           </Section>
 
@@ -292,6 +374,17 @@ export default function Settings() {
               >
                 <HelpCircle className="h-4 w-4 text-secondary-fg" />
                 <span className="text-[14px] flex-1 text-left">Replay tutorial</span>
+                <span className="text-secondary-fg">›</span>
+              </button>
+              <button
+                onClick={() => {
+                  try { localStorage.removeItem(TODAY_TIP_DISMISSED_KEY); } catch {/* ignore */}
+                  toast.success("Tips re-enabled on Today");
+                }}
+                className="w-full flex items-center gap-3 px-4 py-3 pressable hover:bg-surface-elevated"
+              >
+                <MessageCircle className="h-4 w-4 text-secondary-fg" />
+                <span className="text-[14px] flex-1 text-left">Show Today tip again</span>
                 <span className="text-secondary-fg">›</span>
               </button>
               <Link to="/privacy" className="flex items-center gap-3 px-4 py-3 pressable hover:bg-surface-elevated">

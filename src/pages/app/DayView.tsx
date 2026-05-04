@@ -62,7 +62,8 @@ export default function DayView() {
   const tour = useTour();
   const [searchParams] = useSearchParams();
   const queryClient = useQueryClient();
-  const viewDate = searchParams.get("date") || todayDateStr();
+  const rawDate = searchParams.get("date");
+  const viewDate = rawDate && /^\d{4}-\d{2}-\d{2}$/.test(rawDate) ? rawDate : todayDateStr();
   const isFuture = isFutureDateStr(viewDate);
   const isToday = viewDate === todayDateStr();
   const [blocks, setBlocks] = useState<ExBlock[]>([]);
@@ -285,9 +286,13 @@ export default function DayView() {
   };
 
   const persistOrder = async (list: ExBlock[]) => {
-    await Promise.all(list.map((b, i) =>
-      supabase.from("blocks").update({ position: i, start_time: b.start_time }).eq("id", b.id)
-    ));
+    const rows = list.map((b, i) => ({
+      id: b.id,
+      position: i,
+      start_time: b.start_time,
+    }));
+    const { error } = await supabase.from("blocks").upsert(rows as any, { onConflict: "id" });
+    if (error) throw error;
   };
 
   const onDragEnd = (e: DragEndEvent) => {
@@ -297,8 +302,14 @@ export default function DayView() {
     const newIdx = blocks.findIndex(b => b.id === over.id);
     if (oldIdx === -1 || newIdx === -1) return;
     const reordered = retime(arrayMove(blocks, oldIdx, newIdx));
+    const snapshot = blocks;
     setBlocks(reordered);
-    void persistOrder(reordered).then(() => invalidatePlanCaches());
+    void persistOrder(reordered)
+      .then(() => invalidatePlanCaches())
+      .catch((e: any) => {
+        setBlocks(snapshot);
+        toast.error(e?.message || "Unable to reorder blocks");
+      });
   };
 
   const replanRest = async () => {
@@ -396,8 +407,8 @@ export default function DayView() {
           await invalidatePlanCaches();
         }}
       >
-      <div className="px-5 pt-10">
-      <div className="hero-glass p-4 md:p-5 flex items-center justify-between gap-2">
+      <div className="px-5 pt-9">
+      <div className="hero-glass p-4 md:p-5 flex items-center justify-between gap-2 shadow-elevated">
         <button onClick={() => nav("/today")} className="h-11 w-11 shrink-0 rounded-full flex items-center justify-center text-secondary-fg hover:text-foreground hover:bg-surface/50 pressable">
           <ChevronLeft className="h-5 w-5" />
         </button>
@@ -427,8 +438,15 @@ export default function DayView() {
       </div>
       </div>
 
+      {calmMode && !planMissing && (
+        <div className="px-5 mt-4">
+          <div className="rounded-xl border border-soft surface-soft px-3 py-2 text-[11px] text-secondary-fg">
+            Calm Mode: simplified view with fewer secondary controls.
+          </div>
+        </div>
+      )}
       {/* Compact progress strip — single line, no boxed card */}
-      {!planMissing && totalTasks > 0 && (
+      {!calmMode && !planMissing && totalTasks > 0 && (
         <div className="px-5 mt-4">
           <div className="flex items-baseline justify-between">
             <div className="text-[13.5px] text-foreground tabular-nums">
@@ -445,7 +463,7 @@ export default function DayView() {
         </div>
       )}
 
-      <div className="px-4 mt-4">
+      <div className="px-4 mt-5">
         {planMissing && (
           <div className="mx-2 app-card p-6 text-center">
             <CalendarDays className="h-6 w-6 mx-auto text-secondary-fg mb-2" />
@@ -486,7 +504,7 @@ export default function DayView() {
             {!isFuture && (
               <button
                 onClick={() => setAddOpen(true)}
-                className="mt-3 w-full inline-flex items-center justify-center gap-1.5 text-[12px] text-secondary-fg hover:text-primary border border-soft rounded-xl h-10 surface-soft pressable"
+                className="mt-3 w-full inline-flex items-center justify-center gap-1.5 text-[12px] text-secondary-fg hover:text-primary border border-soft rounded-xl h-11 surface-soft pressable"
               >
                 <Plus className="h-3.5 w-3.5" /> Add task
               </button>

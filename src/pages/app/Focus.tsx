@@ -95,6 +95,8 @@ export default function Focus() {
     setHelpError(null);
     setHelpLoading(false);
     startedHereRef.current = false;
+    actualStartMsRef.current = null;
+    guardrailToastShownRef.current = false;
     setPlanDate(null);
     (async () => {
       const { data } = await supabase.from("blocks").select("*").eq("id", blockId).maybeSingle();

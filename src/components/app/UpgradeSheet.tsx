@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { Sheet, SheetContent } from "@/components/ui/sheet";
 import { Button } from "@/components/ui/button";
 import { Check, Sparkles, Calendar, Brain, Music, Zap } from "lucide-react";
@@ -27,6 +27,29 @@ const reasonSub: Record<UpgradeReason, string> = {
   feature: "This feature is part of DayDraft Pro.",
   "trial-banner": "Lock in everything you've been using.",
   momentum: "You are building consistency. Pro keeps coaching and planning unlimited.",
+};
+const reasonOrder: Record<UpgradeReason, string[]> = {
+  quota: ["Unlimited plans", "Compounding AI", "Google Calendar sync", "Focus soundscapes"],
+  feature: ["Google Calendar sync", "Compounding AI", "Unlimited plans", "Focus soundscapes"],
+  "trial-banner": ["Compounding AI", "Google Calendar sync", "Unlimited plans", "Focus soundscapes"],
+  momentum: ["Compounding AI", "Unlimited plans", "Google Calendar sync", "Focus soundscapes"],
+};
+const reasonCta: Record<UpgradeReason, string> = {
+  quota: "Go unlimited this week",
+  feature: "Unlock this in Pro",
+  "trial-banner": "Keep my Pro access",
+  momentum: "Turn momentum into Pro",
+};
+const PAYWALL_COOLDOWN_KEY = "dd_paywall_last_open";
+const PAYWALL_COOLDOWN_MS = 1000 * 60 * 30;
+export const canShowPassivePaywall = () => {
+  try {
+    const last = Number(localStorage.getItem(PAYWALL_COOLDOWN_KEY) || 0);
+    if (!last) return true;
+    return Date.now() - last > PAYWALL_COOLDOWN_MS;
+  } catch {
+    return true;
+  }
 };
 
 export const UpgradeSheet = ({
@@ -60,6 +83,14 @@ export const UpgradeSheet = ({
   };
 
   const isDev = import.meta.env.DEV;
+  const orderedBenefits = reasonOrder[reason]
+    .map((name) => benefits.find((b) => b.label === name))
+    .filter(Boolean) as typeof benefits;
+
+  useEffect(() => {
+    if (!open) return;
+    try { localStorage.setItem(PAYWALL_COOLDOWN_KEY, String(Date.now())); } catch {/* ignore */}
+  }, [open]);
 
   return (
     <Sheet open={open} onOpenChange={onOpenChange}>
@@ -75,7 +106,7 @@ export const UpgradeSheet = ({
 
         <div className="px-6 pb-6">
           <ul className="mt-4 space-y-3">
-            {benefits.map(({ icon: Icon, label, sub }) => (
+            {orderedBenefits.map(({ icon: Icon, label, sub }) => (
               <li key={label} className="flex items-start gap-3">
                 <div className="h-8 w-8 rounded-[10px] surface-accent border border-accent flex items-center justify-center shrink-0">
                   <Icon className="h-4 w-4 text-primary" />
@@ -104,7 +135,7 @@ export const UpgradeSheet = ({
           <Button onClick={checkout} disabled={busy}
             className="w-full mt-5 h-13 py-3.5 rounded-[14px] bg-primary hover:bg-primary/92 text-primary-foreground text-[15px] font-medium pressable shadow-card"
            >
-            Start 7-day free trial
+            {reasonCta[reason]}
           </Button>
           <p className="text-[11px] text-secondary-fg text-center mt-2">No charge today · Cancel anytime</p>
 
