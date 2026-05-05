@@ -562,7 +562,7 @@ export default function Focus() {
               {toneCopy(tone, "ai_help_cta")}
             </button>
           ) : (
-            <div className="app-card p-4 space-y-3 text-left">
+            <div className="app-card panel-luxe p-4 space-y-3 text-left">
               <div className="flex items-center gap-2 eyebrow text-primary">
                 <Sparkles className="h-3.5 w-3.5" /> {toneCopy(tone, "ai_assistant_title")}
               </div>

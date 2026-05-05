@@ -275,7 +275,7 @@ export default function Recap() {
       <div className="relative">
         <div className="absolute inset-x-0 top-0 h-52 pointer-events-none" style={{ background: "var(--gradient-glow)" }} />
         <div className="relative px-5 pt-10">
-          <div className="hero-glass p-5 md:p-6">
+          <div className="hero-glass panel-luxe p-5 md:p-6">
             <h1 className="font-display text-[30px] font-semibold leading-[1.07] text-balance">
               {viewDate === todayDateStr() ? "Day complete." : `Recap · ${friendlyDateFor(parseDateStr(viewDate))}`}
             </h1>

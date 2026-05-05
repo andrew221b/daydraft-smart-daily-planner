@@ -744,7 +744,7 @@ export default function Today() {
             <button
               data-tour="today-plan"
               onClick={() => nav(isToday ? "/today/plan" : `/today/plan?date=${planDate}`)}
-              className="w-full text-left hero-glass p-5 pressable hover:border-primary/28 transition-colors group"
+              className="w-full text-left hero-glass panel-luxe p-5 pressable hover:border-primary/28 transition-colors group"
             >
               <div className="flex items-center justify-between">
                 <span className="kicker">{isToday ? "Timeline preview" : friendlyDateFor(parseDateStr(planDate))}</span>
@@ -788,7 +788,7 @@ export default function Today() {
           </div>
         ) : (
           /* ── Empty state — single question ── */
-          <div className="mt-10 hero-glass p-5 shadow-elevated">
+          <div className="mt-10 hero-glass panel-luxe p-5 shadow-elevated">
             <p className="font-display text-[22px] leading-snug text-foreground">
               {toneCopy(tone, "plan_cta") || "What's on your plate today?"}
             </p>

@@ -1,4 +1,4 @@
-import { useEffect, useRef } from "react";
+import { useEffect, useRef, useState } from "react";
 import { NavLink, useLocation } from "react-router-dom";
 import { Home, Timer, BarChart2, Settings as SettingsIcon } from "lucide-react";
 import { useTimeTracker, useTimeTrackerElapsed, fmtHMS } from "@/hooks/useTimeTracker";
@@ -17,10 +17,13 @@ export const TabBar = () => {
   const { pathname } = useLocation();
   const prevPath = useRef<string | null>(null);
   const activeIdx = Math.max(0, tabs.findIndex((t) => pathname.startsWith(t.to)));
+  const [prevIdx, setPrevIdx] = useState(activeIdx);
+  const moveDir = activeIdx > prevIdx ? "tab-indicator-move-right" : activeIdx < prevIdx ? "tab-indicator-move-left" : "";
   useEffect(() => {
     if (prevPath.current !== null && prevPath.current !== pathname) haptics.selection();
     prevPath.current = pathname;
-  }, [pathname]);
+    setPrevIdx(activeIdx);
+  }, [pathname, activeIdx]);
 
   return (
     <nav
@@ -45,7 +48,15 @@ export const TabBar = () => {
         />
         <span
           aria-hidden
-          className="pointer-events-none absolute top-1 bottom-1 rounded-[14px] border border-accent shadow-[inset_0_1px_0_rgba(255,255,255,0.2),0_8px_22px_-10px_hsl(var(--primary)/0.52)] transition-all duration-300 ease-out tab-indicator-luxe"
+          className={`pointer-events-none absolute top-1 bottom-1 rounded-[14px] tab-indicator-liquid-trail ${moveDir}`}
+          style={{
+            left: `calc(${activeIdx * 25}% + 4px)`,
+            width: "calc(25% - 8px)",
+          }}
+        />
+        <span
+          aria-hidden
+          className={`pointer-events-none absolute top-1 bottom-1 rounded-[14px] border border-accent shadow-[inset_0_1px_0_rgba(255,255,255,0.2),0_8px_22px_-10px_hsl(var(--primary)/0.52)] tab-indicator-luxe tab-indicator-liquid ${moveDir}`}
           style={{
             background: "linear-gradient(132deg, hsl(var(--primary) / 0.3), hsl(var(--primary-glow) / 0.24))",
             left: `calc(${activeIdx * 25}% + 4px)`,
