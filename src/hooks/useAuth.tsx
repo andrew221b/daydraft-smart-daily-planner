@@ -11,11 +11,20 @@ export const AuthProvider = ({ children }: { children: ReactNode }) => {
 
   useEffect(() => {
     let mounted = true;
-    const { data: sub } = supabase.auth.onAuthStateChange((_e, s) => {
-      if (!mounted) return;
-      setSession(s);
+    let unsubscribe: (() => void) | null = null;
+    try {
+      const { data: sub } = supabase.auth.onAuthStateChange((_e, s) => {
+        if (!mounted) return;
+        setSession(s);
+        setLoading(false);
+      });
+      unsubscribe = () => sub.subscription.unsubscribe();
+    } catch {
+      // Preview/runtime mismatch should not brick the whole app.
+      setSession(null);
       setLoading(false);
-    });
+      return () => { mounted = false; };
+    }
 
     const loadInitialSession = async () => {
       try {
@@ -37,7 +46,10 @@ export const AuthProvider = ({ children }: { children: ReactNode }) => {
 
     void loadInitialSession();
 
-    return () => sub.subscription.unsubscribe();
+    return () => {
+      mounted = false;
+      if (unsubscribe) unsubscribe();
+    };
   }, []);
   return (
     <AuthCtx.Provider value={{ user: session?.user ?? null, session, loading, signOut: async () => { await supabase.auth.signOut(); } }}>
