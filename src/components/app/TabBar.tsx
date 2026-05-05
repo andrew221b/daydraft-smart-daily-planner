@@ -1,7 +1,7 @@
 import { useEffect, useRef } from "react";
 import { NavLink, useLocation } from "react-router-dom";
 import { Home, Timer, BarChart2, Settings as SettingsIcon } from "lucide-react";
-import { useTimeTracker, fmtHMS } from "@/hooks/useTimeTracker";
+import { useTimeTracker, useTimeTrackerElapsed, fmtHMS } from "@/hooks/useTimeTracker";
 import { haptics } from "@/lib/haptics";
 
 const tabs = [
@@ -12,7 +12,8 @@ const tabs = [
 ];
 
 export const TabBar = () => {
-  const { active, elapsedSec } = useTimeTracker();
+  const { active } = useTimeTracker();
+  const elapsedSec = useTimeTrackerElapsed();
   const { pathname } = useLocation();
   const prevPath = useRef<string | null>(null);
   const activeIdx = Math.max(0, tabs.findIndex((t) => pathname.startsWith(t.to)));
@@ -27,16 +28,16 @@ export const TabBar = () => {
       style={{ marginBottom: "env(safe-area-inset-bottom)" }}
     >
       {active && (
-        <div className="mb-2 mx-auto w-max max-w-full px-3 py-1.5 rounded-full bg-background/72 backdrop-blur-xl border border-accent shadow-card flex items-center gap-2 fade-in ring-1 ring-black/[0.04] dark:ring-white/[0.05]">
+        <div className="mb-2 mx-auto w-max max-w-full px-3 py-1.5 rounded-full bg-background/88 border border-accent shadow-card flex items-center gap-2 ring-1 ring-black/[0.04] dark:ring-white/[0.05] tracker-status-pill">
           <span className="relative flex h-2 w-2">
-            <span className="absolute inset-0 rounded-full bg-primary animate-ping opacity-60" />
+            <span className="absolute inset-0 rounded-full bg-primary tracker-dot-soft-pulse opacity-60" />
             <span className="relative h-2 w-2 rounded-full bg-primary" />
           </span>
           <span className="text-[11px] text-secondary-fg">Tracking</span>
-          <span className="text-[12px] font-mono-sf tabular-nums text-foreground">{fmtHMS(elapsedSec)}</span>
+          <span className="text-[12px] font-mono-sf tabular-nums text-foreground min-w-[64px] text-right">{fmtHMS(elapsedSec)}</span>
         </div>
       )}
-      <div className="relative bg-background/[0.72] backdrop-blur-2xl border border-soft rounded-[22px] shadow-tab flex items-center px-1 py-1 ring-1 ring-black/[0.04] dark:ring-white/[0.1] overflow-hidden">
+      <div className="relative bg-background/[0.72] backdrop-blur-2xl border border-soft rounded-[22px] shadow-tab flex items-center px-1 py-1 ring-1 ring-black/[0.04] dark:ring-white/[0.1] overflow-hidden tabbar-luxe">
         <span
           aria-hidden
           className="pointer-events-none absolute inset-x-8 top-0 h-8 opacity-70"

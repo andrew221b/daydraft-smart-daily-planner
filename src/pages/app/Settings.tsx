@@ -217,7 +217,7 @@ export default function Settings() {
                     ))}
                   </div>
                   <p className="mt-2 text-[11px] text-secondary-fg leading-relaxed">
-                    Auto follows device preferences. Performance reduces visual intensity. Premium keeps the richest glass effects.
+                    Auto balances style and smoothness for your device. Performance reduces visual intensity. Premium keeps the richest glass effects.
                   </p>
                   <div className={`mt-2 inline-flex items-center gap-1.5 rounded-full border px-2.5 py-1 text-[10px] tracking-[0.08em] uppercase ${
                     qualityPreviewPulse ? "border-accent surface-accent text-primary fade-in" : "border-soft surface-soft text-secondary-fg"

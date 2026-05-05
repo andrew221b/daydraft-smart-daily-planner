@@ -3,6 +3,7 @@ import { supabase } from "@/integrations/supabase/client";
 import { lovable } from "@/integrations/lovable";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
+import { PageFallback } from "@/components/app/PageFallback";
 import { toast } from "sonner";
 import { Link, useNavigate } from "react-router-dom";
 import { useAuth } from "@/hooks/useAuth";
@@ -112,7 +113,7 @@ export default function Auth() {
   };
 
   if (loading || (user && profileLoading)) {
-    return <div className="min-h-screen w-full bg-background" />;
+    return <PageFallback />;
   }
 
   return (

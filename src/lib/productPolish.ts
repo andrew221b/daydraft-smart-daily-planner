@@ -1,13 +1,14 @@
 import { Block, dateStr, isUserTask, parseDateStr, todayDateStr } from "@/lib/daydraft";
 
 export type EnergyState = "low" | "medium" | "high";
-export type RescueMode = "stabilize" | "push";
+export type RescueMode = "conservative" | "balanced" | "aggressive";
 export type RescuePlanResult = {
   input: string;
   selectedCount: number;
   budgetMin: number;
   occupiedMin: number;
   rationale: string;
+  explain: string[];
 };
 
 const ENERGY_KEY = "dd_energy_state";
@@ -109,7 +110,7 @@ export function rescuePlanFromBlocks(
   const endMin = toMin(dayEnd) || 22 * 60;
   const grossBudget = Math.max(40, Math.min(220, endMin - nowMin));
   const energyState = options?.energyState || "medium";
-  const mode = options?.mode || "stabilize";
+  const mode = options?.mode || "balanced";
 
   // Reserve time occupied by fixed slots (calendar events, lunch, breaks)
   // so rescue suggestions don't conflict with anchored parts of the day.
@@ -130,7 +131,16 @@ export function rescuePlanFromBlocks(
   const scored = blocks
     .filter((b) => isUserTask(b) && !b.completed && !b.is_calendar_event)
     .map((b) => {
-      const deepBias = b.type === "deep_work" ? (mode === "push" ? 18 : 12) : b.type === "communication" ? 9 : 7;
+      const deepBias =
+        b.type === "deep_work"
+          ? mode === "aggressive"
+            ? 19
+            : mode === "balanced"
+              ? 14
+              : 10
+          : b.type === "communication"
+            ? 9
+            : 7;
       const energyPenalty = energyState === "low" && b.type === "deep_work" ? 7 : 0;
       const durationPenalty = Math.max(0, b.duration_min - 60) * 0.12;
       return { ...b, score: deepBias - energyPenalty - durationPenalty };
@@ -142,26 +152,44 @@ export function rescuePlanFromBlocks(
   for (const task of scored) {
     if (selected.length >= 3) break;
     const normalized =
-      mode === "stabilize"
+      mode === "conservative"
         ? energyState === "low"
           ? Math.max(20, Math.min(40, task.duration_min))
           : Math.max(20, Math.min(55, task.duration_min))
-        : energyState === "low"
-          ? Math.max(20, Math.min(45, task.duration_min))
-          : Math.max(25, Math.min(80, task.duration_min));
+        : mode === "balanced"
+          ? energyState === "low"
+            ? Math.max(20, Math.min(45, task.duration_min))
+            : Math.max(25, Math.min(70, task.duration_min))
+          : energyState === "low"
+            ? Math.max(25, Math.min(55, task.duration_min))
+            : Math.max(30, Math.min(90, task.duration_min));
     if (used + normalized > budgetMin && selected.length > 0) continue;
     selected.push({ title: task.title, mins: normalized });
     used += normalized;
   }
 
   const input = selected.map((b) => `${b.title} (${b.mins}m)`).join("\n");
-  const rationale = `${mode === "push" ? "Push" : "Stabilize"} mode · ${energyState} energy · ${budgetMin}m free (${occupiedMin}m occupied)`;
+  const modeLabel =
+    mode === "aggressive" ? "Aggressive" : mode === "conservative" ? "Conservative" : "Balanced";
+  const rationale = `${modeLabel} mode · ${energyState} energy · ${budgetMin}m free (${occupiedMin}m occupied)`;
+  const explain = [
+    `${selected.length} high-impact tasks kept for the remaining window.`,
+    occupiedMin > 0
+      ? `${occupiedMin}m already occupied by fixed items, so AI avoided schedule conflicts.`
+      : "No fixed conflicts detected in the remaining window.",
+    mode === "conservative"
+      ? "Durations were trimmed to reduce overload and improve completion odds."
+      : mode === "aggressive"
+        ? "Durations stayed closer to original estimates to maximize output."
+        : "Durations were normalized for a realistic but productive finish.",
+  ];
   return {
     input,
     selectedCount: selected.length,
     budgetMin,
     occupiedMin,
     rationale,
+    explain,
   };
 }
 

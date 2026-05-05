@@ -8,7 +8,7 @@ const corsHeaders = {
 serve(async (req) => {
   if (req.method === "OPTIONS") return new Response(null, { headers: corsHeaders });
   try {
-    const { title, type, location, duration_min, ai_tone, ai_tone_custom } = await req.json();
+    const { title, type, location, duration_min, ai_tone, ai_tone_custom, runtime_reason } = await req.json();
     if (!title || typeof title !== "string") {
       return new Response(JSON.stringify({ error: "title required" }), {
         status: 400, headers: { ...corsHeaders, "Content-Type": "application/json" },
@@ -18,12 +18,30 @@ serve(async (req) => {
     if (!LOVABLE_API_KEY) throw new Error("LOVABLE_API_KEY missing");
 
     const toneMap: Record<string, string> = {
-      professional: "Tone: concise and professional. Prioritize clarity. No emojis.",
-      coach: "Tone: supportive coach. Encourage while giving practical actions.",
-      playful: "Tone: light and friendly. Keep it useful and concise. Max one subtle emoji.",
-      motivational: "Tone: energetic and action-driven. Keep recommendations concrete.",
-      tough_love: "Tone: direct and accountable. Firm but respectful. No emojis.",
-      philosophical: "Tone: reflective and calm, with practical execution advice.",
+      professional: `Tone: concise and professional.
+- Sentence style: short, neutral, concrete.
+- Vocabulary: operational and direct.
+- Constraints: no emojis, no hype.`,
+      coach: `Tone: supportive coach.
+- Sentence style: warm but specific.
+- Vocabulary: encouragement + action verbs.
+- Constraints: include one gentle encouragement phrase.`,
+      playful: `Tone: light and friendly.
+- Sentence style: crisp, upbeat.
+- Vocabulary: approachable and energetic.
+- Constraints: max one subtle emoji total.`,
+      motivational: `Tone: intense and momentum-first.
+- Sentence style: decisive, active voice.
+- Vocabulary: strong verbs, urgency, commitment.
+- Constraints: no vague motivational fluff.`,
+      tough_love: `Tone: strict accountability.
+- Sentence style: short, firm, directive.
+- Vocabulary: blunt priorities and trade-offs.
+- Constraints: no emojis, no sugarcoating.`,
+      philosophical: `Tone: reflective clarity.
+- Sentence style: calm and intentional.
+- Vocabulary: perspective + concrete next step.
+- Constraints: keep practical; no abstract rambling.`,
     };
     const toneLine = ai_tone === "custom" && ai_tone_custom
       ? `Custom tone guidance: ${String(ai_tone_custom).slice(0, 250)}`
@@ -35,10 +53,17 @@ Return:
 - 3-5 concrete sub-steps (verb-led, max 8 words each) that break the task down.
 - 2-4 useful resource links (real, well-known URLs only — docs, official sites, common tools). If you're not certain a URL is correct, omit it. Do not invent links.
 - One pro tip (1 sentence) tailored to the task type.
+- recovery_actions: always include exactly 3 actions with ids:
+  1) compress_rest_day, 2) defer_low_priority, 3) split_current_block
+  For each action return {id,label,why}. Keep label under 40 chars and why under 100 chars.
 - If the task looks like writing an email, slack/sms message, or short note (verbs: "email", "write to", "reply", "message", "DM", "text", "send to"), produce a "draft" object:
   • subject (omit/empty for chat messages)
   • body: 3-8 lines, ready to send, friendly-professional, fill placeholders like [Name] / [Date]
   • If the task is NOT a writing task, omit the draft field entirely (do not include empty strings).
+If runtime_reason is:
+- "stuck": prioritize split_current_block and concrete first action in 2-10 minutes.
+- "skip": prioritize defer_low_priority and compress_rest_day.
+- "overtime": prioritize compress_rest_day and realistic cut-down choices.
 Be terse. No fluff. No greetings.`;
 
     const tools = [{
@@ -63,6 +88,19 @@ Be terse. No fluff. No greetings.`;
               },
             },
             tip: { type: "string" },
+            recovery_actions: {
+              type: "array",
+              items: {
+                type: "object",
+                properties: {
+                  id: { type: "string", enum: ["compress_rest_day", "defer_low_priority", "split_current_block"] },
+                  label: { type: "string" },
+                  why: { type: "string" },
+                },
+                required: ["id", "label", "why"],
+                additionalProperties: false,
+              },
+            },
             draft: {
               type: "object",
               properties: {
@@ -73,7 +111,7 @@ Be terse. No fluff. No greetings.`;
               additionalProperties: false,
             },
           },
-          required: ["substeps", "links", "tip"],
+          required: ["substeps", "links", "tip", "recovery_actions"],
           additionalProperties: false,
         },
       },
@@ -81,7 +119,7 @@ Be terse. No fluff. No greetings.`;
 
     const userMsg = `Task: ${title}
 Type: ${type || "unknown"}
-Allotted: ${duration_min || "?"} min${location ? `\nLocation: ${location}` : ""}`;
+Allotted: ${duration_min || "?"} min${location ? `\nLocation: ${location}` : ""}${runtime_reason ? `\nRuntime reason: ${runtime_reason}` : ""}`;
 
     const resp = await fetch("https://ai.gateway.lovable.dev/v1/chat/completions", {
       method: "POST",

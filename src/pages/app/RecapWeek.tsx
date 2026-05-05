@@ -6,6 +6,7 @@ import { supabase } from "@/integrations/supabase/client";
 import { Block, dateStr, isUserTask } from "@/lib/daydraft";
 import { CalendarDays, Target, Clock, Trophy, ArrowRight } from "lucide-react";
 import { Button } from "@/components/ui/button";
+import { isAiFlagEnabled, writeAiWeeklyMemory } from "@/lib/aiRuntime";
 
 // Local date key — UTC slice would shift bars a day in negative offsets.
 const dateKey = (d: Date) => dateStr(d);
@@ -57,6 +58,42 @@ export default function RecapWeek() {
 
   const plannedDoneSec = stats.focusMin * 60;
   const fh = Math.floor(stats.focusMin / 60), fm = stats.focusMin % 60;
+  const aiWeeklyMemoryEnabled = isAiFlagEnabled("aiWeeklyMemory", user?.id);
+  const memory = useMemo(() => {
+    const tasks = blocks.filter(isUserTask);
+    const completed = tasks.filter((b) => b.completed);
+    const byHour = new Array(24).fill(0);
+    completed.forEach((b) => {
+      const h = Number((b.start_time || "00:00").slice(0, 2)) || 0;
+      byHour[h] += b.duration_min || 0;
+    });
+    const bestHour = byHour.reduce((best, val, idx) => (val > byHour[best] ? idx : best), 0);
+    const completedMins = completed.map((b) => b.duration_min || 0).filter((m) => m > 0);
+    const realisticBlock = completedMins.length
+      ? Math.round(completedMins.sort((a, b) => a - b)[Math.floor(completedMins.length / 2)])
+      : 45;
+    const unfinished = tasks.filter((b) => !b.completed);
+    const commonSlip = unfinished.length
+      ? unfinished.filter((b) => b.type === "deep_work").length >= unfinished.filter((b) => b.type !== "deep_work").length
+        ? "Deep work blocks are over-ambitious late in the day."
+        : "Lower-priority tasks are crowding your core work."
+      : "No major slip pattern this week.";
+    return {
+      generated_at: new Date().toISOString(),
+      best_focus_hours: `${String(bestHour).padStart(2, "0")}:00-${String((bestHour + 2) % 24).padStart(2, "0")}:00`,
+      realistic_block_min: Math.max(25, Math.min(90, realisticBlock)),
+      common_slip: commonSlip,
+      recommendation:
+        stats.completionPct < 65
+          ? "Trim daily scope by 15-20% and keep first block high-priority."
+          : "Keep your first focus block protected and batch communication later.",
+    };
+  }, [blocks, stats.completionPct]);
+
+  useEffect(() => {
+    if (!aiWeeklyMemoryEnabled) return;
+    writeAiWeeklyMemory(memory);
+  }, [aiWeeklyMemoryEnabled, memory]);
 
   return (
     <Shell>
@@ -94,6 +131,19 @@ export default function RecapWeek() {
               })}
             </div>
           </div>
+          {aiWeeklyMemoryEnabled && (
+            <div className="mt-7 app-card p-4">
+              <div className="eyebrow text-primary">AI learned this week</div>
+              <div className="mt-2 text-[14px] text-foreground">
+                Best focus window: <span className="font-mono">{memory.best_focus_hours}</span>
+              </div>
+              <div className="mt-1 text-[13px] text-secondary-fg">
+                Realistic block size: ~{memory.realistic_block_min}m
+              </div>
+              <div className="mt-1.5 text-[12px] text-secondary-fg">{memory.common_slip}</div>
+              <div className="mt-2 text-[12px] text-foreground">{memory.recommendation}</div>
+            </div>
+          )}
 
           <Button onClick={() => nav("/today")} className="w-full mt-10 h-13 py-3.5 rounded-xl bg-primary hover:bg-primary/92 text-primary-foreground text-[15px] font-medium pressable shadow-card"
            >

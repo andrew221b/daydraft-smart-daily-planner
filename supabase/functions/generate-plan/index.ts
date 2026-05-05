@@ -10,7 +10,7 @@ const FREE_PLAN_LIMIT = 5;
 serve(async (req) => {
   if (req.method === "OPTIONS") return new Response(null, { headers: corsHeaders });
   try {
-    const { raw_input, energy_preference, name, mode, start_time, clarified_tasks, plan_date, now_iso, timezone, hours_already_committed, active_hours_start, active_hours_end, ai_tone, ai_tone_custom, behavior_signals } = await req.json();
+    const { raw_input, energy_preference, name, mode, start_time, clarified_tasks, plan_date, now_iso, timezone, hours_already_committed, active_hours_start, active_hours_end, ai_tone, ai_tone_custom, behavior_signals, ai_memory } = await req.json();
     if (!raw_input || typeof raw_input !== "string") {
       return new Response(JSON.stringify({ error: "raw_input required" }), { status: 400, headers: { ...corsHeaders, "Content-Type": "application/json" } });
     }
@@ -168,12 +168,24 @@ serve(async (req) => {
 - Style: concise insight framing + practical execution step.
 - Constraints: max one brief quote-like phrase; avoid abstraction without action.`,
     };
+    const toneOutputHint = ai_tone === "tough_love"
+      ? `Output style: keep summary/subtext forceful and concise, with explicit priority trade-offs.`
+      : ai_tone === "coach"
+        ? `Output style: summary/subtext should feel supportive and confidence-building while staying concrete.`
+        : ai_tone === "playful"
+          ? `Output style: summary/subtext can be upbeat and friendly (max one emoji).`
+          : ai_tone === "motivational"
+            ? `Output style: summary/subtext should emphasize momentum and decisive action.`
+            : ai_tone === "philosophical"
+              ? `Output style: summary/subtext should be reflective but practical, with one clear action lens.`
+              : `Output style: summary/subtext should be clear, pragmatic, and concise.`;
     const toneLine = ai_tone === "custom" && ai_tone_custom
       ? `Tone profile: CUSTOM
 - Follow this user-defined style exactly where possible: ${String(ai_tone_custom).slice(0, 300)}
 - Keep output concrete, structured, and useful.
 - Never violate safety and scheduling constraints.`
-      : (toneMap[ai_tone] || toneMap.professional);
+      : `${toneMap[ai_tone] || toneMap.professional}
+${toneOutputHint}`;
     // Hours already accounted for elsewhere on the same date (completed
     // blocks from earlier today, fixed calendar events, etc.). The AI must
     // subtract this from the available window so it never over-promises.
@@ -205,6 +217,13 @@ Recent behavior signals:
 - Average completed task duration (14d): ${Math.round(Number(behavior_signals.avg_completed_task_min_14d || 0))}m
 - Tracking coverage (7d): ${Number(behavior_signals.tracking_coverage_7d || 0).toFixed(2)}
 Use this to keep plans realistic: if completion rate < 0.65, trim low-priority volume by default; if avg completed task duration is short, prefer smaller blocks.` : "";
+    const memoryHints = ai_memory ? `
+AI weekly memory:
+- Best focus hours: ${String(ai_memory.best_focus_hours || "unknown")}
+- Realistic block length: ${Math.round(Number(ai_memory.realistic_block_min || 45))}m
+- Common slip pattern: ${String(ai_memory.common_slip || "none")}
+- Recommendation: ${String(ai_memory.recommendation || "keep plans realistic")}
+Use these as defaults unless they conflict with fixed commitments.` : "";
 
     const calHints = calendarEvents.length ? `
 FIXED calendar events you must schedule around (do not move, do not duplicate; emit them as kind="task" with type="communication" and a reasoning that mentions "from your calendar"):
@@ -234,7 +253,7 @@ Rules:
 - LIGHT-DAY DETECTION: if the user only listed a tiny amount of work (≤ 60 min total) AND there is plenty of time left in the day (trueHoursLeft ≥ 4h), do NOT pad with invented tasks. Instead, schedule ONLY what the user gave you and START the subtext with "✨ Light day — " followed by a warm one-liner suggesting a self-care or restorative activity (walk, stretch, read, call a friend). Do not add those activities as blocks unless the user mentions them.
 - SELF-CARE NUDGE: if the day is heavy (≥ 6h of deep_work) consider inserting one short "Recharge" break (kind="break", 10-15 min, type="routine") between deep blocks, with a reasoning like "Quick reset to keep your focus sharp."
 - Summary: short, e.g. "5 tasks · 3 focus blocks · Done by 5pm".
-- Subtext: one short sentence.${clarifiedHints}${patternHints}${behaviorHints}${calHints}`;
+- Subtext: one short sentence.${clarifiedHints}${patternHints}${behaviorHints}${memoryHints}${calHints}`;
 
     const tools = [{
       type: "function",

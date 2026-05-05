@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import { Play, Pause, Plus, Check, Trash2, ChevronLeft, ChevronRight, Download, ChevronDown, Lock, Pencil, X, Hourglass, Clock, SlidersHorizontal } from "lucide-react";
-import { useTimeTracker, fmtHMS, fmtHM, TimeCategory } from "@/hooks/useTimeTracker";
+import { useTimeTracker, useTimeTrackerElapsed, fmtHMS, fmtHM, TimeCategory } from "@/hooks/useTimeTracker";
 import { Sheet, SheetContent, SheetHeader, SheetTitle, SheetDescription } from "@/components/ui/sheet";
 import { Input } from "@/components/ui/input";
 import { supabase } from "@/integrations/supabase/client";
@@ -30,6 +30,7 @@ type Entry = {
 };
 
 type Tab = "today" | "week" | "month";
+const TABS: Tab[] = ["today", "week", "month"];
 
 const DAY_MS = 86_400_000;
 const startOfDay = (d: Date) => { const x = new Date(d); x.setHours(0,0,0,0); return x; };
@@ -51,7 +52,8 @@ function clipDuration(e: Entry, dayStart: number, dayEnd: number, now: number) {
  */
 function TrackerInner({ embedded = false, onClose }: { embedded?: boolean; onClose?: () => void }) {
   const { user } = useAuth();
-  const { active, elapsedSec, categories, start, stop, switchCategory, addCategory, deleteCategory, renameCategory, addManualEntry, todayTotalSec } = useTimeTracker();
+  const { active, categories, start, stop, switchCategory, addCategory, deleteCategory, renameCategory, addManualEntry, todayTotalSec } = useTimeTracker();
+  const elapsedSec = useTimeTrackerElapsed();
   const { isPro } = useEntitlement();
   const [upgradeOpen, setUpgradeOpen] = useState(false);
   const [newName, setNewName] = useState("");
@@ -74,6 +76,7 @@ function TrackerInner({ embedded = false, onClose }: { embedded?: boolean; onClo
     }
   });
   const [showAllCategories, setShowAllCategories] = useState(false);
+  const tabIndex = TABS.indexOf(tab);
 
   const activeCat = categories.find(c => c.id === active?.category_id);
   const catMap = useMemo(() => new Map(categories.map(c => [c.id, c])), [categories]);
@@ -431,12 +434,22 @@ function TrackerInner({ embedded = false, onClose }: { embedded?: boolean; onClo
 
           {/* Tabs */}
           {!simpleMode ? (
-            <div className="mt-5 inline-flex w-full rounded-[14px] bg-muted/80 p-1">
-              {(["today","week","month"] as Tab[]).map(t => (
+            <div className="mt-5 relative inline-flex w-full rounded-[14px] bg-muted/80 p-1 tracker-tabs-luxe">
+              <span
+                aria-hidden
+                className="pointer-events-none absolute top-1 bottom-1 rounded-[10px] tracker-tabs-indicator"
+                style={{
+                  left: `calc(${tabIndex * (100 / TABS.length)}% + 4px)`,
+                  width: `calc(${100 / TABS.length}% - 8px)`,
+                }}
+              />
+              {TABS.map(t => (
                 <button
                   key={t}
                   onClick={() => { setTab(t); setSelectedDay(null); }}
-                  className={`flex-1 px-3 py-1.5 rounded-lg text-xs font-medium capitalize pressable transition-colors ${tab === t ? "bg-background text-foreground shadow-sm" : "text-secondary-fg"}`}
+                  className={`relative z-[1] flex-1 px-3 py-1.5 rounded-lg text-xs font-medium capitalize pressable transition-colors ${
+                    tab === t ? "text-foreground" : "text-secondary-fg"
+                  }`}
                 >
                   {t}
                 </button>
@@ -462,7 +475,7 @@ function TrackerInner({ embedded = false, onClose }: { embedded?: boolean; onClo
             {/* Hero stopwatch — premium, centered */}
             <div className="px-5 pt-5">
               <div
-                className={`relative overflow-hidden rounded-[20px] border p-6 transition-all duration-500 backdrop-blur-sm ${
+                className={`relative overflow-hidden rounded-[20px] border p-6 transition-all duration-500 backdrop-blur-sm tracker-hero-luxe ${
                   active
                     ? "border-accent surface-card shadow-card"
                     : "border-soft surface-card"
@@ -485,7 +498,7 @@ function TrackerInner({ embedded = false, onClose }: { embedded?: boolean; onClo
                       </span>
                       <span className="text-[10px] font-semibold uppercase tracking-[0.18em] text-secondary-fg">Now tracking</span>
                     </div>
-                    <div className="font-display tabular-nums text-[44px] font-semibold leading-none tracking-tight">
+                    <div className="font-display tabular-nums text-[44px] font-semibold leading-none tracking-tight tracker-time-glow">
                       {fmtHMS(elapsedSec)}
                     </div>
                     <div className="text-[14px] font-medium text-subtle truncate max-w-full">
@@ -559,7 +572,7 @@ function TrackerInner({ embedded = false, onClose }: { embedded?: boolean; onClo
                 const periodSec = stat?.sec || 0;
                 return (
                   <SwipeRow key={c.id} disabled={c.is_default || isActive || editingCat === c.id} onDelete={() => setConfirmDeleteCat(c.id)}>
-                  <div className={`rounded-[16px] border transition-colors shadow-card ${isActive ? "border-accent surface-accent ring-2 ring-primary/12 ring-offset-2 ring-offset-background" : "border-soft surface-card"} overflow-hidden backdrop-blur-sm`}>
+                  <div className={`rounded-[16px] border transition-all duration-300 shadow-card tracker-category-luxe ${isActive ? "border-accent surface-accent ring-2 ring-primary/12 ring-offset-2 ring-offset-background" : "border-soft surface-card"} overflow-hidden backdrop-blur-sm`}>
                     <div className="flex items-center gap-2 px-3 py-2.5">
                       {editingCat === c.id ? (
                         <form

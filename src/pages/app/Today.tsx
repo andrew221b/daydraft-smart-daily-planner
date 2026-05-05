@@ -58,6 +58,7 @@ import { fetchPlanDashboard, planDashboardQueryKey } from "@/lib/planQueries";
 import { KpiCard } from "@/components/app/KpiCard";
 import { useCalmMode } from "@/lib/calmMode";
 import { EnergyState, RescueMode, readEnergyState, rescuePlanFromBlocks, writeEnergyState } from "@/lib/productPolish";
+import { isAiFlagEnabled, readAiWeeklyMemory, trackAiEvent } from "@/lib/aiRuntime";
 
 const DEFAULT_PLACEHOLDER =
   "Brain-dump your day…\nfinish deck · gym 45m · call mom 15m · ship invoice";
@@ -95,8 +96,9 @@ export default function Today() {
   const planSummary = planData?.planSummary ?? null;
   const [calmMode] = useCalmMode();
   const [energyState, setEnergyState] = useState<EnergyState>(() => readEnergyState());
-  const [rescueMode, setRescueMode] = useState<RescueMode>("stabilize");
+  const [rescueMode, setRescueMode] = useState<RescueMode>("balanced");
   const [rescueRationale, setRescueRationale] = useState<string>("");
+  const [rescueExplain, setRescueExplain] = useState<string[]>([]);
   const [tipDismissed, setTipDismissed] = useState<boolean>(() => {
     try {
       return localStorage.getItem(TODAY_TIP_DISMISSED_KEY) === "1";
@@ -111,6 +113,7 @@ export default function Today() {
   const [intentTick, setIntentTick] = useState(0);
   const weekIntention = useMemo(() => getWeekIntention(), [intentTick]);
   const hourNow = new Date().getHours();
+  const aiRescueEnabled = isAiFlagEnabled("aiRescueV2", user?.id);
   const openUpgrade = (reason: "quota" | "feature" | "trial-banner" | "momentum") => {
     setUpgradeReason(reason);
     setUpgradeOpen(true);
@@ -308,8 +311,14 @@ export default function Today() {
     }
     setInput(rescueInput);
     setRescueRationale(rescue.rationale);
+    setRescueExplain(rescue.explain);
     setComposerOpen(true);
     haptics.impact("light");
+    trackAiEvent("ai_rescue_opened", {
+      mode: rescueMode,
+      selected_count: rescue.selectedCount,
+      budget_min: rescue.budgetMin,
+    });
     toast.success(`Rescue ready · ${rescue.selectedCount} priorities · ${rescue.budgetMin}m window`);
   };
 
@@ -327,6 +336,8 @@ export default function Today() {
     }
     setInput(rescue.input);
     setRescueRationale(rescue.rationale);
+    setRescueExplain(rescue.explain);
+    trackAiEvent("ai_rescue_recalculated", { mode: rescueMode, selected_count: rescue.selectedCount });
     toast.success("Rescue recalculated");
   };
 
@@ -455,6 +466,7 @@ export default function Today() {
           ai_tone: (profile as any).ai_tone || "professional",
           ai_tone_custom: (profile as any).ai_tone_custom || null,
           behavior_signals: behaviorSignals,
+          ai_memory: readAiWeeklyMemory(),
         },
       });
       const elapsed = Date.now() - startedAt;
@@ -482,6 +494,12 @@ export default function Today() {
         throw new Error("No schedule was generated — try fewer tasks or simpler wording.");
       }
       await supabase.from("blocks").insert(blocks);
+      if (rescueRationale) {
+        trackAiEvent("ai_rescue_applied", {
+          mode: rescueMode,
+          blocks_generated: blocks.length,
+        });
+      }
       if (pendingCaptureIds.length) {
         try {
           await supabase.from("quick_captures").update({ consumed: true } as any)
@@ -623,20 +641,27 @@ export default function Today() {
             </div>
             {hourNow >= 18 && hasPlanForDate && (
               <div className="mt-3 space-y-2">
-                <div className="grid grid-cols-2 gap-2">
+                <div className="grid grid-cols-3 gap-2">
                   <button
                     type="button"
-                    onClick={() => setRescueMode("stabilize")}
-                    className={`h-9 rounded-lg border text-[11px] font-medium pressable ${rescueMode === "stabilize" ? "surface-accent border-accent text-primary" : "surface-soft border-soft text-secondary-fg"}`}
+                    onClick={() => setRescueMode("conservative")}
+                    className={`h-9 rounded-lg border text-[11px] font-medium pressable ${rescueMode === "conservative" ? "surface-accent border-accent text-primary" : "surface-soft border-soft text-secondary-fg"}`}
                   >
-                    Stabilize
+                    Conservative
                   </button>
                   <button
                     type="button"
-                    onClick={() => setRescueMode("push")}
-                    className={`h-9 rounded-lg border text-[11px] font-medium pressable ${rescueMode === "push" ? "surface-accent border-accent text-primary" : "surface-soft border-soft text-secondary-fg"}`}
+                    onClick={() => setRescueMode("balanced")}
+                    className={`h-9 rounded-lg border text-[11px] font-medium pressable ${rescueMode === "balanced" ? "surface-accent border-accent text-primary" : "surface-soft border-soft text-secondary-fg"}`}
                   >
-                    Push
+                    Balanced
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => setRescueMode("aggressive")}
+                    className={`h-9 rounded-lg border text-[11px] font-medium pressable ${rescueMode === "aggressive" ? "surface-accent border-accent text-primary" : "surface-soft border-soft text-secondary-fg"}`}
+                  >
+                    Aggressive
                   </button>
                 </div>
                 <button
@@ -645,12 +670,19 @@ export default function Today() {
                   className="w-full h-10 rounded-xl border border-soft surface-soft text-[12px] text-secondary-fg hover:text-foreground pressable inline-flex items-center justify-center gap-1.5"
                 >
                   <ShieldAlert className="h-3.5 w-3.5" />
-                  Rescue my day ({rescueMode})
+                  {toneCopy(tone, "rescue_cta")} ({rescueMode})
                 </button>
                 {rescueRationale && (
                   <p className="text-[11px] text-secondary-fg leading-relaxed px-1">
                     {rescueRationale}
                   </p>
+                )}
+                {aiRescueEnabled && rescueExplain.length > 0 && (
+                  <ul className="px-4 list-disc text-[11px] text-secondary-fg space-y-1">
+                    {rescueExplain.map((line, idx) => (
+                      <li key={idx}>{line}</li>
+                    ))}
+                  </ul>
                 )}
               </div>
             )}
@@ -889,6 +921,13 @@ export default function Today() {
               <p className="text-[12px] text-subtle leading-relaxed mt-1">
                 {rescueRationale}
               </p>
+              {aiRescueEnabled && rescueExplain.length > 0 && (
+                <ul className="mt-1.5 px-4 list-disc text-[11px] text-secondary-fg space-y-1">
+                  {rescueExplain.map((line, idx) => (
+                    <li key={idx}>{line}</li>
+                  ))}
+                </ul>
+              )}
             </div>
           )}
           <Textarea
@@ -947,7 +986,7 @@ export default function Today() {
           <div className="space-y-1">
             <MoreRow onClick={() => { setMoreOpen(false); reusePreviousPlan(); }} icon={<ListChecks className="h-4 w-4" />} label="Reuse previous plan tasks" />
             {hourNow >= 18 && hasPlanForDate && (
-              <MoreRow onClick={() => { setMoreOpen(false); rescueMyDay(); }} icon={<ShieldAlert className="h-4 w-4" />} label="Rescue my day" />
+              <MoreRow onClick={() => { setMoreOpen(false); rescueMyDay(); }} icon={<ShieldAlert className="h-4 w-4" />} label={toneCopy(tone, "rescue_cta")} />
             )}
             <MoreRow onClick={() => { setMoreOpen(false); saveAsTemplate(); }} icon={<Bookmark className="h-4 w-4" />} label="Save current as template" />
             {templates.length > 0 && (

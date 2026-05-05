@@ -1,7 +1,7 @@
 import { useEffect, useState } from "react";
 import { Sheet, SheetContent } from "@/components/ui/sheet";
 import { Button } from "@/components/ui/button";
-import { Check, Sparkles, Calendar, Brain, Music, Zap } from "lucide-react";
+import { Check, Sparkles, Calendar, Brain, Zap, Palette } from "lucide-react";
 import { startCheckout } from "@/hooks/useEntitlement";
 import { toast } from "sonner";
 import { supabase } from "@/integrations/supabase/client";
@@ -11,7 +11,7 @@ const benefits = [
   { icon: Calendar, label: "Google Calendar sync", sub: "Plan around your meetings" },
   { icon: Brain, label: "Compounding AI", sub: "Learns your patterns each week" },
   { icon: Zap, label: "Unlimited plans", sub: "No 5-per-week limit" },
-  { icon: Music, label: "Focus soundscapes", sub: "Rain, café, lofi & more" },
+  { icon: Palette, label: "Premium visual styles", sub: "Aurora, Obsidian, Neon + richer effects" },
 ];
 
 export type UpgradeReason = "quota" | "feature" | "trial-banner" | "momentum";
@@ -29,10 +29,10 @@ const reasonSub: Record<UpgradeReason, string> = {
   momentum: "You are building consistency. Pro keeps coaching and planning unlimited.",
 };
 const reasonOrder: Record<UpgradeReason, string[]> = {
-  quota: ["Unlimited plans", "Compounding AI", "Google Calendar sync", "Focus soundscapes"],
-  feature: ["Google Calendar sync", "Compounding AI", "Unlimited plans", "Focus soundscapes"],
-  "trial-banner": ["Compounding AI", "Google Calendar sync", "Unlimited plans", "Focus soundscapes"],
-  momentum: ["Compounding AI", "Unlimited plans", "Google Calendar sync", "Focus soundscapes"],
+  quota: ["Unlimited plans", "Compounding AI", "Google Calendar sync", "Premium visual styles"],
+  feature: ["Google Calendar sync", "Compounding AI", "Unlimited plans", "Premium visual styles"],
+  "trial-banner": ["Compounding AI", "Google Calendar sync", "Unlimited plans", "Premium visual styles"],
+  momentum: ["Compounding AI", "Unlimited plans", "Google Calendar sync", "Premium visual styles"],
 };
 const reasonCta: Record<UpgradeReason, string> = {
   quota: "Go unlimited this week",

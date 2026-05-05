@@ -17,7 +17,6 @@ export type TimeEntry = {
 type Ctx = {
   categories: TimeCategory[];
   active: TimeEntry | null;
-  elapsedSec: number;
   loading: boolean;
   start: (categoryId?: string, opts?: { source?: string; note?: string; blockId?: string }) => Promise<void>;
   stop: () => Promise<void>;
@@ -33,6 +32,7 @@ type Ctx = {
 };
 
 const TimeTrackerCtx = createContext<Ctx | null>(null);
+const TimeTrackerElapsedCtx = createContext(0);
 
 const PALETTE = ["#6366f1", "#ec4899", "#f59e0b", "#10b981", "#06b6d4", "#8b5cf6", "#ef4444"];
 
@@ -263,19 +263,27 @@ export function TimeTrackerProvider({ children }: { children: ReactNode }) {
   };
 
   const value: Ctx = useMemo(() => ({
-    categories, active, elapsedSec, loading,
+    categories, active, loading,
     start, stop, switchCategory, addCategory, deleteCategory, renameCategory,
     addManualEntry, deleteEntry,
     todayTotalSec, weekTotalSec, refresh,
-  }), [categories, active, elapsedSec, loading, todayTotalSec, weekTotalSec, refresh]);
+  }), [categories, active, loading, todayTotalSec, weekTotalSec, refresh]);
 
-  return <TimeTrackerCtx.Provider value={value}>{children}</TimeTrackerCtx.Provider>;
+  return (
+    <TimeTrackerElapsedCtx.Provider value={elapsedSec}>
+      <TimeTrackerCtx.Provider value={value}>{children}</TimeTrackerCtx.Provider>
+    </TimeTrackerElapsedCtx.Provider>
+  );
 }
 
 export function useTimeTracker() {
   const ctx = useContext(TimeTrackerCtx);
   if (!ctx) throw new Error("useTimeTracker must be used inside TimeTrackerProvider");
   return ctx;
+}
+
+export function useTimeTrackerElapsed() {
+  return useContext(TimeTrackerElapsedCtx);
 }
 
 export const fmtHMS = (s: number) => {
