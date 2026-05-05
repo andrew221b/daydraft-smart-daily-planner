@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { Shell } from "@/components/app/Shell";
 import { PageHeader } from "@/components/app/PageHeader";
 import { PullToRefresh } from "@/components/app/PullToRefresh";
@@ -10,7 +10,16 @@ import { CheckCircle2, Circle, CalendarDays, Timer as TimerIcon, Target } from "
 import { useTimeTracker, fmtHM } from "@/hooks/useTimeTracker";
 import { KpiCard } from "@/components/app/KpiCard";
 
-interface BlockLite { plan_id: string; kind: string; completed: boolean; title: string; is_calendar_event?: boolean | null; }
+interface BlockLite {
+  id: string;
+  plan_id: string;
+  kind: string;
+  completed: boolean;
+  title: string;
+  block_type?: "work" | "personal" | "rest" | string | null;
+  is_calendar_event?: boolean | null;
+  duration_min?: number | null;
+}
 interface PlanRow {
   id: string;
   date: string;
@@ -21,12 +30,14 @@ interface PlanRow {
   plannedDoneMin: number;
   trackedSec: number;
 }
+type WeeklyCategoryRow = { name: string; sec: number; type: "work" | "personal" | "rest" };
 
 export default function History() {
   const { user } = useAuth();
   const nav = useNavigate();
   const { weekTotalSec, todayTotalSec } = useTimeTracker();
   const [plans, setPlans] = useState<PlanRow[]>([]);
+  const [weekCategoryRows, setWeekCategoryRows] = useState<WeeklyCategoryRow[]>([]);
   const [loading, setLoading] = useState(true);
 
   const load = async () => {
@@ -47,12 +58,12 @@ export default function History() {
     const [{ data: blocks }, { data: entries }] = await Promise.all([
       supabase
         .from("blocks")
-        .select("plan_id,kind,completed,title,position,is_calendar_event,duration_min")
+        .select("id,plan_id,kind,completed,title,position,is_calendar_event,duration_min,block_type")
         .in("plan_id", ids)
         .order("position"),
       supabase
         .from("time_entries")
-        .select("started_at,ended_at")
+        .select("started_at,ended_at,block_id")
         .eq("user_id", user.id)
         .gte("started_at", since.toISOString()),
     ]);
@@ -75,9 +86,12 @@ export default function History() {
       }
     });
     const byPlan = new Map<string, BlockLite[]>();
+    const blockById = new Map<string, BlockLite>();
     (blocks || []).forEach((b: any) => {
       if (!byPlan.has(b.plan_id)) byPlan.set(b.plan_id, []);
-      byPlan.get(b.plan_id)!.push(b as BlockLite);
+      const row = b as BlockLite;
+      byPlan.get(b.plan_id)!.push(row);
+      blockById.set(row.id, row);
     });
     // Hide orphaned plans in UI only.
     // Read-path must never mutate user data from a client screen.
@@ -103,6 +117,37 @@ export default function History() {
           trackedSec: trackedByDate.get(p.date) || 0,
         };
       });
+    const since7 = new Date();
+    since7.setDate(since7.getDate() - 6);
+    since7.setHours(0, 0, 0, 0);
+    const weeklyByCategory = new Map<string, WeeklyCategoryRow>();
+    (entries || []).forEach((e: any) => {
+      const s = new Date(e.started_at).getTime();
+      const en = e.ended_at ? new Date(e.ended_at).getTime() : Date.now();
+      if (!Number.isFinite(s) || !Number.isFinite(en) || en <= s) return;
+      if (en < since7.getTime()) return;
+      const clippedStart = Math.max(s, since7.getTime());
+      const sec = Math.max(0, (en - clippedStart) / 1000);
+      if (!sec) return;
+      const b = e.block_id ? blockById.get(e.block_id) : null;
+      const name = (b?.title || "Other tracked").trim();
+      const type: "work" | "personal" | "rest" =
+        b?.block_type === "personal" || b?.block_type === "rest" || b?.block_type === "work"
+          ? b.block_type
+          : b?.kind === "break" || b?.kind === "lunch"
+            ? "rest"
+            : "work";
+      const cur = weeklyByCategory.get(name) || { name, sec: 0, type };
+      cur.sec += sec;
+      weeklyByCategory.set(name, cur);
+    });
+    const sortedWeekly = Array.from(weeklyByCategory.values()).sort((a, b) => b.sec - a.sec);
+    const top = sortedWeekly.slice(0, 5);
+    if (sortedWeekly.length > 5) {
+      const otherSec = sortedWeekly.slice(5).reduce((s, r) => s + r.sec, 0);
+      if (otherSec > 0) top.push({ name: "Other", sec: otherSec, type: "work" });
+    }
+    setWeekCategoryRows(top);
     setPlans(enriched);
     setLoading(false);
   };
@@ -127,6 +172,11 @@ export default function History() {
   const totalTasks = last7.reduce((s, p) => s + p.total, 0);
   const totalDone = last7.reduce((s, p) => s + p.done, 0);
   const completionPct = totalTasks ? Math.round((totalDone / totalTasks) * 100) : 0;
+  const weekMaxCategorySec = useMemo(() => Math.max(1, ...weekCategoryRows.map((r) => r.sec)), [weekCategoryRows]);
+  const mostTracked = weekCategoryRows[0] || null;
+  const leastTracked = weekCategoryRows.length ? [...weekCategoryRows].sort((a, b) => a.sec - b.sec)[0] : null;
+  const toneFor = (t: "work" | "personal" | "rest") =>
+    t === "work" ? "bg-cyan-400/90" : t === "personal" ? "bg-violet-400/90" : "bg-slate-400/85";
 
   return (
     <Shell>
@@ -165,6 +215,33 @@ export default function History() {
         </div>
 
         <div className="mt-10 eyebrow">Recent days</div>
+        {!loading && weekCategoryRows.length > 0 && (
+          <div className="mt-4 app-card p-4">
+            <div className="text-[11px] uppercase tracking-[0.12em] text-secondary-fg mb-3">Last 7 days by category</div>
+            <div className="space-y-2.5">
+              {weekCategoryRows.map((row) => (
+                <div key={row.name} className="flex items-center gap-2">
+                  <div className="w-24 truncate text-[12px] text-foreground">{row.name}</div>
+                  <div className="flex-1 h-2 rounded-full bg-muted overflow-hidden">
+                    <div
+                      className={`h-full rounded-full ${toneFor(row.type)} transition-all duration-500`}
+                      style={{ width: `${Math.max(8, (row.sec / weekMaxCategorySec) * 100)}%` }}
+                    />
+                  </div>
+                  <div className="w-14 text-right text-[11px] text-secondary-fg font-mono tabular-nums">
+                    {(row.sec / 3600).toFixed(1)}h
+                  </div>
+                </div>
+              ))}
+            </div>
+            <div className="mt-3 text-[11px] text-secondary-fg">
+              Most time: <span className="text-foreground font-medium">{mostTracked?.name || "—"}</span> · {(mostTracked ? mostTracked.sec / 3600 : 0).toFixed(1)}h
+            </div>
+            <div className="mt-1 text-[11px] text-secondary-fg">
+              Least tracked: <span className="text-foreground font-medium">{leastTracked?.name || "—"}</span>
+            </div>
+          </div>
+        )}
 
         {loading && (
           <div className="mt-3 space-y-2">

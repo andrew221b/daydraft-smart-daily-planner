@@ -372,6 +372,14 @@
   .tab-indicator-move-right.tab-indicator-liquid-trail { transform: scaleX(1.22) translateX(2px); opacity: 0.82; }
   .tab-indicator-move-left.tab-indicator-liquid-trail { transform: scaleX(1.22) translateX(-2px); opacity: 0.82; }
 
+  .tab-live-dot-pulse {
+    animation: tabLiveDotPulse 1.5s ease-in-out infinite;
+  }
+  @keyframes tabLiveDotPulse {
+    0%, 100% { opacity: 1; }
+    50% { opacity: 0.4; }
+  }
+
   .tracker-status-pill {
     position: relative;
     overflow: hidden;

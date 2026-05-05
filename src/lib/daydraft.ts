@@ -1,6 +1,7 @@
 export type EnergyPref = "morning" | "midday" | "night";
 export type BlockType = "deep_work" | "communication" | "routine";
 export type BlockKind = "task" | "break" | "lunch";
+export type ScheduleBlockType = "work" | "rest" | "personal";
 
 export interface Block {
   id: string;
@@ -8,9 +9,12 @@ export interface Block {
   user_id: string;
   start_time: string;
   duration_min: number;
+  estimated_minutes?: number;
+  actual_minutes?: number | null;
   title: string;
   type: BlockType;
   kind: BlockKind;
+  block_type?: ScheduleBlockType;
   completed: boolean;
   position: number;
   /** Synced calendar blocks are not user tasks — exclude from Focus / Next up. */
@@ -30,6 +34,20 @@ export const typeColor = (t: BlockType) =>
 
 export const typeLabel = (t: BlockType) =>
   t === "deep_work" ? "Deep Work" : t === "communication" ? "Communication" : "Routine";
+
+const personalErrandPattern =
+  /\b(grocery|groceries|shopping|errand|pickup|drop[\s-]?off|pharmacy|doctor|dentist|bank|post office|visit|appointment|kids?|school run|laundry)\b/i;
+
+export const inferScheduleBlockType = (b: {
+  block_type?: string | null;
+  kind?: string | null;
+  title?: string | null;
+}): ScheduleBlockType => {
+  if (b.block_type === "work" || b.block_type === "rest" || b.block_type === "personal") return b.block_type;
+  if (b.kind === "break" || b.kind === "lunch") return "rest";
+  if (personalErrandPattern.test(String(b.title || ""))) return "personal";
+  return "work";
+};
 
 export const fmtTime = (hhmm: string) => {
   const [h, m] = hhmm.split(":").map(Number);

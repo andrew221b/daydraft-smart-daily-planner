@@ -41,7 +41,7 @@ interface Props {
   open: boolean;
   onOpenChange: (v: boolean) => void;
   rawInput: string;
-  onConfirm: (tasks: ClarifiedTask[]) => void;
+  onConfirm: (tasks: ClarifiedTask[], planningContext?: string) => void;
   /** Date the plan is for, YYYY-MM-DD. Used to compute remaining hours. */
   planDate?: string;
 }
@@ -100,6 +100,8 @@ export function ClarifySheet({ open, onOpenChange, rawInput, onConfirm, planDate
   );
   const [tasks, setTasks] = useState<Row[]>(initial);
   const [showAdvanced, setShowAdvanced] = useState(false);
+  const [contextPromptOpen, setContextPromptOpen] = useState(false);
+  const [planningContext, setPlanningContext] = useState("");
   const [loadingAI, setLoadingAI] = useState(false);
   const [splitting, setSplitting] = useState(false);
   const sensors = useSensors(
@@ -111,6 +113,8 @@ export function ClarifySheet({ open, onOpenChange, rawInput, onConfirm, planDate
     if (!open) return;
     setTasks(initial);
     setShowAdvanced(false);
+    setContextPromptOpen(false);
+    setPlanningContext("");
     splitWithAI(rawInput, initial);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [open, rawInput]);
@@ -258,6 +262,39 @@ export function ClarifySheet({ open, onOpenChange, rawInput, onConfirm, planDate
     return out;
   }, [tasks, planDate, open]);
   const hasPastFixed = pastFixedIdxs.size > 0;
+  const normalizedTasks = () =>
+    tasks.flatMap((task) => {
+      const cleaned = {
+        title: task.title,
+        estimate_min: task.estimate_min,
+        priority: task.priority,
+        fixed_time: task.fixed_time,
+        notes: task.notes,
+        track_time: task.track_time,
+      };
+      const suggested = task.ai_split_into || [];
+      const shouldSplit = task.estimate_min > 90 || !!task.ai_should_split;
+      if (!shouldSplit) return [cleaned];
+      if (suggested.length > 1) {
+        return suggested.map((s, idx) => ({
+          ...cleaned,
+          title: s.title || cleaned.title,
+          estimate_min: Math.max(20, Math.min(90, s.estimate_min || Math.round(cleaned.estimate_min / suggested.length))),
+          fixed_time: idx === 0 ? cleaned.fixed_time : undefined,
+        }));
+      }
+      const first = Math.max(30, Math.min(90, Math.round(cleaned.estimate_min / 2 / 5) * 5));
+      const second = Math.max(20, cleaned.estimate_min - first);
+      return [
+        { ...cleaned, title: `${cleaned.title} · part 1`, estimate_min: first },
+        { ...cleaned, title: `${cleaned.title} · part 2`, estimate_min: second, fixed_time: undefined },
+      ];
+    });
+
+  const submitPlan = (context?: string) => {
+    const normalized = normalizedTasks();
+    onConfirm(normalized, context?.trim() || undefined);
+  };
 
   return (
     <Sheet open={open} onOpenChange={onOpenChange}>
@@ -328,42 +365,51 @@ export function ClarifySheet({ open, onOpenChange, rawInput, onConfirm, planDate
           >
             {showAdvanced ? "Hide advanced controls" : "Show advanced controls"}
           </button>
+          {contextPromptOpen && (
+            <div className="mb-3 rounded-xl border border-soft surface-soft px-3 py-2.5">
+              <p className="text-[12px] text-foreground leading-relaxed">
+                Anything weighing on you today? A deadline, a call, something you're dreading?
+              </p>
+              <Input
+                value={planningContext}
+                onChange={(e) => setPlanningContext(e.target.value)}
+                placeholder="Optional — share if helpful"
+                className="mt-2 h-10 bg-background border-soft"
+              />
+              <div className="mt-2 flex items-center justify-end gap-2">
+                <button
+                  type="button"
+                  className="h-8 px-3 rounded-lg text-[12px] text-secondary-fg hover:text-foreground pressable"
+                  onClick={() => submitPlan()}
+                >
+                  Skip
+                </button>
+                <Button
+                  className="h-8 px-3 rounded-lg text-[12px]"
+                  onClick={() => submitPlan(planningContext)}
+                >
+                  Continue
+                </Button>
+              </div>
+            </div>
+          )}
           <Button
             onClick={() => {
-              const normalized = tasks.flatMap((task) => {
-                const cleaned = {
-                  title: task.title,
-                  estimate_min: task.estimate_min,
-                  priority: task.priority,
-                  fixed_time: task.fixed_time,
-                  notes: task.notes,
-                  track_time: task.track_time,
-                };
-                const suggested = task.ai_split_into || [];
-                const shouldSplit = task.estimate_min > 90 || !!task.ai_should_split;
-                if (!shouldSplit) return [cleaned];
-                if (suggested.length > 1) {
-                  return suggested.map((s, idx) => ({
-                    ...cleaned,
-                    title: s.title || cleaned.title,
-                    estimate_min: Math.max(20, Math.min(90, s.estimate_min || Math.round(cleaned.estimate_min / suggested.length))),
-                    fixed_time: idx === 0 ? cleaned.fixed_time : undefined,
-                  }));
-                }
-                const first = Math.max(30, Math.min(90, Math.round(cleaned.estimate_min / 2 / 5) * 5));
-                const second = Math.max(20, cleaned.estimate_min - first);
-                return [
-                  { ...cleaned, title: `${cleaned.title} · part 1`, estimate_min: first },
-                  { ...cleaned, title: `${cleaned.title} · part 2`, estimate_min: second, fixed_time: undefined },
-                ];
-              });
-              onConfirm(normalized);
+              if (contextPromptOpen) {
+                submitPlan(planningContext);
+                return;
+              }
+              setContextPromptOpen(true);
             }}
             disabled={tasks.length === 0 || hasPastFixed}
             className="w-full h-12 rounded-[14px] bg-primary hover:bg-primary/92 text-primary-foreground text-[15px] font-medium pressable shadow-card"
            
           >
-            {hasPastFixed ? "Fix past times to continue" : <>Plan my day <Sparkles className="h-4 w-4 ml-1" /></>}
+            {hasPastFixed
+              ? "Fix past times to continue"
+              : contextPromptOpen
+                ? <>Build plan <Sparkles className="h-4 w-4 ml-1" /></>
+                : <>Next: optional context <Sparkles className="h-4 w-4 ml-1" /></>}
           </Button>
         </div>
       </SheetContent>

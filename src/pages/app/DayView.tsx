@@ -4,7 +4,7 @@ import { useNavigate, useSearchParams } from "react-router-dom";
 import { Shell } from "@/components/app/Shell";
 import { useAuth } from "@/hooks/useAuth";
 import { supabase } from "@/integrations/supabase/client";
-import { Block, fmtTime, todayDateStr, parseDateStr, friendlyDateFor, isFutureDateStr, isUserTask } from "@/lib/daydraft";
+import { Block, fmtTime, todayDateStr, parseDateStr, friendlyDateFor, isFutureDateStr, isUserTask, inferScheduleBlockType } from "@/lib/daydraft";
 import { ChevronLeft, Sparkles, Play, RefreshCw, Plus, Coffee, ChevronDown, CalendarDays, Trash2, Bell, BellOff, MoreHorizontal, Clock, Info, MapPin, Copy } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { DndContext, closestCenter, PointerSensor, TouchSensor, useSensor, useSensors, DragEndEvent } from "@dnd-kit/core";
@@ -35,9 +35,12 @@ import { PullToRefresh } from "@/components/app/PullToRefresh";
 import { formatPlanAsPlainText, copyTextToClipboard } from "@/lib/planTextExport";
 import { fetchDayPlan, planDashboardQueryKey, planDayQueryKey } from "@/lib/planQueries";
 import { useCalmMode } from "@/lib/calmMode";
+import { useEntitlement } from "@/hooks/useEntitlement";
+import { UpgradeSheet } from "@/components/app/UpgradeSheet";
 
 type ExBlock = Block & {
   ai_reasoning?: string | null;
+  block_type?: "work" | "rest" | "personal";
   location?: string | null;
   location_lat?: number | null;
   location_lng?: number | null;
@@ -81,7 +84,9 @@ export default function DayView() {
   const [reminderBlockId, setReminderBlockId] = useState<string | null>(null);
   const [reminderCfg, setReminderCfg] = useState<ReminderConfig>({ enabled: true, leadsMin: [2], repeats: 0 });
   const [durationEditId, setDurationEditId] = useState<string | null>(null);
+  const [upgradeOpen, setUpgradeOpen] = useState(false);
   const [calmMode] = useCalmMode();
+  const { isPro } = useEntitlement();
 
   const tomorrowDate = (() => {
     const d = parseDateStr(viewDate);
@@ -194,6 +199,9 @@ export default function DayView() {
               title: removed.title,
               type: removed.type,
               kind: removed.kind,
+              estimated_minutes: removed.estimated_minutes ?? removed.duration_min,
+              actual_minutes: removed.actual_minutes ?? null,
+              block_type: inferScheduleBlockType(removed),
               completed: removed.completed,
               position: removed.position,
               ai_reasoning: removed.ai_reasoning ?? null,
@@ -224,7 +232,13 @@ export default function DayView() {
     setBlocks(bs => bs.map(b => b.id === id ? { ...b, completed: !b.completed } : b));
     haptics.notify("success");
     try {
-      await supabase.from("blocks").update({ completed: !wasDone }).eq("id", id);
+      await supabase
+        .from("blocks")
+        .update({ completed: !wasDone, completed_at: !wasDone ? new Date().toISOString() : null })
+        .eq("id", id);
+      if (!wasDone) {
+        try { localStorage.setItem(`dd_last_plan_progress_${viewDate}`, new Date().toISOString()); } catch {/* ignore */}
+      }
       await invalidatePlanCaches();
       toast.success(wasDone ? "Reopened" : "Done", {
         description: firstUserTaskDoneToday ? firstTaskCompleteMessage(viewDate) : undefined,
@@ -232,7 +246,10 @@ export default function DayView() {
           label: "Undo",
           onClick: async () => {
             setBlocks(snapshot);
-            await supabase.from("blocks").update({ completed: !!wasDone }).eq("id", id);
+            await supabase
+              .from("blocks")
+              .update({ completed: !!wasDone, completed_at: !!wasDone ? new Date().toISOString() : null })
+              .eq("id", id);
             await invalidatePlanCaches();
           },
         },
@@ -259,9 +276,12 @@ export default function DayView() {
       user_id: user.id,
       start_time: `${String(Math.floor(startMin / 60)).padStart(2, "0")}:${String(startMin % 60).padStart(2, "0")}`,
       duration_min: newDuration,
+      estimated_minutes: newDuration,
+      actual_minutes: null,
       title: newKind === "break" ? (newTitle.trim() || "Break") : newTitle.trim(),
       type: newKind === "break" ? "routine" : "deep_work",
       kind: newKind,
+      block_type: newKind === "break" ? "rest" : inferScheduleBlockType({ kind: newKind, title: newTitle.trim() }),
       completed: false,
       position: insertAt,
     };
@@ -279,6 +299,9 @@ export default function DayView() {
       title: item.title,
       type: item.type,
       kind: item.kind,
+      estimated_minutes: item.estimated_minutes ?? item.duration_min,
+      actual_minutes: item.actual_minutes ?? null,
+      block_type: inferScheduleBlockType(item),
       position: item.position,
     });
     await persistOrder(next);
@@ -333,6 +356,9 @@ export default function DayView() {
         },
       });
       if (error) throw error;
+      if (data?.code === "INCOMPLETE_TASKS_NEED_CLARIFICATION") {
+        throw new Error(data.error || "Please clarify incomplete tasks before re-planning.");
+      }
       if (data?.error) throw new Error(data.error);
       const toRemoveIds = blocks
         .filter((b) => {
@@ -350,7 +376,9 @@ export default function DayView() {
       const newBlocks = (data.blocks || []).map((b: any, i: number) => ({
         plan_id: plan.id, user_id: user.id,
         start_time: b.start_time, duration_min: b.duration_min, title: b.title,
-        type: b.type, kind: b.kind, position: startPos + i,
+        type: b.type, kind: b.kind, block_type: inferScheduleBlockType(b), position: startPos + i,
+        estimated_minutes: b.estimated_minutes ?? b.duration_min,
+        actual_minutes: b.actual_minutes ?? null,
         ai_reasoning: b.reasoning ?? null,
         location: b.location ?? null,
         location_lat: b.location_lat ?? null,
@@ -580,6 +608,22 @@ export default function DayView() {
                   label="Change duration"
                 />
               )}
+              {!tappedBlock.is_calendar_event && tappedBlock.kind === "task" && !tappedBlock.completed && (
+                <ActionRow
+                  onClick={() => {
+                    if (!isPro) {
+                      setTappedBlock(null);
+                      setUpgradeOpen(true);
+                      return;
+                    }
+                    const id = tappedBlock.id;
+                    setTappedBlock(null);
+                    nav(`/focus/${id}?mode=one`);
+                  }}
+                  icon={<Target className="h-4 w-4" />}
+                  label="One thing mode · Pro"
+                />
+              )}
               {!calmMode && !tappedBlock.is_calendar_event && isToday && (
                 <ActionRow
                   onClick={() => openReminders(tappedBlock.id)}
@@ -777,6 +821,7 @@ export default function DayView() {
           })()}
         </SheetContent>
       </Sheet>
+      <UpgradeSheet open={upgradeOpen} onOpenChange={setUpgradeOpen} reason="feature" />
 
       <DurationPicker
         open={!!durationEditId}

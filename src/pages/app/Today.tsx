@@ -17,6 +17,7 @@ import {
   Block,
   typeColor,
   isUserTask,
+  inferScheduleBlockType,
 } from "@/lib/daydraft";
 import { getTone, t as toneCopy, greetingFor } from "@/lib/tone";
 import {
@@ -35,6 +36,8 @@ import {
   Zap,
   ShieldAlert,
   Info,
+  ChevronDown,
+  ChevronUp,
 } from "lucide-react";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
 import { Calendar } from "@/components/ui/calendar";
@@ -57,12 +60,13 @@ import { readComposerDraft, writeComposerDraft, clearComposerDraft } from "@/lib
 import { fetchPlanDashboard, planDashboardQueryKey } from "@/lib/planQueries";
 import { KpiCard } from "@/components/app/KpiCard";
 import { useCalmMode } from "@/lib/calmMode";
-import { EnergyState, RescueMode, readEnergyState, rescuePlanFromBlocks, writeEnergyState } from "@/lib/productPolish";
+import { EnergyState, RescueMode, readEnergyState, writeEnergyState } from "@/lib/productPolish";
 import { isAiFlagEnabled, readAiWeeklyMemory, trackAiEvent } from "@/lib/aiRuntime";
 
 const DEFAULT_PLACEHOLDER =
   "Brain-dump your day…\nfinish deck · gym 45m · call mom 15m · ship invoice";
 const TODAY_TIP_DISMISSED_KEY = "dd_today_tip_dismissed";
+const DEBRIEF_DISMISSED_PREFIX = "dd_yesterday_debrief_dismissed_";
 
 export default function Today() {
   const { profile } = useProfile();
@@ -99,6 +103,22 @@ export default function Today() {
   const [rescueMode, setRescueMode] = useState<RescueMode>("balanced");
   const [rescueRationale, setRescueRationale] = useState<string>("");
   const [rescueExplain, setRescueExplain] = useState<string[]>([]);
+  const [energySheetOpen, setEnergySheetOpen] = useState(false);
+  const [energyPreviewLoading, setEnergyPreviewLoading] = useState(false);
+  const [energyPendingState, setEnergyPendingState] = useState<EnergyState | null>(null);
+  const [energyPendingBlocks, setEnergyPendingBlocks] = useState<any[]>([]);
+  const [energyDiffRows, setEnergyDiffRows] = useState<Array<{ title: string; before: string; after: string }>>([]);
+  const [rescueSheetOpen, setRescueSheetOpen] = useState(false);
+  const [rescueLoading, setRescueLoading] = useState(false);
+  const [rescuePendingBlocks, setRescuePendingBlocks] = useState<any[]>([]);
+  const [rescueDiffRows, setRescueDiffRows] = useState<Array<{ title: string; before: string; after: string }>>([]);
+  const [rescueDeferredRows, setRescueDeferredRows] = useState<Array<{ title: string; mins: number }>>([]);
+  const [rescueWindowLabel, setRescueWindowLabel] = useState("");
+  const [debriefOpen, setDebriefOpen] = useState(false);
+  const [debriefExpanded, setDebriefExpanded] = useState(false);
+  const [debriefTitle, setDebriefTitle] = useState("Yesterday's debrief");
+  const [debriefBullets, setDebriefBullets] = useState<string[]>([]);
+  const debriefSwipeStartX = useRef(0);
   const [tipDismissed, setTipDismissed] = useState<boolean>(() => {
     try {
       return localStorage.getItem(TODAY_TIP_DISMISSED_KEY) === "1";
@@ -112,11 +132,28 @@ export default function Today() {
   });
   const [intentTick, setIntentTick] = useState(0);
   const weekIntention = useMemo(() => getWeekIntention(), [intentTick]);
-  const hourNow = new Date().getHours();
+  const toMin = (hhmm: string) => {
+    const [h, m] = String(hhmm || "").split(":").map(Number);
+    return (Number.isFinite(h) ? h : 0) * 60 + (Number.isFinite(m) ? m : 0);
+  };
   const aiRescueEnabled = isAiFlagEnabled("aiRescueV2", user?.id);
   const openUpgrade = (reason: "quota" | "feature" | "trial-banner" | "momentum") => {
     setUpgradeReason(reason);
     setUpgradeOpen(true);
+  };
+  const openEnergyAdjust = () => {
+    if (!isPro) {
+      openUpgrade("feature");
+      return;
+    }
+    if (!hasPlanForDate || !planBlocks.length) {
+      toast("Generate today’s plan first.");
+      return;
+    }
+    setEnergyPendingState(null);
+    setEnergyPendingBlocks([]);
+    setEnergyDiffRows([]);
+    setEnergySheetOpen(true);
   };
 
   useEffect(() => {
@@ -143,6 +180,40 @@ export default function Today() {
     window.addEventListener("dd-week-intent", h);
     return () => window.removeEventListener("dd-week-intent", h);
   }, []);
+  useEffect(() => {
+    if (!user || !profile || planDate !== todayDateStr() || !isPro) {
+      setDebriefOpen(false);
+      return;
+    }
+    let cancelled = false;
+    (async () => {
+      const dismissKey = `${DEBRIEF_DISMISSED_PREFIX}${todayDateStr()}`;
+      try {
+        if (localStorage.getItem(dismissKey) === "1") return;
+      } catch {
+        // ignore
+      }
+      try {
+        const { data, error } = await supabase.functions.invoke("yesterday-debrief", {
+          body: {
+            timezone: profile.timezone || Intl.DateTimeFormat().resolvedOptions().timeZone,
+            now_iso: new Date().toISOString(),
+          },
+        });
+        if (cancelled || error || !data?.show) return;
+        const bullets = Array.isArray(data?.bullets) ? data.bullets.map((x: any) => String(x || "").trim()).filter(Boolean).slice(0, 3) : [];
+        if (!bullets.length) return;
+        setDebriefTitle(String(data?.title || "Yesterday's debrief"));
+        setDebriefBullets(bullets);
+        setDebriefOpen(true);
+      } catch {
+        // non-fatal
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [isPro, planDate, profile, user]);
 
   const qsDate = searchParams.get("date");
   useEffect(() => {
@@ -296,49 +367,227 @@ export default function Today() {
     if (!loaded) toast("No reusable tasks found in previous plans");
   };
 
-  const rescueMyDay = () => {
-    if (!hasPlanForDate || !planBlocks.length) return;
-    const rescue = rescuePlanFromBlocks(planBlocks as Block[], {
-      nowHHMM: nowHM,
-      activeHoursEnd: (profile as any)?.active_hours_end || "22:00",
-      energyState,
-      mode: rescueMode,
-    });
-    const rescueInput = rescue.input;
-    if (!rescueInput.trim()) {
-      toast("No rescue needed. Your plan is already clear.");
+  const rescueMyDay = async (manual = true) => {
+    if (!user || !profile || !hasPlanForDate || !planBlocks.length) return;
+    const activeEnd = (profile as any)?.active_hours_end || "18:00";
+    const nowMin = toMin(nowHM);
+    const endMin = Math.max(nowMin + 30, toMin(activeEnd));
+    const remaining = (planBlocks as Block[]).filter((b) => isUserTask(b) && !b.completed);
+    if (!remaining.length) {
+      toast("No remaining tasks to rescue.");
       return;
     }
-    setInput(rescueInput);
-    setRescueRationale(rescue.rationale);
-    setRescueExplain(rescue.explain);
-    setComposerOpen(true);
+    const occupiedMin = (planBlocks as Block[])
+      .filter((b) => !b.completed && (b.is_calendar_event || b.kind === "lunch" || b.kind === "break"))
+      .filter((b) => {
+        const start = toMin(b.start_time);
+        const end = start + (b.duration_min || 0);
+        return end > nowMin && start < endMin;
+      })
+      .reduce((sum, b) => {
+        const start = toMin(b.start_time);
+        const end = start + (b.duration_min || 0);
+        return sum + Math.max(0, Math.min(end, endMin) - Math.max(start, nowMin));
+      }, 0);
+    const budgetMin = Math.max(30, endMin - nowMin - occupiedMin);
+    const scored = remaining
+      .map((b) => {
+        const base = b.type === "deep_work" ? 24 : b.type === "communication" ? 15 : 12;
+        const overdueBoost = toMin(b.start_time) + (b.duration_min || 0) < nowMin ? 4 : 0;
+        const sizePenalty = Math.max(0, (b.duration_min || 0) - 75) * 0.08;
+        return { ...b, score: base + overdueBoost - sizePenalty };
+      })
+      .sort((a, b) => b.score - a.score);
+    const selected: Array<{ id: string; title: string; mins: number }> = [];
+    let used = 0;
+    for (const task of scored) {
+      const mins = Math.max(20, Math.min(90, task.duration_min || 30));
+      if (used + mins > budgetMin && selected.length > 0) continue;
+      selected.push({ id: task.id, title: task.title, mins });
+      used += mins;
+      if (used >= budgetMin || selected.length >= 4) break;
+    }
+    if (!selected.length) {
+      toast("No rescue needed. Your plan is already realistic.");
+      return;
+    }
+    const selectedIds = new Set(selected.map((s) => s.id));
+    const deferred = remaining
+      .filter((b) => !selectedIds.has(b.id))
+      .map((b) => ({ title: b.title, mins: b.duration_min || 0 }));
+
+    setRescueSheetOpen(true);
+    setRescueLoading(true);
+    setRescueWindowLabel(`${budgetMin}m left before ${activeEnd}`);
+    setRescueDeferredRows(deferred);
     haptics.impact("light");
-    trackAiEvent("ai_rescue_opened", {
-      mode: rescueMode,
-      selected_count: rescue.selectedCount,
-      budget_min: rescue.budgetMin,
-    });
-    toast.success(`Rescue ready · ${rescue.selectedCount} priorities · ${rescue.budgetMin}m window`);
+    try {
+      const raw_input = selected.map((b) => `${b.title} (${b.mins}m)`).join("\n");
+      const { data, error } = await supabase.functions.invoke("generate-plan", {
+        body: {
+          raw_input,
+          planning_context:
+            `Rescue mode: build a minimal aggressive plan from ${nowHM} to ${activeEnd}. ` +
+            `Keep only highest-priority work that fits today and defer the rest.`,
+          energy_preference: profile.energy_preference,
+          energy_state: energyState,
+          name: profile.display_name,
+          mode: "replan",
+          start_time: nowHM,
+          plan_date: planDate,
+          now_iso: new Date().toISOString(),
+          timezone: profile.timezone || Intl.DateTimeFormat().resolvedOptions().timeZone,
+          active_hours_start: (profile as any).active_hours_start || "09:00",
+          active_hours_end: activeEnd,
+          ai_tone: (profile as any).ai_tone || "professional",
+          ai_tone_custom: (profile as any).ai_tone_custom || null,
+        },
+      });
+      if (error) throw error;
+      if (data?.error) throw new Error(data.error);
+      const nextBlocks = (data?.blocks || []) as any[];
+      const nextTasks = nextBlocks.filter((b: any) => b?.kind === "task");
+      const oldRows = remaining.map((b) => ({ title: b.title, before: b.start_time }));
+      const usedIdx = new Set<number>();
+      const diff = oldRows.map((row) => {
+        const exact = nextTasks.findIndex((n: any, i: number) => !usedIdx.has(i) && String(n.title || "").trim().toLowerCase() === row.title.trim().toLowerCase());
+        const pick = exact >= 0 ? exact : nextTasks.findIndex((_: any, i: number) => !usedIdx.has(i));
+        if (pick >= 0) usedIdx.add(pick);
+        const after = pick >= 0 ? String(nextTasks[pick]?.start_time || row.before) : "Deferred";
+        return { title: row.title, before: row.before, after };
+      }).filter((r) => r.before !== r.after).slice(0, 10);
+      setRescuePendingBlocks(nextBlocks);
+      setRescueDiffRows(diff);
+      setRescueRationale(`Rescue window: ${budgetMin}m before ${activeEnd}.`);
+      setRescueExplain([
+        `${selected.length} highest-priority tasks kept for today.`,
+        `${deferred.length} lower-priority task${deferred.length === 1 ? "" : "s"} moved to deferred.`,
+      ]);
+      trackAiEvent("ai_rescue_opened", {
+        mode: rescueMode,
+        selected_count: selected.length,
+        budget_min: budgetMin,
+        manual,
+        overdue_count: overdueCount,
+      });
+    } catch (e: any) {
+      setRescueSheetOpen(false);
+      toast.error(e?.message || "Unable to build rescue plan.");
+    } finally {
+      setRescueLoading(false);
+    }
   };
 
   const recalculateRescue = () => {
-    if (!hasPlanForDate || !planBlocks.length) return;
-    const rescue = rescuePlanFromBlocks(planBlocks as Block[], {
-      nowHHMM: nowHM,
-      activeHoursEnd: (profile as any)?.active_hours_end || "22:00",
-      energyState,
-      mode: rescueMode,
-    });
-    if (!rescue.input.trim()) {
-      toast("No rescue suggestions available right now.");
+    void rescueMyDay(true);
+    trackAiEvent("ai_rescue_recalculated", { mode: rescueMode });
+  };
+
+  const previewEnergyRerank = async (nextEnergy: EnergyState) => {
+    if (!user || !profile || !hasPlanForDate) return;
+    const remaining = (planBlocks as Block[]).filter((b) => isUserTask(b) && !b.completed);
+    if (!remaining.length) {
+      toast("No remaining tasks to re-rank.");
       return;
     }
-    setInput(rescue.input);
-    setRescueRationale(rescue.rationale);
-    setRescueExplain(rescue.explain);
-    trackAiEvent("ai_rescue_recalculated", { mode: rescueMode, selected_count: rescue.selectedCount });
-    toast.success("Rescue recalculated");
+    setEnergyPreviewLoading(true);
+    try {
+      const raw_input = remaining.map((b) => `${b.title} (${b.duration_min}m)`).join("\n");
+      const { data, error } = await supabase.functions.invoke("generate-plan", {
+        body: {
+          raw_input,
+          energy_preference: profile.energy_preference,
+          energy_state: nextEnergy,
+          name: profile.display_name,
+          mode: "replan",
+          start_time: nowHM,
+          plan_date: planDate,
+          now_iso: new Date().toISOString(),
+          timezone: profile.timezone || Intl.DateTimeFormat().resolvedOptions().timeZone,
+          active_hours_start: (profile as any).active_hours_start || "09:00",
+          active_hours_end: (profile as any).active_hours_end || "22:00",
+          ai_tone: (profile as any).ai_tone || "professional",
+          ai_tone_custom: (profile as any).ai_tone_custom || null,
+        },
+      });
+      if (error) throw error;
+      if (data?.error) throw new Error(data.error);
+      const nextBlocks = (data?.blocks || []).filter((b: any) => b?.kind === "task");
+      const oldRows = remaining.map((b) => ({ title: b.title, before: b.start_time }));
+      const used = new Set<number>();
+      const diff = oldRows.map((row, idx) => {
+        const exact = nextBlocks.findIndex((n: any, i: number) => !used.has(i) && String(n.title || "").trim().toLowerCase() === row.title.trim().toLowerCase());
+        const pick = exact >= 0 ? exact : nextBlocks.findIndex((_: any, i: number) => !used.has(i));
+        if (pick >= 0) used.add(pick);
+        const after = pick >= 0 ? String(nextBlocks[pick]?.start_time || row.before) : row.before;
+        return { title: row.title, before: row.before, after };
+      }).filter((r) => r.before !== r.after).slice(0, 8);
+      setEnergyPendingState(nextEnergy);
+      setEnergyPendingBlocks(data?.blocks || []);
+      setEnergyDiffRows(diff);
+      setEnergyState(nextEnergy);
+      trackAiEvent("ai_energy_rerank_previewed", { energy_state: nextEnergy, changed_count: diff.length });
+    } catch (e: any) {
+      toast.error(e?.message || "Unable to re-rank right now.");
+    } finally {
+      setEnergyPreviewLoading(false);
+    }
+  };
+
+  const applyEnergyRerank = async () => {
+    if (!user || !energyPendingBlocks.length) return;
+    try {
+      const { data: planRow, error: planErr } = await supabase
+        .from("plans")
+        .select("id")
+        .eq("user_id", user.id)
+        .eq("date", planDate)
+        .maybeSingle();
+      if (planErr || !planRow?.id) throw new Error("Plan not found.");
+      const { data: current } = await supabase
+        .from("blocks")
+        .select("*")
+        .eq("plan_id", planRow.id)
+        .order("position");
+      const currentBlocks = (current || []) as any[];
+      const toRemoveIds = currentBlocks
+        .filter((b) => {
+          if (b.is_calendar_event) return false;
+          if (isUserTask(b) && !b.completed) return true;
+          if ((b.kind === "break" || b.kind === "lunch") && !b.completed) return true;
+          return false;
+        })
+        .map((b) => b.id);
+      const keep = currentBlocks.filter((b) => !toRemoveIds.includes(b.id));
+      if (toRemoveIds.length) await supabase.from("blocks").delete().in("id", toRemoveIds);
+      const startPos = keep.length;
+      const inserts = energyPendingBlocks.map((b: any, i: number) => ({
+        plan_id: planRow.id,
+        user_id: user.id,
+        start_time: b.start_time,
+        duration_min: b.duration_min,
+        estimated_minutes: b.estimated_minutes ?? b.duration_min,
+        actual_minutes: null,
+        title: b.title,
+        type: b.type,
+        kind: b.kind,
+        block_type: inferScheduleBlockType(b),
+        position: startPos + i,
+        ai_reasoning: b.reasoning ?? null,
+        location: b.location ?? null,
+        location_lat: b.location_lat ?? null,
+        location_lng: b.location_lng ?? null,
+      }));
+      if (inserts.length) await supabase.from("blocks").insert(inserts);
+      await queryClient.invalidateQueries({ queryKey: planDashboardQueryKey(user.id, planDate) });
+      setEnergySheetOpen(false);
+      setEnergyPendingBlocks([]);
+      setEnergyDiffRows([]);
+      trackAiEvent("ai_energy_rerank_applied", { energy_state: energyPendingState || energyState });
+      toast.success("Plan adjusted for your current energy.");
+    } catch (e: any) {
+      toast.error(e?.message || "Unable to apply changes.");
+    }
   };
 
   const saveAsTemplate = async () => {
@@ -388,7 +637,7 @@ export default function Today() {
     setClarifyOpen(true);
   };
 
-  const plan = async (clarified: ClarifiedTask[]) => {
+  const plan = async (clarified: ClarifiedTask[], planningContext?: string) => {
     if (!user || !profile) return;
     haptics.impact("medium");
     setClarifyOpen(false);
@@ -457,6 +706,7 @@ export default function Today() {
           energy_state: energyState,
           name: profile.display_name,
           clarified_tasks: clarified,
+          planning_context: planningContext?.trim() || null,
           plan_date: planDate,
           now_iso: new Date().toISOString(),
           timezone: profile.timezone || Intl.DateTimeFormat().resolvedOptions().timeZone,
@@ -472,6 +722,13 @@ export default function Today() {
       const elapsed = Date.now() - startedAt;
       if (elapsed < 500) await new Promise((r) => setTimeout(r, 500 - elapsed));
       if (error) throw error;
+      if (data?.code === "INCOMPLETE_TASKS_NEED_CLARIFICATION") {
+        if (typeof data?.suggested_raw_input === "string" && data.suggested_raw_input.trim()) {
+          setInput(data.suggested_raw_input);
+        }
+        setComposerOpen(true);
+        throw new Error(data.error || "Please clarify incomplete tasks before generating a plan.");
+      }
       if (data?.error) throw new Error(data.error);
 
       const { data: planRow, error: planErr } = await supabase.from("plans").upsert({
@@ -484,6 +741,9 @@ export default function Today() {
         plan_id: planRow.id, user_id: user.id,
         start_time: b.start_time, duration_min: b.duration_min, title: b.title,
         type: b.type, kind: b.kind, position: i,
+        estimated_minutes: b.duration_min,
+        actual_minutes: null,
+        block_type: inferScheduleBlockType(b),
         ai_reasoning: b.reasoning ?? null,
         location: b.location ?? null,
         location_lat: b.location_lat ?? null,
@@ -536,8 +796,28 @@ export default function Today() {
     const totalMin = tasks.reduce((s, b) => s + b.duration_min, 0);
     return { tasks, done, total: tasks.length, hours: Math.round(totalMin / 6) / 10 };
   }, [planBlocks]);
+  const remainingMin = useMemo(
+    () => planStats.tasks.filter((b) => !b.completed).reduce((s, b) => s + (b.duration_min || 0), 0),
+    [planStats.tasks],
+  );
+  const progressPct = planStats.total > 0 ? Math.round((planStats.done / planStats.total) * 100) : 0;
+  const remainingLabel = useMemo(() => {
+    const h = Math.floor(remainingMin / 60);
+    const m = remainingMin % 60;
+    return `${h}h ${m}m`;
+  }, [remainingMin]);
 
   const isToday = planDate === todayDateStr();
+  const overdueCount = useMemo(() => {
+    if (!isToday || !hasPlanForDate) return 0;
+    const nowMin = toMin(nowHM);
+    return (planBlocks as Block[]).filter((b) => {
+      if (!isUserTask(b) || b.completed) return false;
+      const end = toMin(b.start_time) + (b.duration_min || 0);
+      return end < nowMin;
+    }).length;
+  }, [hasPlanForDate, isToday, nowHM, planBlocks]);
+  const isRunningBehind = overdueCount >= 2;
   const dayShapeLine = useMemo(() => {
     if (!hasPlanForDate || !isToday || planBlocks.length === 0) return null;
     return dayShapeHint(planBlocks);
@@ -573,6 +853,17 @@ export default function Today() {
               ) : null}
             </div>
             <div className="flex shrink-0 items-start gap-1.5">
+              {!calmMode && isToday && hasPlanForDate && (
+                <button
+                  type="button"
+                  onClick={openEnergyAdjust}
+                  className="h-9 w-9 rounded-full border border-soft surface-soft text-secondary-fg hover:text-foreground pressable inline-flex items-center justify-center"
+                  aria-label="Adjust energy and re-rank"
+                  title="Adjust energy and re-rank"
+                >
+                  <Zap className="h-4 w-4" />
+                </button>
+              )}
               <ProBadge />
             </div>
           </div>
@@ -581,6 +872,73 @@ export default function Today() {
             {hasPlanForDate ? "Plan ready" : "No plan yet"} · {isToday ? "Today" : friendlyDateFor(parseDateStr(planDate))}
           </div>
         </div>
+        {isPro && debriefOpen && (
+          <div
+            className="mt-3 app-card p-3.5"
+            onTouchStart={(e) => {
+              debriefSwipeStartX.current = e.changedTouches[0]?.clientX || 0;
+            }}
+            onTouchEnd={(e) => {
+              const endX = e.changedTouches[0]?.clientX || 0;
+              if (Math.abs(endX - debriefSwipeStartX.current) < 72) return;
+              setDebriefOpen(false);
+              try {
+                localStorage.setItem(`${DEBRIEF_DISMISSED_PREFIX}${todayDateStr()}`, "1");
+              } catch {
+                // ignore
+              }
+            }}
+          >
+            <div className="flex items-center justify-between gap-2">
+              <button
+                type="button"
+                className="flex-1 text-left inline-flex items-center gap-2 text-[13px] font-medium text-foreground"
+                onClick={() => setDebriefExpanded((v) => !v)}
+              >
+                {debriefExpanded ? <ChevronUp className="h-4 w-4 text-secondary-fg" /> : <ChevronDown className="h-4 w-4 text-secondary-fg" />}
+                {debriefTitle}
+              </button>
+              <button
+                type="button"
+                className="text-[11px] text-secondary-fg hover:text-foreground"
+                onClick={() => {
+                  setDebriefOpen(false);
+                  try {
+                    localStorage.setItem(`${DEBRIEF_DISMISSED_PREFIX}${todayDateStr()}`, "1");
+                  } catch {
+                    // ignore
+                  }
+                }}
+              >
+                Dismiss
+              </button>
+            </div>
+            {debriefExpanded && (
+              <ul className="mt-2.5 px-4 list-disc text-[12px] text-secondary-fg space-y-1.5">
+                {debriefBullets.map((line, idx) => (
+                  <li key={`${line}-${idx}`}>{line}</li>
+                ))}
+              </ul>
+            )}
+          </div>
+        )}
+        {isToday && hasPlanForDate && planStats.total > 0 && (
+          <div className="mt-3 px-1">
+            <div className="flex items-center justify-between text-[11px] text-secondary-fg">
+              <span>{planStats.done} / {planStats.total} done · {remainingLabel} remaining</span>
+              <span className="tabular-nums">{progressPct}%</span>
+            </div>
+            <div className="mt-1.5 h-1.5 rounded-full bg-muted/70 overflow-hidden">
+              <div
+                className="h-full rounded-full bg-primary/90"
+                style={{
+                  width: `${progressPct}%`,
+                  transition: "width 420ms cubic-bezier(0.22, 1, 0.36, 1)",
+                }}
+              />
+            </div>
+          </div>
+        )}
 
         {profile?.onboarded && !hasPlanForDate && planDate === todayDateStr() && !tipDismissed && (
           <div className="mt-5">
@@ -639,7 +997,7 @@ export default function Today() {
                 </button>
               ))}
             </div>
-            {hourNow >= 18 && hasPlanForDate && (
+            {hasPlanForDate && (
               <div className="mt-3 space-y-2">
                 <div className="grid grid-cols-3 gap-2">
                   <button
@@ -666,11 +1024,11 @@ export default function Today() {
                 </div>
                 <button
                   type="button"
-                  onClick={rescueMyDay}
+                  onClick={() => void rescueMyDay(true)}
                   className="w-full h-10 rounded-xl border border-soft surface-soft text-[12px] text-secondary-fg hover:text-foreground pressable inline-flex items-center justify-center gap-1.5"
                 >
                   <ShieldAlert className="h-3.5 w-3.5" />
-                  {toneCopy(tone, "rescue_cta")} ({rescueMode})
+                  Rescue my day ↗
                 </button>
                 {rescueRationale && (
                   <p className="text-[11px] text-secondary-fg leading-relaxed px-1">
@@ -731,6 +1089,17 @@ export default function Today() {
                 nowHHMM={nowHM}
                 onOpenPlan={() => nav("/today/plan")}
               />
+            )}
+            {isRunningBehind && (
+              <button
+                type="button"
+                onClick={() => void rescueMyDay(false)}
+                className="w-full h-11 rounded-2xl border border-accent surface-accent text-[13px] font-medium text-primary hover:opacity-95 pressable inline-flex items-center justify-center gap-2"
+              >
+                <ShieldAlert className="h-4 w-4" />
+                Rescue my day ↗
+                <span className="text-[11px] text-secondary-fg">({overdueCount} overdue)</span>
+              </button>
             )}
             {!calmMode && dayShapeLine && (
               <p
@@ -985,8 +1354,8 @@ export default function Today() {
           </SheetHeader>
           <div className="space-y-1">
             <MoreRow onClick={() => { setMoreOpen(false); reusePreviousPlan(); }} icon={<ListChecks className="h-4 w-4" />} label="Reuse previous plan tasks" />
-            {hourNow >= 18 && hasPlanForDate && (
-              <MoreRow onClick={() => { setMoreOpen(false); rescueMyDay(); }} icon={<ShieldAlert className="h-4 w-4" />} label={toneCopy(tone, "rescue_cta")} />
+            {hasPlanForDate && (
+              <MoreRow onClick={() => { setMoreOpen(false); void rescueMyDay(true); }} icon={<ShieldAlert className="h-4 w-4" />} label="Rescue my day ↗" />
             )}
             <MoreRow onClick={() => { setMoreOpen(false); saveAsTemplate(); }} icon={<Bookmark className="h-4 w-4" />} label="Save current as template" />
             {templates.length > 0 && (
@@ -1010,6 +1379,167 @@ export default function Today() {
       </Sheet>
 
       <UpgradeSheet open={upgradeOpen} onOpenChange={setUpgradeOpen} reason={upgradeReason} />
+      <Sheet open={rescueSheetOpen} onOpenChange={setRescueSheetOpen}>
+        <SheetContent side="bottom" className="rounded-t-2xl border-soft bg-popover">
+          <SheetHeader className="text-left">
+            <SheetTitle className="text-[16px]">Rescue my day</SheetTitle>
+            <SheetDescription>Lifeline mode: keep what still fits today, defer the rest.</SheetDescription>
+          </SheetHeader>
+          {rescueLoading ? (
+            <div className="mt-3 text-[12px] text-secondary-fg">Building a realistic rescue plan…</div>
+          ) : (
+            <div className="mt-3 space-y-3">
+              <div className="text-[12px] text-secondary-fg">{rescueWindowLabel}</div>
+              <div>
+                <div className="text-[12px] font-medium text-foreground">Here&apos;s what changed</div>
+                {rescueDiffRows.length === 0 ? (
+                  <div className="mt-1 text-[12px] text-secondary-fg">No schedule shifts needed.</div>
+                ) : (
+                  <div className="mt-1 space-y-1.5 max-h-44 overflow-y-auto">
+                    {rescueDiffRows.map((r, i) => (
+                      <div key={`${r.title}-${i}`} className="rounded-lg border border-soft surface-soft px-3 py-2">
+                        <div className="text-[12px] text-foreground truncate">{r.title}</div>
+                        <div className="text-[11px] text-secondary-fg tabular-nums">{fmtTime(r.before)} → {r.after === "Deferred" ? "Deferred" : fmtTime(r.after)}</div>
+                      </div>
+                    ))}
+                  </div>
+                )}
+              </div>
+              <div>
+                <div className="text-[12px] font-medium text-foreground">Deferred</div>
+                <div className="text-[11px] text-secondary-fg">These didn&apos;t make today&apos;s cut.</div>
+                {rescueDeferredRows.length === 0 ? (
+                  <div className="mt-1 text-[12px] text-secondary-fg">Nothing deferred.</div>
+                ) : (
+                  <div className="mt-1 space-y-1 max-h-28 overflow-y-auto">
+                    {rescueDeferredRows.slice(0, 8).map((r, i) => (
+                      <div key={`${r.title}-${i}`} className="text-[12px] text-secondary-fg truncate">
+                        • {r.title} {r.mins > 0 ? `(${r.mins}m)` : ""}
+                      </div>
+                    ))}
+                  </div>
+                )}
+              </div>
+              <div className="flex gap-2 pt-1">
+                <Button
+                  onClick={async () => {
+                    if (!user || !rescuePendingBlocks.length) return;
+                    try {
+                      const { data: planRow, error: planErr } = await supabase
+                        .from("plans")
+                        .select("id")
+                        .eq("user_id", user.id)
+                        .eq("date", planDate)
+                        .maybeSingle();
+                      if (planErr || !planRow?.id) throw new Error("Plan not found.");
+                      const { data: current } = await supabase
+                        .from("blocks")
+                        .select("*")
+                        .eq("plan_id", planRow.id)
+                        .order("position");
+                      const currentBlocks = (current || []) as any[];
+                      const toRemoveIds = currentBlocks
+                        .filter((b) => {
+                          if (b.is_calendar_event) return false;
+                          if (isUserTask(b) && !b.completed) return true;
+                          if ((b.kind === "break" || b.kind === "lunch") && !b.completed) return true;
+                          return false;
+                        })
+                        .map((b) => b.id);
+                      const keep = currentBlocks.filter((b) => !toRemoveIds.includes(b.id));
+                      if (toRemoveIds.length) await supabase.from("blocks").delete().in("id", toRemoveIds);
+                      const inserts = rescuePendingBlocks.map((b: any, i: number) => ({
+                        plan_id: planRow.id,
+                        user_id: user.id,
+                        start_time: b.start_time,
+                        duration_min: b.duration_min,
+                        estimated_minutes: b.estimated_minutes ?? b.duration_min,
+                        actual_minutes: null,
+                        title: b.title,
+                        type: b.type,
+                        kind: b.kind,
+                        block_type: inferScheduleBlockType(b),
+                        position: keep.length + i,
+                        ai_reasoning: b.reasoning ?? null,
+                        location: b.location ?? null,
+                        location_lat: b.location_lat ?? null,
+                        location_lng: b.location_lng ?? null,
+                      }));
+                      if (inserts.length) await supabase.from("blocks").insert(inserts);
+                      await queryClient.invalidateQueries({ queryKey: planDashboardQueryKey(user.id, planDate) });
+                      setRescueSheetOpen(false);
+                      setRescuePendingBlocks([]);
+                      setRescueDiffRows([]);
+                      trackAiEvent("ai_rescue_applied", { mode: rescueMode, deferred_count: rescueDeferredRows.length });
+                      toast.success("Rescue plan applied.");
+                    } catch (e: any) {
+                      toast.error(e?.message || "Unable to apply rescue plan.");
+                    }
+                  }}
+                  className="flex-1 h-10 rounded-xl"
+                >
+                  Use this plan
+                </Button>
+                <Button variant="outline" className="flex-1 h-10 rounded-xl border-soft" onClick={() => setRescueSheetOpen(false)}>
+                  Go back
+                </Button>
+              </div>
+            </div>
+          )}
+        </SheetContent>
+      </Sheet>
+      <Sheet open={energySheetOpen} onOpenChange={setEnergySheetOpen}>
+        <SheetContent side="bottom" className="rounded-t-2xl border-soft bg-popover">
+          <SheetHeader className="text-left">
+            <SheetTitle className="text-[16px]">Energy update</SheetTitle>
+            <SheetDescription>Change mid-day energy and preview AI re-ranking for remaining tasks.</SheetDescription>
+          </SheetHeader>
+          <div className="mt-3 grid grid-cols-3 gap-2">
+            {([
+              { key: "low" as EnergyState, label: "Low" },
+              { key: "medium" as EnergyState, label: "Medium" },
+              { key: "high" as EnergyState, label: "High" },
+            ]).map((e) => (
+              <button
+                key={e.key}
+                type="button"
+                onClick={() => void previewEnergyRerank(e.key)}
+                className={`h-10 rounded-xl border text-[12px] font-medium pressable ${
+                  energyState === e.key ? "surface-accent border-accent text-primary" : "surface-soft border-soft text-secondary-fg"
+                }`}
+              >
+                {e.label}
+              </button>
+            ))}
+          </div>
+          {energyPreviewLoading && (
+            <div className="mt-3 text-[12px] text-secondary-fg">Re-ranking remaining blocks…</div>
+          )}
+          {!!energyPendingState && !energyPreviewLoading && (
+            <div className="mt-4 space-y-2">
+              <div className="text-[12px] font-medium text-foreground">Here&apos;s what changed</div>
+              {energyDiffRows.length === 0 ? (
+                <div className="text-[12px] text-secondary-fg">No time shifts needed — plan is already aligned.</div>
+              ) : (
+                <div className="space-y-1.5 max-h-48 overflow-y-auto">
+                  {energyDiffRows.map((r, i) => (
+                    <div key={`${r.title}-${i}`} className="rounded-lg border border-soft surface-soft px-3 py-2">
+                      <div className="text-[12px] text-foreground truncate">{r.title}</div>
+                      <div className="text-[11px] text-secondary-fg tabular-nums">{fmtTime(r.before)} → {fmtTime(r.after)}</div>
+                    </div>
+                  ))}
+                </div>
+              )}
+              <div className="flex gap-2 pt-1">
+                <Button onClick={applyEnergyRerank} className="flex-1 h-10 rounded-xl">Apply changes</Button>
+                <Button variant="outline" className="flex-1 h-10 rounded-xl border-soft" onClick={() => setEnergySheetOpen(false)}>
+                  Keep original
+                </Button>
+              </div>
+            </div>
+          )}
+        </SheetContent>
+      </Sheet>
       <ClarifySheet open={clarifyOpen} onOpenChange={setClarifyOpen} rawInput={input} onConfirm={plan} planDate={planDate} />
     </Shell>
   );

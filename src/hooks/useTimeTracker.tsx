@@ -158,14 +158,50 @@ export function TimeTrackerProvider({ children }: { children: ReactNode }) {
     }).select("*").single();
     if (error) { toast.error(error.message); return; }
     setActive(data as TimeEntry);
+    if (opts?.blockId) {
+      try {
+        const d = new Date();
+        const key = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
+        localStorage.setItem(`dd_last_plan_progress_${key}`, new Date().toISOString());
+      } catch {/* ignore */}
+    }
   };
 
   const stop: Ctx["stop"] = async () => {
     if (!active || !user) return;
+    const current = active;
     const endedAt = new Date().toISOString();
-    const { error } = await supabase.from("time_entries").update({ ended_at: endedAt }).eq("id", active.id);
+    const { error } = await supabase.from("time_entries").update({ ended_at: endedAt }).eq("id", current.id);
     if (error) { toast.error(error.message); return; }
-    const dur = Math.floor((Date.now() - new Date(active.started_at).getTime()) / 1000);
+    const dur = Math.floor((Date.now() - new Date(current.started_at).getTime()) / 1000);
+    if (current.block_id) {
+      try {
+        const { data: entries } = await supabase
+          .from("time_entries")
+          .select("started_at,ended_at")
+          .eq("user_id", user.id)
+          .eq("block_id", current.block_id)
+          .not("ended_at", "is", null);
+        const actualMin = Math.max(
+          0,
+          Math.round((entries || []).reduce((sum: number, e: any) => {
+            const s = new Date(e.started_at).getTime();
+            const en = e.ended_at ? new Date(e.ended_at).getTime() : s;
+            return sum + Math.max(0, (en - s) / 60000);
+          }, 0)),
+        );
+        await supabase.from("blocks").update({ actual_minutes: actualMin }).eq("id", current.block_id);
+        try {
+          window.dispatchEvent(new CustomEvent("dd-block-timer-stopped", {
+            detail: { blockId: current.block_id, actualMinutes: actualMin },
+          }));
+        } catch {
+          // ignore non-browser environments
+        }
+      } catch {
+        // non-fatal: tracker stop should still succeed even if block summary update fails
+      }
+    }
     setActive(null);
     setTodayTotalSec(t => t + dur);
     setWeekTotalSec(t => t + dur);

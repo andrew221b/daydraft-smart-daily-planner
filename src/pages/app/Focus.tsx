@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from "react";
-import { useNavigate, useParams } from "react-router-dom";
+import { useNavigate, useParams, useSearchParams } from "react-router-dom";
 import { supabase } from "@/integrations/supabase/client";
 import { Block, todayDateStr } from "@/lib/daydraft";
 import { Check, ChevronRight, Plus, Sparkles, MapPin, ExternalLink, Loader2, Lightbulb, Copy, Phone, CalendarPlus, Mail, Timer, Square, X, ShieldAlert } from "lucide-react";
@@ -18,6 +18,7 @@ import { haptics } from "@/lib/haptics";
 import { PreflightSheet } from "@/components/app/PreflightSheet";
 import { getCalmMode, setCalmMode } from "@/lib/calmMode";
 import { isAiFlagEnabled, trackAiEvent } from "@/lib/aiRuntime";
+import { useEntitlement } from "@/hooks/useEntitlement";
 import {
   AlertDialog,
   AlertDialogAction,
@@ -68,9 +69,13 @@ export default function Focus() {
   const [catPickerOpen, setCatPickerOpen] = useState(false);
   /** Plan calendar day (YYYY-MM-DD) — for recap / back navigation off the default "today". */
   const [planDate, setPlanDate] = useState<string | null>(null);
+  const [searchParams] = useSearchParams();
+  const oneThingMode = searchParams.get("mode") === "one";
+  const [oneThingDoneFlash, setOneThingDoneFlash] = useState(false);
   const calmAutoEnabledRef = useRef(false);
   const guardrailToastShownRef = useRef(false);
   const aiFocusRuntimeEnabled = isAiFlagEnabled("aiFocusRuntime", user?.id);
+  const { isPro } = useEntitlement();
 
   useEffect(() => {
     const wasCalm = getCalmMode();
@@ -263,12 +268,16 @@ export default function Focus() {
       : 0;
     // Persist completion BEFORE navigating so a flaky network can't leave the
     // block stuck as incomplete after we've already advanced the user.
-    const { error } = await supabase.from("blocks").update({ completed: true }).eq("id", block.id);
+    const { error } = await supabase
+      .from("blocks")
+      .update({ completed: true, completed_at: new Date().toISOString() })
+      .eq("id", block.id);
     if (error) {
       setShowCheck(false);
       toast.error("Unable to save. Please try again.");
       return;
     }
+    try { localStorage.setItem(`dd_last_plan_progress_${planDate || todayDateStr()}`, new Date().toISOString()); } catch {/* ignore */}
     // Only credit time-tracker hours if the user EXPLICITLY tracked this block
     // (started a timer for it). Otherwise we fabricate hours that never happened.
     if (startedHereRef.current && tracking) {
@@ -276,6 +285,14 @@ export default function Focus() {
       startedHereRef.current = false;
     }
     const recap = `/recap?date=${planDate || todayDateStr()}`;
+    if (oneThingMode) {
+      setOneThingDoneFlash(true);
+      setTimeout(() => {
+        if (next) nav(`/focus/${next.id}?mode=one`);
+        else nav(recap);
+      }, 3000);
+      return;
+    }
     setTimeout(() => {
       if (next) nav(`/focus/${next.id}`);
       else nav(recap);
@@ -333,6 +350,16 @@ export default function Focus() {
   }, [armed, lateDeepWork, longSession]);
 
   if (!block) return <div className="min-h-screen bg-background" />;
+  if (oneThingMode && !isPro) {
+    return (
+      <div className="min-h-screen bg-background flex items-center justify-center px-6">
+        <div className="text-center">
+          <div className="text-[18px] font-display text-foreground">One thing mode is Pro</div>
+          <button onClick={() => nav(`/focus/${block.id}`)} className="mt-3 text-primary text-sm hover:underline">Continue in regular focus</button>
+        </div>
+      </div>
+    );
+  }
 
   const pct = 1 - remaining / total;
   const radius = 110;
@@ -342,10 +369,44 @@ export default function Focus() {
   const secs = Math.floor(remaining % 60);
   const lowTime = remaining < 300;
   const timeUp = remaining <= 0 && armed;
+  const oneThingElapsedSec = actualStartMsRef.current ? Math.max(0, Math.floor((Date.now() - actualStartMsRef.current) / 1000)) : 0;
   useEffect(() => {
     if (!aiFocusRuntimeEnabled || !timeUp || runtimeReason) return;
     void loadHelp("overtime");
   }, [aiFocusRuntimeEnabled, timeUp, runtimeReason]);
+
+  if (oneThingMode) {
+    return (
+      <div className="min-h-screen w-full bg-black flex justify-center relative overflow-hidden">
+        <div className="absolute inset-0 bg-black/95" />
+        <button
+          onClick={() => cancel()}
+          className="absolute top-5 right-5 z-20 text-[12px] text-slate-300 border border-slate-700 rounded-full px-3 py-1.5 pressable hover:text-white"
+        >
+          × Exit focus
+        </button>
+        <div className="relative z-10 w-full max-w-[430px] min-h-screen flex flex-col items-center justify-center px-8">
+          <div className="text-[10px] uppercase tracking-[0.16em] text-slate-400">One thing mode</div>
+          <h1 className="mt-3 text-center font-display text-[34px] leading-[1.08] text-white text-balance">{block.title}</h1>
+          <div className="mt-8 text-[46px] font-mono-sf tabular-nums text-cyan-300">{fmtHMS(oneThingElapsedSec)}</div>
+          <button
+            onClick={complete}
+            className="mt-10 h-14 px-10 rounded-2xl bg-cyan-400 text-slate-950 font-semibold text-[17px] pressable shadow-[0_10px_40px_-12px_rgba(34,211,238,0.7)]"
+          >
+            Done
+          </button>
+        </div>
+        {oneThingDoneFlash && (
+          <div className="fixed inset-0 z-30 flex items-center justify-center bg-emerald-500/92 animate-in fade-in duration-300">
+            <div className="text-center text-emerald-950">
+              <Check className="h-20 w-20 mx-auto" strokeWidth={3.2} />
+              <div className="mt-3 text-[20px] font-display font-semibold">Great work</div>
+            </div>
+          </div>
+        )}
+      </div>
+    );
+  }
 
   const applyRecoveryAction = async (actionId: "compress_rest_day" | "defer_low_priority" | "split_current_block") => {
     if (!block || !user) return;

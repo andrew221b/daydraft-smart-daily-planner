@@ -9,6 +9,7 @@ import { toast } from "sonner";
 import jsPDF from "jspdf";
 import autoTable from "jspdf-autotable";
 import { useEntitlement } from "@/hooks/useEntitlement";
+import { Block, isUserTask, todayDateStr } from "@/lib/daydraft";
 import { UpgradeSheet } from "@/components/app/UpgradeSheet";
 import {
   AlertDialog,
@@ -35,6 +36,10 @@ const TABS: Tab[] = ["today", "week", "month"];
 const DAY_MS = 86_400_000;
 const startOfDay = (d: Date) => { const x = new Date(d); x.setHours(0,0,0,0); return x; };
 const ymd = (d: Date) => `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,"0")}-${String(d.getDate()).padStart(2,"0")}`;
+const hhmmToMin = (hhmm: string) => {
+  const [h, m] = String(hhmm || "").split(":").map(Number);
+  return (Number.isFinite(h) ? h : 0) * 60 + (Number.isFinite(m) ? m : 0);
+};
 
 function clipDuration(e: Entry, dayStart: number, dayEnd: number, now: number) {
   const s = new Date(e.started_at).getTime();
@@ -76,10 +81,49 @@ function TrackerInner({ embedded = false, onClose }: { embedded?: boolean; onClo
     }
   });
   const [showAllCategories, setShowAllCategories] = useState(false);
+  const [todayPlanBlocks, setTodayPlanBlocks] = useState<Block[]>([]);
+  const [planLoaded, setPlanLoaded] = useState(false);
+  const [trackerMode, setTrackerMode] = useState<"linked" | "free">(() => {
+    try {
+      const v = sessionStorage.getItem("dd_tracker_mode");
+      return v === "linked" || v === "free" ? v : "free";
+    } catch {
+      return "free";
+    }
+  });
+  const [linkedExtendMin, setLinkedExtendMin] = useState(0);
+  const [nextSuggestion, setNextSuggestion] = useState<string | null>(null);
   const tabIndex = TABS.indexOf(tab);
 
   const activeCat = categories.find(c => c.id === active?.category_id);
   const catMap = useMemo(() => new Map(categories.map(c => [c.id, c])), [categories]);
+  const todayPlanTasks = useMemo(
+    () => todayPlanBlocks.filter((b) => isUserTask(b) && !b.completed),
+    [todayPlanBlocks],
+  );
+  const hasTodayPlan = todayPlanBlocks.length > 0;
+  const linkedBlock = useMemo(() => {
+    if (!todayPlanTasks.length) return null;
+    const nowMin = new Date().getHours() * 60 + new Date().getMinutes();
+    const withTimes = todayPlanTasks.map((b) => {
+      const startMin = hhmmToMin(b.start_time);
+      const estMin = b.estimated_minutes ?? b.duration_min;
+      return { block: b, startMin, endMin: startMin + estMin };
+    });
+    const current = withTimes.find((x) => nowMin >= x.startMin && nowMin < x.endMin);
+    if (current) return current.block;
+    const next = withTimes.find((x) => x.startMin >= nowMin);
+    return next?.block || withTimes[0].block;
+  }, [todayPlanTasks]);
+  const linkedCat = useMemo(() => {
+    if (!linkedBlock) return null;
+    const t = linkedBlock.title.trim().toLowerCase();
+    return categories.find((c) => c.name.trim().toLowerCase() === t) || null;
+  }, [categories, linkedBlock?.id]);
+  const linkedIsActive = !!(active && linkedBlock && active.block_id === linkedBlock.id);
+  const linkedEstimateMin = (linkedBlock?.estimated_minutes ?? linkedBlock?.duration_min ?? 0) + linkedExtendMin;
+  const linkedRemainingSec = linkedIsActive ? Math.max(0, linkedEstimateMin * 60 - elapsedSec) : linkedEstimateMin * 60;
+  const linkedOvertime = linkedIsActive && linkedRemainingSec <= 0;
 
   // Load 60 days of entries (covers week + month views). Re-fetches when the
   // active session changes or the running session ticks past a minute so the
@@ -97,6 +141,86 @@ function TrackerInner({ embedded = false, onClose }: { embedded?: boolean; onClo
       .order("started_at", { ascending: false })
       .then(({ data }) => setEntries((data || []) as Entry[]));
   }, [user?.id, active?.id, todayTotalSec]);
+
+  useEffect(() => {
+    if (!user) return;
+    let cancelled = false;
+    (async () => {
+      try {
+        const today = todayDateStr();
+        const { data: plan } = await supabase
+          .from("plans")
+          .select("id")
+          .eq("user_id", user.id)
+          .eq("date", today)
+          .maybeSingle();
+        if (!plan?.id) {
+          if (!cancelled) {
+            setTodayPlanBlocks([]);
+            setPlanLoaded(true);
+          }
+          return;
+        }
+        const { data: bs } = await supabase
+          .from("blocks")
+          .select("*")
+          .eq("plan_id", plan.id)
+          .order("position");
+        if (!cancelled) {
+          setTodayPlanBlocks((bs || []) as Block[]);
+          setPlanLoaded(true);
+        }
+      } catch {
+        if (!cancelled) setPlanLoaded(true);
+      }
+    })();
+    return () => { cancelled = true; };
+  }, [user?.id, active?.id]);
+
+  useEffect(() => {
+    if (!planLoaded) return;
+    try {
+      const stored = sessionStorage.getItem("dd_tracker_mode");
+      if (stored === "linked" || stored === "free") return;
+    } catch {
+      // ignore
+    }
+    setTrackerMode(hasTodayPlan ? "linked" : "free");
+  }, [planLoaded, hasTodayPlan]);
+
+  useEffect(() => {
+    try {
+      sessionStorage.setItem("dd_tracker_mode", trackerMode);
+    } catch {
+      // ignore
+    }
+  }, [trackerMode]);
+
+  useEffect(() => {
+    if (!linkedBlock) return;
+    setLinkedExtendMin(0);
+  }, [linkedBlock?.id]);
+
+  useEffect(() => {
+    if (!hasTodayPlan || !categories.length || !todayPlanBlocks.length) return;
+    const wanted = Array.from(
+      new Set(
+        todayPlanBlocks
+          .filter((b) => isUserTask(b))
+          .map((b) => (b.title || "").trim())
+          .filter(Boolean),
+      ),
+    );
+    if (!wanted.length) return;
+    const existing = new Set(categories.map((c) => c.name.trim().toLowerCase()));
+    const missing = wanted.filter((n) => !existing.has(n.toLowerCase()));
+    if (!missing.length) return;
+    (async () => {
+      for (const name of missing.slice(0, 8)) {
+        await addCategory(name);
+      }
+    })();
+  }, [hasTodayPlan, todayPlanBlocks, categories.length]);
 
   // ----- Aggregations -----
   useEffect(() => {
@@ -253,14 +377,24 @@ function TrackerInner({ embedded = false, onClose }: { embedded?: boolean; onClo
 
   const monthLabel = monthCursor.toLocaleDateString(undefined, { month: "long", year: "numeric" });
   const visibleCategories = useMemo(() => {
-    if (!simpleMode || showAllCategories) return categories;
-    const first = categories.slice(0, 2);
+    const taskTitleSet = new Set(
+      todayPlanBlocks
+        .filter((b) => isUserTask(b))
+        .map((b) => b.title.trim().toLowerCase()),
+    );
+    const sorted = [...categories].sort((a, b) => {
+      const aTask = taskTitleSet.has(a.name.trim().toLowerCase()) ? 0 : 1;
+      const bTask = taskTitleSet.has(b.name.trim().toLowerCase()) ? 0 : 1;
+      return aTask - bTask;
+    });
+    if (!simpleMode || showAllCategories) return sorted;
+    const first = sorted.slice(0, 2);
     if (active && !first.some((c) => c.id === active.category_id)) {
-      const activeCategory = categories.find((c) => c.id === active.category_id);
+      const activeCategory = sorted.find((c) => c.id === active.category_id);
       if (activeCategory) return [...first, activeCategory];
     }
     return first;
-  }, [categories, simpleMode, showAllCategories, active?.category_id]);
+  }, [categories, todayPlanBlocks, simpleMode, showAllCategories, active?.category_id]);
 
   // Smart stop: if running session is < 60s, confirm (likely accidental tap).
   const handleStop = async () => {
@@ -269,6 +403,27 @@ function TrackerInner({ embedded = false, onClose }: { embedded?: boolean; onClo
       if (!ok) return;
     }
     await stop();
+  };
+
+  const startLinked = async () => {
+    if (!linkedBlock) return;
+    if (active) return;
+    const categoryId = linkedCat?.id || categories[0]?.id;
+    await start(categoryId, {
+      source: "plan_linked",
+      note: linkedBlock.title,
+      blockId: linkedBlock.id,
+    });
+    setNextSuggestion(null);
+  };
+
+  const stopLinked = async () => {
+    const currentLinkedId = linkedBlock?.id;
+    await handleStop();
+    if (!currentLinkedId) return;
+    const idx = todayPlanTasks.findIndex((b) => b.id === currentLinkedId);
+    const next = idx >= 0 ? todayPlanTasks[idx + 1] : null;
+    if (next) setNextSuggestion(`Next up: ${next.title}`);
   };
 
   // ----- PDF export -----
@@ -432,8 +587,37 @@ function TrackerInner({ embedded = false, onClose }: { embedded?: boolean; onClo
             </button>
           )}
 
+          <div className="mt-4 inline-flex w-full rounded-[14px] bg-muted/80 p-1">
+            <button
+              type="button"
+              onClick={() => setTrackerMode("linked")}
+              disabled={!hasTodayPlan}
+              className={`flex-1 rounded-[10px] px-3 py-1.5 text-xs font-medium pressable transition-colors ${
+                trackerMode === "linked"
+                  ? "bg-background text-foreground shadow-sm"
+                  : hasTodayPlan
+                    ? "text-secondary-fg hover:text-foreground"
+                    : "text-faint cursor-not-allowed"
+              }`}
+            >
+              Linked to plan
+            </button>
+            <button
+              type="button"
+              onClick={() => setTrackerMode("free")}
+              className={`flex-1 rounded-[10px] px-3 py-1.5 text-xs font-medium pressable transition-colors ${
+                trackerMode === "free" ? "bg-background text-foreground shadow-sm" : "text-secondary-fg hover:text-foreground"
+              }`}
+            >
+              Free tracking
+            </button>
+          </div>
+          {!hasTodayPlan && (
+            <p className="mt-2 text-[11px] text-secondary-fg">No plan for today yet — free mode is active.</p>
+          )}
+
           {/* Tabs */}
-          {!simpleMode ? (
+          {trackerMode === "free" && !simpleMode ? (
             <div className="mt-5 relative inline-flex w-full rounded-[14px] bg-muted/80 p-1 tracker-tabs-luxe">
               <span
                 aria-hidden
@@ -455,7 +639,7 @@ function TrackerInner({ embedded = false, onClose }: { embedded?: boolean; onClo
                 </button>
               ))}
             </div>
-          ) : (
+          ) : trackerMode === "free" ? (
             <div className="mt-5 rounded-[14px] border border-soft surface-soft px-3 py-2.5 text-[11px] text-secondary-fg flex items-center justify-between gap-2">
               <span>Quick mode: focused on start/stop and today only.</span>
               <button
@@ -466,11 +650,64 @@ function TrackerInner({ embedded = false, onClose }: { embedded?: boolean; onClo
                 <SlidersHorizontal className="h-3.5 w-3.5" /> Advanced
               </button>
             </div>
-          )}
+          ) : null}
         </div>
 
+        {/* LINKED MODE — current plan block */}
+        {trackerMode === "linked" && (
+          <div className="px-5 py-5">
+            <div className={`rounded-[20px] border p-5 shadow-card transition-all ${linkedOvertime ? "ring-2 ring-primary/25 animate-pulse" : ""} hero-glass`}>
+              {linkedBlock ? (
+                <>
+                  <div className="text-[10px] font-semibold uppercase tracking-[0.16em] text-secondary-fg">Current plan block</div>
+                  <div className="mt-2 text-[24px] font-display font-semibold leading-tight text-foreground">{linkedBlock.title}</div>
+                  <div className="mt-2 text-[12px] text-secondary-fg">
+                    Estimated {fmtHM((linkedBlock.estimated_minutes ?? linkedBlock.duration_min) * 60)}
+                    {linkedExtendMin > 0 ? ` · Extended +${linkedExtendMin}m` : ""}
+                  </div>
+                  {linkedIsActive && (
+                    <div className="mt-3 text-[13px] text-foreground font-mono tabular-nums">
+                      {fmtHMS(elapsedSec)} elapsed · {fmtHM(linkedRemainingSec)} remaining
+                    </div>
+                  )}
+                  {linkedOvertime && (
+                    <div className="mt-3 rounded-xl border border-accent surface-accent px-3 py-2 text-[12px] text-foreground">
+                      Estimate reached. Stop now or extend this block.
+                    </div>
+                  )}
+                  <div className="mt-4 flex items-center gap-2">
+                    {!linkedIsActive ? (
+                      <button
+                        onClick={startLinked}
+                        disabled={!!active}
+                        className="inline-flex items-center gap-2 h-11 px-5 rounded-full bg-primary text-primary-foreground text-[13.5px] font-semibold pressable shadow-card disabled:opacity-50"
+                      >
+                        <Play className="h-3.5 w-3.5" fill="currentColor" /> Start
+                      </button>
+                    ) : (
+                      <>
+                        <button onClick={stopLinked} className="inline-flex items-center gap-2 h-11 px-5 rounded-full bg-primary text-primary-foreground text-[13.5px] font-semibold pressable shadow-card">
+                          <Pause className="h-3.5 w-3.5" fill="currentColor" /> Stop
+                        </button>
+                        <button onClick={() => setLinkedExtendMin((m) => m + 10)} className="h-11 px-4 rounded-full border border-soft surface-card text-[12px] font-medium pressable">
+                          Extend 10m
+                        </button>
+                      </>
+                    )}
+                  </div>
+                  {nextSuggestion && (
+                    <div className="mt-3 text-[12px] text-secondary-fg">{nextSuggestion}</div>
+                  )}
+                </>
+              ) : (
+                <div className="text-[13px] text-secondary-fg">No active block found in today&apos;s plan.</div>
+              )}
+            </div>
+          </div>
+        )}
+
         {/* TODAY TAB — categories + start/stop + today summary */}
-        {tab === "today" && (
+        {trackerMode === "free" && tab === "today" && (
           <>
             {/* Hero stopwatch — premium, centered */}
             <div className="px-5 pt-5">
@@ -706,7 +943,7 @@ function TrackerInner({ embedded = false, onClose }: { embedded?: boolean; onClo
         )}
 
         {/* WEEK TAB — bars + tap-to-expand day */}
-        {tab === "week" && (
+        {trackerMode === "free" && tab === "week" && (
           <div className="px-5 py-4 space-y-4">
             <div className="app-card p-4">
               <div className="flex items-end justify-between gap-2 h-32">
@@ -747,7 +984,7 @@ function TrackerInner({ embedded = false, onClose }: { embedded?: boolean; onClo
         )}
 
         {/* MONTH TAB — heatmap calendar */}
-        {tab === "month" && (
+        {trackerMode === "free" && tab === "month" && (
           <div className="px-5 py-4 space-y-4">
             <div className="app-card p-4">
               <div className="flex items-center justify-between mb-3">
@@ -807,6 +1044,7 @@ function TrackerInner({ embedded = false, onClose }: { embedded?: boolean; onClo
         )}
 
         {/* PDF export — placed at the bottom of the sheet, well clear of the X */}
+        {trackerMode === "free" && (
         <div className="px-5 pt-3 pb-2">
           <button
             onClick={exportPDF}
@@ -819,6 +1057,7 @@ function TrackerInner({ embedded = false, onClose }: { embedded?: boolean; onClo
             {isPro ? `Export ${headerLabel} as PDF` : "Export as PDF · Pro"}
           </button>
         </div>
+        )}
         <div className="px-5 pb-6 pt-2 text-[11px] text-secondary-fg text-center">
           Tracking runs in the background — close the app and it keeps counting.
         </div>

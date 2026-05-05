@@ -1,6 +1,6 @@
 import { useSortable } from "@dnd-kit/sortable";
 import { CSS } from "@dnd-kit/utilities";
-import { Block, fmtTime, typeColor } from "@/lib/daydraft";
+import { Block, fmtTime, inferScheduleBlockType } from "@/lib/daydraft";
 import { Check, Calendar, Sparkles } from "lucide-react";
 
 export const SortableBlock = ({
@@ -19,9 +19,32 @@ export const SortableBlock = ({
     opacity: isDragging ? 0.6 : 1,
   };
   const isCal = block.is_calendar_event;
+  const rhythmType = inferScheduleBlockType(block);
+  const stripeColor = isCal
+    ? "hsl(var(--border))"
+    : rhythmType === "personal"
+      ? "hsl(270 78% 66%)"
+      : rhythmType === "rest"
+        ? "hsl(var(--muted-foreground) / 0.7)"
+        : "hsl(var(--primary))";
   const dur = block.duration_min < 60
     ? `${block.duration_min}m`
     : `${Math.floor(block.duration_min/60)}h${block.duration_min%60 ? ` ${block.duration_min%60}m` : ""}`;
+  const fmtMin = (mins: number) =>
+    mins < 60 ? `${mins}m` : `${Math.floor(mins / 60)}h${mins % 60 ? ` ${mins % 60}m` : ""}`;
+  const estimatedMin = block.estimated_minutes ?? block.duration_min;
+  const actualMin = typeof block.actual_minutes === "number" ? block.actual_minutes : null;
+  const actualDeltaRatio = actualMin != null && estimatedMin > 0 ? (actualMin - estimatedMin) / estimatedMin : 0;
+  const actualToneClass =
+    actualMin == null
+      ? "text-secondary-fg"
+      : actualDeltaRatio > 0.4
+        ? "text-destructive"
+        : actualDeltaRatio > 0.2
+          ? "text-amber-400"
+          : actualDeltaRatio < -0.2
+            ? "text-emerald-400"
+            : "text-secondary-fg";
   return (
     <div
       ref={setNodeRef}
@@ -32,16 +55,25 @@ export const SortableBlock = ({
       onClick={() => onTap?.(block)}
       className={`group cursor-pointer pressable transition-all duration-200 app-card p-3 ${
         block.completed ? "opacity-65" : ""
-      } ${isCal ? "border-soft" : "hover:border-primary/30 hover:-translate-y-[1px]"}`}
+      } ${
+        isCal
+          ? "border-soft"
+          : rhythmType === "rest"
+            ? "bg-muted/40 border-soft hover:border-strong"
+            : rhythmType === "personal"
+              ? "bg-[linear-gradient(165deg,hsl(278_72%_62%/.10)_0%,hsl(var(--surface)/.80)_58%,hsl(var(--surface-elevated)/.74)_100%)] border-[hsl(270_70%_66%/.36)] hover:border-[hsl(270_72%_70%/.52)]"
+              : "hover:border-primary/30 hover:-translate-y-[1px]"
+      }`}
     >
       <div className="flex items-center gap-3">
         <div className="shrink-0 min-w-[56px] h-10 rounded-xl border border-strong bg-background/45 backdrop-blur-sm px-2 inline-flex items-center justify-center text-secondary-fg text-[11.5px] font-mono-sf tabular-nums">
           {fmtTime(block.start_time)}
         </div>
-        <div className="w-[4px] h-9 rounded-full shrink-0" style={{ background: isCal ? "hsl(var(--border))" : typeColor(block.type) }} />
+        <div className="w-[4px] h-9 rounded-full shrink-0" style={{ background: stripeColor }} />
         <div className="flex-1 min-w-0">
-          <div className={`text-[14.5px] leading-tight flex items-center gap-1.5 min-w-0 ${block.completed ? "line-through text-secondary-fg" : "text-foreground"}`}>
+          <div className={`leading-tight flex items-center gap-1.5 min-w-0 ${rhythmType === "rest" ? "text-[13px]" : "text-[14.5px]"} ${block.completed ? "line-through text-secondary-fg" : "text-foreground"}`}>
           {isCal && <Calendar className="h-3 w-3 text-secondary-fg shrink-0" />}
+          {!isCal && rhythmType === "rest" && <span className="shrink-0 text-[12px] leading-none" aria-hidden>☕</span>}
           <span className="truncate">{block.title}</span>
           {!isCal && block.ai_reasoning && (
             <span className="shrink-0 text-primary/70" title="Why this slot">
@@ -49,7 +81,12 @@ export const SortableBlock = ({
             </span>
           )}
           </div>
-          <div className="text-[11px] text-secondary-fg mt-1 tabular-nums">{dur}</div>
+          <div className={`${rhythmType === "rest" ? "text-[10px]" : "text-[11px]"} text-secondary-fg mt-1 tabular-nums`}>{dur}</div>
+          {actualMin != null && (
+            <div className={`mt-1 text-[10px] tabular-nums ${actualToneClass}`}>
+              {fmtMin(estimatedMin)} planned · {fmtMin(actualMin)} actual
+            </div>
+          )}
         </div>
         {block.completed ? (
           <div data-tour={tourSpotlight ? "dayview-complete" : undefined} className="h-6 w-6 rounded-full bg-success flex items-center justify-center shrink-0">

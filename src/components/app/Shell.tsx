@@ -2,6 +2,8 @@ import { ReactNode, useEffect } from "react";
 import { useLocation } from "react-router-dom";
 import { TabBar } from "./TabBar";
 import { syncPremiumHtmlAttributes } from "@/lib/syncHtmlPreferences";
+import { PlanDriftNudge } from "./PlanDriftNudge";
+import { TimerRescheduleSheet } from "./TimerRescheduleSheet";
 
 export const Shell = ({
   children,
@@ -68,6 +70,8 @@ export const Shell = ({
       />
       <main className={`flex-1 ${hideTabBar ? "" : "pb-32"} page-enter ${pageSwitchClass}`}>{children}</main>
       {!hideTabBar && <TabBar />}
+      <PlanDriftNudge />
+      <TimerRescheduleSheet />
     </div>
   </div>
   );

@@ -11,6 +11,12 @@ const tabs = [
   { to: "/settings", icon: SettingsIcon, label: "Settings", tour: "tab-settings" },
 ];
 
+const fmtMMSS = (s: number) => {
+  const mm = Math.floor(s / 60);
+  const ss = Math.max(0, Math.floor(s % 60));
+  return `${String(mm).padStart(2, "0")}:${String(ss).padStart(2, "0")}`;
+};
+
 export const TabBar = () => {
   const { active } = useTimeTracker();
   const elapsedSec = useTimeTrackerElapsed();
@@ -20,6 +26,7 @@ export const TabBar = () => {
   const [prevIdx, setPrevIdx] = useState(activeIdx);
   const [travelDir, setTravelDir] = useState<"left" | "right" | null>(null);
   const moveDir = travelDir === "right" ? "tab-indicator-move-right" : travelDir === "left" ? "tab-indicator-move-left" : "";
+  const trackerLabel = active ? fmtMMSS(elapsedSec) : "Timer";
 
   useEffect(() => {
     if (prevPath.current !== null && prevPath.current !== pathname) haptics.selection();
@@ -75,7 +82,7 @@ export const TabBar = () => {
             }}
           />
           {tabs.map((it) => (
-            <TabItem key={it.to} {...it} pulse={it.to === "/tracker" && !!active} />
+            <TabItem key={it.to} {...it} label={it.to === "/tracker" ? trackerLabel : it.label} pulse={it.to === "/tracker" && !!active} />
           ))}
         </div>
       </div>
@@ -103,7 +110,7 @@ function TabItem({ to, icon: Icon, label, tour, pulse }: { to: string; icon: any
           <span className={`max-w-full truncate px-0.5 text-center text-[10px] font-semibold leading-tight tracking-tight transition-all duration-300 ${isActive ? "opacity-100 translate-y-0" : "opacity-90 translate-y-[0.5px]"}`}>
             {label}
           </span>
-          {pulse && <span className="absolute right-[18%] top-1 h-1.5 w-1.5 rounded-full bg-primary animate-pulse" aria-hidden />}
+          {pulse && <span className="absolute left-1/2 -translate-x-1/2 -top-0.5 h-1.5 w-1.5 rounded-full bg-cyan-300 tab-live-dot-pulse" aria-hidden />}
         </>
       )}
     </NavLink>
