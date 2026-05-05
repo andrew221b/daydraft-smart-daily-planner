@@ -8,9 +8,35 @@ const AuthCtx = createContext<Ctx>({ user: null, session: null, loading: true, s
 export const AuthProvider = ({ children }: { children: ReactNode }) => {
   const [session, setSession] = useState<Session | null>(null);
   const [loading, setLoading] = useState(true);
+
   useEffect(() => {
-    const { data: sub } = supabase.auth.onAuthStateChange((_e, s) => { setSession(s); setLoading(false); });
-    supabase.auth.getSession().then(({ data }) => { setSession(data.session); setLoading(false); });
+    let mounted = true;
+    const { data: sub } = supabase.auth.onAuthStateChange((_e, s) => {
+      if (!mounted) return;
+      setSession(s);
+      setLoading(false);
+    });
+
+    const loadInitialSession = async () => {
+      try {
+        // Keep preview resilient: if backend/auth is unreachable (or returns 4xx like 412),
+        // we still render as "signed out" instead of freezing on a blank loading screen.
+        const result = await Promise.race([
+          supabase.auth.getSession(),
+          new Promise<never>((_, reject) => setTimeout(() => reject(new Error("auth_init_timeout")), 4000)),
+        ]);
+        if (!mounted) return;
+        setSession(result.data.session);
+      } catch {
+        if (!mounted) return;
+        setSession(null);
+      } finally {
+        if (mounted) setLoading(false);
+      }
+    };
+
+    void loadInitialSession();
+
     return () => sub.subscription.unsubscribe();
   }, []);
   return (

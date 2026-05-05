@@ -46,7 +46,7 @@ const RequireAuth = ({ children }: { children: JSX.Element }) => {
   const { user, loading } = useAuth();
   const { profile, loading: pLoading } = useProfile();
   const loc = useLocation();
-  if (loading || (user && pLoading)) return <div className="min-h-screen bg-background" />;
+  if (loading || (user && pLoading)) return <PageFallback />;
   if (!user) return <Navigate to="/auth" replace state={{ from: loc }} />;
   if (profile && !profile.onboarded && loc.pathname !== "/onboarding") return <Navigate to="/onboarding" replace />;
   return children;
@@ -54,7 +54,7 @@ const RequireAuth = ({ children }: { children: JSX.Element }) => {
 
 const RootRedirect = () => {
   const { user, loading } = useAuth();
-  if (loading) return <div className="min-h-screen bg-background" />;
+  if (loading) return <PageFallback />;
   return <Navigate to={user ? "/today" : "/auth"} replace />;
 };
 
