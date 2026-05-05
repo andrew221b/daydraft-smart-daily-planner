@@ -102,15 +102,17 @@
   }
 
   :root[data-premium-theme="obsidian"], :root.light[data-premium-theme="obsidian"] {
-    --primary: 210 24% 74%;
-    --primary-glow: 218 18% 64%;
-    --accent: 213 20% 68%;
+    --primary: 214 12% 72%;
+    --primary-glow: 220 10% 56%;
+    --accent: 214 10% 62%;
     --background: 225 20% 7%;
     --surface: 223 16% 11%;
     --surface-elevated: 222 14% 14%;
-    --border: 220 11% 33%;
-    --gradient-glow: radial-gradient(62% 46% at 50% -8%, hsl(var(--primary) / 0.11), transparent 74%);
-    --gradient-floor: radial-gradient(ellipse 76% 50% at 50% 100%, hsl(var(--primary-glow) / 0.08), transparent 70%);
+    --border: 220 8% 29%;
+    --shadow-card: 0 1px 0 rgba(255,255,255,0.04), 0 10px 30px rgba(5,7,18,0.62);
+    --shadow-elevated: 0 18px 50px rgba(4,6,14,0.68), 0 5px 18px rgba(8,12,22,0.4);
+    --gradient-glow: radial-gradient(58% 42% at 50% -8%, hsl(var(--primary) / 0.07), transparent 76%);
+    --gradient-floor: radial-gradient(ellipse 72% 44% at 50% 100%, hsl(var(--primary-glow) / 0.06), transparent 72%);
     --motion-page-switch-ms: 520ms;
     --motion-section-in-ms: 430ms;
     --motion-glow-breathe-s: 24s;
@@ -118,15 +120,18 @@
   }
 
   :root[data-premium-theme="neon"], :root.light[data-premium-theme="neon"] {
-    --primary: 186 100% 64%;
-    --primary-glow: 292 98% 71%;
-    --accent: 274 88% 69%;
+    --primary: 184 100% 66%;
+    --primary-glow: 300 100% 74%;
+    --accent: 280 94% 70%;
     --background: 239 36% 8%;
-    --surface: 236 30% 12%;
-    --surface-elevated: 235 27% 15%;
-    --border: 242 26% 32%;
-    --gradient-glow: radial-gradient(66% 52% at 50% -9%, hsl(var(--primary) / 0.3), transparent 72%);
-    --gradient-floor: radial-gradient(ellipse 78% 52% at 50% 100%, hsl(var(--primary-glow) / 0.2), transparent 68%);
+    --surface: 236 30% 11%;
+    --surface-elevated: 235 27% 14%;
+    --border: 247 30% 36%;
+    --shadow-card: 0 1px 0 rgba(255,255,255,0.08), 0 12px 38px rgba(5,8,28,0.6);
+    --shadow-elevated: 0 20px 58px rgba(5,8,30,0.72), 0 6px 24px rgba(12,18,42,0.42);
+    --shadow-glow: 0 0 0 4px hsl(var(--primary) / 0.34), 0 0 32px hsl(var(--primary-glow) / 0.42);
+    --gradient-glow: radial-gradient(72% 56% at 50% -10%, hsl(var(--primary) / 0.4), transparent 72%);
+    --gradient-floor: radial-gradient(ellipse 82% 56% at 50% 100%, hsl(var(--primary-glow) / 0.28), transparent 66%);
     --motion-page-switch-ms: 360ms;
     --motion-section-in-ms: 300ms;
     --motion-glow-breathe-s: 12s;
@@ -293,6 +298,8 @@
     backdrop-filter: blur(var(--glass-blur)) saturate(var(--glass-saturate));
     -webkit-backdrop-filter: blur(var(--glass-blur)) saturate(var(--glass-saturate));
     box-shadow: var(--shadow-card), var(--shadow-card-inset);
+    isolation: isolate;
+    -webkit-mask-image: -webkit-radial-gradient(white, black);
   }
 
   .hero-glass {
@@ -305,6 +312,8 @@
     box-shadow: var(--shadow-elevated), var(--shadow-card-inset);
     backdrop-filter: blur(var(--hero-glass-blur)) saturate(var(--hero-glass-saturate));
     -webkit-backdrop-filter: blur(var(--hero-glass-blur)) saturate(var(--hero-glass-saturate));
+    isolation: isolate;
+    -webkit-mask-image: -webkit-radial-gradient(white, black);
   }
 
   .kicker {
@@ -345,22 +354,23 @@
 
   .tab-indicator-liquid {
     transition:
-      left 520ms cubic-bezier(0.22, 1.18, 0.24, 1),
-      width 520ms cubic-bezier(0.22, 1.18, 0.24, 1),
-      transform 520ms cubic-bezier(0.22, 1.18, 0.24, 1);
+      transform 420ms cubic-bezier(0.22, 1.08, 0.2, 1),
+      width 420ms cubic-bezier(0.22, 1.08, 0.2, 1);
     transform-origin: center;
+    will-change: transform;
   }
 
   .tab-indicator-liquid-trail {
     background: linear-gradient(132deg, hsl(var(--primary) / 0.2), hsl(var(--primary-glow) / 0.16));
     filter: blur(6px);
     opacity: 0.72;
-    transition: left 640ms cubic-bezier(0.22, 1, 0.24, 1), width 640ms cubic-bezier(0.22, 1, 0.24, 1), opacity 300ms ease;
+    transition: transform 520ms cubic-bezier(0.22, 1, 0.2, 1), width 520ms cubic-bezier(0.22, 1, 0.2, 1), opacity 220ms ease;
+    will-change: transform;
   }
-  .tab-indicator-move-right.tab-indicator-liquid { transform: scaleX(1.08) translateX(0.5px); }
-  .tab-indicator-move-left.tab-indicator-liquid { transform: scaleX(1.08) translateX(-0.5px); }
-  .tab-indicator-move-right.tab-indicator-liquid-trail { transform: scaleX(1.14) translateX(1px); }
-  .tab-indicator-move-left.tab-indicator-liquid-trail { transform: scaleX(1.14) translateX(-1px); }
+  .tab-indicator-move-right.tab-indicator-liquid { transform: scaleX(1.14) translateX(1.5px); }
+  .tab-indicator-move-left.tab-indicator-liquid { transform: scaleX(1.14) translateX(-1.5px); }
+  .tab-indicator-move-right.tab-indicator-liquid-trail { transform: scaleX(1.22) translateX(2px); opacity: 0.82; }
+  .tab-indicator-move-left.tab-indicator-liquid-trail { transform: scaleX(1.22) translateX(-2px); opacity: 0.82; }
 
   .tracker-status-pill {
     position: relative;
@@ -394,6 +404,19 @@
     border-radius: inherit;
     background: linear-gradient(180deg, hsl(var(--primary) / 0.12) 0%, transparent 42%);
     pointer-events: none;
+  }
+
+  .tabbar-shell-glow {
+    background: linear-gradient(180deg, hsl(var(--primary) / 0.2), hsl(var(--primary-glow) / 0.08));
+    box-shadow: 0 10px 34px -18px hsl(var(--primary) / 0.52);
+  }
+
+  /* Prevent rounded glass clipping artifacts in iOS/Lovable webviews */
+  .tabbar-glass-fix {
+    isolation: isolate;
+    -webkit-mask-image: -webkit-radial-gradient(white, black);
+    transform: translateZ(0);
+    backface-visibility: hidden;
   }
 
   .tracker-hero-luxe::after {
@@ -470,6 +493,25 @@
     transform: translateX(110%);
     opacity: 1;
   }
+
+  :root[data-premium-theme="obsidian"] .hero-glass,
+  :root[data-premium-theme="obsidian"] .app-card {
+    background:
+      linear-gradient(165deg, hsl(var(--surface) / 0.92) 0%, hsl(var(--surface-elevated) / 0.8) 100%);
+  }
+
+  :root[data-premium-theme="neon"] .hero-glass,
+  :root[data-premium-theme="neon"] .app-card {
+    border-color: hsl(var(--primary) / 0.36);
+    box-shadow:
+      0 0 0 1px hsl(var(--primary) / 0.14),
+      0 0 36px hsl(var(--primary) / 0.2),
+      var(--shadow-card),
+      var(--shadow-card-inset);
+  }
+  :root[data-premium-theme="neon"] .bg-primary {
+    box-shadow: 0 0 22px hsl(var(--primary) / 0.4), 0 0 48px hsl(var(--primary-glow) / 0.26);
+  }
 }
 
 @media (prefers-reduced-data: reduce) {
@@ -505,6 +547,20 @@
   --gradient-glow: radial-gradient(58% 44% at 50% -6%, hsl(var(--primary) / 0.14), transparent 76%);
   --gradient-floor: radial-gradient(ellipse 72% 46% at 50% 100%, hsl(var(--primary-glow) / 0.09), transparent 72%);
 }
+:root[data-premium-quality="performance"] .hero-glass,
+:root[data-premium-quality="performance"] .app-card,
+:root.light[data-premium-quality="performance"] .hero-glass,
+:root.light[data-premium-quality="performance"] .app-card {
+  backdrop-filter: none !important;
+  -webkit-backdrop-filter: none !important;
+  box-shadow: var(--shadow-card) !important;
+}
+:root[data-premium-quality="performance"] .panel-luxe::after,
+:root.light[data-premium-quality="performance"] .panel-luxe::after,
+:root[data-premium-quality="performance"] .tracker-status-pill::after,
+:root.light[data-premium-quality="performance"] .tracker-status-pill::after {
+  display: none !important;
+}
 
 /* Capacitor iOS + quality "auto" (no data-premium-quality): default to lighter glass / motion. */
 :root[data-capacitor-ios="true"]:not([data-premium-quality]),
@@ -532,6 +588,16 @@
   --hero-glass-blur: 24px;
   --hero-glass-saturate: 1.24;
 }
+:root[data-premium-quality="premium"] .hero-glass,
+:root[data-premium-quality="premium"] .app-card,
+:root.light[data-premium-quality="premium"] .hero-glass,
+:root.light[data-premium-quality="premium"] .app-card {
+  box-shadow:
+    0 0 0 1px hsl(var(--primary) / 0.14),
+    0 0 28px hsl(var(--primary-glow) / 0.22),
+    var(--shadow-elevated),
+    var(--shadow-card-inset) !important;
+}
 
 @media (prefers-reduced-motion: reduce) {
   .page-enter,
@@ -551,8 +617,12 @@
   }
   .tab-indicator-liquid,
   .tab-indicator-liquid-trail {
-    transition: none !important;
-    transform: none !important;
+    transition-duration: 150ms !important;
+    transition-timing-function: ease-out !important;
+  }
+  .tab-indicator-liquid-trail {
+    opacity: 0.62 !important;
+    filter: blur(4px) !important;
   }
   .panel-luxe::after {
     transition: none !important;
@@ -566,5 +636,9 @@
   }
   .pressable:active {
     transform: none;
+  }
+  .tabbar-luxe a svg,
+  .tabbar-luxe a span {
+    transition-duration: 120ms !important;
   }
 }

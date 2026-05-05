@@ -534,7 +534,10 @@ export default function DayView() {
       </PullToRefresh>
 
       {!planMissing && !isFuture && firstUnfinishedTask && (
-        <div className="fixed bottom-[76px] left-1/2 -translate-x-1/2 w-full max-w-[440px] px-6 z-30">
+        <div
+          className="fixed left-1/2 -translate-x-1/2 w-full max-w-[440px] px-6 z-30"
+          style={{ bottom: "calc(84px + env(safe-area-inset-bottom))" }}
+        >
           <Button onClick={() => nav(`/focus/${firstUnfinishedTask.id}`)}
             className="w-full h-12 rounded-xl bg-primary hover:bg-primary/92 text-primary-foreground text-[15px] font-medium pressable shadow-elevated">
             <Play className="h-4 w-4" fill="currentColor" /> {toneCopy(getTone(profile as any), doneTasks === 0 ? "start_first" : "start_next")}
@@ -542,7 +545,10 @@ export default function DayView() {
         </div>
       )}
       {!planMissing && !isFuture && !firstUnfinishedTask && totalTasks > 0 && (
-        <div className="fixed bottom-[76px] left-1/2 -translate-x-1/2 w-full max-w-[440px] px-6 z-30">
+        <div
+          className="fixed left-1/2 -translate-x-1/2 w-full max-w-[440px] px-6 z-30"
+          style={{ bottom: "calc(84px + env(safe-area-inset-bottom))" }}
+        >
           <Button onClick={() => nav(isToday ? "/recap" : `/recap?date=${viewDate}`)} className="w-full h-12 rounded-xl bg-success text-success-foreground hover:bg-success/90 text-[15px] font-medium pressable shadow-elevated">
             {toneCopy(getTone(profile as any), "recap_cta")} →
           </Button>
