@@ -84,6 +84,8 @@ export default function DayView() {
   const [reminderBlockId, setReminderBlockId] = useState<string | null>(null);
   const [reminderCfg, setReminderCfg] = useState<ReminderConfig>({ enabled: true, leadsMin: [2], repeats: 0 });
   const [durationEditId, setDurationEditId] = useState<string | null>(null);
+  const [startTimeEditId, setStartTimeEditId] = useState<string | null>(null);
+  const [startTimeDraft, setStartTimeDraft] = useState<string>("09:00");
   const [upgradeOpen, setUpgradeOpen] = useState(false);
   const [calmMode] = useCalmMode();
   const { isPro } = useEntitlement();
@@ -608,6 +610,17 @@ export default function DayView() {
                   label="Change duration"
                 />
               )}
+              {!tappedBlock.is_calendar_event && (
+                <ActionRow
+                  onClick={() => {
+                    setStartTimeDraft(tappedBlock.start_time || "09:00");
+                    setStartTimeEditId(tappedBlock.id);
+                    setTappedBlock(null);
+                  }}
+                  icon={<Clock className="h-4 w-4" />}
+                  label="Change start time"
+                />
+              )}
               {!tappedBlock.is_calendar_event && tappedBlock.kind === "task" && !tappedBlock.completed && (
                 <ActionRow
                   onClick={() => {
@@ -850,6 +863,66 @@ export default function DayView() {
         onChange={setNewDuration}
         title="New block duration"
       />
+
+      <Sheet open={!!startTimeEditId} onOpenChange={(v) => !v && setStartTimeEditId(null)}>
+        <SheetContent side="bottom" className="rounded-t-2xl border-soft bg-popover">
+          <SheetHeader className="text-left mb-3">
+            <SheetTitle className="text-[16px]">Change start time</SheetTitle>
+          </SheetHeader>
+          <input
+            type="time"
+            value={startTimeDraft}
+            onChange={(e) => setStartTimeDraft(e.target.value)}
+            className="w-full h-12 px-3 rounded-lg bg-card border border-soft text-[16px] text-foreground focus:outline-none focus:border-primary/50 focus:ring-2 focus:ring-primary/15"
+          />
+          <div className="mt-4 flex gap-2">
+            <Button
+              variant="outline"
+              className="flex-1"
+              onClick={() => setStartTimeEditId(null)}
+            >
+              Cancel
+            </Button>
+            <Button
+              className="flex-1"
+              onClick={async () => {
+                const id = startTimeEditId;
+                if (!id) return;
+                if (!/^\d{2}:\d{2}$/.test(startTimeDraft)) {
+                  toast.error("Pick a valid time");
+                  return;
+                }
+                const idx = blocks.findIndex(b => b.id === id);
+                if (idx < 0) { setStartTimeEditId(null); return; }
+                const updated = [...blocks];
+                updated[idx] = { ...updated[idx], start_time: startTimeDraft };
+                // Re-flow only blocks after this one
+                const [hh, mm] = startTimeDraft.split(":").map(Number);
+                let cursor = hh * 60 + mm + updated[idx].duration_min;
+                for (let i = idx + 1; i < updated.length; i++) {
+                  updated[i] = {
+                    ...updated[i],
+                    start_time: `${String(Math.floor(cursor / 60)).padStart(2,"0")}:${String(cursor % 60).padStart(2,"0")}`,
+                  };
+                  cursor += updated[i].duration_min;
+                }
+                setBlocks(updated);
+                setStartTimeEditId(null);
+                haptics.notify("success");
+                try {
+                  await supabase.from("blocks").update({ start_time: startTimeDraft }).eq("id", id);
+                  await persistOrder(updated);
+                  await invalidatePlanCaches();
+                } catch (e: any) {
+                  toast.error(e?.message || "Couldn't update start time");
+                }
+              }}
+            >
+              Save
+            </Button>
+          </div>
+        </SheetContent>
+      </Sheet>
     </Shell>
   );
 }
