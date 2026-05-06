@@ -1,4 +1,4 @@
-import { Lightbulb } from "lucide-react";
+import { Lightbulb, X } from "lucide-react";
 
 /** Soft callout for first-time or low-friction guidance. */
 export function BeginnerTip({
