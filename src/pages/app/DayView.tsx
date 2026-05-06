@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { useNavigate, useSearchParams } from "react-router-dom";
 import { Shell } from "@/components/app/Shell";
@@ -87,6 +87,8 @@ export default function DayView() {
   const [startTimeEditId, setStartTimeEditId] = useState<string | null>(null);
   const [startTimeDraft, setStartTimeDraft] = useState<string>("09:00");
   const [upgradeOpen, setUpgradeOpen] = useState(false);
+  const [planMutating, setPlanMutating] = useState(false);
+  const blockOpLocksRef = useRef(new Set<string>());
   const [calmMode] = useCalmMode();
   const { isPro } = useEntitlement();
 
@@ -171,6 +173,8 @@ export default function DayView() {
   };
 
   const removeBlock = async (id: string) => {
+    if (blockOpLocksRef.current.has(`remove:${id}`)) return;
+    blockOpLocksRef.current.add(`remove:${id}`);
     const snapshot = blocks;
     const removed = snapshot.find(b => b.id === id);
     if (!removed) return;
@@ -220,10 +224,14 @@ export default function DayView() {
     } catch (e: any) {
       setBlocks(snapshot);
       toast.error(e?.message || "Unable to remove block");
+    } finally {
+      blockOpLocksRef.current.delete(`remove:${id}`);
     }
   };
 
   const completeBlock = async (id: string) => {
+    if (blockOpLocksRef.current.has(`complete:${id}`)) return;
+    blockOpLocksRef.current.add(`complete:${id}`);
     const snapshot = blocks;
     const wasDone = blocks.find(b => b.id === id)?.completed;
     const toggled = snapshot.find(b => b.id === id);
@@ -259,10 +267,13 @@ export default function DayView() {
     } catch (e: any) {
       setBlocks(snapshot);
       toast.error(e?.message || "Unable to update task");
+    } finally {
+      blockOpLocksRef.current.delete(`complete:${id}`);
     }
   };
 
   const addInlineBlock = async () => {
+    if (planMutating) return;
     if (!plan || !user) return;
     if (!newTitle.trim() && newKind === "task") { toast.error("Add a title"); return; }
     const insertAt = blocks.length;
@@ -287,27 +298,37 @@ export default function DayView() {
       completed: false,
       position: insertAt,
     };
-    const next = retime([...blocks, item]);
+    const snapshot = blocks;
+    const next = retime([...snapshot, item]);
     setBlocks(next);
     setAddOpen(false);
     setNewTitle(""); setNewDuration(30); setNewKind("task");
     haptics.notify("success");
-    await supabase.from("blocks").insert({
-      id: newId,
-      plan_id: plan.id,
-      user_id: user.id,
-      start_time: item.start_time,
-      duration_min: item.duration_min,
-      title: item.title,
-      type: item.type,
-      kind: item.kind,
-      estimated_minutes: item.estimated_minutes ?? item.duration_min,
-      actual_minutes: item.actual_minutes ?? null,
-      block_type: inferScheduleBlockType(item),
-      position: item.position,
-    });
-    await persistOrder(next);
-    await invalidatePlanCaches();
+    setPlanMutating(true);
+    try {
+      const { error: insertErr } = await supabase.from("blocks").insert({
+        id: newId,
+        plan_id: plan.id,
+        user_id: user.id,
+        start_time: item.start_time,
+        duration_min: item.duration_min,
+        title: item.title,
+        type: item.type,
+        kind: item.kind,
+        estimated_minutes: item.estimated_minutes ?? item.duration_min,
+        actual_minutes: item.actual_minutes ?? null,
+        block_type: inferScheduleBlockType(item),
+        position: item.position,
+      });
+      if (insertErr) throw insertErr;
+      await persistOrder(next);
+      await invalidatePlanCaches();
+    } catch (e: any) {
+      setBlocks(snapshot);
+      toast.error(e?.message || "Unable to add block");
+    } finally {
+      setPlanMutating(false);
+    }
   };
 
   const persistOrder = async (list: ExBlock[]) => {
@@ -338,9 +359,11 @@ export default function DayView() {
   };
 
   const replanRest = async () => {
+    if (planMutating) return;
     if (!user || !plan) return;
     setMoreOpen(false);
     setReplanning(true);
+    setPlanMutating(true);
     try {
       const remaining = blocks.filter(b => isUserTask(b) && !b.completed);
       const nowHM = `${String(now.getHours()).padStart(2,"0")}:${String(now.getMinutes()).padStart(2,"0")}`;
@@ -393,7 +416,10 @@ export default function DayView() {
       toast.success("Re-planned");
     } catch (e: any) {
       toast.error(e.message || "Unable to re-plan remaining tasks");
-    } finally { setReplanning(false); }
+    } finally {
+      setReplanning(false);
+      setPlanMutating(false);
+    }
   };
 
   const rollOverUnfinishedToTomorrow = async () => {
@@ -534,6 +560,7 @@ export default function DayView() {
             {!isFuture && (
               <button
                 onClick={() => setAddOpen(true)}
+                disabled={planMutating}
                 className="mt-3 w-full inline-flex items-center justify-center gap-1.5 text-[12px] text-secondary-fg hover:text-primary border border-soft rounded-xl h-11 surface-soft pressable"
               >
                 <Plus className="h-3.5 w-3.5" /> Add task
@@ -741,6 +768,7 @@ export default function DayView() {
             </button>
             <Button
               onClick={addInlineBlock}
+              disabled={planMutating}
               className="w-full h-11 rounded-lg bg-primary hover:bg-primary/92 text-primary-foreground font-medium pressable"
             >Add</Button>
           </div>
@@ -758,15 +786,24 @@ export default function DayView() {
           <AlertDialogFooter>
             <AlertDialogCancel>Cancel</AlertDialogCancel>
             <AlertDialogAction
+              disabled={planMutating}
               className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
               onClick={async () => {
                 if (!plan) return;
+                if (planMutating) return;
+                setPlanMutating(true);
                 setConfirmDeletePlan(false);
-                await supabase.from("blocks").delete().eq("plan_id", plan.id);
-                await supabase.from("plans").delete().eq("id", plan.id);
-                await invalidatePlanCaches();
-                toast.success("Plan deleted");
-                nav(isToday ? "/today" : `/today?date=${viewDate}`);
+                try {
+                  await supabase.from("blocks").delete().eq("plan_id", plan.id);
+                  await supabase.from("plans").delete().eq("id", plan.id);
+                  await invalidatePlanCaches();
+                  toast.success("Plan deleted");
+                  nav(isToday ? "/today" : `/today?date=${viewDate}`);
+                } catch (e: any) {
+                  toast.error(e?.message || "Unable to delete plan");
+                } finally {
+                  setPlanMutating(false);
+                }
               }}
             >Delete</AlertDialogAction>
           </AlertDialogFooter>
@@ -841,17 +878,28 @@ export default function DayView() {
         onClose={() => setDurationEditId(null)}
         value={blocks.find(b => b.id === durationEditId)?.duration_min || 30}
         onChange={async (v) => {
+          if (planMutating) return;
           const id = durationEditId;
           if (!id) return;
           const idx = blocks.findIndex(b => b.id === id);
           if (idx < 0) return;
+          const snapshot = blocks;
           const updated = [...blocks];
           updated[idx] = { ...updated[idx], duration_min: v };
           const next = retime(updated);
           setBlocks(next);
-          await supabase.from("blocks").update({ duration_min: v }).eq("id", id);
-          await persistOrder(next);
-          await invalidatePlanCaches();
+          setPlanMutating(true);
+          try {
+            const { error } = await supabase.from("blocks").update({ duration_min: v }).eq("id", id);
+            if (error) throw error;
+            await persistOrder(next);
+            await invalidatePlanCaches();
+          } catch (e: any) {
+            setBlocks(snapshot);
+            toast.error(e?.message || "Couldn't update duration");
+          } finally {
+            setPlanMutating(false);
+          }
         }}
         title="Duration"
       />
@@ -886,6 +934,7 @@ export default function DayView() {
             <Button
               className="flex-1"
               onClick={async () => {
+                if (planMutating) return;
                 const id = startTimeEditId;
                 if (!id) return;
                 if (!/^\d{2}:\d{2}$/.test(startTimeDraft)) {
@@ -894,6 +943,7 @@ export default function DayView() {
                 }
                 const idx = blocks.findIndex(b => b.id === id);
                 if (idx < 0) { setStartTimeEditId(null); return; }
+                const snapshot = blocks;
                 const updated = [...blocks];
                 updated[idx] = { ...updated[idx], start_time: startTimeDraft };
                 // Re-flow only blocks after this one
@@ -909,12 +959,17 @@ export default function DayView() {
                 setBlocks(updated);
                 setStartTimeEditId(null);
                 haptics.notify("success");
+                setPlanMutating(true);
                 try {
-                  await supabase.from("blocks").update({ start_time: startTimeDraft }).eq("id", id);
+                  const { error } = await supabase.from("blocks").update({ start_time: startTimeDraft }).eq("id", id);
+                  if (error) throw error;
                   await persistOrder(updated);
                   await invalidatePlanCaches();
                 } catch (e: any) {
+                  setBlocks(snapshot);
                   toast.error(e?.message || "Couldn't update start time");
+                } finally {
+                  setPlanMutating(false);
                 }
               }}
             >

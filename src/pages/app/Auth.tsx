@@ -29,7 +29,9 @@ export default function Auth() {
   useEffect(() => {
     if (loading || (user && profileLoading)) return;
     if (!user) return;
-    nav(profile?.onboarded ? "/today" : "/onboarding", { replace: true });
+    // In Lovable preview / flaky network, profile can be temporarily null even for
+    // existing users. Only force onboarding when we explicitly know it's false.
+    nav(profile?.onboarded === false ? "/onboarding" : "/today", { replace: true });
   }, [loading, nav, profile?.onboarded, profileLoading, user]);
 
   const getErrorMessage = (message: string) => {

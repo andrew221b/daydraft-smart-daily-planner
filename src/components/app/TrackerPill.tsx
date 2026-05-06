@@ -87,6 +87,8 @@ function TrackerInner({ embedded = false, onClose }: { embedded?: boolean; onClo
   });
   const [linkedExtendMin, setLinkedExtendMin] = useState(0);
   const [nextSuggestion, setNextSuggestion] = useState<string | null>(null);
+  const [linkedBusy, setLinkedBusy] = useState(false);
+  const [categoryBusyId, setCategoryBusyId] = useState<string | null>(null);
   const tabIndex = TABS.indexOf(tab);
 
   const activeCat = categories.find(c => c.id === active?.category_id);
@@ -371,26 +373,38 @@ function TrackerInner({ embedded = false, onClose }: { embedded?: boolean; onClo
 
   // Smart stop: if running session is < 60s, confirm (likely accidental tap).
   const handleStop = async () => {
+    if (linkedBusy) return;
     if (active && elapsedSec < 60) {
       const ok = window.confirm("Stop after less than a minute? This session will still be saved.");
       if (!ok) return;
     }
-    await stop();
+    setLinkedBusy(true);
+    try {
+      await stop();
+    } finally {
+      setLinkedBusy(false);
+    }
   };
 
   const startLinked = async () => {
     if (!linkedBlock) return;
-    if (active) return;
+    if (active || linkedBusy) return;
     const categoryId = linkedCat?.id || categories[0]?.id;
-    await start(categoryId, {
-      source: "plan_linked",
-      note: linkedBlock.title,
-      blockId: linkedBlock.id,
-    });
-    setNextSuggestion(null);
+    setLinkedBusy(true);
+    try {
+      await start(categoryId, {
+        source: "plan_linked",
+        note: linkedBlock.title,
+        blockId: linkedBlock.id,
+      });
+      setNextSuggestion(null);
+    } finally {
+      setLinkedBusy(false);
+    }
   };
 
   const stopLinked = async () => {
+    if (linkedBusy) return;
     const currentLinkedId = linkedBlock?.id;
     await handleStop();
     if (!currentLinkedId) return;
@@ -633,17 +647,17 @@ function TrackerInner({ embedded = false, onClose }: { embedded?: boolean; onClo
                     {!linkedIsActive ? (
                       <button
                         onClick={startLinked}
-                        disabled={!!active}
-                        className="inline-flex items-center gap-2 h-11 px-5 rounded-full bg-primary text-primary-foreground text-[13.5px] font-semibold pressable shadow-card disabled:opacity-50"
+                        disabled={!!active || linkedBusy}
+                        className="inline-flex items-center gap-2 h-11 px-5 rounded-full bg-primary text-primary-foreground text-[13.5px] font-semibold pressable shadow-card disabled:opacity-50 disabled:pointer-events-none"
                       >
                         <Play className="h-3.5 w-3.5" fill="currentColor" /> Start
                       </button>
                     ) : (
                       <>
-                        <button onClick={stopLinked} className="inline-flex items-center gap-2 h-11 px-5 rounded-full bg-primary text-primary-foreground text-[13.5px] font-semibold pressable shadow-card">
+                        <button disabled={linkedBusy} onClick={stopLinked} className="inline-flex items-center gap-2 h-11 px-5 rounded-full bg-primary text-primary-foreground text-[13.5px] font-semibold pressable shadow-card disabled:opacity-50 disabled:pointer-events-none">
                           <Pause className="h-3.5 w-3.5" fill="currentColor" /> Stop
                         </button>
-                        <button onClick={() => setLinkedExtendMin((m) => m + 10)} className="h-11 px-4 rounded-full border border-soft surface-card text-[12px] font-medium pressable">
+                        <button disabled={linkedBusy} onClick={() => setLinkedExtendMin((m) => m + 10)} className="h-11 px-4 rounded-full border border-soft surface-card text-[12px] font-medium pressable disabled:opacity-50 disabled:pointer-events-none">
                           Extend 10m
                         </button>
                       </>
@@ -817,7 +831,7 @@ function TrackerInner({ embedded = false, onClose }: { embedded?: boolean; onClo
                         </LongPressButton>
                       )}
                       {editingCat === c.id ? null : isActive ? (
-                        <button onClick={handleStop} className="inline-flex items-center gap-1 px-3 py-1.5 rounded-lg bg-primary text-primary-foreground text-xs font-medium pressable">
+                          <button disabled={linkedBusy} onClick={handleStop} className="inline-flex items-center gap-1 px-3 py-1.5 rounded-lg bg-primary text-primary-foreground text-xs font-medium pressable disabled:opacity-50 disabled:pointer-events-none">
                           <Pause className="h-3 w-3" fill="currentColor" /> Stop
                         </button>
                       ) : (
@@ -833,7 +847,19 @@ function TrackerInner({ embedded = false, onClose }: { embedded?: boolean; onClo
                             </button>
                           )}
                           {!active && (
-                            <button onClick={() => start(c.id)} className="inline-flex items-center gap-1 px-3 py-1.5 rounded-lg bg-foreground text-background text-xs font-medium pressable">
+                            <button
+                              disabled={!!categoryBusyId}
+                              onClick={async () => {
+                                if (categoryBusyId) return;
+                                setCategoryBusyId(c.id);
+                                try {
+                                  await start(c.id);
+                                } finally {
+                                  setCategoryBusyId(null);
+                                }
+                              }}
+                              className="inline-flex items-center gap-1 px-3 py-1.5 rounded-lg bg-foreground text-background text-xs font-medium pressable disabled:opacity-50 disabled:pointer-events-none"
+                            >
                               <Play className="h-3 w-3" fill="currentColor" /> Start
                             </button>
                           )}

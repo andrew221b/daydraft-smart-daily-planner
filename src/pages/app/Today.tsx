@@ -92,6 +92,7 @@ export default function Today() {
   const [rescueExplain, setRescueExplain] = useState<string[]>([]);
   const [rescueSheetOpen, setRescueSheetOpen] = useState(false);
   const [rescueLoading, setRescueLoading] = useState(false);
+  const [rescueApplying, setRescueApplying] = useState(false);
   const [rescuePendingBlocks, setRescuePendingBlocks] = useState<any[]>([]);
   const [rescueDiffRows, setRescueDiffRows] = useState<Array<{ title: string; before: string; after: string }>>([]);
   const [rescueDeferredRows, setRescueDeferredRows] = useState<Array<{ title: string; mins: number }>>([]);
@@ -318,6 +319,7 @@ export default function Today() {
   };
 
   const rescueMyDay = async (manual = true) => {
+    if (busy || rescueLoading || rescueApplying) return;
     if (!user || !profile || !hasPlanForDate || !planBlocks.length) return;
     const activeEnd = (profile as any)?.active_hours_end || "18:00";
     const nowMin = toMin(nowHM);
@@ -339,23 +341,36 @@ export default function Today() {
         const end = start + (b.duration_min || 0);
         return sum + Math.max(0, Math.min(end, endMin) - Math.max(start, nowMin));
       }, 0);
-    const budgetMin = Math.max(30, endMin - nowMin - occupiedMin);
+    const baseBudgetMin = Math.max(30, endMin - nowMin - occupiedMin);
+    const modeConfig = {
+      conservative: { maxBlocks: 2, maxTaskMin: 60, minTaskMin: 20, reserveMin: 30, label: "conservative" },
+      balanced: { maxBlocks: 4, maxTaskMin: 90, minTaskMin: 20, reserveMin: 15, label: "balanced" },
+      aggressive: { maxBlocks: 6, maxTaskMin: 110, minTaskMin: 15, reserveMin: 0, label: "aggressive" },
+    } as const;
+    const cfg = modeConfig[rescueMode];
+    const budgetMin = Math.max(30, baseBudgetMin - cfg.reserveMin);
     const scored = remaining
       .map((b) => {
         const base = b.type === "deep_work" ? 24 : b.type === "communication" ? 15 : 12;
         const overdueBoost = toMin(b.start_time) + (b.duration_min || 0) < nowMin ? 4 : 0;
         const sizePenalty = Math.max(0, (b.duration_min || 0) - 75) * 0.08;
-        return { ...b, score: base + overdueBoost - sizePenalty };
+        const modeBias =
+          rescueMode === "aggressive"
+            ? (isUserTask(b) ? 3 : 0)
+            : rescueMode === "conservative"
+              ? (b.type === "communication" || b.type === "routine" ? 2 : 0)
+              : 0;
+        return { ...b, score: base + overdueBoost + modeBias - sizePenalty };
       })
       .sort((a, b) => b.score - a.score);
     const selected: Array<{ id: string; title: string; mins: number }> = [];
     let used = 0;
     for (const task of scored) {
-      const mins = Math.max(20, Math.min(90, task.duration_min || 30));
+      const mins = Math.max(cfg.minTaskMin, Math.min(cfg.maxTaskMin, task.duration_min || 30));
       if (used + mins > budgetMin && selected.length > 0) continue;
       selected.push({ id: task.id, title: task.title, mins });
       used += mins;
-      if (used >= budgetMin || selected.length >= 4) break;
+      if (used >= budgetMin || selected.length >= cfg.maxBlocks) break;
     }
     if (!selected.length) {
       toast("No rescue needed. Your plan is already realistic.");
@@ -377,8 +392,9 @@ export default function Today() {
         body: {
           raw_input,
           planning_context:
-            `Rescue mode: build a minimal aggressive plan from ${nowHM} to ${activeEnd}. ` +
-            `Keep only highest-priority work that fits today and defer the rest.`,
+            `Rescue mode: ${cfg.label}. Build a realistic re-plan from ${nowHM} to ${activeEnd}. ` +
+            `Respect this intensity: conservative keeps a lighter load, balanced keeps key priorities, aggressive maximizes what fits. ` +
+            `Defer everything that does not fit today.`,
           energy_preference: profile.energy_preference,
           name: profile.display_name,
           mode: "replan",
@@ -407,7 +423,7 @@ export default function Today() {
       }).filter((r) => r.before !== r.after).slice(0, 10);
       setRescuePendingBlocks(nextBlocks);
       setRescueDiffRows(diff);
-      setRescueRationale(`Rescue window: ${fmtMin(budgetMin)} before ${activeEnd}.`);
+      setRescueRationale(`Rescue window (${cfg.label}): ${fmtMin(budgetMin)} before ${activeEnd}.`);
       setRescueExplain([
         `${selected.length} highest-priority tasks kept for today.`,
         `${deferred.length} lower-priority task${deferred.length === 1 ? "" : "s"} moved to deferred.`,
@@ -428,6 +444,7 @@ export default function Today() {
   };
 
   const recalculateRescue = () => {
+    if (rescueLoading || rescueApplying) return;
     void rescueMyDay(true);
     trackAiEvent("ai_rescue_recalculated", { mode: rescueMode });
   };
@@ -462,6 +479,7 @@ export default function Today() {
   };
 
   const openClarify = async () => {
+    if (busy || rescueLoading || rescueApplying) return;
     if (!input.trim()) { toast.error("Add at least one task"); return; }
     if (!user || !profile) return;
     try {
@@ -480,6 +498,7 @@ export default function Today() {
   };
 
   const plan = async (clarified: ClarifiedTask[], planningContext?: string) => {
+    if (busy) return;
     if (!user || !profile) return;
     haptics.impact("medium");
     setClarifyOpen(false);
@@ -704,8 +723,9 @@ export default function Today() {
             </div>
             <button
               type="button"
+              disabled={rescueLoading || rescueApplying}
               onClick={() => void rescueMyDay(true)}
-              className="h-8 px-3 rounded-lg border border-accent surface-accent text-[12px] font-medium text-primary pressable shrink-0"
+              className="h-8 px-3 rounded-lg border border-accent surface-accent text-[12px] font-medium text-primary pressable shrink-0 disabled:opacity-50 disabled:pointer-events-none"
             >
               Rescue my day ↗
             </button>
@@ -793,30 +813,34 @@ export default function Today() {
                 <div className="grid grid-cols-3 gap-2">
                   <button
                     type="button"
+                    disabled={rescueLoading || rescueApplying}
                     onClick={() => setRescueMode("conservative")}
-                    className={`h-9 rounded-lg border text-[11px] font-medium pressable ${rescueMode === "conservative" ? "surface-accent border-accent text-primary" : "surface-soft border-soft text-secondary-fg"}`}
+                    className={`h-9 rounded-lg border text-[11px] font-medium pressable disabled:opacity-50 disabled:pointer-events-none ${rescueMode === "conservative" ? "surface-accent border-accent text-primary" : "surface-soft border-soft text-secondary-fg"}`}
                   >
                     Conservative
                   </button>
                   <button
                     type="button"
+                    disabled={rescueLoading || rescueApplying}
                     onClick={() => setRescueMode("balanced")}
-                    className={`h-9 rounded-lg border text-[11px] font-medium pressable ${rescueMode === "balanced" ? "surface-accent border-accent text-primary" : "surface-soft border-soft text-secondary-fg"}`}
+                    className={`h-9 rounded-lg border text-[11px] font-medium pressable disabled:opacity-50 disabled:pointer-events-none ${rescueMode === "balanced" ? "surface-accent border-accent text-primary" : "surface-soft border-soft text-secondary-fg"}`}
                   >
                     Balanced
                   </button>
                   <button
                     type="button"
+                    disabled={rescueLoading || rescueApplying}
                     onClick={() => setRescueMode("aggressive")}
-                    className={`h-9 rounded-lg border text-[11px] font-medium pressable ${rescueMode === "aggressive" ? "surface-accent border-accent text-primary" : "surface-soft border-soft text-secondary-fg"}`}
+                    className={`h-9 rounded-lg border text-[11px] font-medium pressable disabled:opacity-50 disabled:pointer-events-none ${rescueMode === "aggressive" ? "surface-accent border-accent text-primary" : "surface-soft border-soft text-secondary-fg"}`}
                   >
                     Aggressive
                   </button>
                 </div>
                 <button
                   type="button"
+                  disabled={rescueLoading || rescueApplying}
                   onClick={() => void rescueMyDay(true)}
-                  className="w-full h-10 rounded-lg border border-soft surface-soft text-[12px] text-secondary-fg hover:text-foreground pressable inline-flex items-center justify-center gap-1.5"
+                  className="w-full h-10 rounded-lg border border-soft surface-soft text-[12px] text-secondary-fg hover:text-foreground pressable inline-flex items-center justify-center gap-1.5 disabled:opacity-50 disabled:pointer-events-none"
                 >
                   <ShieldAlert className="h-3.5 w-3.5" />
                   Rescue my day ↗
@@ -853,8 +877,9 @@ export default function Today() {
             {isRunningBehind && (
               <button
                 type="button"
+                disabled={rescueLoading || rescueApplying}
                 onClick={() => void rescueMyDay(false)}
-                className="w-full h-10 rounded-xl border border-accent surface-accent text-[12.5px] font-medium text-primary hover:opacity-95 pressable inline-flex items-center justify-center gap-2"
+                className="w-full h-10 rounded-xl border border-accent surface-accent text-[12.5px] font-medium text-primary hover:opacity-95 pressable inline-flex items-center justify-center gap-2 disabled:opacity-50 disabled:pointer-events-none"
               >
                 <ShieldAlert className="h-4 w-4" />
                 Rescue my day ↗
@@ -1015,8 +1040,9 @@ export default function Today() {
                 </div>
                 <button
                   type="button"
+                  disabled={rescueLoading || rescueApplying}
                   onClick={recalculateRescue}
-                  className="h-7 px-2.5 rounded-md border border-soft surface-card text-[11px] text-secondary-fg hover:text-foreground pressable"
+                  className="h-7 px-2.5 rounded-md border border-soft surface-card text-[11px] text-secondary-fg hover:text-foreground pressable disabled:opacity-50 disabled:pointer-events-none"
                 >
                   Recalculate
                 </button>
@@ -1070,7 +1096,7 @@ export default function Today() {
               <MoreHorizontal className="h-4 w-4" />
             </button>
           </div>
-          <Button onClick={openClarify} disabled={busy}
+          <Button onClick={openClarify} disabled={busy || rescueLoading || rescueApplying}
             className="w-full mt-3 h-12 rounded-xl bg-primary hover:bg-primary/92 text-primary-foreground text-[15px] font-semibold pressable">
             {hasPlanForDate ? "Re-plan with these" : "Generate plan"} <ArrowRight className="h-4 w-4" />
           </Button>
@@ -1113,7 +1139,7 @@ export default function Today() {
       </Sheet>
 
       <UpgradeSheet open={upgradeOpen} onOpenChange={setUpgradeOpen} reason={upgradeReason} />
-      <Sheet open={rescueSheetOpen} onOpenChange={setRescueSheetOpen}>
+      <Sheet open={rescueSheetOpen} onOpenChange={(v) => { if (!rescueApplying) setRescueSheetOpen(v); }}>
         <SheetContent side="bottom" className="rounded-t-2xl border-soft bg-popover">
           <SheetHeader className="text-left">
             <SheetTitle className="text-[16px]">Rescue my day</SheetTitle>
@@ -1156,8 +1182,11 @@ export default function Today() {
               </div>
               <div className="flex gap-2 pt-1">
                 <Button
+                  disabled={rescueLoading || rescueApplying}
                   onClick={async () => {
+                    if (rescueApplying || rescueLoading) return;
                     if (!user || !rescuePendingBlocks.length) return;
+                    setRescueApplying(true);
                     try {
                       const { data: planRow, error: planErr } = await supabase
                         .from("plans")
@@ -1208,13 +1237,15 @@ export default function Today() {
                       toast.success("Rescue plan applied.");
                     } catch (e: any) {
                       toast.error(e?.message || "Unable to apply rescue plan.");
+                    } finally {
+                      setRescueApplying(false);
                     }
                   }}
                   className="flex-1 h-10 rounded-xl"
                 >
                   Use this plan
                 </Button>
-                <Button variant="outline" className="flex-1 h-10 rounded-xl border-soft" onClick={() => setRescueSheetOpen(false)}>
+                <Button disabled={rescueApplying} variant="outline" className="flex-1 h-10 rounded-xl border-soft" onClick={() => setRescueSheetOpen(false)}>
                   Go back
                 </Button>
               </div>

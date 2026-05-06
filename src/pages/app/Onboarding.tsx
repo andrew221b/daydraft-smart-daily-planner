@@ -83,45 +83,55 @@ export default function Onboarding() {
     };
   }, []);
 
+  const [finishing, setFinishing] = useState(false);
+
   const finish = async (notif: boolean) => {
+    if (finishing) return;
+    setFinishing(true);
     let enabled = false;
-    if (notif && pushSupported()) {
-      try {
-        const {
-          data: { session },
-        } = await supabase.auth.getSession();
-        if (session?.user) {
-          await enablePush(session.user.id);
-          enabled = true;
+    try {
+      if (notif && pushSupported()) {
+        try {
+          const {
+            data: { session },
+          } = await supabase.auth.getSession();
+          if (session?.user) {
+            await enablePush(session.user.id);
+            enabled = true;
+          }
+        } catch (e: any) {
+          if (e?.message && !/VAPID|configured/i.test(e.message)) toast(e.message);
         }
-      } catch (e: any) {
-        if (e?.message && !/VAPID|configured/i.test(e.message)) toast(e.message);
       }
-    }
-    const tz = (() => {
+      const tz = (() => {
+        try {
+          return Intl.DateTimeFormat().resolvedOptions().timeZone;
+        } catch {
+          return "UTC";
+        }
+      })();
       try {
-        return Intl.DateTimeFormat().resolvedOptions().timeZone;
+        localStorage.setItem("dd_ai_tone", tone);
       } catch {
-        return "UTC";
+        // ignore
       }
-    })();
-    try {
-      localStorage.setItem("dd_ai_tone", tone);
-    } catch {
-      // ignore
+      await update({
+        ai_tone: tone as any,
+        notifications_enabled: enabled,
+        onboarded: true,
+        timezone: tz,
+      } as any);
+      try {
+        sessionStorage.removeItem(PROGRESS_KEY);
+      } catch {
+        // ignore
+      }
+      nav("/today");
+    } catch (e: any) {
+      toast.error(e?.message || "Could not finish onboarding. Please try again.");
+    } finally {
+      setFinishing(false);
     }
-    await update({
-      ai_tone: tone as any,
-      notifications_enabled: enabled,
-      onboarded: true,
-      timezone: tz,
-    } as any);
-    try {
-      sessionStorage.removeItem(PROGRESS_KEY);
-    } catch {
-      // ignore
-    }
-    nav("/today");
   };
 
   const morphToTimeline = () => {
@@ -164,10 +174,10 @@ export default function Onboarding() {
                   <div className="text-[13px] text-subtle">Input -&gt; smart schedule -&gt; rescue if your day shifts.</div>
                 </div>
               </div>
-              <Button onClick={() => setStep(1)} className="w-full h-[52px] rounded-[16px] bg-primary text-primary-foreground hover:bg-primary/92 pressable text-[15px] font-medium shadow-card">
+              <Button disabled={finishing} onClick={() => setStep(1)} className="w-full h-[52px] rounded-[16px] bg-primary text-primary-foreground hover:bg-primary/92 pressable text-[15px] font-medium shadow-card">
                 Start preview <ArrowRight className="h-4 w-4" />
               </Button>
-              <button type="button" onClick={() => finish(false)} className="mt-3 text-secondary-fg text-[13px] hover:text-foreground transition-colors mx-auto">
+              <button type="button" disabled={finishing} onClick={() => finish(false)} className="mt-3 text-secondary-fg text-[13px] hover:text-foreground transition-colors mx-auto disabled:opacity-60 disabled:pointer-events-none">
                 Skip intro
               </button>
             </div>
@@ -187,7 +197,7 @@ export default function Onboarding() {
                   </div>
                 ))}
               </div>
-              <Button onClick={morphToTimeline} className="w-full h-[52px] rounded-[16px] bg-primary text-primary-foreground hover:bg-primary/92 pressable text-[15px] font-medium mt-5 shadow-card">
+              <Button disabled={finishing} onClick={morphToTimeline} className="w-full h-[52px] rounded-[16px] bg-primary text-primary-foreground hover:bg-primary/92 pressable text-[15px] font-medium mt-5 shadow-card">
                 Build timeline
               </Button>
             </div>
@@ -212,7 +222,7 @@ export default function Onboarding() {
                   </div>
                 ))}
               </div>
-              <Button onClick={() => setStep(3)} className="w-full h-[52px] rounded-[16px] bg-primary text-primary-foreground hover:bg-primary/92 pressable text-[15px] font-medium mt-5 shadow-card">
+              <Button disabled={finishing} onClick={() => setStep(3)} className="w-full h-[52px] rounded-[16px] bg-primary text-primary-foreground hover:bg-primary/92 pressable text-[15px] font-medium mt-5 shadow-card">
                 Choose AI voice
               </Button>
             </div>
@@ -251,7 +261,7 @@ export default function Onboarding() {
               <div className="mt-3 rounded-xl border border-soft surface-soft px-3 py-2.5 text-[12px] text-subtle fade-in">
                 {tonePreview[tone]}
               </div>
-              <Button onClick={() => setStep(4)} className="w-full h-[52px] rounded-[16px] bg-primary text-primary-foreground hover:bg-primary/92 pressable text-[15px] font-medium mt-5 shadow-card">
+              <Button disabled={finishing} onClick={() => setStep(4)} className="w-full h-[52px] rounded-[16px] bg-primary text-primary-foreground hover:bg-primary/92 pressable text-[15px] font-medium mt-5 shadow-card">
                 Show rescue mode
               </Button>
             </div>
@@ -292,10 +302,10 @@ export default function Onboarding() {
                   </div>
                 ))}
               </div>
-              <Button onClick={() => finish(true)} className="w-full h-[52px] rounded-[16px] bg-primary text-primary-foreground hover:bg-primary/92 pressable text-[15px] font-medium mt-5 shadow-card">
+              <Button disabled={finishing} onClick={() => finish(true)} className="w-full h-[52px] rounded-[16px] bg-primary text-primary-foreground hover:bg-primary/92 pressable text-[15px] font-medium mt-5 shadow-card">
                 Enable nudges & continue
               </Button>
-              <button onClick={() => finish(false)} className="mt-3 text-secondary-fg text-[13px] hover:text-foreground transition-colors mx-auto">
+              <button disabled={finishing} onClick={() => finish(false)} className="mt-3 text-secondary-fg text-[13px] hover:text-foreground transition-colors mx-auto disabled:opacity-60 disabled:pointer-events-none">
                 Continue without nudges
               </button>
             </div>
@@ -304,7 +314,7 @@ export default function Onboarding() {
           {step > 0 && (
             <button
               type="button"
-              disabled={timelineMorph}
+              disabled={timelineMorph || finishing}
               onClick={() => setStep((s) => Math.max(0, s - 1))}
               className="mt-4 text-[12px] text-secondary-fg hover:text-foreground mx-auto disabled:opacity-50 disabled:pointer-events-none"
             >

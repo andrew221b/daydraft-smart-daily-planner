@@ -74,6 +74,7 @@ export default function Focus() {
   const [oneThingDoneFlash, setOneThingDoneFlash] = useState(false);
   const calmAutoEnabledRef = useRef(false);
   const guardrailToastShownRef = useRef(false);
+  const trackingRef = useRef(tracking);
   const aiFocusRuntimeEnabled = isAiFlagEnabled("aiFocusRuntime", user?.id);
   const { isPro } = useEntitlement();
 
@@ -216,9 +217,13 @@ export default function Focus() {
   }, [block?.id, categories.length]);
 
   useEffect(() => {
+    trackingRef.current = tracking;
+  }, [tracking]);
+
+  useEffect(() => {
     return () => {
       // Stop tracking on unmount (leaving Focus entirely)
-      if (startedHereRef.current && tracking) stopTracking();
+      if (startedHereRef.current && trackingRef.current) stopTracking();
       sessionStorage.removeItem("dd_focus_active");
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -349,6 +354,12 @@ export default function Focus() {
     }
   }, [armed, lateDeepWork, longSession]);
 
+  const timeUp = remaining <= 0 && armed;
+  useEffect(() => {
+    if (!aiFocusRuntimeEnabled || !timeUp || runtimeReason) return;
+    void loadHelp("overtime");
+  }, [aiFocusRuntimeEnabled, timeUp, runtimeReason]);
+
   if (!block) return <div className="min-h-screen bg-background" />;
   if (oneThingMode && !isPro) {
     return (
@@ -368,12 +379,7 @@ export default function Focus() {
   const mins = Math.floor(remaining / 60);
   const secs = Math.floor(remaining % 60);
   const lowTime = remaining < 300;
-  const timeUp = remaining <= 0 && armed;
   const oneThingElapsedSec = actualStartMsRef.current ? Math.max(0, Math.floor((Date.now() - actualStartMsRef.current) / 1000)) : 0;
-  useEffect(() => {
-    if (!aiFocusRuntimeEnabled || !timeUp || runtimeReason) return;
-    void loadHelp("overtime");
-  }, [aiFocusRuntimeEnabled, timeUp, runtimeReason]);
 
   if (oneThingMode) {
     return (
