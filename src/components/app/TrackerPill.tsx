@@ -73,13 +73,7 @@ function TrackerInner({ embedded = false, onClose }: { embedded?: boolean; onClo
   const [manualForCat, setManualForCat] = useState<string | null>(null);
   const [confirmDeleteCat, setConfirmDeleteCat] = useState<string | null>(null);
   const [nowSec, setNowSec] = useState<number>(() => Date.now());
-  const [simpleMode, setSimpleMode] = useState<boolean>(() => {
-    try {
-      return localStorage.getItem("dd_tracker_simple_mode") !== "0";
-    } catch {
-      return true;
-    }
-  });
+  const simpleMode = false;
   const [showAllCategories, setShowAllCategories] = useState(false);
   const [todayPlanBlocks, setTodayPlanBlocks] = useState<Block[]>([]);
   const [planLoaded, setPlanLoaded] = useState(false);
