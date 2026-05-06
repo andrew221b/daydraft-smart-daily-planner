@@ -527,7 +527,7 @@ function SortableTaskCard({ id, index: i, task: t, showAdvanced, loadingAI, onUp
           >
             <span
               className={`absolute top-1 h-5 w-5 rounded-full bg-white shadow-md transition-transform ${
-                t.track_time ? "translate-x-[26px]" : "translate-x-1"
+                t.track_time ? "translate-x-[22px]" : "translate-x-1"
               }`}
             />
           </button>
