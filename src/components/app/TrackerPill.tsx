@@ -57,7 +57,7 @@ function clipDuration(e: Entry, dayStart: number, dayEnd: number, now: number) {
  */
 function TrackerInner({ embedded = false, onClose }: { embedded?: boolean; onClose?: () => void }) {
   const { user } = useAuth();
-  const { active, categories, start, stop, switchCategory, addCategory, deleteCategory, renameCategory, addManualEntry, todayTotalSec } = useTimeTracker();
+  const { active, categories, start, stop, switchCategory, deleteCategory, renameCategory, addCategory, addManualEntry, todayTotalSec } = useTimeTracker();
   const elapsedSec = useTimeTrackerElapsed();
   const { isPro } = useEntitlement();
   const [upgradeOpen, setUpgradeOpen] = useState(false);
@@ -194,27 +194,6 @@ function TrackerInner({ embedded = false, onClose }: { embedded?: boolean; onClo
     if (!linkedBlock) return;
     setLinkedExtendMin(0);
   }, [linkedBlock?.id]);
-
-  useEffect(() => {
-    if (!hasTodayPlan || !categories.length || !todayPlanBlocks.length) return;
-    const wanted = Array.from(
-      new Set(
-        todayPlanBlocks
-          .filter((b) => isUserTask(b))
-          .map((b) => (b.title || "").trim())
-          .filter(Boolean),
-      ),
-    );
-    if (!wanted.length) return;
-    const existing = new Set(categories.map((c) => c.name.trim().toLowerCase()));
-    const missing = wanted.filter((n) => !existing.has(n.toLowerCase()));
-    if (!missing.length) return;
-    (async () => {
-      for (const name of missing.slice(0, 8)) {
-        await addCategory(name);
-      }
-    })();
-  }, [hasTodayPlan, todayPlanBlocks, categories.length]);
 
   // ----- Aggregations -----
   useEffect(() => {
@@ -548,18 +527,18 @@ function TrackerInner({ embedded = false, onClose }: { embedded?: boolean; onClo
   const Wrapper: React.FC<{ children: React.ReactNode }> = ({ children }) =>
     embedded
       ? <div className="bg-background">{children}</div>
-      : <div className="rounded-t-[24px] p-0 border border-soft max-h-[92vh] overflow-y-auto bg-background/85 backdrop-blur-xl">{children}</div>;
+      : <div className="rounded-t-[20px] p-0 border border-soft max-h-[92vh] overflow-y-auto bg-background/88 backdrop-blur-xl">{children}</div>;
 
   return (
     <>
     <Wrapper>
         {/* Header */}
-        <div className="px-5 pt-7 pb-5 border-b border-soft">
+        <div className="px-5 pt-6 pb-4 border-b border-soft">
           {/* PDF moved to the bottom of the sheet — the close (X) sits in the
               top-right of SheetContent and any button placed beside it gets
               accidentally tapped when the user reaches to dismiss. */}
           <div className="text-left">
-            <h2 className="font-display text-[22px] font-semibold pr-8 tracking-tight">Timer</h2>
+            <h2 className="type-title text-[24px] pr-8 tracking-tight">Timer</h2>
             {!active && (
               <>
                 <p className="text-xs text-secondary-fg mt-0.5">
@@ -573,12 +552,12 @@ function TrackerInner({ embedded = false, onClose }: { embedded?: boolean; onClo
           </div>
           {/* Quick mode removed — week/month tabs always visible */}
 
-          <div className="mt-4 inline-flex w-full rounded-[14px] bg-muted/80 p-1">
+          <div className="mt-4 inline-flex w-full rounded-[12px] bg-muted/80 p-1">
             <button
               type="button"
               onClick={() => setTrackerMode("linked")}
               disabled={!hasTodayPlan}
-              className={`flex-1 rounded-[10px] px-3 py-1.5 text-xs font-medium pressable transition-colors ${
+              className={`flex-1 rounded-[8px] px-3 py-1.5 text-xs font-medium pressable transition-colors ${
                 trackerMode === "linked"
                   ? "bg-background text-foreground shadow-sm"
                   : hasTodayPlan
@@ -591,7 +570,7 @@ function TrackerInner({ embedded = false, onClose }: { embedded?: boolean; onClo
             <button
               type="button"
               onClick={() => setTrackerMode("free")}
-              className={`flex-1 rounded-[10px] px-3 py-1.5 text-xs font-medium pressable transition-colors ${
+              className={`flex-1 rounded-[8px] px-3 py-1.5 text-xs font-medium pressable transition-colors ${
                 trackerMode === "free" ? "bg-background text-foreground shadow-sm" : "text-secondary-fg hover:text-foreground"
               }`}
             >
@@ -631,7 +610,7 @@ function TrackerInner({ embedded = false, onClose }: { embedded?: boolean; onClo
         {/* LINKED MODE — current plan block */}
         {trackerMode === "linked" && (
           <div className="px-5 py-5">
-            <div className={`rounded-[20px] border p-5 shadow-card transition-all ${linkedOvertime ? "ring-2 ring-primary/25 animate-pulse" : ""} hero-glass`}>
+            <div className={`rounded-[16px] border p-4 shadow-card transition-all ${linkedOvertime ? "ring-2 ring-primary/25 animate-pulse" : ""} hero-glass`}>
               {linkedBlock ? (
                 <>
                   <div className="text-[10px] font-semibold uppercase tracking-[0.16em] text-secondary-fg">Current plan block</div>
@@ -687,7 +666,7 @@ function TrackerInner({ embedded = false, onClose }: { embedded?: boolean; onClo
             {/* Hero stopwatch — premium, centered */}
             <div className="px-5 pt-5">
               <div
-                className={`relative overflow-hidden rounded-[20px] border p-6 transition-all duration-500 backdrop-blur-sm tracker-hero-luxe ${
+                className={`relative overflow-hidden rounded-[16px] border p-5 transition-all duration-500 backdrop-blur-sm tracker-hero-luxe ${
                   active
                     ? "border-accent surface-card shadow-card"
                     : "border-soft surface-card"

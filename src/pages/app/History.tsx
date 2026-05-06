@@ -182,7 +182,7 @@ export default function History() {
     <Shell>
       <PullToRefresh onRefresh={async () => { await load(); }}>
       <div className="px-5 pt-10">
-        <div className="hero-glass p-5 md:p-6">
+        <div className="hero-glass p-4.5 md:p-5">
           <PageHeader
             eyebrow="Your week"
             title="History"
@@ -214,9 +214,9 @@ export default function History() {
           />
         </div>
 
-        <div className="mt-10 eyebrow">Recent days</div>
+        <div className="mt-8 eyebrow">Recent days</div>
         {!loading && weekCategoryRows.length > 0 && (
-          <div className="mt-4 app-card p-4">
+          <div className="mt-4 app-card p-3.5">
             <div className="text-[11px] uppercase tracking-[0.12em] text-secondary-fg mb-3">Last 7 days by category</div>
             <div className="space-y-2.5">
               {weekCategoryRows.map((row) => (
@@ -267,7 +267,7 @@ export default function History() {
                     return (
                       <div
                         key={p.id}
-                        className="app-card p-0 flex overflow-hidden hover:border-primary/25 transition-colors border-soft"
+                        className="app-card p-0 flex overflow-hidden hover:border-primary/25 transition-colors border-soft rounded-xl"
                       >
                         <button
                           type="button"

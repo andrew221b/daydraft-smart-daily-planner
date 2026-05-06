@@ -18,7 +18,7 @@ export function KpiCard({
   onClick?: () => void;
   className?: string;
 }) {
-  const Comp: any = onClick ? "button" : "div";
+  const Comp = (onClick ? "button" : "div") as "button" | "div";
   const toneClass =
     tone === "primary"
       ? "border-accent surface-accent"
@@ -30,9 +30,9 @@ export function KpiCard({
     <Comp
       onClick={onClick}
       className={cn(
-        "text-left app-card p-3.5 rounded-2xl transition-all duration-200",
+        "text-left app-card p-3 rounded-xl transition-all duration-200",
         toneClass,
-        onClick ? "pressable hover:border-primary/30 hover:-translate-y-[1px]" : "",
+        onClick ? "pressable hover:border-primary/30" : "",
         className,
       )}
     >
@@ -40,8 +40,8 @@ export function KpiCard({
         {icon}
         <span className="text-[10px] font-semibold uppercase tracking-[0.15em]">{label}</span>
       </div>
-      <div className="mt-2 font-display text-[24px] font-semibold tabular-nums leading-none truncate">{value}</div>
-      {sub ? <div className="mt-1.5 text-[11px] text-secondary-fg tabular-nums">{sub}</div> : null}
+      <div className="mt-1.5 font-display text-[21px] font-semibold tabular-nums leading-none truncate">{value}</div>
+      {sub ? <div className="mt-1 text-[10.5px] text-secondary-fg tabular-nums">{sub}</div> : null}
     </Comp>
   );
 }

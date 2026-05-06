@@ -5,7 +5,7 @@ import { Shell } from "@/components/app/Shell";
 import { useAuth } from "@/hooks/useAuth";
 import { supabase } from "@/integrations/supabase/client";
 import { Block, fmtTime, todayDateStr, parseDateStr, friendlyDateFor, isFutureDateStr, isUserTask, inferScheduleBlockType } from "@/lib/daydraft";
-import { ChevronLeft, Sparkles, Play, RefreshCw, Plus, Coffee, ChevronDown, CalendarDays, Trash2, Bell, BellOff, MoreHorizontal, Clock, Info, MapPin, Copy } from "lucide-react";
+import { ChevronLeft, Sparkles, Play, RefreshCw, Plus, Coffee, ChevronDown, CalendarDays, Trash2, Bell, BellOff, MoreHorizontal, Clock, Info, MapPin, Copy, Target } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { DndContext, closestCenter, PointerSensor, TouchSensor, useSensor, useSensors, DragEndEvent } from "@dnd-kit/core";
 import { SortableContext, arrayMove, verticalListSortingStrategy } from "@dnd-kit/sortable";
@@ -438,11 +438,11 @@ export default function DayView() {
         }}
       >
       <div className="px-5 pt-9">
-      <div className="hero-glass p-4 md:p-5 flex items-center justify-between gap-2 shadow-elevated">
+      <div className="hero-glass p-4 md:p-4.5 flex items-center justify-between gap-2 shadow-elevated">
         <button onClick={() => nav("/today")} className="h-11 w-11 shrink-0 rounded-full flex items-center justify-center text-secondary-fg hover:text-foreground hover:bg-surface/50 pressable">
           <ChevronLeft className="h-5 w-5" />
         </button>
-        <h1 className="font-display text-[20px] font-semibold tracking-tight flex-1 text-center min-w-0 truncate">
+        <h1 className="font-display text-[19px] font-semibold tracking-tight flex-1 text-center min-w-0 truncate">
           {isToday ? "Today" : friendlyDateFor(parseDateStr(viewDate))}
         </h1>
         <div className="flex items-center shrink-0">

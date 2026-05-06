@@ -28,12 +28,8 @@ import {
   Bookmark,
   Plus,
   Pencil,
-  Target,
   ListChecks,
   Inbox,
-  CheckCircle2,
-  Clock3,
-  Zap,
   ShieldAlert,
   Info,
   ChevronDown,
@@ -48,24 +44,17 @@ import { useEntitlement } from "@/hooks/useEntitlement";
 import { UpgradeSheet } from "@/components/app/UpgradeSheet";
 import { ClarifySheet, ClarifiedTask } from "@/components/app/ClarifySheet";
 import { PullToRefresh } from "@/components/app/PullToRefresh";
-import { BeginnerTip } from "@/components/app/BeginnerTip";
 import { useTour, TOUR_TODAY } from "@/components/app/Tour";
 import { haptics } from "@/lib/haptics";
 import { Sheet, SheetContent, SheetDescription, SheetHeader, SheetTitle } from "@/components/ui/sheet";
-import { TodayInsight } from "@/components/app/TodayInsight";
 import { NextUpCard } from "@/components/app/NextUpCard";
-import { getWeekIntention } from "@/lib/weekIntention";
-import { dayShapeHint } from "@/lib/microDelights";
 import { readComposerDraft, writeComposerDraft, clearComposerDraft } from "@/lib/composerDraft";
 import { fetchPlanDashboard, planDashboardQueryKey } from "@/lib/planQueries";
-import { KpiCard } from "@/components/app/KpiCard";
-import { useCalmMode } from "@/lib/calmMode";
-import { EnergyState, RescueMode, readEnergyState, writeEnergyState } from "@/lib/productPolish";
-import { isAiFlagEnabled, readAiWeeklyMemory, trackAiEvent } from "@/lib/aiRuntime";
+import { RescueMode } from "@/lib/productPolish";
+import { readAiWeeklyMemory, trackAiEvent } from "@/lib/aiRuntime";
 
 const DEFAULT_PLACEHOLDER =
   "Brain-dump your day…\nfinish deck · gym 45m · call mom 15m · ship invoice";
-const TODAY_TIP_DISMISSED_KEY = "dd_today_tip_dismissed";
 const DEBRIEF_DISMISSED_PREFIX = "dd_yesterday_debrief_dismissed_";
 
 export default function Today() {
@@ -73,7 +62,7 @@ export default function Today() {
   const { user } = useAuth();
   const nav = useNavigate();
   const [searchParams, setSearchParams] = useSearchParams();
-  const { isPro, planQuotaRemaining, planQuotaUsed, planQuotaLimit, entitlement } = useEntitlement();
+  const { isPro, planQuotaRemaining } = useEntitlement();
   const tour = useTour();
   const [upgradeOpen, setUpgradeOpen] = useState(false);
   const [upgradeReason, setUpgradeReason] = useState<"quota" | "feature" | "trial-banner" | "momentum">("feature");
@@ -98,16 +87,9 @@ export default function Today() {
   const planBlocks = planData?.planBlocks ?? [];
   const hasPlanForDate = planData?.hasPlanForDate ?? false;
   const planSummary = planData?.planSummary ?? null;
-  const [calmMode] = useCalmMode();
-  const [energyState, setEnergyState] = useState<EnergyState>(() => readEnergyState());
   const [rescueMode, setRescueMode] = useState<RescueMode>("balanced");
   const [rescueRationale, setRescueRationale] = useState<string>("");
   const [rescueExplain, setRescueExplain] = useState<string[]>([]);
-  const [energySheetOpen, setEnergySheetOpen] = useState(false);
-  const [energyPreviewLoading, setEnergyPreviewLoading] = useState(false);
-  const [energyPendingState, setEnergyPendingState] = useState<EnergyState | null>(null);
-  const [energyPendingBlocks, setEnergyPendingBlocks] = useState<any[]>([]);
-  const [energyDiffRows, setEnergyDiffRows] = useState<Array<{ title: string; before: string; after: string }>>([]);
   const [rescueSheetOpen, setRescueSheetOpen] = useState(false);
   const [rescueLoading, setRescueLoading] = useState(false);
   const [rescuePendingBlocks, setRescuePendingBlocks] = useState<any[]>([]);
@@ -119,41 +101,25 @@ export default function Today() {
   const [debriefTitle, setDebriefTitle] = useState("Yesterday's debrief");
   const [debriefBullets, setDebriefBullets] = useState<string[]>([]);
   const debriefSwipeStartX = useRef(0);
-  const [tipDismissed, setTipDismissed] = useState<boolean>(() => {
-    try {
-      return localStorage.getItem(TODAY_TIP_DISMISSED_KEY) === "1";
-    } catch {
-      return false;
-    }
-  });
   const [nowHM, setNowHM] = useState(() => {
     const n = new Date();
     return `${String(n.getHours()).padStart(2, "0")}:${String(n.getMinutes()).padStart(2, "0")}`;
   });
-  const [intentTick, setIntentTick] = useState(0);
-  const weekIntention = useMemo(() => getWeekIntention(), [intentTick]);
   const toMin = (hhmm: string) => {
     const [h, m] = String(hhmm || "").split(":").map(Number);
     return (Number.isFinite(h) ? h : 0) * 60 + (Number.isFinite(m) ? m : 0);
   };
-  const aiRescueEnabled = isAiFlagEnabled("aiRescueV2", user?.id);
+  const fmtMin = (min: number) => {
+    const safe = Math.max(0, Math.round(min));
+    const h = Math.floor(safe / 60);
+    const m = safe % 60;
+    if (h <= 0) return `${m}m`;
+    if (m <= 0) return `${h}h`;
+    return `${h}h ${m}m`;
+  };
   const openUpgrade = (reason: "quota" | "feature" | "trial-banner" | "momentum") => {
     setUpgradeReason(reason);
     setUpgradeOpen(true);
-  };
-  const openEnergyAdjust = () => {
-    if (!isPro) {
-      openUpgrade("feature");
-      return;
-    }
-    if (!hasPlanForDate || !planBlocks.length) {
-      toast("Generate today’s plan first.");
-      return;
-    }
-    setEnergyPendingState(null);
-    setEnergyPendingBlocks([]);
-    setEnergyDiffRows([]);
-    setEnergySheetOpen(true);
   };
 
   useEffect(() => {
@@ -164,22 +130,6 @@ export default function Today() {
     return () => clearInterval(t);
   }, []);
 
-  useEffect(() => {
-    writeEnergyState(energyState);
-  }, [energyState]);
-  useEffect(() => {
-    try {
-      localStorage.setItem(TODAY_TIP_DISMISSED_KEY, tipDismissed ? "1" : "0");
-    } catch {
-      // ignore
-    }
-  }, [tipDismissed]);
-
-  useEffect(() => {
-    const h = () => setIntentTick((x) => x + 1);
-    window.addEventListener("dd-week-intent", h);
-    return () => window.removeEventListener("dd-week-intent", h);
-  }, []);
   useEffect(() => {
     if (!user || !profile || planDate !== todayDateStr() || !isPro) {
       setDebriefOpen(false);
@@ -418,7 +368,7 @@ export default function Today() {
 
     setRescueSheetOpen(true);
     setRescueLoading(true);
-    setRescueWindowLabel(`${budgetMin}m left before ${activeEnd}`);
+    setRescueWindowLabel(`${fmtMin(budgetMin)} left before ${activeEnd}`);
     setRescueDeferredRows(deferred);
     haptics.impact("light");
     try {
@@ -430,7 +380,6 @@ export default function Today() {
             `Rescue mode: build a minimal aggressive plan from ${nowHM} to ${activeEnd}. ` +
             `Keep only highest-priority work that fits today and defer the rest.`,
           energy_preference: profile.energy_preference,
-          energy_state: energyState,
           name: profile.display_name,
           mode: "replan",
           start_time: nowHM,
@@ -458,7 +407,7 @@ export default function Today() {
       }).filter((r) => r.before !== r.after).slice(0, 10);
       setRescuePendingBlocks(nextBlocks);
       setRescueDiffRows(diff);
-      setRescueRationale(`Rescue window: ${budgetMin}m before ${activeEnd}.`);
+      setRescueRationale(`Rescue window: ${fmtMin(budgetMin)} before ${activeEnd}.`);
       setRescueExplain([
         `${selected.length} highest-priority tasks kept for today.`,
         `${deferred.length} lower-priority task${deferred.length === 1 ? "" : "s"} moved to deferred.`,
@@ -481,113 +430,6 @@ export default function Today() {
   const recalculateRescue = () => {
     void rescueMyDay(true);
     trackAiEvent("ai_rescue_recalculated", { mode: rescueMode });
-  };
-
-  const previewEnergyRerank = async (nextEnergy: EnergyState) => {
-    if (!user || !profile || !hasPlanForDate) return;
-    const remaining = (planBlocks as Block[]).filter((b) => isUserTask(b) && !b.completed);
-    if (!remaining.length) {
-      toast("No remaining tasks to re-rank.");
-      return;
-    }
-    setEnergyPreviewLoading(true);
-    try {
-      const raw_input = remaining.map((b) => `${b.title} (${b.duration_min}m)`).join("\n");
-      const { data, error } = await supabase.functions.invoke("generate-plan", {
-        body: {
-          raw_input,
-          energy_preference: profile.energy_preference,
-          energy_state: nextEnergy,
-          name: profile.display_name,
-          mode: "replan",
-          start_time: nowHM,
-          plan_date: planDate,
-          now_iso: new Date().toISOString(),
-          timezone: profile.timezone || Intl.DateTimeFormat().resolvedOptions().timeZone,
-          active_hours_start: (profile as any).active_hours_start || "09:00",
-          active_hours_end: (profile as any).active_hours_end || "22:00",
-          ai_tone: (profile as any).ai_tone || "professional",
-          ai_tone_custom: (profile as any).ai_tone_custom || null,
-        },
-      });
-      if (error) throw error;
-      if (data?.error) throw new Error(data.error);
-      const nextBlocks = (data?.blocks || []).filter((b: any) => b?.kind === "task");
-      const oldRows = remaining.map((b) => ({ title: b.title, before: b.start_time }));
-      const used = new Set<number>();
-      const diff = oldRows.map((row, idx) => {
-        const exact = nextBlocks.findIndex((n: any, i: number) => !used.has(i) && String(n.title || "").trim().toLowerCase() === row.title.trim().toLowerCase());
-        const pick = exact >= 0 ? exact : nextBlocks.findIndex((_: any, i: number) => !used.has(i));
-        if (pick >= 0) used.add(pick);
-        const after = pick >= 0 ? String(nextBlocks[pick]?.start_time || row.before) : row.before;
-        return { title: row.title, before: row.before, after };
-      }).filter((r) => r.before !== r.after).slice(0, 8);
-      setEnergyPendingState(nextEnergy);
-      setEnergyPendingBlocks(data?.blocks || []);
-      setEnergyDiffRows(diff);
-      setEnergyState(nextEnergy);
-      trackAiEvent("ai_energy_rerank_previewed", { energy_state: nextEnergy, changed_count: diff.length });
-    } catch (e: any) {
-      toast.error(e?.message || "Unable to re-rank right now.");
-    } finally {
-      setEnergyPreviewLoading(false);
-    }
-  };
-
-  const applyEnergyRerank = async () => {
-    if (!user || !energyPendingBlocks.length) return;
-    try {
-      const { data: planRow, error: planErr } = await supabase
-        .from("plans")
-        .select("id")
-        .eq("user_id", user.id)
-        .eq("date", planDate)
-        .maybeSingle();
-      if (planErr || !planRow?.id) throw new Error("Plan not found.");
-      const { data: current } = await supabase
-        .from("blocks")
-        .select("*")
-        .eq("plan_id", planRow.id)
-        .order("position");
-      const currentBlocks = (current || []) as any[];
-      const toRemoveIds = currentBlocks
-        .filter((b) => {
-          if (b.is_calendar_event) return false;
-          if (isUserTask(b) && !b.completed) return true;
-          if ((b.kind === "break" || b.kind === "lunch") && !b.completed) return true;
-          return false;
-        })
-        .map((b) => b.id);
-      const keep = currentBlocks.filter((b) => !toRemoveIds.includes(b.id));
-      if (toRemoveIds.length) await supabase.from("blocks").delete().in("id", toRemoveIds);
-      const startPos = keep.length;
-      const inserts = energyPendingBlocks.map((b: any, i: number) => ({
-        plan_id: planRow.id,
-        user_id: user.id,
-        start_time: b.start_time,
-        duration_min: b.duration_min,
-        estimated_minutes: b.estimated_minutes ?? b.duration_min,
-        actual_minutes: null,
-        title: b.title,
-        type: b.type,
-        kind: b.kind,
-        block_type: inferScheduleBlockType(b),
-        position: startPos + i,
-        ai_reasoning: b.reasoning ?? null,
-        location: b.location ?? null,
-        location_lat: b.location_lat ?? null,
-        location_lng: b.location_lng ?? null,
-      }));
-      if (inserts.length) await supabase.from("blocks").insert(inserts);
-      await queryClient.invalidateQueries({ queryKey: planDashboardQueryKey(user.id, planDate) });
-      setEnergySheetOpen(false);
-      setEnergyPendingBlocks([]);
-      setEnergyDiffRows([]);
-      trackAiEvent("ai_energy_rerank_applied", { energy_state: energyPendingState || energyState });
-      toast.success("Plan adjusted for your current energy.");
-    } catch (e: any) {
-      toast.error(e?.message || "Unable to apply changes.");
-    }
   };
 
   const saveAsTemplate = async () => {
@@ -703,7 +545,6 @@ export default function Today() {
         body: {
           raw_input: input,
           energy_preference: profile.energy_preference,
-          energy_state: energyState,
           name: profile.display_name,
           clarified_tasks: clarified,
           planning_context: planningContext?.trim() || null,
@@ -787,8 +628,6 @@ export default function Today() {
     } finally { setBusy(false); }
   };
 
-  const showTrialBanner = entitlement?.tier === "trial" && (entitlement.daysLeftInTrial ?? 99) <= 3;
-
   // Derive a glanceable plan summary
   const planStats = useMemo(() => {
     const tasks = planBlocks.filter(isUserTask);
@@ -818,10 +657,6 @@ export default function Today() {
     }).length;
   }, [hasPlanForDate, isToday, nowHM, planBlocks]);
   const isRunningBehind = overdueCount >= 2;
-  const dayShapeLine = useMemo(() => {
-    if (!hasPlanForDate || !isToday || planBlocks.length === 0) return null;
-    return dayShapeHint(planBlocks);
-  }, [hasPlanForDate, isToday, planBlocks]);
   const tone = getTone(profile as any);
 
   return (
@@ -832,46 +667,50 @@ export default function Today() {
           await queryClient.invalidateQueries({ queryKey: planDashboardQueryKey(user.id, planDate) });
         }}
       >
-      <div className="px-5 pt-9">
+      <div className="px-5 pt-8">
         {/* ── Header ─────────────────────────── */}
-        <div className="hero-glass p-5 md:p-6 shadow-elevated">
+        <div className="hero-glass p-4.5 md:p-5 shadow-elevated">
           <div className="flex items-start justify-between gap-3">
             <div className="min-w-0 flex-1">
               <p className="kicker">{friendlyDate()}</p>
-              <h1 className="font-display text-[31px] font-semibold leading-[1.05] mt-2 truncate text-balance">
+              <h1 className="type-title mt-2 truncate text-balance">
               {greetingFor(tone, profile?.display_name)}
               </h1>
               {!profile?.onboarded ? (
-                <p className="text-[12.5px] text-secondary-fg leading-relaxed mt-2.5">
+                <p className="type-body text-secondary-fg mt-2.5">
                   Bottom bar: <span className="text-subtle">Today</span> · <span className="text-subtle">Timer</span> ·{" "}
                   <span className="text-subtle">History</span> · <span className="text-subtle">Settings</span>
                 </p>
               ) : hasPlanForDate && planDate === todayDateStr() ? (
-                <p className="text-[12.5px] text-secondary-fg leading-relaxed mt-2.5">
+                <p className="type-body text-secondary-fg mt-2.5">
                   <span className="text-subtle">Next up</span> jumps into Focus; open the plan card to tick tasks off.
                 </p>
               ) : null}
             </div>
             <div className="flex shrink-0 items-start gap-1.5">
-              {!calmMode && isToday && hasPlanForDate && (
-                <button
-                  type="button"
-                  onClick={openEnergyAdjust}
-                  className="h-9 w-9 rounded-full border border-soft surface-soft text-secondary-fg hover:text-foreground pressable inline-flex items-center justify-center"
-                  aria-label="Adjust energy and re-rank"
-                  title="Adjust energy and re-rank"
-                >
-                  <Zap className="h-4 w-4" />
-                </button>
-              )}
               <ProBadge />
             </div>
           </div>
           <div className="mt-4 h-px w-full bg-gradient-to-r from-transparent via-border/80 to-transparent" />
-          <div className="mt-3 text-[11px] text-secondary-fg uppercase tracking-[0.08em]">
+          <div className="mt-3 type-meta uppercase tracking-[0.08em]">
             {hasPlanForDate ? "Plan ready" : "No plan yet"} · {isToday ? "Today" : friendlyDateFor(parseDateStr(planDate))}
           </div>
         </div>
+        {hasPlanForDate && (
+          <div className="mt-3 app-card px-3 py-2.5 flex items-center justify-between gap-3">
+            <div className="min-w-0">
+              <div className="type-section">Status</div>
+              <div className="type-body truncate">{planStats.done} of {planStats.total} completed</div>
+            </div>
+            <button
+              type="button"
+              onClick={() => void rescueMyDay(true)}
+              className="h-8 px-3 rounded-lg border border-accent surface-accent text-[12px] font-medium text-primary pressable shrink-0"
+            >
+              Rescue my day ↗
+            </button>
+          </div>
+        )}
         {isPro && debriefOpen && (
           <div
             className="mt-3 app-card p-3.5"
@@ -924,7 +763,7 @@ export default function Today() {
         )}
         {isToday && hasPlanForDate && planStats.total > 0 && (
           <div className="mt-3 px-1">
-            <div className="flex items-center justify-between text-[11px] text-secondary-fg">
+            <div className="flex items-center justify-between type-meta">
               <span>{planStats.done} / {planStats.total} done · {remainingLabel} remaining</span>
               <span className="tabular-nums">{progressPct}%</span>
             </div>
@@ -940,65 +779,17 @@ export default function Today() {
           </div>
         )}
 
-        {profile?.onboarded && !hasPlanForDate && planDate === todayDateStr() && !tipDismissed && (
-          <div className="mt-5">
-            <BeginnerTip onDismiss={() => setTipDismissed(true)}>
-              <strong className="text-foreground font-medium">How it works:</strong> tap{" "}
-              <strong className="text-foreground font-medium">Plan my day</strong>, write tasks in any format, then{" "}
-              <strong className="text-foreground font-medium">Generate plan</strong>.{" "}
-              The inbox button (top-right) saves quick notes for later. Need help?{" "}
-              <strong className="text-foreground font-medium">Settings → Replay tutorial</strong>.
-            </BeginnerTip>
-          </div>
-        )}
-
-        {profile?.onboarded && planDate === todayDateStr() && (
-          <div className="mt-5 space-y-3">
-            {!calmMode && <TodayInsight />}
-            {!calmMode && weekIntention && (
-              <div className="flex items-start gap-3 rounded-[20px] border border-accent surface-accent backdrop-blur-sm px-4 py-3.5 shadow-card animate-in fade-in slide-in-from-bottom-2 duration-500 fill-mode-both">
-                <Target className="h-4 w-4 text-primary shrink-0 mt-0.5" strokeWidth={2} />
-                <div className="min-w-0 flex-1">
-                  <div className="text-[10px] font-semibold uppercase tracking-wider text-secondary-fg">This week&apos;s focus</div>
-                  <p className="text-[13px] text-foreground mt-1 leading-snug">{weekIntention.text}</p>
-                </div>
-                <Link to="/settings#week-intention" className="text-[11px] font-medium text-primary shrink-0 pt-0.5 hover:underline">
-                  Edit
-                </Link>
-              </div>
-            )}
-          </div>
-        )}
-
-        {profile?.onboarded && !calmMode && (
+        {profile?.onboarded && (
           <div className="mt-4 app-card p-3.5">
             <div className="flex items-center justify-between gap-2">
-              <span className="text-[11px] uppercase tracking-wider text-secondary-fg inline-flex items-center gap-1.5"><Zap className="h-3.5 w-3.5 text-primary" />Energy check-in</span>
-              <span className="text-[11px] text-secondary-fg">Now {nowHM}</span>
+              <span className="text-[11px] uppercase tracking-wider text-secondary-fg inline-flex items-center gap-1.5">
+                <ShieldAlert className="h-3.5 w-3.5 text-primary" />
+                Rescue
+              </span>
+              <span className="text-[11px] text-secondary-fg">{nowHM}</span>
             </div>
-            <p className="mt-1 text-[11px] text-secondary-fg leading-relaxed">
-              Used by AI to tune plan intensity: low = lighter blocks, high = harder work first.
-            </p>
-            <div className="mt-2.5 grid grid-cols-3 gap-2">
-              {([
-                { key: "low" as EnergyState, label: "Low" },
-                { key: "medium" as EnergyState, label: "Medium" },
-                { key: "high" as EnergyState, label: "High" },
-              ]).map((e) => (
-                <button
-                  key={e.key}
-                  type="button"
-                  onClick={() => setEnergyState(e.key)}
-                  className={`h-10 rounded-xl border text-[12px] font-medium pressable ${
-                    energyState === e.key ? "surface-accent border-accent text-primary" : "surface-soft border-soft text-secondary-fg"
-                  }`}
-                >
-                  {e.label}
-                </button>
-              ))}
-            </div>
-            {hasPlanForDate && (
-              <div className="mt-3 space-y-2">
+            {hasPlanForDate ? (
+            <div className="mt-2.5 space-y-2">
                 <div className="grid grid-cols-3 gap-2">
                   <button
                     type="button"
@@ -1025,7 +816,7 @@ export default function Today() {
                 <button
                   type="button"
                   onClick={() => void rescueMyDay(true)}
-                  className="w-full h-10 rounded-xl border border-soft surface-soft text-[12px] text-secondary-fg hover:text-foreground pressable inline-flex items-center justify-center gap-1.5"
+                  className="w-full h-10 rounded-lg border border-soft surface-soft text-[12px] text-secondary-fg hover:text-foreground pressable inline-flex items-center justify-center gap-1.5"
                 >
                   <ShieldAlert className="h-3.5 w-3.5" />
                   Rescue my day ↗
@@ -1035,7 +826,7 @@ export default function Today() {
                     {rescueRationale}
                   </p>
                 )}
-                {aiRescueEnabled && rescueExplain.length > 0 && (
+                {rescueExplain.length > 0 && (
                   <ul className="px-4 list-disc text-[11px] text-secondary-fg space-y-1">
                     {rescueExplain.map((line, idx) => (
                       <li key={idx}>{line}</li>
@@ -1043,46 +834,15 @@ export default function Today() {
                   </ul>
                 )}
               </div>
+            ) : (
+              <p className="mt-2 text-[11px] text-secondary-fg">Generate a plan first to unlock Rescue.</p>
             )}
-          </div>
-        )}
-        {profile?.onboarded && calmMode && (
-          <div className="mt-4 rounded-xl border border-soft surface-soft px-3 py-2.5 text-[11px] text-secondary-fg flex items-center justify-between gap-2">
-            <span>Calm Mode is on: insights, energy controls, and non-essential cards are hidden.</span>
-            <button
-              type="button"
-              onClick={() => nav("/settings")}
-              className="text-primary font-medium whitespace-nowrap"
-            >
-              Edit
-            </button>
           </div>
         )}
 
         {/* ── Plan — primary surface when present ─ */}
         {hasPlanForDate ? (
           <div className="mt-7 space-y-4">
-            {!calmMode && (
-              <div className="grid grid-cols-3 gap-2.5 section-switch-stagger">
-                <KpiCard
-                  label="Done"
-                  value={`${planStats.done}/${planStats.total}`}
-                  icon={<CheckCircle2 className="h-3.5 w-3.5" />}
-                  tone="primary"
-                />
-                <KpiCard
-                  label="Planned"
-                  value={`${planStats.hours}h`}
-                  icon={<Clock3 className="h-3.5 w-3.5" />}
-                />
-                <KpiCard
-                  label="Status"
-                  value={planStats.total > 0 && planStats.done === planStats.total ? "Done" : "Active"}
-                  tone={planStats.total > 0 && planStats.done === planStats.total ? "success" : "neutral"}
-                />
-              </div>
-            )}
-
             {isToday && (
               <NextUpCard
                 blocks={planBlocks}
@@ -1094,34 +854,26 @@ export default function Today() {
               <button
                 type="button"
                 onClick={() => void rescueMyDay(false)}
-                className="w-full h-11 rounded-2xl border border-accent surface-accent text-[13px] font-medium text-primary hover:opacity-95 pressable inline-flex items-center justify-center gap-2"
+                className="w-full h-10 rounded-xl border border-accent surface-accent text-[12.5px] font-medium text-primary hover:opacity-95 pressable inline-flex items-center justify-center gap-2"
               >
                 <ShieldAlert className="h-4 w-4" />
                 Rescue my day ↗
                 <span className="text-[11px] text-secondary-fg">({overdueCount} overdue)</span>
               </button>
             )}
-            {!calmMode && dayShapeLine && (
-              <p
-                className="text-[11.5px] leading-snug text-subtle pl-1 border-l-2 border-primary/25 pl-3 py-0.5 animate-in fade-in duration-300"
-                aria-live="polite"
-              >
-                {dayShapeLine}
-              </p>
-            )}
 
             <button
               data-tour="today-plan"
               onClick={() => nav(isToday ? "/today/plan" : `/today/plan?date=${planDate}`)}
-              className="w-full text-left hero-glass panel-luxe p-5 pressable hover:border-primary/28 transition-colors group"
+              className="w-full text-left hero-glass panel-luxe p-4.5 pressable hover:border-primary/28 transition-colors group"
             >
               <div className="flex items-center justify-between">
-                <span className="kicker">{isToday ? "Timeline preview" : friendlyDateFor(parseDateStr(planDate))}</span>
-                <span className="text-[11px] text-secondary-fg">Tap to open full editor</span>
+                <span className="type-section text-primary">{isToday ? "Timeline preview" : friendlyDateFor(parseDateStr(planDate))}</span>
+                <span className="type-meta">Tap to open full editor</span>
               </div>
 
               {planSummary && (
-                <p className="font-display text-[20px] leading-snug text-foreground mt-3">
+                <p className="font-display text-[19px] leading-snug text-foreground mt-2.5">
                   {planSummary}
                 </p>
               )}
@@ -1226,35 +978,17 @@ export default function Today() {
           </div>
         )}
 
-        {/* ── Trial / quota whisper ─────────── */}
-        {showTrialBanner && (
-          <button onClick={() => openUpgrade("trial-banner")}
-            className="mt-5 w-full flex items-center justify-between px-4 h-11 rounded-xl border border-accent surface-accent pressable">
-            <span className="text-[12.5px] text-foreground">{entitlement!.daysLeftInTrial} days left in trial</span>
-            <span className="text-[12px] font-semibold text-primary">Upgrade →</span>
-          </button>
-        )}
-        {!isPro && planQuotaRemaining === 0 && !showTrialBanner && (
-          <p className="mt-4 text-[11.5px] text-secondary-fg">
-            Free plans for this week are used.{" "}
-            <button onClick={() => openUpgrade("feature")}
-              className="text-primary hover:underline">Go unlimited</button>
-          </p>
-        )}
-        {!isPro && planQuotaRemaining > 0 && planQuotaRemaining <= 2 && !showTrialBanner && (
+        {!isPro && (
           <button
             type="button"
-            onClick={() => openUpgrade("quota")}
-            className="mt-4 w-full h-10 rounded-xl border border-soft surface-soft text-[12px] text-secondary-fg hover:text-foreground pressable inline-flex items-center justify-center gap-1.5"
+            onClick={() => openUpgrade("feature")}
+            className="mt-4 w-full h-10 rounded-xl border border-accent surface-accent text-[12px] text-foreground pressable inline-flex items-center justify-between px-3"
           >
-            {planQuotaRemaining} free planning day{planQuotaRemaining === 1 ? "" : "s"} left this week
+            <span>
+              {planQuotaRemaining} free planning day{planQuotaRemaining === 1 ? "" : "s"} left this week
+            </span>
             <span className="text-primary font-medium">Upgrade</span>
           </button>
-        )}
-        {!isPro && planQuotaUsed >= Math.min(3, Number.isFinite(planQuotaLimit) ? planQuotaLimit : 3) && !showTrialBanner && (
-          <p className="mt-3 text-[11px] text-secondary-fg text-center">
-            You are at {planQuotaUsed}/{Number.isFinite(planQuotaLimit) ? planQuotaLimit : "∞"} weekly free planning days.
-          </p>
         )}
       </div>
       </PullToRefresh>
@@ -1290,7 +1024,7 @@ export default function Today() {
               <p className="text-[12px] text-subtle leading-relaxed mt-1">
                 {rescueRationale}
               </p>
-              {aiRescueEnabled && rescueExplain.length > 0 && (
+              {rescueExplain.length > 0 && (
                 <ul className="mt-1.5 px-4 list-disc text-[11px] text-secondary-fg space-y-1">
                   {rescueExplain.map((line, idx) => (
                     <li key={idx}>{line}</li>
@@ -1383,13 +1117,13 @@ export default function Today() {
         <SheetContent side="bottom" className="rounded-t-2xl border-soft bg-popover">
           <SheetHeader className="text-left">
             <SheetTitle className="text-[16px]">Rescue my day</SheetTitle>
-            <SheetDescription>Lifeline mode: keep what still fits today, defer the rest.</SheetDescription>
+            <SheetDescription>Keep what still fits today, defer the rest.</SheetDescription>
           </SheetHeader>
           {rescueLoading ? (
             <div className="mt-3 text-[12px] text-secondary-fg">Building a realistic rescue plan…</div>
           ) : (
             <div className="mt-3 space-y-3">
-              <div className="text-[12px] text-secondary-fg">{rescueWindowLabel}</div>
+              <div className="type-meta">{rescueWindowLabel}</div>
               <div>
                 <div className="text-[12px] font-medium text-foreground">Here&apos;s what changed</div>
                 {rescueDiffRows.length === 0 ? (
@@ -1414,7 +1148,7 @@ export default function Today() {
                   <div className="mt-1 space-y-1 max-h-28 overflow-y-auto">
                     {rescueDeferredRows.slice(0, 8).map((r, i) => (
                       <div key={`${r.title}-${i}`} className="text-[12px] text-secondary-fg truncate">
-                        • {r.title} {r.mins > 0 ? `(${r.mins}m)` : ""}
+                        • {r.title} {r.mins > 0 ? `(${fmtMin(r.mins)})` : ""}
                       </div>
                     ))}
                   </div>
@@ -1482,58 +1216,6 @@ export default function Today() {
                 </Button>
                 <Button variant="outline" className="flex-1 h-10 rounded-xl border-soft" onClick={() => setRescueSheetOpen(false)}>
                   Go back
-                </Button>
-              </div>
-            </div>
-          )}
-        </SheetContent>
-      </Sheet>
-      <Sheet open={energySheetOpen} onOpenChange={setEnergySheetOpen}>
-        <SheetContent side="bottom" className="rounded-t-2xl border-soft bg-popover">
-          <SheetHeader className="text-left">
-            <SheetTitle className="text-[16px]">Energy update</SheetTitle>
-            <SheetDescription>Change mid-day energy and preview AI re-ranking for remaining tasks.</SheetDescription>
-          </SheetHeader>
-          <div className="mt-3 grid grid-cols-3 gap-2">
-            {([
-              { key: "low" as EnergyState, label: "Low" },
-              { key: "medium" as EnergyState, label: "Medium" },
-              { key: "high" as EnergyState, label: "High" },
-            ]).map((e) => (
-              <button
-                key={e.key}
-                type="button"
-                onClick={() => void previewEnergyRerank(e.key)}
-                className={`h-10 rounded-xl border text-[12px] font-medium pressable ${
-                  energyState === e.key ? "surface-accent border-accent text-primary" : "surface-soft border-soft text-secondary-fg"
-                }`}
-              >
-                {e.label}
-              </button>
-            ))}
-          </div>
-          {energyPreviewLoading && (
-            <div className="mt-3 text-[12px] text-secondary-fg">Re-ranking remaining blocks…</div>
-          )}
-          {!!energyPendingState && !energyPreviewLoading && (
-            <div className="mt-4 space-y-2">
-              <div className="text-[12px] font-medium text-foreground">Here&apos;s what changed</div>
-              {energyDiffRows.length === 0 ? (
-                <div className="text-[12px] text-secondary-fg">No time shifts needed — plan is already aligned.</div>
-              ) : (
-                <div className="space-y-1.5 max-h-48 overflow-y-auto">
-                  {energyDiffRows.map((r, i) => (
-                    <div key={`${r.title}-${i}`} className="rounded-lg border border-soft surface-soft px-3 py-2">
-                      <div className="text-[12px] text-foreground truncate">{r.title}</div>
-                      <div className="text-[11px] text-secondary-fg tabular-nums">{fmtTime(r.before)} → {fmtTime(r.after)}</div>
-                    </div>
-                  ))}
-                </div>
-              )}
-              <div className="flex gap-2 pt-1">
-                <Button onClick={applyEnergyRerank} className="flex-1 h-10 rounded-xl">Apply changes</Button>
-                <Button variant="outline" className="flex-1 h-10 rounded-xl border-soft" onClick={() => setEnergySheetOpen(false)}>
-                  Keep original
                 </Button>
               </div>
             </div>

@@ -238,10 +238,14 @@ export function TimeTrackerProvider({ children }: { children: ReactNode }) {
 
   const addCategory: Ctx["addCategory"] = async (name, color) => {
     if (!user) return null;
+    const trimmed = name.trim();
+    if (!trimmed) return null;
+    const existing = categories.find((c) => c.name.trim().toLowerCase() === trimmed.toLowerCase());
+    if (existing) return existing;
     const usedColors = new Set(categories.map(c => c.color));
     const pick = color || PALETTE.find(c => !usedColors.has(c)) || PALETTE[categories.length % PALETTE.length];
     const { data, error } = await supabase.from("time_categories").insert({
-      user_id: user.id, name: name.trim(), color: pick, is_default: false,
+      user_id: user.id, name: trimmed, color: pick, is_default: false,
     }).select("*").single();
     if (error) { toast.error(error.message); return null; }
     setCategories(c => [...c, data as TimeCategory]);

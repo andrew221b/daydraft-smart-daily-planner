@@ -100,6 +100,14 @@ export function rescuePlanFromBlocks(
   blocks: Block[],
   options?: { nowHHMM?: string; activeHoursEnd?: string; energyState?: EnergyState; mode?: RescueMode }
 ): RescuePlanResult {
+  const fmtMin = (min: number) => {
+    const safe = Math.max(0, Math.round(min));
+    const h = Math.floor(safe / 60);
+    const m = safe % 60;
+    if (h <= 0) return `${m}m`;
+    if (m <= 0) return `${h}h`;
+    return `${h}h ${m}m`;
+  };
   const toMin = (hhmm: string) => {
     const [h, m] = hhmm.split(":").map(Number);
     return (Number.isFinite(h) ? h : 0) * 60 + (Number.isFinite(m) ? m : 0);
@@ -171,11 +179,11 @@ export function rescuePlanFromBlocks(
   const input = selected.map((b) => `${b.title} (${b.mins}m)`).join("\n");
   const modeLabel =
     mode === "aggressive" ? "Aggressive" : mode === "conservative" ? "Conservative" : "Balanced";
-  const rationale = `${modeLabel} mode · ${energyState} energy · ${budgetMin}m free (${occupiedMin}m occupied)`;
+  const rationale = `${modeLabel} mode · ${energyState} energy · ${fmtMin(budgetMin)} free (${fmtMin(occupiedMin)} occupied)`;
   const explain = [
     `${selected.length} high-impact tasks kept for the remaining window.`,
     occupiedMin > 0
-      ? `${occupiedMin}m already occupied by fixed items, so AI avoided schedule conflicts.`
+      ? `${fmtMin(occupiedMin)} already occupied by fixed items, so AI avoided schedule conflicts.`
       : "No fixed conflicts detected in the remaining window.",
     mode === "conservative"
       ? "Durations were trimmed to reduce overload and improve completion odds."

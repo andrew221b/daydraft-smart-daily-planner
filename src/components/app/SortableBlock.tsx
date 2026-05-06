@@ -53,7 +53,7 @@ export const SortableBlock = ({
       {...(isCal ? {} : attributes)}
       {...(isCal ? {} : listeners)}
       onClick={() => onTap?.(block)}
-      className={`group cursor-pointer pressable transition-all duration-200 app-card p-3 ${
+    className={`group cursor-pointer pressable transition-all duration-200 app-card p-2.5 ${
         block.completed ? "opacity-65" : ""
       } ${
         isCal
@@ -62,16 +62,16 @@ export const SortableBlock = ({
             ? "bg-muted/40 border-soft hover:border-strong"
             : rhythmType === "personal"
               ? "bg-[linear-gradient(165deg,hsl(278_72%_62%/.10)_0%,hsl(var(--surface)/.80)_58%,hsl(var(--surface-elevated)/.74)_100%)] border-[hsl(270_70%_66%/.36)] hover:border-[hsl(270_72%_70%/.52)]"
-              : "hover:border-primary/30 hover:-translate-y-[1px]"
+              : "hover:border-primary/30"
       }`}
     >
       <div className="flex items-center gap-3">
-        <div className="shrink-0 min-w-[56px] h-10 rounded-xl border border-strong bg-background/45 backdrop-blur-sm px-2 inline-flex items-center justify-center text-secondary-fg text-[11.5px] font-mono-sf tabular-nums">
+        <div className="shrink-0 min-w-[54px] h-9 rounded-lg border border-strong bg-background/45 backdrop-blur-sm px-2 inline-flex items-center justify-center text-secondary-fg text-[11px] font-mono-sf tabular-nums">
           {fmtTime(block.start_time)}
         </div>
         <div className="w-[4px] h-9 rounded-full shrink-0" style={{ background: stripeColor }} />
         <div className="flex-1 min-w-0">
-          <div className={`leading-tight flex items-center gap-1.5 min-w-0 ${rhythmType === "rest" ? "text-[13px]" : "text-[14.5px]"} ${block.completed ? "line-through text-secondary-fg" : "text-foreground"}`}>
+          <div className={`leading-tight flex items-center gap-1.5 min-w-0 ${rhythmType === "rest" ? "text-[12.5px]" : "text-[14px]"} ${block.completed ? "line-through text-secondary-fg" : "text-foreground"}`}>
           {isCal && <Calendar className="h-3 w-3 text-secondary-fg shrink-0" />}
           {!isCal && rhythmType === "rest" && <span className="shrink-0 text-[12px] leading-none" aria-hidden>☕</span>}
           <span className="truncate">{block.title}</span>
@@ -81,7 +81,7 @@ export const SortableBlock = ({
             </span>
           )}
           </div>
-          <div className={`${rhythmType === "rest" ? "text-[10px]" : "text-[11px]"} text-secondary-fg mt-1 tabular-nums`}>{dur}</div>
+          <div className={`${rhythmType === "rest" ? "text-[10px]" : "text-[10.5px]"} text-secondary-fg mt-1 tabular-nums`}>{dur}</div>
           {actualMin != null && (
             <div className={`mt-1 text-[10px] tabular-nums ${actualToneClass}`}>
               {fmtMin(estimatedMin)} planned · {fmtMin(actualMin)} actual

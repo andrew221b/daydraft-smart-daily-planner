@@ -18,9 +18,7 @@ import { enablePush, disablePush, pushSupported } from "@/lib/push";
 import { useTour, TOUR_TODAY } from "@/components/app/Tour";
 import { getWeekIntention, setWeekIntention } from "@/lib/weekIntention";
 import { useCalmMode } from "@/lib/calmMode";
-import { PremiumTheme, usePremiumTheme } from "@/lib/premiumTheme";
-import { PremiumQuality, usePremiumQuality } from "@/lib/premiumQuality";
-import { haptics } from "@/lib/haptics";
+import { VisualMode, useVisualMode } from "@/lib/visualMode";
 const TODAY_TIP_DISMISSED_KEY = "dd_today_tip_dismissed";
 
 const energies = [
@@ -51,9 +49,7 @@ export default function Settings() {
   const [calConnecting, setCalConnecting] = useState(false);
   const [advancedOpen, setAdvancedOpen] = useState(false);
   const [calmMode, setCalmMode] = useCalmMode();
-  const [premiumTheme, setPremiumTheme] = usePremiumTheme();
-  const [premiumQuality, setPremiumQuality] = usePremiumQuality();
-  const [qualityPreviewPulse, setQualityPreviewPulse] = useState(false);
+  const [visualMode, setVisualMode] = useVisualMode();
   useEffect(() => { if (profile) setName(profile.display_name || ""); }, [profile?.id]);
 
   useEffect(() => {
@@ -63,18 +59,6 @@ export default function Settings() {
     });
     return () => cancelAnimationFrame(id);
   }, []);
-
-  useEffect(() => {
-    if (!qualityPreviewPulse) return;
-    const id = window.setTimeout(() => setQualityPreviewPulse(false), 900);
-    return () => window.clearTimeout(id);
-  }, [qualityPreviewPulse]);
-
-  const qualityLabel = premiumQuality === "auto"
-    ? "Auto"
-    : premiumQuality === "performance"
-      ? "Performance"
-      : "Premium";
 
   const togglePasskey = async () => {
     if (hasPasskey) {
@@ -139,7 +123,7 @@ export default function Settings() {
     <Shell>
       <div className="px-6 pt-12">
         <p className="eyebrow">Account</p>
-        <h1 className="font-display text-[26px] font-semibold tracking-tight mt-2 text-balance">Settings</h1>
+        <h1 className="type-title mt-2 text-balance">Settings</h1>
 
         <div className="mt-8 space-y-8">
           {/* 1. Plan card — most important context */}
@@ -157,7 +141,7 @@ export default function Settings() {
 
           {/* 2. Profile — name + appearance grouped */}
           <Section title="You">
-            <div className="rounded-[18px] border border-soft surface-card backdrop-blur-sm divide-y divide-border/50 overflow-hidden">
+            <div className="rounded-[14px] border border-soft surface-card backdrop-blur-sm divide-y divide-border/50 overflow-hidden">
               <div className="px-3 py-2.5">
                 <div className="text-[11px] text-secondary-fg mb-1">Name</div>
                 <Input value={name} onChange={e => setName(e.target.value)} onBlur={() => update({ display_name: name })}
@@ -167,47 +151,18 @@ export default function Settings() {
                 <div className="text-[11px] text-secondary-fg mb-2">Appearance</div>
                 <ThemeToggle />
                 <div className="mt-3">
-                  <div className="text-[11px] text-secondary-fg mb-1.5">Premium style</div>
-                  <div className="grid grid-cols-3 gap-2">
+                  <div className="text-[11px] text-secondary-fg mb-1.5">Visual mode</div>
+                  <div className="grid grid-cols-2 gap-2">
                     {([
-                      { key: "aurora", label: "Aurora" },
-                      { key: "obsidian", label: "Obsidian" },
+                      { key: "standard", label: "Обычный" },
                       { key: "neon", label: "Neon" },
-                    ] as Array<{ key: PremiumTheme; label: string }>).map((opt) => (
+                    ] as Array<{ key: VisualMode; label: string }>).map((opt) => (
                       <button
                         key={opt.key}
                         type="button"
-                        onClick={() => setPremiumTheme(opt.key)}
+                        onClick={() => setVisualMode(opt.key)}
                         className={`h-9 rounded-lg border text-[11px] font-medium pressable ${
-                          premiumTheme === opt.key
-                            ? "surface-accent border-accent text-primary"
-                            : "surface-soft border-soft text-secondary-fg"
-                        }`}
-                      >
-                        {opt.label}
-                      </button>
-                    ))}
-                  </div>
-                </div>
-                <div className="mt-3">
-                  <div className="text-[11px] text-secondary-fg mb-1.5">Visual quality</div>
-                  <div className="grid grid-cols-3 gap-2">
-                    {([
-                      { key: "auto", label: "Auto" },
-                      { key: "performance", label: "Performance" },
-                      { key: "premium", label: "Premium" },
-                    ] as Array<{ key: PremiumQuality; label: string }>).map((opt) => (
-                      <button
-                        key={opt.key}
-                        type="button"
-                        onClick={() => {
-                          if (premiumQuality === opt.key) return;
-                          setPremiumQuality(opt.key);
-                          setQualityPreviewPulse(true);
-                          haptics.selection();
-                        }}
-                        className={`h-9 rounded-lg border text-[11px] font-medium pressable ${
-                          premiumQuality === opt.key
+                          visualMode === opt.key
                             ? "surface-accent border-accent text-primary"
                             : "surface-soft border-soft text-secondary-fg"
                         }`}
@@ -217,14 +172,8 @@ export default function Settings() {
                     ))}
                   </div>
                   <p className="mt-2 text-[11px] text-secondary-fg leading-relaxed">
-                    Auto balances style and smoothness for your device. Performance reduces visual intensity. Premium keeps the richest glass effects.
+                    Обычный — спокойный чистый интерфейс. Neon — более яркие акценты и glow.
                   </p>
-                  <div className={`mt-2 inline-flex items-center gap-1.5 rounded-full border px-2.5 py-1 text-[10px] tracking-[0.08em] uppercase ${
-                    qualityPreviewPulse ? "border-accent surface-accent text-primary fade-in" : "border-soft surface-soft text-secondary-fg"
-                  }`}>
-                    <span className="h-1.5 w-1.5 rounded-full bg-current" />
-                    Applied now: {qualityLabel}
-                  </div>
                 </div>
               </div>
             </div>
@@ -235,7 +184,7 @@ export default function Settings() {
             <p className="text-[12px] text-secondary-fg mb-2 leading-relaxed">
               This affects how AI writes plans, task help, nudges, and recap insights.
             </p>
-            <div className="rounded-[18px] border border-soft surface-card backdrop-blur-sm divide-y divide-border/50 overflow-hidden">
+            <div className="rounded-[14px] border border-soft surface-card backdrop-blur-sm divide-y divide-border/50 overflow-hidden">
               {TONES.map(t => {
                 const active = (profile?.ai_tone || "professional") === t.key;
                 return (
@@ -265,7 +214,7 @@ export default function Settings() {
 
           {/* 4. Notifications + Calendar — connected channels */}
           <Section title="Connections">
-            <div className="rounded-[18px] border border-soft surface-card backdrop-blur-sm divide-y divide-border/50 overflow-hidden">
+            <div className="rounded-[14px] border border-soft surface-card backdrop-blur-sm divide-y divide-border/50 overflow-hidden">
               <div className="flex items-center justify-between px-4 py-3">
                 <div className="flex items-center gap-3">
                   <Bell className="h-4 w-4 text-secondary-fg" />

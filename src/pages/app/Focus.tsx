@@ -486,7 +486,7 @@ export default function Focus() {
             button below already convey state. Two timers on one screen was
             redundant and confusing. */}
 
-        <h1 className="mt-10 font-display text-[24px] font-semibold text-center leading-snug max-w-[300px] line-clamp-3 text-balance">{block.title}</h1>
+        <h1 className="mt-10 font-display text-[22px] font-semibold text-center leading-snug max-w-[300px] line-clamp-3 text-balance">{block.title}</h1>
         {(lateDeepWork || longSession) && (
           <div className="mt-3 inline-flex items-center gap-1.5 px-3 py-1.5 rounded-full border border-soft surface-soft text-[11px] text-secondary-fg">
             <ShieldAlert className="h-3.5 w-3.5 text-primary" />
@@ -617,13 +617,13 @@ export default function Focus() {
           {!helpOpen ? (
             <button
               onClick={loadHelp}
-              className="w-full h-11 rounded-[14px] app-card py-0 text-sm font-medium pressable inline-flex items-center justify-center gap-2 text-foreground"
+              className="w-full h-10 rounded-[12px] app-card py-0 text-sm font-medium pressable inline-flex items-center justify-center gap-2 text-foreground"
             >
               <Sparkles className="h-4 w-4 text-primary" />
               {toneCopy(tone, "ai_help_cta")}
             </button>
           ) : (
-            <div className="app-card panel-luxe p-4 space-y-3 text-left">
+            <div className="app-card panel-luxe p-3.5 space-y-3 text-left">
               <div className="flex items-center gap-2 eyebrow text-primary">
                 <Sparkles className="h-3.5 w-3.5" /> {toneCopy(tone, "ai_assistant_title")}
               </div>

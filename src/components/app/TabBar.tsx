@@ -3,6 +3,7 @@ import { NavLink, useLocation } from "react-router-dom";
 import { Home, Timer, BarChart2, Settings as SettingsIcon } from "lucide-react";
 import { useTimeTracker, useTimeTrackerElapsed } from "@/hooks/useTimeTracker";
 import { haptics } from "@/lib/haptics";
+import type { LucideIcon } from "lucide-react";
 
 const tabs = [
   { to: "/today", icon: Home, label: "Today", tour: "tab-today" },
@@ -56,23 +57,23 @@ export const TabBar = () => {
   );
 };
 
-function TabItem({ to, icon: Icon, label, tour, pulse }: { to: string; icon: any; label: string; tour: string; pulse?: boolean }) {
+function TabItem({ to, icon: Icon, label, tour, pulse }: { to: string; icon: LucideIcon; label: string; tour: string; pulse?: boolean }) {
   return (
     <NavLink
       to={to}
       data-tour={tour}
       className={({ isActive }) =>
-        `relative z-[1] flex min-h-[46px] flex-col items-center justify-center gap-0.5 flex-1 rounded-[14px] py-1.5 px-0.5 pressable transition-all duration-200 ${
+        `relative z-[1] flex min-h-[46px] flex-col items-center justify-center gap-0.5 flex-1 rounded-[12px] py-1.5 px-0.5 pressable transition-all duration-200 ${
           isActive
             ? "text-primary"
-            : "text-secondary-fg hover:text-subtle hover:bg-foreground/[0.03]"
+            : "text-secondary-fg hover:text-subtle"
         }`
       }
       aria-label={label}
     >
       {({ isActive }) => (
         <>
-          <Icon className={`h-[18px] w-[18px] transition-transform duration-300 ${isActive ? "scale-110 -translate-y-[0.5px]" : "scale-100"}`} strokeWidth={isActive ? 2.2 : 1.8} aria-hidden />
+          <Icon className={`h-[18px] w-[18px] transition-transform duration-200 ${isActive ? "scale-105 -translate-y-[0.5px]" : "scale-100"}`} strokeWidth={isActive ? 2.1 : 1.8} aria-hidden />
           <span className={`max-w-full truncate px-0.5 text-center text-[10px] font-semibold leading-tight tracking-tight transition-all duration-300 ${isActive ? "opacity-100 translate-y-0" : "opacity-90 translate-y-[0.5px]"}`}>
             {label}
           </span>
