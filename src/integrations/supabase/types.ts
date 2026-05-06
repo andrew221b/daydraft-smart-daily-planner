@@ -40,14 +40,10 @@ export type Database = {
       }
       blocks: {
         Row: {
-          actual_minutes: number | null
           ai_reasoning: string | null
-          block_type: string
           completed: boolean
-          completed_at: string | null
           created_at: string
           duration_min: number
-          estimated_minutes: number
           id: string
           is_calendar_event: boolean
           kind: string
@@ -62,14 +58,10 @@ export type Database = {
           user_id: string
         }
         Insert: {
-          actual_minutes?: number | null
           ai_reasoning?: string | null
-          block_type?: string
           completed?: boolean
-          completed_at?: string | null
           created_at?: string
           duration_min: number
-          estimated_minutes?: number
           id?: string
           is_calendar_event?: boolean
           kind?: string
@@ -84,14 +76,10 @@ export type Database = {
           user_id: string
         }
         Update: {
-          actual_minutes?: number | null
           ai_reasoning?: string | null
-          block_type?: string
           completed?: boolean
-          completed_at?: string | null
           created_at?: string
           duration_min?: number
-          estimated_minutes?: number
           id?: string
           is_calendar_event?: boolean
           kind?: string
