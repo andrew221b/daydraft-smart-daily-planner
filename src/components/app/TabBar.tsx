@@ -1,7 +1,7 @@
 import { useEffect, useRef, useState } from "react";
 import { NavLink, useLocation } from "react-router-dom";
 import { Home, Timer, BarChart2, Settings as SettingsIcon } from "lucide-react";
-import { useTimeTracker, useTimeTrackerElapsed, fmtHMS } from "@/hooks/useTimeTracker";
+import { useTimeTracker, useTimeTrackerElapsed } from "@/hooks/useTimeTracker";
 import { haptics } from "@/lib/haptics";
 
 const tabs = [
@@ -23,57 +23,23 @@ export const TabBar = () => {
   const { pathname } = useLocation();
   const prevPath = useRef<string | null>(null);
   const activeIdx = Math.max(0, tabs.findIndex((t) => pathname.startsWith(t.to)));
-  const [prevIdx, setPrevIdx] = useState(activeIdx);
-  const [travelDir, setTravelDir] = useState<"left" | "right" | null>(null);
-  const moveDir = travelDir === "right" ? "tab-indicator-move-right" : travelDir === "left" ? "tab-indicator-move-left" : "";
   const trackerLabel = active ? fmtMMSS(elapsedSec) : "Timer";
 
   useEffect(() => {
     if (prevPath.current !== null && prevPath.current !== pathname) haptics.selection();
     prevPath.current = pathname;
-    const dir = activeIdx > prevIdx ? "right" : activeIdx < prevIdx ? "left" : null;
-    if (dir) {
-      setTravelDir(dir);
-      const id = window.setTimeout(() => setTravelDir(null), 520);
-      setPrevIdx(activeIdx);
-      return () => window.clearTimeout(id);
-    }
-    setPrevIdx(activeIdx);
-  }, [pathname, activeIdx, prevIdx]);
+  }, [pathname]);
 
   return (
     <nav
       className="fixed bottom-0 left-1/2 -translate-x-1/2 w-[min(calc(100vw-20px),420px)] z-40"
       style={{ paddingBottom: "max(env(safe-area-inset-bottom), 8px)" }}
     >
-      {active && (
-        <div className="mb-2 mx-auto w-max max-w-full px-3 py-1.5 rounded-full bg-background/88 border border-accent shadow-card flex items-center gap-2 ring-1 ring-black/[0.04] dark:ring-white/[0.05] tracker-status-pill">
-          <span className="relative flex h-2 w-2">
-            <span className="absolute inset-0 rounded-full bg-primary tracker-dot-soft-pulse opacity-60" />
-            <span className="relative h-2 w-2 rounded-full bg-primary" />
-          </span>
-          <span className="text-[11px] text-secondary-fg">Tracking</span>
-          <span className="text-[12px] font-mono-sf tabular-nums text-foreground min-w-[64px] text-right">{fmtHMS(elapsedSec)}</span>
-        </div>
-      )}
       <div className="relative rounded-[24px] p-[1px] tabbar-shell-glow">
-        <div className="relative bg-background/[0.72] backdrop-blur-2xl border border-soft rounded-[23px] shadow-tab flex items-center px-1 py-1 ring-1 ring-black/[0.04] dark:ring-white/[0.1] overflow-hidden tabbar-luxe tabbar-glass-fix">
+        <div className="relative bg-background/[0.72] backdrop-blur-2xl border border-soft rounded-[23px] shadow-tab flex items-center px-1 py-1 ring-1 ring-black/[0.04] dark:ring-white/[0.1] overflow-hidden tabbar-luxe">
           <span
             aria-hidden
-            className="pointer-events-none absolute inset-x-8 top-0 h-8 opacity-70"
-            style={{ background: "linear-gradient(180deg, hsl(var(--primary) / 0.24), transparent)" }}
-          />
-          <span
-            aria-hidden
-            className={`pointer-events-none absolute top-1 bottom-1 left-1 rounded-[14px] tab-indicator-liquid-trail ${moveDir}`}
-            style={{
-              width: "calc((100% - 8px) / 4)",
-              transform: `translate3d(${activeIdx * 100}%, 0, 0)`,
-            }}
-          />
-          <span
-            aria-hidden
-            className={`pointer-events-none absolute top-1 bottom-1 rounded-[14px] border border-accent shadow-[inset_0_1px_0_rgba(255,255,255,0.2),0_8px_22px_-10px_hsl(var(--primary)/0.52)] tab-indicator-luxe tab-indicator-liquid ${moveDir}`}
+            className="pointer-events-none absolute top-1 bottom-1 rounded-[14px] border border-accent shadow-[inset_0_1px_0_rgba(255,255,255,0.2),0_8px_22px_-10px_hsl(var(--primary)/0.52)] tab-indicator-liquid"
             style={{
               background: "linear-gradient(132deg, hsl(var(--primary) / 0.3), hsl(var(--primary-glow) / 0.24))",
               left: "4px",

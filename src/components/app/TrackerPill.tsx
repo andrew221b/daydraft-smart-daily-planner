@@ -73,13 +73,7 @@ function TrackerInner({ embedded = false, onClose }: { embedded?: boolean; onClo
   const [manualForCat, setManualForCat] = useState<string | null>(null);
   const [confirmDeleteCat, setConfirmDeleteCat] = useState<string | null>(null);
   const [nowSec, setNowSec] = useState<number>(() => Date.now());
-  const [simpleMode, setSimpleMode] = useState<boolean>(() => {
-    try {
-      return localStorage.getItem("dd_tracker_simple_mode") !== "0";
-    } catch {
-      return true;
-    }
-  });
+  const simpleMode = false;
   const [showAllCategories, setShowAllCategories] = useState(false);
   const [todayPlanBlocks, setTodayPlanBlocks] = useState<Block[]>([]);
   const [planLoaded, setPlanLoaded] = useState(false);
@@ -577,15 +571,7 @@ function TrackerInner({ embedded = false, onClose }: { embedded?: boolean; onClo
               </>
             )}
           </div>
-          {!active && !simpleMode && (
-            <button
-              type="button"
-              onClick={() => setSimpleMode(true)}
-              className="mt-3 h-9 px-3 rounded-lg border border-soft surface-soft text-[11px] text-secondary-fg hover:text-foreground pressable inline-flex items-center gap-1.5"
-            >
-              <SlidersHorizontal className="h-3.5 w-3.5" /> Quick mode
-            </button>
-          )}
+          {/* Quick mode removed — week/month tabs always visible */}
 
           <div className="mt-4 inline-flex w-full rounded-[14px] bg-muted/80 p-1">
             <button
@@ -638,17 +624,6 @@ function TrackerInner({ embedded = false, onClose }: { embedded?: boolean; onClo
                   {t}
                 </button>
               ))}
-            </div>
-          ) : trackerMode === "free" ? (
-            <div className="mt-5 rounded-[14px] border border-soft surface-soft px-3 py-2.5 text-[11px] text-secondary-fg flex items-center justify-between gap-2">
-              <span>Quick mode: focused on start/stop and today only.</span>
-              <button
-                type="button"
-                onClick={() => setSimpleMode(false)}
-                className="text-primary font-medium inline-flex items-center gap-1"
-              >
-                <SlidersHorizontal className="h-3.5 w-3.5" /> Advanced
-              </button>
             </div>
           ) : null}
         </div>
