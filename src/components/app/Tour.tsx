@@ -67,7 +67,8 @@ export function TourProvider({ children }: { children: ReactNode }) {
   // Reset scroll flag when step changes
   useEffect(() => { setScrolled(false); }, [step?.id]);
 
-  // Auto-skip a step if its target never appears (e.g. element conditionally rendered)
+  // Auto-skip a step if its target never appears. Use a longer window so first-load
+  // (lazy chunks, fonts, layout settle) doesn't race past valid targets.
   useEffect(() => {
     if (!step) return;
     const t = setTimeout(() => {
@@ -75,7 +76,7 @@ export function TourProvider({ children }: { children: ReactNode }) {
       if (!el) {
         setStepIndex(i => (flow && i < flow.steps.length - 1 ? i + 1 : i));
       }
-    }, 1200);
+    }, 2500);
     return () => clearTimeout(t);
   }, [step?.id, flow]);
 
@@ -153,14 +154,7 @@ export const TOUR_TODAY: TourFlow = {
       id: "plan",
       selector: "[data-tour='today-plan']",
       title: "Start here — plan your day",
-      body: "Tap to write everything on your mind (messy lists are fine). Then generate a timed schedule — DayDraft adds durations and realistic order. You can also use Speak or pick another date.",
-      placement: "top",
-    },
-    {
-      id: "inbox",
-      selector: "[data-tour='today-inbox']",
-      title: "Quick capture",
-      body: "Got an idea while you're away from the planner? Save it here. It merges into your next plan automatically.",
+      body: "Tap to write everything on your mind (messy lists are fine). Then generate a timed schedule — DayDraft adds durations and realistic order.",
       placement: "bottom",
     },
     {

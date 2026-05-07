@@ -1,4 +1,5 @@
 import { X, ArrowRight } from "lucide-react";
+import { useLayoutEffect, useRef, useState } from "react";
 
 type OverlayStep = {
   title: string;
@@ -7,6 +8,7 @@ type OverlayStep = {
 };
 
 const PADDING = 8;
+const GAP = 14;
 
 export default function TourOverlay({
   rect,
@@ -35,10 +37,23 @@ export default function TourOverlay({
   const vw = window.innerWidth;
   const vh = window.innerHeight;
 
-  const spaceBelow = vh - (y + h);
-  const placeBelow =
-    step.placement === "bottom" || (step.placement !== "top" && spaceBelow > 200);
-  const tooltipTop = placeBelow ? y + h + 14 : Math.max(16, y - 14 - 180);
+  const tooltipRef = useRef<HTMLDivElement | null>(null);
+  const [tipH, setTipH] = useState(180);
+  useLayoutEffect(() => {
+    if (tooltipRef.current) setTipH(tooltipRef.current.getBoundingClientRect().height);
+  }, [step.title, step.body, vw, vh]);
+
+  const spaceBelow = vh - (y + h) - 16;
+  const spaceAbove = y - 16;
+  // Prefer requested placement, but flip if it doesn't fit. Avoid overlapping the highlight.
+  let placeBelow: boolean;
+  if (step.placement === "bottom") placeBelow = spaceBelow >= tipH + GAP || spaceBelow >= spaceAbove;
+  else if (step.placement === "top") placeBelow = !(spaceAbove >= tipH + GAP || spaceAbove >= spaceBelow);
+  else placeBelow = spaceBelow >= spaceAbove;
+
+  const tooltipTop = placeBelow
+    ? Math.min(vh - tipH - 16, y + h + GAP)
+    : Math.max(16, y - GAP - tipH);
 
   const tooltipWidth = Math.min(340, vw - 32);
   const targetCenter = x + w / 2;
@@ -70,6 +85,7 @@ export default function TourOverlay({
       </svg>
 
       <div
+        ref={tooltipRef}
         className="absolute pointer-events-auto rounded-xl bg-surface-elevated border border-soft shadow-card p-4 page-enter"
         style={{ top: tooltipTop, left: tooltipLeft, width: tooltipWidth }}
       >
