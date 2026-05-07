@@ -298,7 +298,7 @@ export default function Settings() {
                 <span className="text-[14px] flex-1 text-left">Replay tutorial</span>
                 <span className="text-secondary-fg">›</span>
               </button>
-              <button
+              <Link to="/privacy" className="flex items-center gap-3 px-4 py-3 pressable hover:bg-surface-elevated">
               <Link to="/privacy" className="flex items-center gap-3 px-4 py-3 pressable hover:bg-surface-elevated">
                 <Shield className="h-4 w-4 text-secondary-fg" />
                 <span className="text-[14px] flex-1">Privacy</span>
