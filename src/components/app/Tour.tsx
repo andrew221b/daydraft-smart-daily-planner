@@ -67,7 +67,8 @@ export function TourProvider({ children }: { children: ReactNode }) {
   // Reset scroll flag when step changes
   useEffect(() => { setScrolled(false); }, [step?.id]);
 
-  // Auto-skip a step if its target never appears (e.g. element conditionally rendered)
+  // Auto-skip a step if its target never appears. Use a longer window so first-load
+  // (lazy chunks, fonts, layout settle) doesn't race past valid targets.
   useEffect(() => {
     if (!step) return;
     const t = setTimeout(() => {
@@ -75,7 +76,7 @@ export function TourProvider({ children }: { children: ReactNode }) {
       if (!el) {
         setStepIndex(i => (flow && i < flow.steps.length - 1 ? i + 1 : i));
       }
-    }, 1200);
+    }, 2500);
     return () => clearTimeout(t);
   }, [step?.id, flow]);
 
