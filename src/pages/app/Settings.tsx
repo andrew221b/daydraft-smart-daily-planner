@@ -7,7 +7,7 @@ import { Button } from "@/components/ui/button";
 import { useEffect, useState } from "react";
 import { peakWindow } from "@/lib/daydraft";
 import { ThemeToggle } from "@/components/app/ThemeToggle";
-import { Fingerprint, Sparkles, Bell, Calendar, FileText, Shield, Trash2, HelpCircle, MessageCircle, Clock, ChevronDown } from "lucide-react";
+import { Fingerprint, Sparkles, Bell, Calendar, FileText, Shield, Trash2, HelpCircle, ChevronDown } from "lucide-react";
 import { Textarea } from "@/components/ui/textarea";
 import { Link, useNavigate } from "react-router-dom";
 import { clearStoredPasskey, enrollPasskey, getStoredPasskey, passkeySupported } from "@/lib/passkeys";
@@ -16,10 +16,7 @@ import { useEntitlement } from "@/hooks/useEntitlement";
 import { UpgradeSheet } from "@/components/app/UpgradeSheet";
 import { enablePush, disablePush, pushSupported } from "@/lib/push";
 import { useTour, TOUR_TODAY } from "@/components/app/Tour";
-import { getWeekIntention, setWeekIntention } from "@/lib/weekIntention";
-import { useCalmMode } from "@/lib/calmMode";
 import { VisualMode, useVisualMode } from "@/lib/visualMode";
-const TODAY_TIP_DISMISSED_KEY = "dd_today_tip_dismissed";
 
 const energies = [
   { key: "morning" as const, label: "Morning person" },
@@ -48,7 +45,6 @@ export default function Settings() {
   const [upgradeOpen, setUpgradeOpen] = useState(false);
   const [calConnecting, setCalConnecting] = useState(false);
   const [advancedOpen, setAdvancedOpen] = useState(false);
-  const [calmMode, setCalmMode] = useCalmMode();
   const [visualMode, setVisualMode] = useVisualMode();
   useEffect(() => { if (profile) setName(profile.display_name || ""); }, [profile?.id]);
 
@@ -132,12 +128,6 @@ export default function Settings() {
             planQuotaUsed={planQuotaUsed} planQuotaLimit={planQuotaLimit}
             onUpgrade={() => setUpgradeOpen(true)}
           />
-
-          <div id="week-intention" className="scroll-mt-28">
-            <Section title="This week's focus">
-              <WeekIntentionEditor />
-            </Section>
-          </div>
 
           {/* 2. Profile — name + appearance grouped */}
           <Section title="You">
@@ -243,23 +233,6 @@ export default function Settings() {
             </div>
           </Section>
 
-          <Section title="Focus experience">
-            <div className="rounded-[18px] border border-soft surface-card backdrop-blur-sm overflow-hidden">
-              <div className="flex items-center justify-between px-4 py-3">
-                <div>
-                  <div className="text-[14px]">Calm mode</div>
-                  <p className="text-[11px] text-secondary-fg mt-0.5">
-                    Show only essential actions on Today and DayView.
-                  </p>
-                </div>
-                <Switch checked={calmMode} onCheckedChange={setCalmMode} />
-              </div>
-              <div className="px-4 pb-3 text-[11px] text-secondary-fg leading-relaxed">
-                Calm mode hides context signals, insights, rescue hints, and extra controls so Today/DayView stay minimal.
-              </div>
-            </div>
-          </Section>
-
           {/* 5. Advanced — collapsed by default */}
           <Section title="Advanced">
             <button
@@ -325,17 +298,6 @@ export default function Settings() {
                 <span className="text-[14px] flex-1 text-left">Replay tutorial</span>
                 <span className="text-secondary-fg">›</span>
               </button>
-              <button
-                onClick={() => {
-                  try { localStorage.removeItem(TODAY_TIP_DISMISSED_KEY); } catch {/* ignore */}
-                  toast.success("Tips re-enabled on Today");
-                }}
-                className="w-full flex items-center gap-3 px-4 py-3 pressable hover:bg-surface-elevated"
-              >
-                <MessageCircle className="h-4 w-4 text-secondary-fg" />
-                <span className="text-[14px] flex-1 text-left">Show Today tip again</span>
-                <span className="text-secondary-fg">›</span>
-              </button>
               <Link to="/privacy" className="flex items-center gap-3 px-4 py-3 pressable hover:bg-surface-elevated">
                 <Shield className="h-4 w-4 text-secondary-fg" />
                 <span className="text-[14px] flex-1">Privacy</span>
@@ -363,52 +325,6 @@ export default function Settings() {
       </div>
       <UpgradeSheet open={upgradeOpen} onOpenChange={setUpgradeOpen} reason="feature" />
     </Shell>
-  );
-}
-
-function WeekIntentionEditor() {
-  const [txt, setTxt] = useState("");
-  useEffect(() => {
-    setTxt(getWeekIntention()?.text ?? "");
-  }, []);
-  return (
-    <div className="app-card overflow-hidden p-0 border-soft">
-      <p className="text-[12.5px] text-secondary-fg px-4 pt-4 leading-relaxed">
-        One line that stays pinned on <strong className="text-foreground font-medium">Today</strong> until Monday. Use it for a theme, a deadline, or how you want to feel — not a task list.
-      </p>
-      <Textarea
-        value={txt}
-        onChange={(e) => setTxt(e.target.value)}
-        placeholder="e.g. Ship the beta · stay calm under load"
-        className="mx-3 my-3 min-h-[72px] bg-background border-soft rounded-xl text-[13px]"
-      />
-      <div className="flex gap-2 px-3 pb-3">
-        <Button
-          type="button"
-          className="flex-1 h-10 rounded-xl text-[13px]"
-          onClick={() => {
-            setWeekIntention(txt);
-            window.dispatchEvent(new Event("dd-week-intent"));
-            toast.success("Saved — check Today");
-          }}
-        >
-          Save for this week
-        </Button>
-        <Button
-          type="button"
-          variant="outline"
-          className="h-10 rounded-xl text-[12px] px-3"
-          onClick={() => {
-            setTxt("");
-            setWeekIntention("");
-            window.dispatchEvent(new Event("dd-week-intent"));
-            toast("Weekly focus cleared");
-          }}
-        >
-          Clear
-        </Button>
-      </div>
-    </div>
   );
 }
 

@@ -285,7 +285,6 @@
     -webkit-backdrop-filter: blur(var(--glass-blur)) saturate(var(--glass-saturate));
     box-shadow: var(--shadow-card), var(--shadow-card-inset);
     isolation: isolate;
-    -webkit-mask-image: -webkit-radial-gradient(white, black);
   }
 
   .hero-glass {
@@ -299,7 +298,6 @@
     backdrop-filter: blur(var(--hero-glass-blur)) saturate(var(--hero-glass-saturate));
     -webkit-backdrop-filter: blur(var(--hero-glass-blur)) saturate(var(--hero-glass-saturate));
     isolation: isolate;
-    -webkit-mask-image: -webkit-radial-gradient(white, black);
   }
 
   .kicker {
@@ -409,7 +407,6 @@
   /* Prevent rounded glass clipping artifacts in iOS/Lovable webviews */
   .tabbar-glass-fix {
     isolation: isolate;
-    -webkit-mask-image: -webkit-radial-gradient(white, black);
     transform: translateZ(0);
     backface-visibility: hidden;
   }
