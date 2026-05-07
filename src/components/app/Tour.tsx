@@ -153,14 +153,7 @@ export const TOUR_TODAY: TourFlow = {
       id: "plan",
       selector: "[data-tour='today-plan']",
       title: "Start here — plan your day",
-      body: "Tap to write everything on your mind (messy lists are fine). Then generate a timed schedule — DayDraft adds durations and realistic order. You can also use Speak or pick another date.",
-      placement: "top",
-    },
-    {
-      id: "inbox",
-      selector: "[data-tour='today-inbox']",
-      title: "Quick capture",
-      body: "Got an idea while you're away from the planner? Save it here. It merges into your next plan automatically.",
+      body: "Tap to write everything on your mind (messy lists are fine). Then generate a timed schedule — DayDraft adds durations and realistic order.",
       placement: "bottom",
     },
     {
