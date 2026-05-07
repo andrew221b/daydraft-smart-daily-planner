@@ -154,7 +154,7 @@ export default function Settings() {
                   <div className="text-[11px] text-secondary-fg mb-1.5">Visual mode</div>
                   <div className="grid grid-cols-2 gap-2">
                     {([
-                      { key: "standard", label: "Обычный" },
+                      { key: "standard", label: "Standard" },
                       { key: "neon", label: "Neon" },
                     ] as Array<{ key: VisualMode; label: string }>).map((opt) => (
                       <button
@@ -172,7 +172,7 @@ export default function Settings() {
                     ))}
                   </div>
                   <p className="mt-2 text-[11px] text-secondary-fg leading-relaxed">
-                    Обычный — спокойный чистый интерфейс. Neon — более яркие акценты и glow.
+                    Standard — calm, clean interface. Neon — brighter accents and glow.
                   </p>
                 </div>
               </div>

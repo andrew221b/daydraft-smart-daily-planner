@@ -622,7 +622,7 @@ export default function Focus() {
         <div className="w-full mt-6">
           {!helpOpen ? (
             <button
-              onClick={loadHelp}
+              onClick={() => loadHelp()}
               className="w-full h-10 rounded-[12px] app-card py-0 text-sm font-medium pressable inline-flex items-center justify-center gap-2 text-foreground"
             >
               <Sparkles className="h-4 w-4 text-primary" />

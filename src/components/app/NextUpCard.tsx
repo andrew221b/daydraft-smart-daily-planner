@@ -59,7 +59,7 @@ export function NextUpCard({
           </div>
           <div className="mt-1.5 flex items-center gap-2 min-w-0">
             <span className="h-1.5 w-1.5 rounded-full shrink-0" style={{ background: typeColor(next.type) }} />
-            <span className="text-[15px] font-medium leading-snug truncate">{next.title}</span>
+            <span className="text-[15px] font-medium leading-snug line-clamp-2 break-words">{next.title}</span>
           </div>
         </div>
         <Button
