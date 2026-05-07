@@ -328,52 +328,6 @@ export default function Settings() {
   );
 }
 
-function WeekIntentionEditor() {
-  const [txt, setTxt] = useState("");
-  useEffect(() => {
-    setTxt(getWeekIntention()?.text ?? "");
-  }, []);
-  return (
-    <div className="app-card overflow-hidden p-0 border-soft">
-      <p className="text-[12.5px] text-secondary-fg px-4 pt-4 leading-relaxed">
-        One line that stays pinned on <strong className="text-foreground font-medium">Today</strong> until Monday. Use it for a theme, a deadline, or how you want to feel — not a task list.
-      </p>
-      <Textarea
-        value={txt}
-        onChange={(e) => setTxt(e.target.value)}
-        placeholder="e.g. Ship the beta · stay calm under load"
-        className="mx-3 my-3 min-h-[72px] bg-background border-soft rounded-xl text-[13px]"
-      />
-      <div className="flex gap-2 px-3 pb-3">
-        <Button
-          type="button"
-          className="flex-1 h-10 rounded-xl text-[13px]"
-          onClick={() => {
-            setWeekIntention(txt);
-            window.dispatchEvent(new Event("dd-week-intent"));
-            toast.success("Saved — check Today");
-          }}
-        >
-          Save for this week
-        </Button>
-        <Button
-          type="button"
-          variant="outline"
-          className="h-10 rounded-xl text-[12px] px-3"
-          onClick={() => {
-            setTxt("");
-            setWeekIntention("");
-            window.dispatchEvent(new Event("dd-week-intent"));
-            toast("Weekly focus cleared");
-          }}
-        >
-          Clear
-        </Button>
-      </div>
-    </div>
-  );
-}
-
 const Section = ({ title, children }: { title: string; children: React.ReactNode }) => (
   <div>
     <div className="text-[10px] uppercase tracking-[0.14em] text-secondary-fg mb-2 font-medium">{title}</div>
