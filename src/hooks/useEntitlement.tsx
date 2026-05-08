@@ -1,7 +1,6 @@
 import { useEffect, useState, useCallback } from "react";
 import { supabase } from "@/integrations/supabase/client";
 import { useAuth } from "./useAuth";
-import { dateStr } from "@/lib/daydraft";
 
 export type Tier = "free" | "trial" | "pro";
 
@@ -14,7 +13,7 @@ export interface Entitlement {
   currentPeriodEnd: string | null;
 }
 
-export const FREE_PLAN_QUOTA = 5; // plans per rolling 7 days
+export const FREE_PLAN_QUOTA = 5; // total free planning days, lifetime
 
 const computeTier = (status: string, trialEndsAt: string | null): Tier => {
   if (status === "active") return "pro";
@@ -44,17 +43,13 @@ export const useEntitlement = () => {
       currentPeriodEnd: sub?.current_period_end ?? null,
     });
 
-    // Quota: count distinct plan dates in last 7 days (use local date key
-    // so users in negative-UTC timezones don't see their quota reset a day
-    // late).
-    const since = new Date(); since.setDate(since.getDate() - 6);
+    // Free trial = 5 distinct planning days, lifetime (not rolling).
     // Only days that actually have schedule blocks count — empty plan rows
-    // (failed generation, partial writes) must not burn the weekly quota.
+    // (failed generation, partial writes) must not burn the trial.
     const { data: plans } = await supabase
       .from("plans")
       .select("date, blocks(id)")
-      .eq("user_id", user.id)
-      .gte("date", dateStr(since));
+      .eq("user_id", user.id);
     const uniq = new Set(
       (plans || [])
         .filter((p: { blocks?: { id: string }[] | null }) => Array.isArray(p.blocks) && p.blocks.length > 0)

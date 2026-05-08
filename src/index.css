@@ -64,41 +64,86 @@
     --hero-glass-saturate: 1.2;
   }
 
-  /* Light mode kept as a thin override (most users stay dark) */
+  /* Light mode — refined warm-paper aesthetic, high contrast, calm depth. */
   :root.light {
-    --background: 210 26% 98%;
-    --foreground: 223 20% 15%;
-    --surface: 205 28% 96%;
+    --background: 30 28% 98%;            /* warm paper */
+    --foreground: 224 30% 10%;           /* near-black, slight cool */
+    --surface: 30 24% 96%;
     --surface-elevated: 0 0% 100%;
     --card: 0 0% 100%;
-    --card-foreground: 223 20% 15%;
+    --card-foreground: 224 30% 10%;
     --popover: 0 0% 100%;
-    --popover-foreground: 223 20% 15%;
-    --primary: 176 58% 38%;
+    --popover-foreground: 224 30% 10%;
+
+    --primary: 222 82% 52%;              /* vivid sapphire — clear CTA */
     --primary-foreground: 0 0% 100%;
-    --primary-glow: 182 60% 45%;
-    --secondary: 205 20% 92%;
-    --secondary-foreground: 223 20% 15%;
-    --muted: 205 22% 92%;
-    --muted-foreground: 220 12% 38%;
-    --accent: 176 58% 38%;
+    --primary-glow: 256 78% 62%;         /* violet bloom */
+
+    --secondary: 30 16% 92%;
+    --secondary-foreground: 224 30% 10%;
+    --muted: 30 14% 93%;
+    --muted-foreground: 224 12% 38%;
+
+    --accent: 222 82% 52%;
     --accent-foreground: 0 0% 100%;
-    --success: 154 46% 36%;
+
+    --success: 158 60% 32%;
     --success-foreground: 0 0% 100%;
-    --destructive: 3 74% 48%;
+    --destructive: 358 72% 48%;
     --destructive-foreground: 0 0% 100%;
-    --border: 210 16% 80%;
-    --input: 210 16% 82%;
-    --ring: 176 58% 38%;
-    --type-deep: 176 58% 38%;
-    --type-comm: 30 78% 48%;
-    --type-routine: 219 16% 48%;
-    --shadow-card: 0 1px 2px rgba(15,17,21,0.05);
-    --shadow-card-inset: inset 0 1px 0 rgba(255,255,255,0.55);
-    --shadow-elevated: 0 4px 16px rgba(15,17,21,0.06);
-    --shadow-tab: 0 10px 36px -12px rgba(15,17,21,0.1), inset 0 1px 0 rgba(255,255,255,0.95);
-    --gradient-glow: radial-gradient(55% 40% at 50% -6%, hsl(var(--primary) / 0.11), transparent 70%);
-    --gradient-floor: radial-gradient(ellipse 70% 42% at 50% 100%, hsl(var(--primary) / 0.06), transparent 68%);
+
+    --border: 30 14% 84%;
+    --input: 30 14% 86%;
+    --ring: 222 82% 52%;
+
+    --type-deep: 222 82% 52%;
+    --type-comm: 22 88% 48%;
+    --type-routine: 224 12% 44%;
+
+    --shadow-card:
+      0 1px 0 rgba(255,255,255,0.9),
+      0 1px 2px rgba(20,22,30,0.04),
+      0 8px 22px -10px rgba(20,22,30,0.08);
+    --shadow-card-inset: inset 0 1px 0 rgba(255,255,255,0.7);
+    --shadow-elevated:
+      0 1px 2px rgba(20,22,30,0.05),
+      0 16px 38px -16px rgba(20,22,30,0.18);
+    --shadow-glow: 0 0 0 4px hsl(var(--primary) / 0.14);
+    --shadow-tab:
+      0 12px 38px -16px rgba(20,22,30,0.16),
+      inset 0 1px 0 rgba(255,255,255,0.95);
+
+    --gradient-primary: linear-gradient(132deg, hsl(var(--primary)) 0%, hsl(var(--primary-glow)) 100%);
+    --gradient-glow: radial-gradient(58% 42% at 50% -6%, hsl(var(--primary) / 0.10), transparent 72%);
+    --gradient-floor: radial-gradient(ellipse 72% 44% at 50% 100%, hsl(var(--primary-glow) / 0.07), transparent 70%);
+
+    /* Lighter glass for paper-like surfaces */
+    --glass-blur: 14px;
+    --glass-saturate: 1.05;
+    --hero-glass-blur: 16px;
+    --hero-glass-saturate: 1.08;
+  }
+
+  /* Light-mode tightening for translucent surface utilities so they stay
+     readable on a near-white background instead of disappearing. */
+  :root.light .surface-card { background-color: hsl(0 0% 100% / 0.92); }
+  :root.light .surface-soft { background-color: hsl(30 24% 96% / 0.85); }
+  :root.light .surface-accent { background-color: hsl(var(--primary) / 0.07); }
+  :root.light .border-soft { border-color: hsl(var(--border) / 0.9); }
+  :root.light .border-accent { border-color: hsl(var(--primary) / 0.32); }
+
+  :root.light .hero-glass {
+    background:
+      radial-gradient(120% 120% at 0% 0%, hsl(var(--primary) / 0.07) 0%, transparent 60%),
+      radial-gradient(120% 120% at 100% 0%, hsl(var(--primary-glow) / 0.06) 0%, transparent 64%),
+      linear-gradient(160deg, #ffffff 0%, hsl(30 24% 97%) 100%);
+    border-color: hsl(var(--border) / 0.95);
+  }
+  :root.light .app-card {
+    background:
+      radial-gradient(120% 140% at 0% 0%, hsl(var(--primary) / 0.04) 0%, transparent 58%),
+      linear-gradient(168deg, #ffffff 0%, hsl(30 22% 97%) 100%);
+    border-color: hsl(var(--border) / 0.95);
   }
 
   :root[data-visual-mode="neon"], :root.light[data-visual-mode="neon"] {

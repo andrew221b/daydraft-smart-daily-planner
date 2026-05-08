@@ -323,16 +323,6 @@ serve(async (req) => {
     // Server-side quota enforcement (free tier): prevents bypassing UI checks.
     // Re-planning an already-counted date is allowed.
     if (authedUserId && tier === "free") {
-      const toLocalDate = (d: Date) => {
-        try {
-          return new Intl.DateTimeFormat("en-CA", { timeZone: timezone || "UTC" }).format(d);
-        } catch {
-          return d.toISOString().slice(0, 10);
-        }
-      };
-      const since = new Date(nowDate);
-      since.setDate(since.getDate() - 6);
-      const sinceStr = toLocalDate(since);
       const targetDate =
         typeof plan_date === "string" && /^\d{4}-\d{2}-\d{2}$/.test(plan_date)
           ? plan_date
@@ -346,8 +336,7 @@ serve(async (req) => {
       const { data: plans } = await supabase
         .from("plans")
         .select("date, blocks(id)")
-        .eq("user_id", authedUserId)
-        .gte("date", sinceStr);
+        .eq("user_id", authedUserId);
       const usedDates = new Set(
         (plans || [])
           .filter((p: { blocks?: { id: string }[] | null }) => Array.isArray(p.blocks) && p.blocks.length > 0)
@@ -357,7 +346,7 @@ serve(async (req) => {
       if (!alreadyCounted && usedDates.size >= FREE_PLAN_LIMIT) {
         return new Response(
           JSON.stringify({
-            error: `Free plan limit reached (${FREE_PLAN_LIMIT} planning days in the last 7 days).`,
+            error: `Free trial limit reached — ${FREE_PLAN_LIMIT} planning days used. Upgrade to Pro for unlimited plans.`,
             code: "PLAN_QUOTA_REACHED",
             tier: "free",
             limit: FREE_PLAN_LIMIT,

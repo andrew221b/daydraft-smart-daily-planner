@@ -10,7 +10,7 @@ import { useAuth } from "@/hooks/useAuth";
 const benefits = [
   { icon: Calendar, label: "Google Calendar sync", sub: "Plan around your meetings" },
   { icon: Brain, label: "Compounding AI", sub: "Learns your patterns each week" },
-  { icon: Zap, label: "Unlimited plans", sub: "No 5-per-week limit" },
+  { icon: Zap, label: "Unlimited plans", sub: "No 5-day trial limit" },
   { icon: Palette, label: "Premium visual styles", sub: "Aurora, Obsidian, Neon + richer effects" },
 ];
 
@@ -23,7 +23,7 @@ const reasonHeadline: Record<UpgradeReason, string> = {
   momentum: "Keep your momentum compounding.",
 };
 const reasonSub: Record<UpgradeReason, string> = {
-  quota: "Free is 5 plans a week. Pro is unlimited.",
+  quota: "Free includes 5 planning days total. Pro is unlimited.",
   feature: "This feature is part of DayDraft Pro.",
   "trial-banner": "Lock in everything you've been using.",
   momentum: "You are building consistency. Pro keeps coaching and planning unlimited.",
@@ -35,7 +35,7 @@ const reasonOrder: Record<UpgradeReason, string[]> = {
   momentum: ["Compounding AI", "Unlimited plans", "Google Calendar sync", "Premium visual styles"],
 };
 const reasonCta: Record<UpgradeReason, string> = {
-  quota: "Go unlimited this week",
+  quota: "Go unlimited",
   feature: "Unlock this in Pro",
   "trial-banner": "Keep my Pro access",
   momentum: "Turn momentum into Pro",

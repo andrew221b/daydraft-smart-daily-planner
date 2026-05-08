@@ -846,6 +846,16 @@ function TrackerInner({ embedded = false, onClose }: { embedded?: boolean; onClo
                               <Plus className="h-3.5 w-3.5" />
                             </button>
                           )}
+                          {!active && !c.is_default && (
+                            <button
+                              onClick={() => setConfirmDeleteCat(c.id)}
+                              className="p-1.5 text-secondary-fg hover:text-destructive pressable"
+                              aria-label={`Delete category ${c.name}`}
+                              title="Delete category"
+                            >
+                              <Trash2 className="h-3.5 w-3.5" />
+                            </button>
+                          )}
                           {!active && (
                             <button
                               disabled={!!categoryBusyId}

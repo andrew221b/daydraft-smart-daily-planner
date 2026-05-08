@@ -692,7 +692,7 @@ export default function Today() {
           <div className="flex items-start justify-between gap-3">
             <div className="min-w-0 flex-1">
               <p className="kicker">{friendlyDate()}</p>
-              <h1 className="type-title mt-2 truncate text-balance">
+              <h1 className="type-title mt-2 text-balance break-words">
               {greetingFor(tone, profile?.display_name)}
               </h1>
               {!profile?.onboarded ? (
@@ -1010,7 +1010,7 @@ export default function Today() {
             className="mt-4 w-full h-10 rounded-xl border border-accent surface-accent text-[12px] text-foreground pressable inline-flex items-center justify-between px-3"
           >
             <span>
-              {planQuotaRemaining} free planning day{planQuotaRemaining === 1 ? "" : "s"} left this week
+              {planQuotaRemaining} free planning day{planQuotaRemaining === 1 ? "" : "s"} left
             </span>
             <span className="text-primary font-medium">Upgrade</span>
           </button>
