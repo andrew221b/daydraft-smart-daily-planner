@@ -129,7 +129,11 @@ export const greetingFor = (tone: Tone, name?: string | null) => {
   const h = new Date().getHours();
   const part = h < 5 ? "Late night" : h < 12 ? "Good morning" : h < 17 ? "Good afternoon" : h < 21 ? "Good evening" : "Tonight";
   const who = name ? `, ${name}` : "";
-  if (tone === "tough_love") return `${h < 12 ? "Up." : "Heads up."}${who}`;
+  if (tone === "tough_love") {
+    const base = h < 12 ? "Up" : "Heads up";
+    // Avoid awkward "Up., name" — use comma when there's a name, period otherwise.
+    return name ? `${base}${who}` : `${base}.`;
+  }
   if (tone === "playful") return `${part}${who} ✨`;
   if (tone === "philosophical") return `${part}${who}.`;
   return `${part}${who}`;
