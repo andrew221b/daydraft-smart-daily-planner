@@ -753,7 +753,13 @@ export default function Focus() {
           )}
         </div>
       </div>
-      <PreflightSheet open={preflightOpen} onOpenChange={(v) => { if (!v) dismissPreflight(); }} onStart={dismissPreflight} />
+      <PreflightSheet
+        open={preflightOpen}
+        onOpenChange={(v) => { if (!v) dismissPreflight(); }}
+        onStart={dismissPreflight}
+        taskTitle={block?.title}
+        taskType={block?.type}
+      />
       <AlertDialog open={confirmSkipOpen} onOpenChange={setConfirmSkipOpen}>
         <AlertDialogContent>
           <AlertDialogHeader>

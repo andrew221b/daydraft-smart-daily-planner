@@ -4,11 +4,12 @@ import { Block, fmtTime, inferScheduleBlockType } from "@/lib/daydraft";
 import { Check, Calendar, Sparkles } from "lucide-react";
 
 export const SortableBlock = ({
-  block, editing, onTap, tourSpotlight,
+  block, editing, onTap, onToggleComplete, tourSpotlight,
 }: {
   block: Block & { ai_reasoning?: string | null; location?: string | null; location_lat?: number | null; location_lng?: number | null; is_calendar_event?: boolean };
   editing: boolean;
   onTap?: (b: any) => void;
+  onToggleComplete?: (b: any) => void;
   /** First visible row — tour hotspot only on one element. */
   tourSpotlight?: boolean;
 }) => {
@@ -89,11 +90,31 @@ export const SortableBlock = ({
           )}
         </div>
         {block.completed ? (
-          <div data-tour={tourSpotlight ? "dayview-complete" : undefined} className="h-6 w-6 rounded-full bg-success flex items-center justify-center shrink-0">
+          <button
+            type="button"
+            data-tour={tourSpotlight ? "dayview-complete" : undefined}
+            onPointerDown={(e) => e.stopPropagation()}
+            onClick={(e) => {
+              e.stopPropagation();
+              onToggleComplete?.(block);
+            }}
+            className="h-6 w-6 rounded-full bg-success flex items-center justify-center shrink-0 pressable"
+            aria-label="Mark as not done"
+          >
             <Check className="h-3 w-3 text-success-foreground" strokeWidth={3} />
-          </div>
+          </button>
         ) : (
-          <div data-tour={tourSpotlight ? "dayview-complete" : undefined} className="h-6 w-6 rounded-full border-[1.5px] border-soft shrink-0" />
+          <button
+            type="button"
+            data-tour={tourSpotlight ? "dayview-complete" : undefined}
+            onPointerDown={(e) => e.stopPropagation()}
+            onClick={(e) => {
+              e.stopPropagation();
+              onToggleComplete?.(block);
+            }}
+            className="h-6 w-6 rounded-full border-[1.5px] border-soft shrink-0 pressable"
+            aria-label="Mark done"
+          />
         )}
       </div>
     </div>

@@ -23,10 +23,10 @@ interface BlockLite {
 interface PlanRow {
   id: string;
   date: string;
-  ai_summary: string | null;
   total: number;
   done: number;
-  preview: string;
+  plannedTaskMin: number;
+  doneByLabel: string | null;
   plannedDoneMin: number;
   trackedSec: number;
 }
@@ -58,7 +58,7 @@ export default function History() {
     const [{ data: blocks }, { data: entries }] = await Promise.all([
       supabase
         .from("blocks")
-        .select("id,plan_id,kind,completed,title,position,is_calendar_event,duration_min,block_type")
+        .select("id,plan_id,kind,completed,title,position,is_calendar_event,duration_min,block_type,completed_at")
         .in("plan_id", ids)
         .order("position"),
       supabase
@@ -102,17 +102,25 @@ export default function History() {
         const bs = byPlan.get(p.id) || [];
         const tasks = bs.filter(b => isUserTask(b));
         const done = tasks.filter(b => b.completed).length;
+        const plannedTaskMin = tasks.reduce((s, b) => s + (((b as any).duration_min as number) || 0), 0);
         const plannedDoneMin = tasks
           .filter((b) => b.completed)
           .reduce((s, b) => s + (((b as any).duration_min as number) || 0), 0);
-        const preview = tasks.slice(0, 3).map(t => t.title).filter(Boolean).join(" · ");
+        const latestCompletedAt = tasks
+          .map((b) => (b as any).completed_at as string | null | undefined)
+          .filter(Boolean)
+          .sort()
+          .pop();
+        const doneByLabel = latestCompletedAt
+          ? new Date(latestCompletedAt).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })
+          : null;
         return {
           id: p.id,
           date: p.date,
-          ai_summary: p.ai_summary,
           total: tasks.length,
           done,
-          preview,
+          plannedTaskMin,
+          doneByLabel,
           plannedDoneMin,
           trackedSec: trackedByDate.get(p.date) || 0,
         };
@@ -182,7 +190,7 @@ export default function History() {
     <Shell>
       <PullToRefresh onRefresh={async () => { await load(); }}>
       <div className="px-5 pt-10">
-        <div className="hero-glass p-4.5 md:p-5">
+        <div className="hero-glass px-4.5 pt-4.5 pb-4 md:px-5 md:pt-5 md:pb-4.5">
           <PageHeader
             eyebrow="Your week"
             title="History"
@@ -286,7 +294,8 @@ export default function History() {
                             </div>
                           </div>
                           <div className="mt-1.5 text-[14px] line-clamp-2 leading-snug font-display">
-                            {p.ai_summary || p.preview || `${p.total} task${p.total === 1 ? "" : "s"}`}
+                            {p.total} task{p.total === 1 ? "" : "s"} · {Math.round((p.plannedTaskMin || 0) / 6) / 10}h planned
+                            {p.doneByLabel ? ` · Done by ${p.doneByLabel}` : ""}
                           </div>
                           <div className="mt-3 flex items-center justify-between text-[11px] text-secondary-fg">
                             <span>
@@ -297,7 +306,7 @@ export default function History() {
                             <span className={`tabular-nums ${allDone ? "text-success font-medium" : ""}`}>{completionPct}%</span>
                           </div>
                           <div className="mt-1 text-[10.5px] text-secondary-fg">
-                            Planned done: {Math.round(p.plannedDoneMin)}m · Actual tracked: {fmtHM(p.trackedSec)}
+                            Actual tracked: {fmtHM(p.trackedSec)} · Planned done: {Math.round(p.plannedDoneMin)}m
                           </div>
                         </button>
                       </div>

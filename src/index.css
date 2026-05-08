@@ -64,89 +64,48 @@
     --hero-glass-saturate: 1.2;
   }
 
-  /* Light mode — refined warm-paper aesthetic, high contrast, calm depth. */
+  /* Light mode kept as a thin override (most users stay dark) */
   :root.light {
-    --background: 30 28% 98%;            /* warm paper */
-    --foreground: 224 30% 10%;           /* near-black, slight cool */
-    --surface: 30 24% 96%;
+    --background: 210 32% 98%;
+    --foreground: 222 34% 16%;
+    --surface: 210 30% 96%;
     --surface-elevated: 0 0% 100%;
     --card: 0 0% 100%;
-    --card-foreground: 224 30% 10%;
+    --card-foreground: 222 34% 16%;
     --popover: 0 0% 100%;
-    --popover-foreground: 224 30% 10%;
-
-    --primary: 222 82% 52%;              /* vivid sapphire — clear CTA */
+    --popover-foreground: 222 34% 16%;
+    --primary: 192 92% 43%;
     --primary-foreground: 0 0% 100%;
-    --primary-glow: 256 78% 62%;         /* violet bloom */
-
-    --secondary: 30 16% 92%;
-    --secondary-foreground: 224 30% 10%;
-    --muted: 30 14% 93%;
-    --muted-foreground: 224 12% 38%;
-
-    --accent: 222 82% 52%;
+    --primary-glow: 262 82% 61%;
+    --secondary: 210 25% 93%;
+    --secondary-foreground: 222 24% 20%;
+    --muted: 210 24% 93%;
+    --muted-foreground: 220 14% 40%;
+    --accent: 192 92% 43%;
     --accent-foreground: 0 0% 100%;
-
-    --success: 158 60% 32%;
+    --success: 154 52% 36%;
     --success-foreground: 0 0% 100%;
-    --destructive: 358 72% 48%;
+    --destructive: 3 74% 48%;
     --destructive-foreground: 0 0% 100%;
-
-    --border: 30 14% 84%;
-    --input: 30 14% 86%;
-    --ring: 222 82% 52%;
-
-    --type-deep: 222 82% 52%;
-    --type-comm: 22 88% 48%;
-    --type-routine: 224 12% 44%;
-
-    --shadow-card:
-      0 1px 0 rgba(255,255,255,0.9),
-      0 1px 2px rgba(20,22,30,0.04),
-      0 8px 22px -10px rgba(20,22,30,0.08);
-    --shadow-card-inset: inset 0 1px 0 rgba(255,255,255,0.7);
-    --shadow-elevated:
-      0 1px 2px rgba(20,22,30,0.05),
-      0 16px 38px -16px rgba(20,22,30,0.18);
-    --shadow-glow: 0 0 0 4px hsl(var(--primary) / 0.14);
-    --shadow-tab:
-      0 12px 38px -16px rgba(20,22,30,0.16),
-      inset 0 1px 0 rgba(255,255,255,0.95);
-
-    --gradient-primary: linear-gradient(132deg, hsl(var(--primary)) 0%, hsl(var(--primary-glow)) 100%);
-    --gradient-glow: radial-gradient(58% 42% at 50% -6%, hsl(var(--primary) / 0.10), transparent 72%);
+    --border: 214 25% 82%;
+    --input: 214 24% 84%;
+    --ring: 192 92% 43%;
+    --type-deep: 192 92% 43%;
+    --type-comm: 30 78% 48%;
+    --type-routine: 223 18% 48%;
+    --shadow-card: 0 1px 0 rgba(255,255,255,0.82), 0 8px 24px rgba(16,24,40,0.06);
+    --shadow-card-inset: inset 0 1px 0 rgba(255,255,255,0.92);
+    --shadow-elevated: 0 14px 36px rgba(16,24,40,0.09), 0 4px 14px rgba(16,24,40,0.07);
+    --shadow-tab: 0 10px 32px -14px rgba(16,24,40,0.16), inset 0 1px 0 rgba(255,255,255,0.96);
+    --gradient-glow: radial-gradient(56% 40% at 50% -6%, hsl(var(--primary) / 0.12), transparent 72%);
     --gradient-floor: radial-gradient(ellipse 72% 44% at 50% 100%, hsl(var(--primary-glow) / 0.07), transparent 70%);
-
-    /* Lighter glass for paper-like surfaces */
-    --glass-blur: 14px;
+    --glass-blur: 12px;
     --glass-saturate: 1.05;
-    --hero-glass-blur: 16px;
-    --hero-glass-saturate: 1.08;
+    --hero-glass-blur: 14px;
+    --hero-glass-saturate: 1.06;
   }
 
-  /* Light-mode tightening for translucent surface utilities so they stay
-     readable on a near-white background instead of disappearing. */
-  :root.light .surface-card { background-color: hsl(0 0% 100% / 0.92); }
-  :root.light .surface-soft { background-color: hsl(30 24% 96% / 0.85); }
-  :root.light .surface-accent { background-color: hsl(var(--primary) / 0.07); }
-  :root.light .border-soft { border-color: hsl(var(--border) / 0.9); }
-  :root.light .border-accent { border-color: hsl(var(--primary) / 0.32); }
-
-  :root.light .hero-glass {
-    background:
-      radial-gradient(120% 120% at 0% 0%, hsl(var(--primary) / 0.07) 0%, transparent 60%),
-      radial-gradient(120% 120% at 100% 0%, hsl(var(--primary-glow) / 0.06) 0%, transparent 64%),
-      linear-gradient(160deg, #ffffff 0%, hsl(30 24% 97%) 100%);
-    border-color: hsl(var(--border) / 0.95);
-  }
-  :root.light .app-card {
-    background:
-      radial-gradient(120% 140% at 0% 0%, hsl(var(--primary) / 0.04) 0%, transparent 58%),
-      linear-gradient(168deg, #ffffff 0%, hsl(30 22% 97%) 100%);
-    border-color: hsl(var(--border) / 0.95);
-  }
-
-  :root[data-visual-mode="neon"], :root.light[data-visual-mode="neon"] {
+  :root[data-visual-mode="neon"] {
     --primary: 184 100% 66%;
     --primary-glow: 300 100% 74%;
     --accent: 280 94% 70%;
@@ -167,6 +126,46 @@
     --glass-saturate: 1.14;
     --hero-glass-blur: 18px;
     --hero-glass-saturate: 1.16;
+  }
+
+  /* Light + Neon gets its own clean, high-contrast palette (not dark neon). */
+  :root.light[data-visual-mode="neon"] {
+    --background: 210 44% 98%;
+    --foreground: 226 34% 14%;
+    --surface: 0 0% 100%;
+    --surface-elevated: 206 42% 97%;
+    --card: 0 0% 100%;
+    --card-foreground: 226 34% 14%;
+    --popover: 0 0% 100%;
+    --popover-foreground: 226 34% 14%;
+
+    --primary: 193 96% 50%;
+    --primary-foreground: 217 42% 13%;
+    --primary-glow: 271 90% 62%;
+    --accent: 271 90% 62%;
+    --accent-foreground: 0 0% 100%;
+
+    --secondary: 205 40% 95%;
+    --secondary-foreground: 224 26% 20%;
+    --muted: 204 34% 94%;
+    --muted-foreground: 220 14% 43%;
+
+    --border: 214 34% 82%;
+    --input: 214 32% 84%;
+    --ring: 193 96% 50%;
+
+    --shadow-card: 0 1px 0 rgba(255,255,255,0.82), 0 10px 24px rgba(18,28,56,0.08);
+    --shadow-card-inset: inset 0 1px 0 rgba(255,255,255,0.92);
+    --shadow-elevated: 0 16px 38px rgba(18,28,56,0.11), 0 3px 10px rgba(18,28,56,0.08);
+    --shadow-glow: 0 0 0 3px hsl(var(--primary) / 0.2), 0 0 22px hsl(var(--primary-glow) / 0.15);
+    --shadow-tab: 0 10px 32px -12px rgba(18,28,56,0.14), inset 0 1px 0 rgba(255,255,255,0.95);
+    --gradient-glow: radial-gradient(58% 40% at 50% -6%, hsl(var(--primary) / 0.16), transparent 72%);
+    --gradient-floor: radial-gradient(ellipse 70% 44% at 50% 100%, hsl(var(--primary-glow) / 0.09), transparent 70%);
+
+    --glass-blur: 14px;
+    --glass-saturate: 1.08;
+    --hero-glass-blur: 16px;
+    --hero-glass-saturate: 1.1;
   }
 }
 
@@ -352,6 +351,30 @@
     color: hsl(var(--primary) / 0.98);
     font-weight: 700;
     text-shadow: none;
+  }
+
+  :root.light .type-meta,
+  :root.light .eyebrow {
+    color: hsl(var(--muted-foreground) / 0.9);
+  }
+
+  :root.light .surface-soft {
+    background-color: hsl(var(--surface) / 0.72);
+  }
+  :root.light .surface-card {
+    background-color: hsl(var(--surface-elevated) / 0.84);
+  }
+  :root.light .surface-accent {
+    background-color: hsl(var(--primary) / 0.1);
+  }
+  :root.light .border-soft {
+    border-color: hsl(var(--border) / 0.72);
+  }
+  :root.light .border-strong {
+    border-color: hsl(var(--border) / 0.92);
+  }
+  :root.light .border-accent {
+    border-color: hsl(var(--primary) / 0.34);
   }
 
   /** Ambient layers behind the app column (Shell) */
@@ -542,6 +565,47 @@
   }
   :root[data-visual-mode="neon"] .bg-primary {
     box-shadow: 0 0 22px hsl(var(--primary) / 0.4), 0 0 48px hsl(var(--primary-glow) / 0.26);
+  }
+
+  :root.light[data-visual-mode="neon"] .hero-glass,
+  :root.light[data-visual-mode="neon"] .app-card {
+    border-color: hsl(var(--primary) / 0.26);
+    box-shadow:
+      0 0 0 1px hsl(var(--primary) / 0.08),
+      0 8px 24px -14px hsl(var(--primary-glow) / 0.24),
+      var(--shadow-card),
+      var(--shadow-card-inset);
+  }
+  :root.light[data-visual-mode="neon"] .bg-primary {
+    box-shadow: 0 0 0 1px hsl(var(--primary) / 0.26), 0 8px 24px -10px hsl(var(--primary) / 0.35);
+  }
+
+  :root.light:not([data-visual-mode="neon"]) .hero-glass,
+  :root.light:not([data-visual-mode="neon"]) .app-card {
+    border-color: hsl(var(--border) / 0.78);
+    box-shadow:
+      0 0 0 1px rgba(255,255,255,0.65),
+      0 12px 30px -18px rgba(16,24,40,0.2),
+      var(--shadow-card),
+      var(--shadow-card-inset);
+  }
+  :root.light:not([data-visual-mode="neon"]) .hero-glass {
+    background:
+      radial-gradient(110% 110% at 0% 0%, hsl(var(--primary) / 0.08) 0%, transparent 58%),
+      radial-gradient(120% 120% at 100% 0%, hsl(var(--primary-glow) / 0.07) 0%, transparent 62%),
+      linear-gradient(160deg, hsl(var(--surface-elevated) / 0.98) 0%, hsl(var(--surface) / 0.9) 100%);
+  }
+  :root.light:not([data-visual-mode="neon"]) .app-card {
+    background:
+      radial-gradient(120% 130% at 0% 0%, hsl(var(--primary) / 0.04) 0%, transparent 56%),
+      linear-gradient(168deg, hsl(var(--surface-elevated) / 0.94) 0%, hsl(var(--surface) / 0.86) 100%);
+  }
+  :root.light:not([data-visual-mode="neon"]) .bg-primary {
+    box-shadow: 0 1px 0 rgba(255,255,255,0.42), 0 8px 20px -12px hsl(var(--primary) / 0.45);
+  }
+  :root.light .tabbar-shell-glow {
+    background: linear-gradient(180deg, hsl(var(--primary) / 0.12), hsl(var(--primary-glow) / 0.06));
+    box-shadow: 0 10px 28px -18px hsl(var(--primary) / 0.34);
   }
 }
 

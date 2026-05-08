@@ -332,13 +332,18 @@ export default function DayView() {
   };
 
   const persistOrder = async (list: ExBlock[]) => {
-    const rows = list.map((b, i) => ({
-      id: b.id,
-      position: i,
-      start_time: b.start_time,
-    }));
-    const { error } = await supabase.from("blocks").upsert(rows as any, { onConflict: "id" });
-    if (error) throw error;
+    const ops = list.map((b, i) =>
+      supabase
+        .from("blocks")
+        .update({
+          position: i,
+          start_time: b.start_time,
+        })
+        .eq("id", b.id),
+    );
+    const results = await Promise.all(ops);
+    const failed = results.find((r) => r.error);
+    if (failed?.error) throw failed.error;
   };
 
   const onDragEnd = (e: DragEndEvent) => {
@@ -546,7 +551,17 @@ export default function DayView() {
                 <SortableContext items={upcomingBlocks.map(b => b.id)} strategy={verticalListSortingStrategy}>
                   <div className="space-y-2">
                     {upcomingBlocks.map((b, i) => (
-                      <SortableBlock key={b.id} block={b} editing={false} tourSpotlight={i === 0} onTap={(blk) => setTappedBlock(blk)} />
+                      <SortableBlock
+                        key={b.id}
+                        block={b}
+                        editing={false}
+                        tourSpotlight={i === 0}
+                        onTap={(blk) => setTappedBlock(blk)}
+                        onToggleComplete={(blk) => {
+                          if (blk?.is_calendar_event) return;
+                          completeBlock(blk.id);
+                        }}
+                      />
                     ))}
                     {upcomingBlocks.length === 0 && completedBlocks.length === 0 && (
                       <div className="text-center text-secondary-fg py-12 text-sm">No tasks scheduled.</div>
@@ -579,7 +594,16 @@ export default function DayView() {
                 {!collapseDone && (
                   <div className="space-y-2 mt-1.5">
                     {completedBlocks.map(b => (
-                      <SortableBlock key={b.id} block={b} editing={false} onTap={(blk) => setTappedBlock(blk)} />
+                      <SortableBlock
+                        key={b.id}
+                        block={b}
+                        editing={false}
+                        onTap={(blk) => setTappedBlock(blk)}
+                        onToggleComplete={(blk) => {
+                          if (blk?.is_calendar_event) return;
+                          completeBlock(blk.id);
+                        }}
+                      />
                     ))}
                   </div>
                 )}
@@ -624,12 +648,6 @@ export default function DayView() {
                 </div>
               </SheetHeader>
 
-              {!tappedBlock.is_calendar_event && (
-                <ActionRow
-                  onClick={() => { const id = tappedBlock.id; setTappedBlock(null); completeBlock(id); }}
-                  label={tappedBlock.completed ? "Mark as not done" : "Mark done"}
-                />
-              )}
               {!tappedBlock.is_calendar_event && (
                 <ActionRow
                   onClick={() => { setDurationEditId(tappedBlock.id); setTappedBlock(null); }}

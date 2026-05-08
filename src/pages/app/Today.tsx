@@ -29,7 +29,6 @@ import {
   Plus,
   Pencil,
   ListChecks,
-  Inbox,
   ShieldAlert,
   Info,
   ChevronDown,
@@ -688,30 +687,30 @@ export default function Today() {
       >
       <div className="px-5 pt-8">
         {/* ── Header ─────────────────────────── */}
-        <div className="hero-glass p-4.5 md:p-5 shadow-elevated">
-          <div className="flex items-start justify-between gap-3">
+        <div className="hero-glass px-4.5 pt-4.5 pb-4 md:px-5 md:pt-5 md:pb-4.5 shadow-elevated">
+          <div className="flex items-start justify-between gap-2.5">
             <div className="min-w-0 flex-1">
               <p className="kicker">{friendlyDate()}</p>
-              <h1 className="type-title mt-2 text-balance break-words">
+              <h1 className="type-title mt-1.5 pr-1 text-balance leading-[1.08] break-words">
               {greetingFor(tone, profile?.display_name)}
               </h1>
               {!profile?.onboarded ? (
-                <p className="type-body text-secondary-fg mt-2.5">
+                <p className="type-body text-secondary-fg mt-2.25">
                   Bottom bar: <span className="text-subtle">Today</span> · <span className="text-subtle">Timer</span> ·{" "}
                   <span className="text-subtle">History</span> · <span className="text-subtle">Settings</span>
                 </p>
               ) : hasPlanForDate && planDate === todayDateStr() ? (
-                <p className="type-body text-secondary-fg mt-2.5">
+                <p className="type-body text-secondary-fg mt-2.25">
                   <span className="text-subtle">Next up</span> jumps into Focus; open the plan card to tick tasks off.
                 </p>
               ) : null}
             </div>
-            <div className="flex shrink-0 items-start gap-1.5">
+            <div className="flex shrink-0 items-start gap-1.5 pt-0.5">
               <ProBadge />
             </div>
           </div>
-          <div className="mt-4 h-px w-full bg-gradient-to-r from-transparent via-border/80 to-transparent" />
-          <div className="mt-3 type-meta uppercase tracking-[0.08em]">
+          <div className="mt-3.5 h-px w-full bg-gradient-to-r from-transparent via-border/80 to-transparent" />
+          <div className="mt-2.5 type-meta uppercase tracking-[0.08em]">
             {hasPlanForDate ? "Plan ready" : "No plan yet"} · {isToday ? "Today" : friendlyDateFor(parseDateStr(planDate))}
           </div>
         </div>
@@ -1126,14 +1125,6 @@ export default function Today() {
                 ))}
               </div>
             )}
-            <MoreRow
-              onClick={() => {
-                setMoreOpen(false);
-                window.dispatchEvent(new Event("dd-open-quick-capture"));
-              }}
-              icon={<Inbox className="h-4 w-4" />}
-              label="Open capture inbox"
-            />
           </div>
         </SheetContent>
       </Sheet>
