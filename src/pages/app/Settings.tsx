@@ -355,11 +355,11 @@ const ProCard = ({ entitlement, isPro, planQuotaUsed, planQuotaLimit, onUpgrade 
       <div className="text-[13px] mt-1.5 text-foreground">
         {isPro
           ? "Unlimited plans, calendar sync, and everything."
-          : `${planQuotaUsed} of ${planQuotaLimit} free planning days used in the last 7 days.`}
+          : `${planQuotaUsed} of ${planQuotaLimit} free planning days used. After that, upgrade to keep planning.`}
       </div>
       {!isPro && (
         <p className="text-[11px] text-secondary-fg mt-2 leading-relaxed">
-          Each calendar day you run <strong className="text-foreground font-medium">Generate plan</strong> counts once. Re-planning the same day doesn&apos;t cost extra slots.
+          Each calendar day you run <strong className="text-foreground font-medium">Generate plan</strong> counts once toward your trial. Re-planning the same day doesn&apos;t cost extra.
         </p>
       )}
       {!isPro && (
