@@ -139,7 +139,7 @@ export default function Auth() {
             <>
               <div className="mt-8 space-y-2">
                 <button onClick={() => oauth("google")} disabled={busy}
-                  className="w-full h-12 rounded-[14px] app-card py-5 text-foreground hover:border-primary/20 pressable text-sm font-medium inline-flex items-center justify-center gap-2">
+                  className="w-full h-12 rounded-[14px] app-card py-0 text-foreground hover:border-primary/20 pressable text-sm font-medium inline-flex items-center justify-center gap-2">
                   <GoogleIcon /> Continue with Google
                 </button>
                 <button onClick={() => oauth("apple")} disabled={busy}
@@ -207,7 +207,7 @@ export default function Auth() {
                 type="button"
                 onClick={resendConfirmation}
                 disabled={resending}
-                className="w-full h-12 rounded-[14px] app-card py-5 text-foreground hover:border-primary/15 pressable text-base font-medium"
+                className="w-full h-12 rounded-[14px] app-card py-0 text-foreground hover:border-primary/15 pressable text-base font-medium"
               >
                 {resending ? "Sending..." : "Resend confirmation email"}
               </Button>

@@ -623,7 +623,7 @@ export default function Focus() {
           {!helpOpen ? (
             <button
               onClick={() => loadHelp()}
-              className="w-full h-10 rounded-[12px] app-card py-5 text-sm font-medium pressable inline-flex items-center justify-center gap-2 text-foreground"
+              className="w-full h-10 rounded-[12px] app-card py-0 text-sm font-medium pressable inline-flex items-center justify-center gap-2 text-foreground"
             >
               <Sparkles className="h-4 w-4 text-primary" />
               {toneCopy(tone, "ai_help_cta")}

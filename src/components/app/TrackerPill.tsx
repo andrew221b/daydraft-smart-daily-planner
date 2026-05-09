@@ -1039,7 +1039,7 @@ function TrackerInner({ embedded = false, onClose }: { embedded?: boolean; onClo
           <button
             onClick={exportPDF}
             disabled={exporting || headerTotalSec === 0}
-            className="w-full inline-flex items-center justify-center gap-2 h-11 rounded-[14px] app-card py-5 text-sm font-medium text-foreground pressable disabled:opacity-40 disabled:pointer-events-none"
+            className="w-full inline-flex items-center justify-center gap-2 h-11 rounded-[14px] app-card py-0 text-sm font-medium text-foreground pressable disabled:opacity-40 disabled:pointer-events-none"
             aria-label="Export PDF"
             title={isPro ? `Export ${headerLabel} as PDF` : "PDF export is a Pro feature"}
           >
