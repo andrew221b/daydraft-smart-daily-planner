@@ -687,7 +687,7 @@ export default function Today() {
       >
       <div className="px-5 pt-8">
         {/* ── Header ─────────────────────────── */}
-        <div className="hero-glass px-4.5 py-5 md:px-5 shadow-elevated">
+        <div className="hero-glass px-4.5 py-5 md:px-5 shadow-elevated px-[20px]">
           <div className="flex items-start justify-between gap-2.5">
             <div className="min-w-0 flex-1">
               <p className="kicker">{friendlyDate()}</p>
