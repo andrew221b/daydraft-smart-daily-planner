@@ -318,6 +318,7 @@
   .app-card {
     border-radius: calc(var(--radius) + 2px);
     border: 1px solid hsl(var(--border) / 0.5);
+    padding: 20px 0;
     background:
       radial-gradient(120% 140% at 0% 0%, hsl(var(--primary) / 0.05) 0%, transparent 56%),
       linear-gradient(
