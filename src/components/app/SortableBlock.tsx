@@ -54,7 +54,7 @@ export const SortableBlock = ({
       {...(isCal ? {} : attributes)}
       {...(isCal ? {} : listeners)}
       onClick={() => onTap?.(block)}
-    className={`group cursor-pointer pressable transition-all duration-200 app-card px-2.5 ${
+    className={`group cursor-pointer pressable transition-all duration-200 app-card px-2.5 py-5 ${
         block.completed ? "opacity-65" : ""
       } ${
         isCal
