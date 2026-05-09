@@ -318,7 +318,6 @@
   .app-card {
     border-radius: calc(var(--radius) + 2px);
     border: 1px solid hsl(var(--border) / 0.5);
-    padding: 20px 0;
     background:
       radial-gradient(120% 140% at 0% 0%, hsl(var(--primary) / 0.05) 0%, transparent 56%),
       linear-gradient(
@@ -335,7 +334,6 @@
   .hero-glass {
     border-radius: 22px;
     border: 1px solid hsl(var(--border) / 0.5);
-    padding: 20px 0;
     background:
       radial-gradient(120% 120% at 0% 0%, hsl(var(--primary) / 0.1) 0%, transparent 58%),
       radial-gradient(120% 120% at 100% 0%, hsl(var(--primary-glow) / 0.08) 0%, transparent 62%),
