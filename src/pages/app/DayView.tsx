@@ -469,7 +469,7 @@ export default function DayView() {
         }}
       >
       <div className="px-5 pt-9">
-      <div className="hero-glass p-4 md:p-4.5 flex items-center justify-between gap-2 shadow-elevated">
+      <div className="hero-glass px-4 py-5 md:px-4.5 py-5 flex items-center justify-between gap-2 shadow-elevated">
         <button onClick={() => nav("/today")} className="h-11 w-11 shrink-0 rounded-full flex items-center justify-center text-secondary-fg hover:text-foreground hover:bg-surface/50 pressable">
           <ChevronLeft className="h-5 w-5" />
         </button>
@@ -526,7 +526,7 @@ export default function DayView() {
 
       <div className="px-4 mt-5">
         {planMissing && (
-          <div className="mx-2 app-card p-6 text-center">
+          <div className="mx-2 app-card px-6 py-5 text-center">
             <CalendarDays className="h-6 w-6 mx-auto text-secondary-fg mb-2" />
             <div className="text-sm font-medium">
               {isFuture ? `No plan for ${friendlyDateFor(parseDateStr(viewDate))} yet`

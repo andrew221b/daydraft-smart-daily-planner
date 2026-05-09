@@ -624,7 +624,7 @@ function TrackerInner({ embedded = false, onClose }: { embedded?: boolean; onClo
         {/* LINKED MODE — current plan block */}
         {trackerMode === "linked" && (
           <div className="px-5 py-5">
-            <div className={`rounded-[16px] border p-4 shadow-card transition-all ${linkedOvertime ? "ring-2 ring-primary/25 animate-pulse" : ""} hero-glass`}>
+            <div className={`rounded-[16px] border px-4 py-5 shadow-card transition-all ${linkedOvertime ? "ring-2 ring-primary/25 animate-pulse" : ""} hero-glass`}>
               {linkedBlock ? (
                 <>
                   <div className="text-[10px] font-semibold uppercase tracking-[0.16em] text-secondary-fg">Current plan block</div>
@@ -935,7 +935,7 @@ function TrackerInner({ embedded = false, onClose }: { embedded?: boolean; onClo
         {/* WEEK TAB — bars + tap-to-expand day */}
         {trackerMode === "free" && tab === "week" && (
           <div className="px-5 py-4 space-y-4">
-            <div className="app-card px-4">
+            <div className="app-card px-4 py-5">
               <div className="flex items-end justify-between gap-2 h-32">
                 {weekDays.map(d => {
                   const h = d.total > 0 ? Math.max(8, (d.total / weekMaxSec) * 100) : 4;
@@ -976,7 +976,7 @@ function TrackerInner({ embedded = false, onClose }: { embedded?: boolean; onClo
         {/* MONTH TAB — heatmap calendar */}
         {trackerMode === "free" && tab === "month" && (
           <div className="px-5 py-4 space-y-4">
-            <div className="app-card px-4">
+            <div className="app-card px-4 py-5">
               <div className="flex items-center justify-between mb-3">
                 <button onClick={() => setMonthCursor(d => { const x = new Date(d); x.setMonth(x.getMonth() - 1); return x; })} className="p-1.5 rounded-lg hover:bg-muted pressable" aria-label="Previous month">
                   <ChevronLeft className="h-4 w-4" />
@@ -1121,7 +1121,7 @@ function DayDetail({ detail, catMap }: { detail: NonNullable<ReturnType<() => an
   const dateLabel = detail.date.toLocaleDateString(undefined, { weekday: "long", month: "short", day: "numeric" });
 
   return (
-    <div className="app-card px-4 space-y-3 animate-in fade-in slide-in-from-bottom-2 duration-200">
+    <div className="app-card px-4 space-y-3 animate-in fade-in slide-in-from-bottom-2 duration-200 py-5">
       <div className="flex items-baseline justify-between">
         <div className="text-[14px] font-display font-semibold">{dateLabel}</div>
         <div className="text-xs text-secondary-fg">Total <span className="font-mono tabular-nums text-foreground">{fmtHM(detail.total)}</span></div>

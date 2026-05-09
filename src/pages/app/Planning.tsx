@@ -36,7 +36,7 @@ export default function Planning() {
         </p>
 
         {slow && (
-          <div className="mt-6 app-card p-4 border-primary/20">
+          <div className="mt-6 app-card px-4 py-5 border-primary/20">
             <p className="text-[13px] text-foreground leading-snug">
               Still waiting? Your task list was saved — you can go back, edit, and try generating again.
             </p>
@@ -53,7 +53,7 @@ export default function Planning() {
 
         <div className="mt-9 space-y-2.5">
           {[80, 64, 72, 56, 80].map((w, i) => (
-            <div key={i} className="app-card p-4">
+            <div key={i} className="app-card px-4 py-5">
               <div className="h-3 shimmer rounded-full" style={{ width: `${w}%` }} />
               <div className="h-2.5 shimmer rounded-full mt-3 w-1/3" />
             </div>

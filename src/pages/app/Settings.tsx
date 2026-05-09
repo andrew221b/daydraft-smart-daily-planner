@@ -244,7 +244,7 @@ export default function Settings() {
             </button>
             {advancedOpen && (
               <div className="mt-2 space-y-2">
-                <div className="app-card p-3 space-y-2.5">
+                <div className="app-card px-3 py-5 space-y-2.5">
                   <div className="text-[11px] text-secondary-fg">Active hours — when AI may schedule tasks.</div>
                   <div className="flex items-center gap-3">
                     <label className="flex-1">
