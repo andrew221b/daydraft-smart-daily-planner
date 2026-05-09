@@ -9,6 +9,7 @@ import { Sparkles, Clock, RotateCcw, TrendingUp, Smile, Meh, Frown, Copy, Gauge,
 import { Button } from "@/components/ui/button";
 import { useTimeTracker, fmtHM } from "@/hooks/useTimeTracker";
 import { toast } from "sonner";
+import { effectiveDoneMinutes } from "@/lib/blockActualTime";
 import { haptics } from "@/lib/haptics";
 import { formatPlanAsPlainText, copyTextToClipboard } from "@/lib/planTextExport";
 import { KpiCard } from "@/components/app/KpiCard";
@@ -134,9 +135,9 @@ export default function Recap() {
 
   const tasks = blocks.filter(isUserTask);
   const done = tasks.filter(b => b.completed).length;
-  const focusMin = tasks.filter(b => b.completed && b.type === "deep_work").reduce((s, b) => s + b.duration_min, 0);
+  const focusMin = tasks.filter(b => b.completed && b.type === "deep_work").reduce((s, b) => s + effectiveDoneMinutes(b), 0);
   const plannedMin = tasks.reduce((s, b) => s + b.duration_min, 0);
-  const completedMin = tasks.filter(b => b.completed).reduce((s, b) => s + b.duration_min, 0);
+  const completedMin = tasks.filter(b => b.completed).reduce((s, b) => s + effectiveDoneMinutes(b), 0);
   const eff = plannedMin ? Math.round((completedMin / plannedMin) * 100) : 0;
   const trackingCoverage = completedMin > 0 ? Math.round((actualTrackedSec / (completedMin * 60)) * 100) : 0;
   const fh = Math.floor(focusMin / 60), fm = focusMin % 60;
@@ -179,7 +180,7 @@ export default function Recap() {
   // backfill (the timer source-of-truth is `now`), and crediting hours dated
   // "today" for work that happened yesterday would corrupt the tracker.
   const isTodayRecap = viewDate === todayDateStr();
-  const completedFocusSec = tasks.filter(b => b.completed).reduce((s, b) => s + b.duration_min * 60, 0);
+  const completedFocusSec = tasks.filter(b => b.completed).reduce((s, b) => s + effectiveDoneMinutes(b) * 60, 0);
   const showRecover = isTodayRecap && !backfilled && completedFocusSec >= 30 * 60 && todayTotalSec < completedFocusSec * 0.5;
 
   const backfill = async () => {
@@ -193,7 +194,8 @@ export default function Recap() {
     let cursor = now.getTime();
     const rows = completed.map((b) => {
       const end = new Date(cursor);
-      cursor -= b.duration_min * 60 * 1000;
+      const mins = effectiveDoneMinutes(b);
+      cursor -= mins * 60 * 1000;
       const start = new Date(cursor);
       return {
         user_id: user.id,

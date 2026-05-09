@@ -7,13 +7,15 @@ import { Button } from "@/components/ui/button";
 import { useEffect, useState } from "react";
 import { peakWindow } from "@/lib/daydraft";
 import { ThemeToggle } from "@/components/app/ThemeToggle";
-import { Fingerprint, Sparkles, Bell, Calendar, FileText, Shield, Trash2, HelpCircle, ChevronDown } from "lucide-react";
+import { Fingerprint, Sparkles, Bell, Calendar, FileText, Shield, Trash2, HelpCircle, ChevronDown, Check } from "lucide-react";
 import { Textarea } from "@/components/ui/textarea";
-import { Link, useNavigate } from "react-router-dom";
+import { Link, useNavigate, useLocation } from "react-router-dom";
 import { clearStoredPasskey, enrollPasskey, getStoredPasskey, passkeySupported } from "@/lib/passkeys";
 import { toast } from "sonner";
 import { useEntitlement } from "@/hooks/useEntitlement";
+import { writeDevSimulatePro } from "@/lib/devEntitlement";
 import { UpgradeSheet } from "@/components/app/UpgradeSheet";
+import { ProFeatureHighlights } from "@/components/app/ProFeatureHighlights";
 import { enablePush, disablePush, pushSupported } from "@/lib/push";
 import { useTour, TOUR_TODAY } from "@/components/app/Tour";
 import { VisualMode, useVisualMode } from "@/lib/visualMode";
@@ -39,9 +41,10 @@ export default function Settings() {
   const { signOut, user } = useAuth();
   const tour = useTour();
   const nav = useNavigate();
+  const location = useLocation();
   const [name, setName] = useState("");
   const [hasPasskey, setHasPasskey] = useState(!!getStoredPasskey());
-  const { entitlement, isPro, planQuotaUsed, planQuotaLimit } = useEntitlement();
+  const { entitlement, isPro, devSimulatePro, subscriptionPro, planQuotaUsed, planQuotaLimit, planQuotaRemaining } = useEntitlement();
   const [upgradeOpen, setUpgradeOpen] = useState(false);
   const [calConnecting, setCalConnecting] = useState(false);
   const [advancedOpen, setAdvancedOpen] = useState(false);
@@ -49,12 +52,14 @@ export default function Settings() {
   useEffect(() => { if (profile) setName(profile.display_name || ""); }, [profile?.id]);
 
   useEffect(() => {
-    if (window.location.hash !== "#week-intention") return;
+    const hash = location.hash;
+    if (hash !== "#week-intention" && hash !== "#pro-features") return;
     const id = requestAnimationFrame(() => {
-      document.getElementById("week-intention")?.scrollIntoView({ behavior: "smooth", block: "start" });
+      const elId = hash === "#pro-features" ? "pro-features" : "week-intention";
+      document.getElementById(elId)?.scrollIntoView({ behavior: "smooth", block: "start" });
     });
     return () => cancelAnimationFrame(id);
-  }, []);
+  }, [location.hash]);
 
   const togglePasskey = async () => {
     if (hasPasskey) {
@@ -124,10 +129,37 @@ export default function Settings() {
         <div className="mt-8 space-y-8">
           {/* 1. Plan card — most important context */}
           <ProCard
-            entitlement={entitlement} isPro={isPro}
-            planQuotaUsed={planQuotaUsed} planQuotaLimit={planQuotaLimit}
+            entitlement={entitlement} isPro={isPro} subscriptionPro={subscriptionPro} devSimulatePro={devSimulatePro}
+            planQuotaUsed={planQuotaUsed} planQuotaLimit={planQuotaLimit} planQuotaRemaining={planQuotaRemaining}
             onUpgrade={() => setUpgradeOpen(true)}
           />
+
+          {!isPro && (
+            <Section title="Included with Pro">
+              <div id="pro-features" className="rounded-[14px] border border-soft surface-card overflow-hidden">
+                <ProFeatureHighlights onUpgrade={() => setUpgradeOpen(true)} />
+              </div>
+            </Section>
+          )}
+
+          {import.meta.env.DEV && (
+            <Section title="Developer">
+              <div className="rounded-[14px] border border-dashed border-soft surface-card px-4 py-3 space-y-2">
+                <div className="flex items-center justify-between gap-3">
+                  <div>
+                    <div className="text-[14px] text-foreground">Simulate Pro</div>
+                    <p className="text-[11px] text-secondary-fg mt-1 leading-relaxed">
+                      Unlocks Pro UI locally. Planning quota on the server still follows your account unless you have a real subscription.
+                    </p>
+                  </div>
+                  <Switch
+                    checked={!!devSimulatePro}
+                    onCheckedChange={(v) => writeDevSimulatePro(v)}
+                  />
+                </div>
+              </div>
+            </Section>
+          )}
 
           {/* 2. Profile — name + appearance grouped */}
           <Section title="You">
@@ -335,39 +367,72 @@ const Section = ({ title, children }: { title: string; children: React.ReactNode
   </div>
 );
 
-const ProCard = ({ entitlement, isPro, planQuotaUsed, planQuotaLimit, onUpgrade }: {
+const ProCard = ({ entitlement, isPro, subscriptionPro, devSimulatePro, planQuotaUsed, planQuotaLimit, planQuotaRemaining, onUpgrade }: {
   entitlement: ReturnType<typeof useEntitlement>["entitlement"];
   isPro: boolean;
+  subscriptionPro: boolean;
+  devSimulatePro: boolean;
   planQuotaUsed: number;
   planQuotaLimit: number;
+  planQuotaRemaining: number;
   onUpgrade: () => void;
 }) => {
   const tier = entitlement?.tier || "free";
-  const badge = tier === "pro" ? "Pro"
+  const badge = devSimulatePro && !subscriptionPro
+    ? "Pro (simulated)"
+    : tier === "pro" ? "Pro"
     : tier === "trial" ? `Trial · ${entitlement?.daysLeftInTrial}d left`
     : "Free";
+  const lowFreeDays = !isPro && Number.isFinite(planQuotaRemaining) && planQuotaRemaining <= 2;
+
   return (
-    <div className="rounded-[18px] border border-accent surface-accent backdrop-blur-sm p-4 shadow-card">
+    <div
+      className={`rounded-[18px] border backdrop-blur-sm p-4 shadow-card surface-accent ${
+        lowFreeDays ? "border-primary/50 ring-1 ring-primary/15" : "border-accent"
+      }`}
+    >
       <div className="flex items-center gap-1.5">
         <Sparkles className="h-3.5 w-3.5 text-primary" />
         <span className="text-[10px] font-semibold text-primary uppercase tracking-[0.14em]">{badge}</span>
       </div>
-      <div className="text-[13px] mt-1.5 text-foreground">
-        {isPro
-          ? "Unlimited plans, calendar sync, and everything."
-          : `${planQuotaUsed} of ${planQuotaLimit} free planning days used. After that, upgrade to keep planning.`}
+      <div className="text-[15px] font-display font-semibold mt-2 text-foreground leading-tight">
+        {isPro ? "You're on Pro" : "Make planning unlimited"}
       </div>
-      {!isPro && (
-        <p className="text-[11px] text-secondary-fg mt-2 leading-relaxed">
-          Each calendar day you run <strong className="text-foreground font-medium">Generate plan</strong> counts once toward your trial. Re-planning the same day doesn&apos;t cost extra.
+      <div className="text-[13px] mt-1 text-secondary-fg leading-relaxed">
+        {isPro
+          ? "Calendar sync, pattern-aware AI, and every premium feature stay on."
+          : `${planQuotaUsed} of ${planQuotaLimit} free planning days used — then AI planning pauses until you upgrade.`}
+      </div>
+      {!isPro && lowFreeDays && (
+        <p className="text-[12px] font-medium text-primary mt-2 leading-snug">
+          Only {planQuotaRemaining} free planning day{planQuotaRemaining === 1 ? "" : "s"} left. Upgrade so a busy week never blocks the next.
         </p>
       )}
       {!isPro && (
-        <Button onClick={onUpgrade} className="w-full mt-3 h-10 rounded-lg bg-primary hover:bg-primary/92 text-primary-foreground text-[13px] font-medium pressable">
-          Start free trial
+        <ul className="mt-3 space-y-2 text-[12px] text-foreground">
+          {[
+            "Unlimited generate & re-plan days",
+            "Google Calendar folded into every schedule",
+            "AI that learns how long your work really takes",
+          ].map((line) => (
+            <li key={line} className="flex items-start gap-2">
+              <Check className="h-3.5 w-3.5 text-primary shrink-0 mt-0.5" strokeWidth={2.5} />
+              <span>{line}</span>
+            </li>
+          ))}
+        </ul>
+      )}
+      {!isPro && (
+        <p className="text-[11px] text-secondary-fg mt-2.5 leading-relaxed">
+          Each calendar day you run <strong className="text-foreground font-medium">Generate plan</strong> counts once. Re-planning the same day is free.
+        </p>
+      )}
+      {!isPro && (
+        <Button onClick={onUpgrade} className="w-full mt-3 h-11 rounded-xl bg-primary hover:bg-primary/92 text-primary-foreground text-[14px] font-semibold pressable shadow-card">
+          See Pro & unlock everything
         </Button>
       )}
-      {isPro && (
+      {isPro && subscriptionPro && (
         <button onClick={() => toast("Subscription management will be available soon")}
           className="w-full mt-3 h-10 rounded-[12px] text-[12px] text-secondary-fg border border-soft surface-card pressable hover:text-foreground">
           Manage subscription

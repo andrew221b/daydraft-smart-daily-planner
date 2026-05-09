@@ -124,17 +124,47 @@ const COPY: Record<Tone, Record<string, string>> = {
 export const t = (tone: Tone, key: keyof (typeof COPY)["professional"]) =>
   COPY[tone]?.[key] || COPY.professional[key];
 
-/** Greeting line tuned for the chosen tone. */
+type DayPart = "late_night" | "morning" | "afternoon" | "evening" | "night";
+
+const dayPart = (h: number): DayPart => {
+  if (h < 5) return "late_night";
+  if (h < 12) return "morning";
+  if (h < 17) return "afternoon";
+  if (h < 22) return "evening";
+  return "night";
+};
+
+/** Greeting line tuned for the chosen tone — natural English, no awkward fragments. */
 export const greetingFor = (tone: Tone, name?: string | null) => {
-  const h = new Date().getHours();
-  const part = h < 5 ? "Late night" : h < 12 ? "Good morning" : h < 17 ? "Good afternoon" : h < 21 ? "Good evening" : "Tonight";
-  const who = name ? `, ${name}` : "";
+  const part = dayPart(new Date().getHours());
+
   if (tone === "tough_love") {
-    const base = h < 12 ? "Up" : "Heads up";
-    // Avoid awkward "Up., name" — use comma when there's a name, period otherwise.
-    return name ? `${base}${who}` : `${base}.`;
+    if (part === "late_night") return name ? `Still at it, ${name}?` : "Still at it?";
+    if (part === "morning") return name ? `Morning, ${name}.` : "Morning.";
+    if (part === "afternoon") return name ? `Afternoon, ${name}.` : "Afternoon.";
+    if (part === "evening") return name ? `Evening, ${name}.` : "Evening.";
+    return name ? `Night shift, ${name}.` : "Night shift.";
   }
-  if (tone === "playful") return `${part}${who} ✨`;
-  if (tone === "philosophical") return `${part}${who}.`;
-  return `${part}${who}`;
+  if (part === "late_night") {
+    if (tone === "playful") return name ? `Hey, ${name} — still up? ✨` : "Still up? ✨";
+    if (tone === "philosophical") return name ? `Quiet hours, ${name}.` : "Quiet hours.";
+    if (tone === "coach") return name ? `I'm glad you're here, ${name}.` : "Glad you're here.";
+    if (tone === "motivational") return name ? `Late session, ${name} — make it count.` : "Late session — make it count.";
+    return name ? `Working late, ${name}?` : "Working late?";
+  }
+
+  const polite =
+    part === "morning"
+      ? "Good morning"
+      : part === "afternoon"
+        ? "Good afternoon"
+        : part === "evening" || part === "night"
+          ? "Good evening"
+          : "Hello";
+
+  if (tone === "playful") return name ? `${polite}, ${name} ✨` : `${polite} ✨`;
+  if (tone === "philosophical") return name ? `${polite}, ${name}.` : `${polite}.`;
+  if (tone === "coach") return name ? `${polite}, ${name}` : polite;
+  if (tone === "motivational") return name ? `${polite}, ${name}` : polite;
+  return name ? `${polite}, ${name}` : polite;
 };

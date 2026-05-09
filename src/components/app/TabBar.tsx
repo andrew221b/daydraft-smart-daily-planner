@@ -1,4 +1,5 @@
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useRef } from "react";
+import type { CSSProperties } from "react";
 import { NavLink, useLocation } from "react-router-dom";
 import { Home, Timer, BarChart2, Settings as SettingsIcon } from "lucide-react";
 import { useTimeTracker, useTimeTrackerElapsed } from "@/hooks/useTimeTracker";
@@ -31,21 +32,30 @@ export const TabBar = () => {
     prevPath.current = pathname;
   }, [pathname]);
 
+  const tabCount = tabs.length;
+
   return (
     <nav
-      className="fixed bottom-0 left-1/2 -translate-x-1/2 w-[min(calc(100vw-20px),420px)] z-40"
-      style={{ paddingBottom: "max(env(safe-area-inset-bottom), 8px)" }}
+      className="fixed bottom-0 left-1/2 -translate-x-1/2 w-[min(calc(100vw-24px),424px)] z-40"
+      style={{ paddingBottom: "max(env(safe-area-inset-bottom), 10px)" }}
     >
-      <div className="relative rounded-[24px] p-[1px] tabbar-shell-glow">
-        <div className="relative bg-background/[0.72] backdrop-blur-2xl border border-soft rounded-[23px] shadow-tab flex items-center px-1 py-1 ring-1 ring-black/[0.04] dark:ring-white/[0.1] overflow-hidden tabbar-luxe">
+      <div className="relative rounded-[28px] p-[1.5px] tabbar-shell-glow tabbar-outer-ring">
+        <div
+          className="relative bg-background/[0.78] backdrop-blur-2xl border border-soft/90 rounded-[26px] shadow-tab flex items-center px-1.5 py-1.5 ring-1 ring-black/[0.04] dark:ring-white/[0.09] overflow-hidden tabbar-luxe tabbar-glass-fix"
+          style={
+            {
+              "--tab-active": activeIdx,
+              "--tab-n": tabCount,
+            } as CSSProperties
+          }
+        >
           <span
             aria-hidden
-            className="pointer-events-none absolute top-1 bottom-1 rounded-[14px] border border-accent shadow-[inset_0_1px_0_rgba(255,255,255,0.2),0_8px_22px_-10px_hsl(var(--primary)/0.52)] tab-indicator-liquid"
+            className="pointer-events-none absolute top-1.5 bottom-1.5 rounded-[20px] border border-primary/35 tab-indicator-liquid tab-indicator-pill-glow"
             style={{
-              background: "linear-gradient(132deg, hsl(var(--primary) / 0.3), hsl(var(--primary-glow) / 0.24))",
-              left: "4px",
-              width: "calc((100% - 8px) / 4)",
-              transform: `translate3d(${activeIdx * 100}%, 0, 0)`,
+              background: "linear-gradient(145deg, hsl(var(--primary) / 0.34), hsl(var(--primary-glow) / 0.22))",
+              width: "calc((100% - 12px) / var(--tab-n))",
+              left: "calc(6px + (100% - 12px) * var(--tab-active) / var(--tab-n))",
             }}
           />
           {tabs.map((it) => (
@@ -63,7 +73,7 @@ function TabItem({ to, icon: Icon, label, tour, pulse }: { to: string; icon: Luc
       to={to}
       data-tour={tour}
       className={({ isActive }) =>
-        `relative z-[1] flex min-h-[46px] flex-col items-center justify-center gap-0.5 flex-1 rounded-[12px] py-1.5 px-0.5 pressable transition-all duration-200 ${
+        `relative z-[1] flex min-h-[48px] flex-col items-center justify-center gap-0.5 flex-1 rounded-[14px] py-1.5 px-0.5 pressable transition-colors duration-300 ease-out ${
           isActive
             ? "text-primary"
             : "text-secondary-fg hover:text-subtle"
@@ -73,8 +83,8 @@ function TabItem({ to, icon: Icon, label, tour, pulse }: { to: string; icon: Luc
     >
       {({ isActive }) => (
         <>
-          <Icon className={`h-[18px] w-[18px] transition-transform duration-200 ${isActive ? "scale-105 -translate-y-[0.5px]" : "scale-100"}`} strokeWidth={isActive ? 2.1 : 1.8} aria-hidden />
-          <span className={`max-w-full truncate px-0.5 text-center text-[10px] font-semibold leading-tight tracking-tight transition-all duration-300 ${isActive ? "opacity-100 translate-y-0" : "opacity-90 translate-y-[0.5px]"}`}>
+          <Icon className={`h-[18px] w-[18px] transition-transform duration-300 ease-out ${isActive ? "scale-[1.06] -translate-y-px" : "scale-100"}`} strokeWidth={isActive ? 2.1 : 1.8} aria-hidden />
+          <span className={`max-w-full truncate px-0.5 text-center text-[10px] font-semibold leading-tight tracking-tight transition-all duration-300 ease-out ${isActive ? "opacity-100 translate-y-0" : "opacity-[0.88] translate-y-px"}`}>
             {label}
           </span>
           {pulse && <span className="absolute left-1/2 -translate-x-1/2 -top-0.5 h-1.5 w-1.5 rounded-full bg-cyan-300 tab-live-dot-pulse" aria-hidden />}

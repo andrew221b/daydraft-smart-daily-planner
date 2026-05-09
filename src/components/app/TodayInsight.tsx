@@ -40,32 +40,45 @@ const QUOTES: Record<CoreTone, string[]> = {
     "Do the hard task first.",
   ],
   philosophical: [
-    "\"We are what we repeatedly do.\" — Aristotle",
-    "\"The two most powerful warriors are patience and time.\" — Tolstoy",
-    "\"He who has a why can bear almost any how.\" — Nietzsche",
-    "\"The obstacle is the way.\" — Marcus Aurelius",
+    "Small choices today become tomorrow's default.",
+    "Attention is the scarce resource — spend it on purpose.",
+    "A clear plan quiets the noise in your head.",
+    "Finish one meaningful thing; let the rest follow.",
   ],
 };
 
 const ctxMessages = (h: number, tone: CoreTone, doneRatio: number | null): string | null => {
-  // Context-aware overlay only ~30% of the time so cycling through quotes still happens.
   const ctx: string[] = [];
   if (doneRatio != null && doneRatio >= 0.8) {
-    ctx.push(tone === "tough_love" ? "Yesterday was strong. Maintain the standard." :
-             tone === "playful" ? "Yesterday went well. Let's repeat it. 🎯" :
-             tone === "philosophical" ? "Momentum is a debt the present owes the past." :
-             "Yesterday's win is today's fuel.");
+    ctx.push(
+      tone === "tough_love"
+        ? "You closed most of yesterday. Keep the bar there."
+        : tone === "playful"
+          ? "Yesterday went well — same energy today?"
+          : tone === "philosophical"
+            ? "Yesterday's momentum is a head start, not a guarantee."
+            : "You finished most of yesterday — build on that today.",
+    );
   }
   if (doneRatio != null && doneRatio < 0.3 && doneRatio >= 0) {
-    ctx.push(tone === "tough_love" ? "Yesterday underperformed. Reset. Move." :
-             tone === "coach" ? "Reset day. Pick three wins, no more." :
-             "Fresh start. Fewer, sharper tasks.");
+    ctx.push(
+      tone === "tough_love"
+        ? "Yesterday was light on completions. Today: fewer tasks, sharper execution."
+        : tone === "coach"
+          ? "Clean slate. Pick a small number of wins and protect them."
+          : "Fresh start: shorter list, clearer priorities.",
+    );
   }
-  if (h < 11) ctx.push(tone === "professional" ? "Mornings: highest cognitive ROI." : "Mornings are made for the hard thing first.");
-  else if (h < 14) ctx.push("Midday — protect one hour for deep work.");
-  else if (h < 17) ctx.push("Afternoon energy dips. Batch the small stuff.");
-  else if (h < 20) ctx.push("Wrap-up time. What deserves tomorrow?");
-  else ctx.push("Plan tonight, win the morning.");
+  if (h < 11) {
+    ctx.push(
+      tone === "professional"
+        ? "Mornings are usually the best window for hard thinking."
+        : "Mornings reward the hardest task first.",
+    );
+  } else if (h < 14) ctx.push("Midday: block one uninterrupted hour if you can.");
+  else if (h < 17) ctx.push("Afternoon: good time to batch quick tasks and messages.");
+  else if (h < 20) ctx.push("Evening: note what should roll to tomorrow so you can switch off.");
+  else ctx.push("Late day: a light plan for tomorrow saves morning friction.");
   return ctx[0] || null;
 };
 

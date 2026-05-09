@@ -3,7 +3,24 @@ import { supabase } from "@/integrations/supabase/client";
 import { useAuth } from "./useAuth";
 import { toast } from "sonner";
 
-export type TimeCategory = { id: string; name: string; color: string; is_default: boolean };
+export type TimeCategory = { id: string; name: string; color: string; is_default: boolean; created_at?: string };
+
+/** Collapse duplicate category names (same user) — keeps default, else oldest. DB migration should still remove dupes. */
+function dedupeCategoriesStable(rows: TimeCategory[]): TimeCategory[] {
+  if (rows.length <= 1) return rows;
+  const sorted = [...rows].sort((a, b) => {
+    if (a.is_default !== b.is_default) return a.is_default ? -1 : 1;
+    const ta = new Date(a.created_at || 0).getTime();
+    const tb = new Date(b.created_at || 0).getTime();
+    return ta - tb;
+  });
+  const byName = new Map<string, TimeCategory>();
+  for (const c of sorted) {
+    const key = c.name.trim().toLowerCase();
+    if (!byName.has(key)) byName.set(key, c);
+  }
+  return Array.from(byName.values()).sort((a, b) => a.name.localeCompare(b.name));
+}
 export type TimeEntry = {
   id: string;
   category_id: string | null;
@@ -58,7 +75,7 @@ export function TimeTrackerProvider({ children }: { children: ReactNode }) {
           return supabase.from("time_entries").select("started_at,ended_at").eq("user_id", user.id).gte("started_at", since.toISOString());
         })(),
       ]);
-      setCategories((catsRes.data || []) as TimeCategory[]);
+      setCategories(dedupeCategoriesStable((catsRes.data || []) as TimeCategory[]));
       let running = (runRes.data?.[0] as TimeEntry) || null;
       // Auto-close stale runs: anything still open after 8h is almost certainly
       // a forgotten timer (e.g. user fell asleep). DROP it rather than crediting
@@ -247,8 +264,19 @@ export function TimeTrackerProvider({ children }: { children: ReactNode }) {
     const { data, error } = await supabase.from("time_categories").insert({
       user_id: user.id, name: trimmed, color: pick, is_default: false,
     }).select("*").single();
-    if (error) { toast.error(error.message); return null; }
-    setCategories(c => [...c, data as TimeCategory]);
+    if (error) {
+      if ((error as { code?: string }).code === "23505") {
+        const { data: again } = await supabase.from("time_categories").select("*").eq("user_id", user.id);
+        const hit = (again || []).find((c: TimeCategory) => c.name.trim().toLowerCase() === trimmed.toLowerCase());
+        if (hit) {
+          setCategories(dedupeCategoriesStable((again || []) as TimeCategory[]));
+          return hit as TimeCategory;
+        }
+      }
+      toast.error(error.message);
+      return null;
+    }
+    setCategories((c) => dedupeCategoriesStable([...c, data as TimeCategory]));
     return data as TimeCategory;
   };
 

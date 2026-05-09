@@ -2,6 +2,7 @@ import { useEffect, useRef, useState } from "react";
 import { useNavigate, useParams, useSearchParams } from "react-router-dom";
 import { supabase } from "@/integrations/supabase/client";
 import { Block, todayDateStr } from "@/lib/daydraft";
+import { minutesFromFocusArmSeconds, resolveActualMinutesOnComplete } from "@/lib/blockActualTime";
 import { Check, ChevronRight, Plus, Sparkles, MapPin, ExternalLink, Loader2, Lightbulb, Copy, Phone, CalendarPlus, Mail, Timer, Square, X, ShieldAlert } from "lucide-react";
 import { useAuth } from "@/hooks/useAuth";
 import { useProfile } from "@/hooks/useProfile";
@@ -262,33 +263,54 @@ export default function Focus() {
   };
 
   const complete = async () => {
-    if (!block) return;
+    if (!block || !user) return;
     haptics.notify("success");
     setShowCheck(true);
-    // Compute REAL time spent (wall-clock from when the timer armed → now).
-    // This replaces the old behaviour where completion silently credited the
-    // user with the full estimate even if they pressed Complete after 30s.
+    // Wall-clock from when the Focus session timer armed → now (in-app countdown).
     const actualSec = actualStartMsRef.current
       ? Math.max(0, Math.round((Date.now() - actualStartMsRef.current) / 1000))
       : 0;
-    // Persist completion BEFORE navigating so a flaky network can't leave the
-    // block stuck as incomplete after we've already advanced the user.
-    const { error } = await supabase
-      .from("blocks")
-      .update({ completed: true, completed_at: new Date().toISOString() })
-      .eq("id", block.id);
+    const completedAtMs = Date.now();
+    const completedIso = new Date(completedAtMs).toISOString();
+    // Stop linked tracker first so `actual_minutes` can be derived from time_entries.
+    const hadTrackerForBlock = !!(startedHereRef.current && tracking);
+    if (hadTrackerForBlock) {
+      try {
+        await stopTracking();
+      } catch {
+        /* ignore */
+      }
+      startedHereRef.current = false;
+    }
+    const patch: Record<string, unknown> = {
+      completed: true,
+      completed_at: completedIso,
+    };
+    if (!hadTrackerForBlock) {
+      const fromArm = minutesFromFocusArmSeconds(actualSec);
+      if (fromArm != null) patch.actual_minutes = fromArm;
+      else {
+        try {
+          patch.actual_minutes = await resolveActualMinutesOnComplete(
+            supabase,
+            user.id,
+            block.id,
+            planDate || todayDateStr(),
+            block.start_time,
+            completedAtMs,
+          );
+        } catch {
+          patch.actual_minutes = 1;
+        }
+      }
+    }
+    const { error } = await supabase.from("blocks").update(patch).eq("id", block.id);
     if (error) {
       setShowCheck(false);
       toast.error("Unable to save. Please try again.");
       return;
     }
     try { localStorage.setItem(`dd_last_plan_progress_${planDate || todayDateStr()}`, new Date().toISOString()); } catch {/* ignore */}
-    // Only credit time-tracker hours if the user EXPLICITLY tracked this block
-    // (started a timer for it). Otherwise we fabricate hours that never happened.
-    if (startedHereRef.current && tracking) {
-      try { await stopTracking(); } catch {/* ignore */}
-      startedHereRef.current = false;
-    }
     const recap = `/recap?date=${planDate || todayDateStr()}`;
     if (oneThingMode) {
       setOneThingDoneFlash(true);

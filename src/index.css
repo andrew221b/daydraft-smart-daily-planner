@@ -54,7 +54,7 @@
     --gradient-primary: linear-gradient(132deg, hsl(var(--primary)) 0%, hsl(var(--primary-glow)) 100%);
     --gradient-glow: radial-gradient(62% 46% at 50% -8%, hsl(var(--primary) / 0.2), transparent 72%);
     --gradient-floor: radial-gradient(ellipse 76% 50% at 50% 100%, hsl(var(--primary-glow) / 0.16), transparent 68%);
-    --motion-page-switch-ms: 240ms;
+    --motion-page-switch-ms: 300ms;
     --motion-section-in-ms: 220ms;
     --motion-glow-breathe-s: 20s;
     --motion-tab-indicator-s: 7s;
@@ -252,13 +252,21 @@
   }
   .fade-in { animation: fadeIn 280ms cubic-bezier(0.22, 1, 0.36, 1) both; }
   @keyframes fadeIn { from { opacity: 0 } to { opacity: 1 } }
-  .page-switch-luxe { animation: pageSwitchLuxe var(--motion-page-switch-ms) cubic-bezier(0.2, 0.85, 0.24, 1) both; }
-  .page-switch-right { --switch-x: 14px; }
-  .page-switch-left { --switch-x: -14px; }
+  .page-switch-luxe {
+    animation: pageSwitchLuxe var(--motion-page-switch-ms) cubic-bezier(0.22, 1, 0.36, 1) both;
+  }
+  .page-switch-right { --switch-x: 10px; }
+  .page-switch-left { --switch-x: -10px; }
   /* Avoid filter: blur — WKWebView promotes a full compositor layer each frame (janky on iPhone). */
   @keyframes pageSwitchLuxe {
-    from { opacity: 0; transform: translateX(var(--switch-x, 0)) translateY(6px) scale(0.995); }
-    to { opacity: 1; transform: translateX(0) translateY(0) scale(1); }
+    from {
+      opacity: 0;
+      transform: translateX(var(--switch-x, 0)) translateY(10px) scale(0.992);
+    }
+    to {
+      opacity: 1;
+      transform: translateX(0) translateY(0) scale(1);
+    }
   }
   .section-switch-stagger > * { animation: sectionIn var(--motion-section-in-ms) cubic-bezier(0.22, 1, 0.36, 1) both; }
   .section-switch-stagger > *:nth-child(1) { animation-delay: 30ms; }
@@ -407,10 +415,25 @@
 
   .tab-indicator-liquid {
     transition:
-      transform 260ms cubic-bezier(0.22, 1, 0.36, 1),
-      width 260ms cubic-bezier(0.22, 1, 0.36, 1);
+      left 420ms cubic-bezier(0.25, 0.9, 0.2, 1),
+      width 420ms cubic-bezier(0.25, 0.9, 0.2, 1),
+      opacity 220ms ease;
     transform-origin: center;
-    will-change: transform;
+    will-change: left, width;
+  }
+
+  .tab-indicator-pill-glow {
+    box-shadow:
+      inset 0 1px 0 rgba(255, 255, 255, 0.22),
+      0 10px 26px -12px hsl(var(--primary) / 0.55),
+      0 0 0 1px hsl(var(--primary) / 0.12);
+  }
+
+  :root.light .tab-indicator-pill-glow {
+    box-shadow:
+      inset 0 1px 0 rgba(255, 255, 255, 0.75),
+      0 8px 22px -14px hsl(var(--primary) / 0.35),
+      0 0 0 1px hsl(var(--primary) / 0.1);
   }
 
   .tab-indicator-liquid-trail {
@@ -467,9 +490,29 @@
     pointer-events: none;
   }
 
+  /* Outer pill: corner-aligned highlight so the bar meets rounded screen edges cleanly */
+  .tabbar-outer-ring {
+    isolation: isolate;
+  }
   .tabbar-shell-glow {
-    background: linear-gradient(180deg, hsl(var(--primary) / 0.2), hsl(var(--primary-glow) / 0.08));
-    box-shadow: 0 10px 34px -18px hsl(var(--primary) / 0.52);
+    border-radius: inherit;
+    background:
+      radial-gradient(120% 140% at 12% 0%, hsl(var(--primary) / 0.32), transparent 52%),
+      radial-gradient(120% 140% at 88% 0%, hsl(var(--primary-glow) / 0.22), transparent 50%),
+      linear-gradient(175deg, hsl(var(--primary) / 0.18) 0%, hsl(var(--primary-glow) / 0.07) 48%, hsl(var(--surface) / 0.35) 100%);
+    box-shadow:
+      0 14px 42px -20px hsl(var(--primary) / 0.45),
+      0 0 0 1px hsl(var(--primary) / 0.14);
+  }
+
+  :root.light .tabbar-shell-glow {
+    background:
+      radial-gradient(120% 140% at 10% 0%, hsl(var(--primary) / 0.2), transparent 55%),
+      radial-gradient(120% 140% at 90% 0%, hsl(var(--primary-glow) / 0.14), transparent 52%),
+      linear-gradient(175deg, hsl(var(--primary) / 0.12) 0%, transparent 55%);
+    box-shadow:
+      0 12px 36px -18px hsl(var(--primary) / 0.22),
+      0 0 0 1px hsl(var(--border) / 0.5);
   }
 
   /* Prevent rounded glass clipping artifacts in iOS/Lovable webviews */
@@ -479,22 +522,66 @@
     backface-visibility: hidden;
   }
 
+  /* Idle: no rotating wash — it read as muddy “unknown” motion. */
+  .tracker-hero-luxe {
+    isolation: isolate;
+  }
   .tracker-hero-luxe::after {
     content: "";
     position: absolute;
-    inset: -28% -18%;
-    background: conic-gradient(from 210deg, transparent 0%, hsl(var(--primary) / 0.16) 16%, transparent 34%, hsl(var(--primary-glow) / 0.14) 52%, transparent 72%);
-    opacity: 0.5;
-    animation: trackerHeroSweep 13s linear infinite;
+    inset: 0;
+    border-radius: inherit;
+    opacity: 0;
     pointer-events: none;
+    z-index: 0;
+    animation: none;
   }
-  @keyframes trackerHeroSweep {
+
+  /* Running: thin orbital ring in the category color + soft outer glow (readable “live”). */
+  .tracker-hero-luxe.tracker-hero--running {
+    animation: trackerHeroLivingGlow 3.4s ease-in-out infinite;
+  }
+  .tracker-hero-luxe.tracker-hero--running::after {
+    inset: -2px;
+    opacity: 1;
+    padding: 2px;
+    box-sizing: border-box;
+    background: conic-gradient(
+      from 0deg,
+      var(--tracker-accent, hsl(var(--primary))),
+      color-mix(in srgb, var(--tracker-accent, hsl(var(--primary))) 18%, transparent) 18%,
+      transparent 38%,
+      color-mix(in srgb, var(--tracker-accent, hsl(var(--primary))) 28%, transparent) 55%,
+      transparent 82%
+    );
+    -webkit-mask: linear-gradient(#fff 0 0) content-box, linear-gradient(#fff 0 0);
+    -webkit-mask-composite: xor;
+    mask: linear-gradient(#fff 0 0) content-box, linear-gradient(#fff 0 0);
+    mask-composite: exclude;
+    animation: trackerHeroRingSpin 4.8s linear infinite;
+  }
+  @keyframes trackerHeroRingSpin {
     from { transform: rotate(0deg); }
     to { transform: rotate(360deg); }
+  }
+  @keyframes trackerHeroLivingGlow {
+    0%,
+    100% {
+      box-shadow: 0 14px 44px -26px color-mix(in srgb, var(--tracker-accent, hsl(var(--primary))) 36%, transparent);
+    }
+    50% {
+      box-shadow: 0 18px 52px -22px color-mix(in srgb, var(--tracker-accent, hsl(var(--primary))) 55%, transparent);
+    }
   }
 
   .tracker-time-glow {
     text-shadow: 0 0 24px hsl(var(--primary) / 0.24), 0 0 42px hsl(var(--primary-glow) / 0.14);
+  }
+  .tracker-time-glow--live {
+    text-shadow:
+      0 1px 0 color-mix(in srgb, var(--tracker-accent, hsl(var(--primary))) 22%, transparent),
+      0 0 28px color-mix(in srgb, var(--tracker-accent, hsl(var(--primary))) 38%, transparent),
+      0 0 52px color-mix(in srgb, var(--tracker-accent, hsl(var(--primary))) 18%, transparent);
   }
 
   .tracker-tabs-luxe::before {
@@ -603,10 +690,6 @@
   :root.light:not([data-visual-mode="neon"]) .bg-primary {
     box-shadow: 0 1px 0 rgba(255,255,255,0.42), 0 8px 20px -12px hsl(var(--primary) / 0.45);
   }
-  :root.light .tabbar-shell-glow {
-    background: linear-gradient(180deg, hsl(var(--primary) / 0.12), hsl(var(--primary-glow) / 0.06));
-    box-shadow: 0 10px 28px -18px hsl(var(--primary) / 0.34);
-  }
 }
 
 @media (prefers-reduced-data: reduce) {
@@ -660,9 +743,16 @@
   .tracker-hero-luxe::after {
     animation: none !important;
   }
+  .tracker-hero-luxe.tracker-hero--running {
+    animation: none !important;
+    box-shadow: none !important;
+  }
+  .tracker-time-glow--live {
+    text-shadow: 0 1px 0 hsl(var(--foreground) / 0.06) !important;
+  }
   .tab-indicator-liquid,
   .tab-indicator-liquid-trail {
-    transition-duration: 150ms !important;
+    transition-duration: 120ms !important;
     transition-timing-function: ease-out !important;
   }
   .tab-indicator-liquid-trail {

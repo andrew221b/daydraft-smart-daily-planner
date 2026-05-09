@@ -36,6 +36,8 @@ const TABS: Tab[] = ["today", "week", "month"];
 const DAY_MS = 86_400_000;
 const startOfDay = (d: Date) => { const x = new Date(d); x.setHours(0,0,0,0); return x; };
 const ymd = (d: Date) => `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,"0")}-${String(d.getDate()).padStart(2,"0")}`;
+/** Calendar grid is Monday-first — match header labels to columns. */
+const WEEKDAY_HEADERS = ["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"] as const;
 const hhmmToMin = (hhmm: string) => {
   const [h, m] = String(hhmm || "").split(":").map(Number);
   return (Number.isFinite(h) ? h : 0) * 60 + (Number.isFinite(m) ? m : 0);
@@ -76,51 +78,12 @@ function TrackerInner({ embedded = false, onClose }: { embedded?: boolean; onClo
   const simpleMode = false;
   const [showAllCategories, setShowAllCategories] = useState(false);
   const [todayPlanBlocks, setTodayPlanBlocks] = useState<Block[]>([]);
-  const [planLoaded, setPlanLoaded] = useState(false);
-  const [trackerMode, setTrackerMode] = useState<"linked" | "free">(() => {
-    try {
-      const v = sessionStorage.getItem("dd_tracker_mode");
-      return v === "linked" || v === "free" ? v : "free";
-    } catch {
-      return "free";
-    }
-  });
-  const [linkedExtendMin, setLinkedExtendMin] = useState(0);
-  const [nextSuggestion, setNextSuggestion] = useState<string | null>(null);
-  const [linkedBusy, setLinkedBusy] = useState(false);
+  const [stopBusy, setStopBusy] = useState(false);
   const [categoryBusyId, setCategoryBusyId] = useState<string | null>(null);
   const tabIndex = TABS.indexOf(tab);
 
   const activeCat = categories.find(c => c.id === active?.category_id);
   const catMap = useMemo(() => new Map(categories.map(c => [c.id, c])), [categories]);
-  const todayPlanTasks = useMemo(
-    () => todayPlanBlocks.filter((b) => isUserTask(b) && !b.completed),
-    [todayPlanBlocks],
-  );
-  const hasTodayPlan = todayPlanBlocks.length > 0;
-  const linkedBlock = useMemo(() => {
-    if (!todayPlanTasks.length) return null;
-    const nowMin = new Date().getHours() * 60 + new Date().getMinutes();
-    const withTimes = todayPlanTasks.map((b) => {
-      const startMin = hhmmToMin(b.start_time);
-      const estMin = b.estimated_minutes ?? b.duration_min;
-      return { block: b, startMin, endMin: startMin + estMin };
-    });
-    const current = withTimes.find((x) => nowMin >= x.startMin && nowMin < x.endMin);
-    if (current) return current.block;
-    const next = withTimes.find((x) => x.startMin >= nowMin);
-    return next?.block || withTimes[0].block;
-  }, [todayPlanTasks]);
-  const linkedCat = useMemo(() => {
-    if (!linkedBlock) return null;
-    const t = linkedBlock.title.trim().toLowerCase();
-    return categories.find((c) => c.name.trim().toLowerCase() === t) || null;
-  }, [categories, linkedBlock?.id]);
-  const linkedIsActive = !!(active && linkedBlock && active.block_id === linkedBlock.id);
-  const linkedEstimateMin = (linkedBlock?.estimated_minutes ?? linkedBlock?.duration_min ?? 0) + linkedExtendMin;
-  const linkedRemainingSec = linkedIsActive ? Math.max(0, linkedEstimateMin * 60 - elapsedSec) : linkedEstimateMin * 60;
-  const linkedOvertime = linkedIsActive && linkedRemainingSec <= 0;
-
   // Load 60 days of entries (covers week + month views). Re-fetches when the
   // active session changes or the running session ticks past a minute so the
   // breakdowns stay live. Previously this depended on a non-existent `open`
@@ -151,10 +114,7 @@ function TrackerInner({ embedded = false, onClose }: { embedded?: boolean; onClo
           .eq("date", today)
           .maybeSingle();
         if (!plan?.id) {
-          if (!cancelled) {
-            setTodayPlanBlocks([]);
-            setPlanLoaded(true);
-          }
+          if (!cancelled) setTodayPlanBlocks([]);
           return;
         }
         const { data: bs } = await supabase
@@ -162,40 +122,13 @@ function TrackerInner({ embedded = false, onClose }: { embedded?: boolean; onClo
           .select("*")
           .eq("plan_id", plan.id)
           .order("position");
-        if (!cancelled) {
-          setTodayPlanBlocks((bs || []) as Block[]);
-          setPlanLoaded(true);
-        }
+        if (!cancelled) setTodayPlanBlocks((bs || []) as Block[]);
       } catch {
-        if (!cancelled) setPlanLoaded(true);
+        /* ignore */
       }
     })();
     return () => { cancelled = true; };
   }, [user?.id, active?.id]);
-
-  useEffect(() => {
-    if (!planLoaded) return;
-    try {
-      const stored = sessionStorage.getItem("dd_tracker_mode");
-      if (stored === "linked" || stored === "free") return;
-    } catch {
-      // ignore
-    }
-    setTrackerMode(hasTodayPlan ? "linked" : "free");
-  }, [planLoaded, hasTodayPlan]);
-
-  useEffect(() => {
-    try {
-      sessionStorage.setItem("dd_tracker_mode", trackerMode);
-    } catch {
-      // ignore
-    }
-  }, [trackerMode]);
-
-  useEffect(() => {
-    if (!linkedBlock) return;
-    setLinkedExtendMin(0);
-  }, [linkedBlock?.id]);
 
   // ----- Aggregations -----
   useEffect(() => {
@@ -235,6 +168,20 @@ function TrackerInner({ embedded = false, onClose }: { embedded?: boolean; onClo
 
   const weekTotal = weekDays.reduce((a, d) => a + d.total, 0);
   const weekMaxSec = Math.max(1, ...weekDays.map(d => d.total));
+  const weekRangeLabel = useMemo(() => {
+    const a = weekDays[0]!.date;
+    const b = weekDays[6]!.date;
+    const sameYear = a.getFullYear() === b.getFullYear();
+    const left = a.toLocaleDateString(undefined, {
+      weekday: "short",
+      month: "short",
+      day: "numeric",
+      ...(sameYear ? {} : { year: "numeric" }),
+    });
+    const right = b.toLocaleDateString(undefined, { weekday: "short", month: "short", day: "numeric", year: "numeric" });
+    return `${left} – ${right}`;
+  }, [weekDays]);
+  const weekAvgSec = weekTotal / 7;
 
   // Month grid
   const monthCells = useMemo(() => {
@@ -348,9 +295,18 @@ function TrackerInner({ embedded = false, onClose }: { embedded?: boolean; onClo
   }, [entries, period, now]);
 
   const headerTotalSec = tab === "today" ? todayTotalSec : tab === "week" ? weekTotal : monthTotal;
-  const headerLabel = tab === "today" ? "Today" : tab === "week" ? "This week" : monthCursor.toLocaleDateString(undefined, { month: "long", year: "numeric" });
+  const headerLabel =
+    tab === "today"
+      ? "Today"
+      : tab === "week"
+        ? "Last 7 days"
+        : monthCursor.toLocaleDateString(undefined, { month: "long", year: "numeric" });
 
   const monthLabel = monthCursor.toLocaleDateString(undefined, { month: "long", year: "numeric" });
+  const isViewingCurrentMonth = useMemo(() => {
+    const n = new Date();
+    return monthCursor.getFullYear() === n.getFullYear() && monthCursor.getMonth() === n.getMonth();
+  }, [monthCursor]);
   const visibleCategories = useMemo(() => {
     const taskTitleSet = new Set(
       todayPlanBlocks
@@ -373,44 +329,17 @@ function TrackerInner({ embedded = false, onClose }: { embedded?: boolean; onClo
 
   // Smart stop: if running session is < 60s, confirm (likely accidental tap).
   const handleStop = async () => {
-    if (linkedBusy) return;
+    if (stopBusy) return;
     if (active && elapsedSec < 60) {
       const ok = window.confirm("Stop after less than a minute? This session will still be saved.");
       if (!ok) return;
     }
-    setLinkedBusy(true);
+    setStopBusy(true);
     try {
       await stop();
     } finally {
-      setLinkedBusy(false);
+      setStopBusy(false);
     }
-  };
-
-  const startLinked = async () => {
-    if (!linkedBlock) return;
-    if (active || linkedBusy) return;
-    const categoryId = linkedCat?.id || categories[0]?.id;
-    setLinkedBusy(true);
-    try {
-      await start(categoryId, {
-        source: "plan_linked",
-        note: linkedBlock.title,
-        blockId: linkedBlock.id,
-      });
-      setNextSuggestion(null);
-    } finally {
-      setLinkedBusy(false);
-    }
-  };
-
-  const stopLinked = async () => {
-    if (linkedBusy) return;
-    const currentLinkedId = linkedBlock?.id;
-    await handleStop();
-    if (!currentLinkedId) return;
-    const idx = todayPlanTasks.findIndex((b) => b.id === currentLinkedId);
-    const next = idx >= 0 ? todayPlanTasks[idx + 1] : null;
-    if (next) setNextSuggestion(`Next up: ${next.title}`);
   };
 
   // ----- PDF export -----
@@ -566,37 +495,8 @@ function TrackerInner({ embedded = false, onClose }: { embedded?: boolean; onClo
           </div>
           {/* Quick mode removed — week/month tabs always visible */}
 
-          <div className="mt-4 inline-flex w-full rounded-[12px] bg-muted/80 p-1">
-            <button
-              type="button"
-              onClick={() => setTrackerMode("linked")}
-              disabled={!hasTodayPlan}
-              className={`flex-1 rounded-[8px] px-3 py-1.5 text-xs font-medium pressable transition-colors ${
-                trackerMode === "linked"
-                  ? "bg-background text-foreground shadow-sm"
-                  : hasTodayPlan
-                    ? "text-secondary-fg hover:text-foreground"
-                    : "text-faint cursor-not-allowed"
-              }`}
-            >
-              Linked to plan
-            </button>
-            <button
-              type="button"
-              onClick={() => setTrackerMode("free")}
-              className={`flex-1 rounded-[8px] px-3 py-1.5 text-xs font-medium pressable transition-colors ${
-                trackerMode === "free" ? "bg-background text-foreground shadow-sm" : "text-secondary-fg hover:text-foreground"
-              }`}
-            >
-              Free tracking
-            </button>
-          </div>
-          {!hasTodayPlan && (
-            <p className="mt-2 text-[11px] text-secondary-fg">No plan for today yet — free mode is active.</p>
-          )}
-
           {/* Tabs */}
-          {trackerMode === "free" && !simpleMode ? (
+          {!simpleMode ? (
             <div className="mt-5 relative inline-flex w-full rounded-[14px] bg-muted/80 p-1 tracker-tabs-luxe">
               <span
                 aria-hidden
@@ -621,89 +521,36 @@ function TrackerInner({ embedded = false, onClose }: { embedded?: boolean; onClo
           ) : null}
         </div>
 
-        {/* LINKED MODE — current plan block */}
-        {trackerMode === "linked" && (
-          <div className="px-5 py-5">
-            <div className={`rounded-[16px] border px-4 py-5 shadow-card transition-all ${linkedOvertime ? "ring-2 ring-primary/25 animate-pulse" : ""} hero-glass`}>
-              {linkedBlock ? (
-                <>
-                  <div className="text-[10px] font-semibold uppercase tracking-[0.16em] text-secondary-fg">Current plan block</div>
-                  <div className="mt-2 text-[24px] font-display font-semibold leading-tight text-foreground">{linkedBlock.title}</div>
-                  <div className="mt-2 text-[12px] text-secondary-fg">
-                    Estimated {fmtHM((linkedBlock.estimated_minutes ?? linkedBlock.duration_min) * 60)}
-                    {linkedExtendMin > 0 ? ` · Extended +${linkedExtendMin}m` : ""}
-                  </div>
-                  {linkedIsActive && (
-                    <div className="mt-3 text-[13px] text-foreground font-mono tabular-nums">
-                      {fmtHMS(elapsedSec)} elapsed · {fmtHM(linkedRemainingSec)} remaining
-                    </div>
-                  )}
-                  {linkedOvertime && (
-                    <div className="mt-3 rounded-xl border border-accent surface-accent px-3 py-2 text-[12px] text-foreground">
-                      Estimate reached. Stop now or extend this block.
-                    </div>
-                  )}
-                  <div className="mt-4 flex items-center gap-2">
-                    {!linkedIsActive ? (
-                      <button
-                        onClick={startLinked}
-                        disabled={!!active || linkedBusy}
-                        className="inline-flex items-center gap-2 h-11 px-5 rounded-full bg-primary text-primary-foreground text-[13.5px] font-semibold pressable shadow-card disabled:opacity-50 disabled:pointer-events-none"
-                      >
-                        <Play className="h-3.5 w-3.5" fill="currentColor" /> Start
-                      </button>
-                    ) : (
-                      <>
-                        <button disabled={linkedBusy} onClick={stopLinked} className="inline-flex items-center gap-2 h-11 px-5 rounded-full bg-primary text-primary-foreground text-[13.5px] font-semibold pressable shadow-card disabled:opacity-50 disabled:pointer-events-none">
-                          <Pause className="h-3.5 w-3.5" fill="currentColor" /> Stop
-                        </button>
-                        <button disabled={linkedBusy} onClick={() => setLinkedExtendMin((m) => m + 10)} className="h-11 px-4 rounded-full border border-soft surface-card text-[12px] font-medium pressable disabled:opacity-50 disabled:pointer-events-none">
-                          Extend 10m
-                        </button>
-                      </>
-                    )}
-                  </div>
-                  {nextSuggestion && (
-                    <div className="mt-3 text-[12px] text-secondary-fg">{nextSuggestion}</div>
-                  )}
-                </>
-              ) : (
-                <div className="text-[13px] text-secondary-fg">No active block found in today&apos;s plan.</div>
-              )}
-            </div>
-          </div>
-        )}
-
         {/* TODAY TAB — categories + start/stop + today summary */}
-        {trackerMode === "free" && tab === "today" && (
+        {tab === "today" && (
           <>
             {/* Hero stopwatch — premium, centered */}
             <div className="px-5 pt-5">
               <div
                 className={`relative overflow-hidden rounded-[16px] border p-5 transition-all duration-500 backdrop-blur-sm tracker-hero-luxe ${
-                  active
-                    ? "border-accent surface-card shadow-card"
+                  active && activeCat
+                    ? "tracker-hero--running border-transparent surface-card shadow-card"
                     : "border-soft surface-card"
                 }`}
+                style={
+                  active && activeCat
+                    ? ({ "--tracker-accent": activeCat.color } as React.CSSProperties)
+                    : undefined
+                }
               >
-                {active && (
-                  <>
-                    <div className="pointer-events-none absolute -top-24 -left-24 h-64 w-64 rounded-full opacity-30 blur-3xl"
-                         style={{ background: `radial-gradient(circle, ${activeCat?.color || 'hsl(var(--primary))'} 0%, transparent 70%)` }} />
-                    <div className="pointer-events-none absolute -bottom-24 -right-16 h-56 w-56 rounded-full opacity-20 blur-3xl"
-                         style={{ background: `radial-gradient(circle, hsl(var(--primary)) 0%, transparent 70%)` }} />
-                  </>
-                )}
                 {active && activeCat ? (
-                  <div className="relative flex flex-col items-center text-center gap-4 fade-in">
+                  <div className="relative z-[1] flex flex-col items-center text-center gap-4 fade-in">
                     <div className="flex items-center gap-2">
-                      <span className="relative flex h-2 w-2">
-                        <span className="absolute inset-0 rounded-full animate-ping opacity-70" style={{ background: activeCat.color }} />
-                        <span className="relative h-2 w-2 rounded-full" style={{ background: activeCat.color }} />
+                      <span className="relative flex h-2.5 w-2.5">
+                        <span
+                          className="absolute inset-0 rounded-full tracker-dot-soft-pulse opacity-80"
+                          style={{ background: activeCat.color }}
+                        />
+                        <span className="relative h-2.5 w-2.5 rounded-full ring-2 ring-background" style={{ background: activeCat.color }} />
                       </span>
                       <span className="text-[10px] font-semibold uppercase tracking-[0.18em] text-secondary-fg">Now tracking</span>
                     </div>
-                    <div className="font-display tabular-nums text-[44px] font-semibold leading-none tracking-tight tracker-time-glow">
+                    <div className="font-display tabular-nums text-[44px] font-semibold leading-none tracking-tight tracker-time-glow tracker-time-glow--live">
                       {fmtHMS(elapsedSec)}
                     </div>
                     <div className="text-[14px] font-medium text-subtle truncate max-w-full">
@@ -718,7 +565,7 @@ function TrackerInner({ embedded = false, onClose }: { embedded?: boolean; onClo
                     </button>
                   </div>
                 ) : (
-                  <div className="relative flex flex-col items-center text-center gap-2">
+                  <div className="relative z-[1] flex flex-col items-center text-center gap-2">
                     <span className="text-[10px] font-semibold uppercase tracking-[0.18em] text-secondary-fg">Today</span>
                     <div className="font-display tabular-nums text-[40px] font-semibold leading-none tracking-tight">
                       {fmtHM(todayTotalSec)}
@@ -819,11 +666,11 @@ function TrackerInner({ embedded = false, onClose }: { embedded?: boolean; onClo
                           <span className="relative h-3 w-3 shrink-0">
                             {isActive && (
                               <span
-                                className="absolute inset-0 rounded-full animate-ping opacity-50"
+                                className="absolute inset-0 rounded-full tracker-dot-soft-pulse opacity-70"
                                 style={{ background: c.color }}
                               />
                             )}
-                            <span className="relative block h-3 w-3 rounded-full" style={{ background: c.color }} />
+                            <span className="relative z-[1] block h-3 w-3 rounded-full ring-1 ring-background" style={{ background: c.color }} />
                           </span>
                           <span className="flex-1 text-[15px] font-medium truncate">{c.name}</span>
                           <span className="font-mono tabular-nums text-[11px] text-secondary-fg shrink-0">{fmtHM(periodSec)}</span>
@@ -831,7 +678,7 @@ function TrackerInner({ embedded = false, onClose }: { embedded?: boolean; onClo
                         </LongPressButton>
                       )}
                       {editingCat === c.id ? null : isActive ? (
-                          <button disabled={linkedBusy} onClick={handleStop} className="inline-flex items-center gap-1 px-3 py-1.5 rounded-lg bg-primary text-primary-foreground text-xs font-medium pressable disabled:opacity-50 disabled:pointer-events-none">
+                          <button disabled={stopBusy} onClick={handleStop} className="inline-flex items-center gap-1 px-3 py-1.5 rounded-lg bg-primary text-primary-foreground text-xs font-medium pressable disabled:opacity-50 disabled:pointer-events-none">
                           <Pause className="h-3 w-3" fill="currentColor" /> Stop
                         </button>
                       ) : (
@@ -932,100 +779,209 @@ function TrackerInner({ embedded = false, onClose }: { embedded?: boolean; onClo
           </>
         )}
 
-        {/* WEEK TAB — bars + tap-to-expand day */}
-        {trackerMode === "free" && tab === "week" && (
+        {/* WEEK TAB — rolling 7 days, oldest → newest (today on the right) */}
+        {tab === "week" && (
           <div className="px-5 py-4 space-y-4">
-            <div className="app-card px-4 py-5">
-              <div className="flex items-end justify-between gap-2 h-32">
-                {weekDays.map(d => {
-                  const h = d.total > 0 ? Math.max(8, (d.total / weekMaxSec) * 100) : 4;
-                  const isSelected = selectedDay === d.key;
-                  const isToday = d.key === ymd(new Date());
-                  return (
-                    <button
-                      key={d.key}
-                      onClick={() => setSelectedDay(isSelected ? null : d.key)}
-                      className="flex-1 flex flex-col items-center gap-1.5 pressable group"
-                    >
-                      <span className={`text-[10px] font-mono tabular-nums ${d.total > 0 ? "text-secondary-fg" : "text-faint"}`}>
-                        {d.total > 0 ? fmtHM(d.total) : "–"}
-                      </span>
-                      <div className="w-full flex-1 flex items-end">
-                        <div
-                          className={`w-full rounded-md transition-all ${isSelected ? "bg-primary" : d.total > 0 ? "bg-primary/60 group-hover:bg-primary/80" : "bg-muted"}`}
-                          style={{ height: `${h}%` }}
-                        />
-                      </div>
-                      <span className={`text-[10px] font-medium ${isToday ? "text-primary" : "text-secondary-fg"}`}>
-                        {d.date.toLocaleDateString(undefined, { weekday: "short" }).slice(0, 2)}
-                      </span>
-                    </button>
-                  );
-                })}
+            <div className="app-card px-4 py-4 space-y-4">
+              <div className="flex items-start justify-between gap-3">
+                <div className="min-w-0">
+                  <h3 className="text-[15px] font-display font-semibold text-foreground leading-tight">Last 7 days</h3>
+                  <p className="text-[12px] text-secondary-fg mt-1.5 leading-snug">{weekRangeLabel}</p>
+                  <p className="text-[11px] text-faint mt-1.5 leading-snug">
+                    Seven full days ending today. Tallest bar = busiest day in this window.
+                  </p>
+                </div>
+                <div className="text-right shrink-0 space-y-0.5">
+                  <div className="text-[10px] font-semibold uppercase tracking-wide text-secondary-fg">Total</div>
+                  <div className="font-display text-xl font-semibold tabular-nums leading-none">{fmtHM(weekTotal)}</div>
+                  <div className="text-[10px] text-secondary-fg tabular-nums">~{fmtHM(weekAvgSec)} / day avg</div>
+                </div>
               </div>
-              <div className="mt-3 pt-3 border-t border-soft flex items-center justify-between text-[11px]">
-                <span className="text-secondary-fg">Tap a bar for details</span>
-                <span className="font-medium">Total <span className="font-mono tabular-nums">{fmtHM(weekTotal)}</span></span>
+
+              <div className="rounded-xl border border-soft/80 bg-muted/15 px-1.5 sm:px-2 pt-2 pb-1.5">
+                <div className="flex items-end justify-between gap-0.5 sm:gap-1 min-h-[128px]">
+                  {weekDays.map((d) => {
+                    const h = d.total > 0 ? Math.max(10, (d.total / weekMaxSec) * 100) : 5;
+                    const isSelected = selectedDay === d.key;
+                    const isToday = d.key === ymd(new Date());
+                    const weekday = d.date.toLocaleDateString(undefined, { weekday: "short" });
+                    const dayNum = d.date.getDate();
+                    const title = d.date.toLocaleDateString(undefined, {
+                      weekday: "long",
+                      month: "long",
+                      day: "numeric",
+                      year: "numeric",
+                    });
+                    return (
+                      <button
+                        key={d.key}
+                        type="button"
+                        title={title}
+                        aria-label={`${title}, ${d.total > 0 ? fmtHM(d.total) + " tracked" : "no time tracked"}`}
+                        aria-pressed={isSelected}
+                        onClick={() => setSelectedDay(isSelected ? null : d.key)}
+                        className={`flex-1 min-w-0 flex flex-col items-center gap-1 rounded-lg py-1 pressable transition-colors ${
+                          isSelected ? "ring-2 ring-primary ring-offset-2 ring-offset-background bg-primary/[0.06]" : "hover:bg-background/40"
+                        }`}
+                      >
+                        <div className="h-[78px] w-full flex flex-col items-center justify-end gap-1">
+                          <span
+                            className={`text-[10px] font-mono tabular-nums leading-none ${d.total > 0 ? "text-foreground font-medium" : "text-faint"}`}
+                          >
+                            {d.total > 0 ? fmtHM(d.total) : "—"}
+                          </span>
+                          <div className="h-[52px] w-full flex items-end justify-center">
+                            <div
+                              className={`w-[88%] max-w-[36px] rounded-md transition-all ${
+                                isSelected
+                                  ? "bg-primary shadow-sm"
+                                  : d.total > 0
+                                    ? "bg-primary/65 hover:bg-primary/80"
+                                    : "bg-muted"
+                              }`}
+                              style={{ height: `${h}%`, minHeight: d.total > 0 ? 6 : 4 }}
+                            />
+                          </div>
+                        </div>
+                        <div className="text-center pt-0.5 pb-0.5 w-full border-t border-transparent">
+                          <div className={`text-[11px] font-semibold leading-tight truncate w-full ${isToday ? "text-primary" : "text-foreground"}`}>
+                            {weekday}
+                          </div>
+                          <div className="text-[10px] text-secondary-fg tabular-nums leading-tight">{dayNum}</div>
+                        </div>
+                      </button>
+                    );
+                  })}
+                </div>
               </div>
+
+              <p className="text-[11px] text-secondary-fg leading-relaxed border-t border-soft pt-3">
+                Tap a column to open that day&apos;s sessions, category split, and 24h timeline below.
+              </p>
             </div>
 
             {dayDetail && <DayDetail detail={dayDetail} catMap={catMap} />}
           </div>
         )}
 
-        {/* MONTH TAB — heatmap calendar */}
-        {trackerMode === "free" && tab === "month" && (
+        {/* MONTH TAB — calendar month heatmap (Mon-first grid) */}
+        {tab === "month" && (
           <div className="px-5 py-4 space-y-4">
-            <div className="app-card px-4 py-5">
-              <div className="flex items-center justify-between mb-3">
-                <button onClick={() => setMonthCursor(d => { const x = new Date(d); x.setMonth(x.getMonth() - 1); return x; })} className="p-1.5 rounded-lg hover:bg-muted pressable" aria-label="Previous month">
+            <div className="app-card px-4 py-4 space-y-3">
+              <div className="flex items-start justify-between gap-2">
+                <button
+                  type="button"
+                  onClick={() => setMonthCursor((d) => {
+                    const x = new Date(d);
+                    x.setMonth(x.getMonth() - 1);
+                    return x;
+                  })}
+                  className="p-2 rounded-xl border border-soft surface-soft pressable shrink-0 mt-0.5"
+                  aria-label="Previous month"
+                >
                   <ChevronLeft className="h-4 w-4" />
                 </button>
-                <div className="text-[14px] font-display font-semibold">{monthLabel}</div>
-                <button onClick={() => setMonthCursor(d => { const x = new Date(d); x.setMonth(x.getMonth() + 1); return x; })} className="p-1.5 rounded-lg hover:bg-muted pressable" aria-label="Next month">
+                <div className="flex-1 text-center min-w-0 px-1">
+                  <div className="text-[16px] font-display font-semibold leading-tight">{monthLabel}</div>
+                  <p className="text-[12px] text-secondary-fg mt-1 leading-snug">
+                    Tracked time per day. Darker = more than other days this month (not an absolute hour scale).
+                  </p>
+                  {!isViewingCurrentMonth && (
+                    <button
+                      type="button"
+                      onClick={() => {
+                        const x = new Date();
+                        x.setDate(1);
+                        x.setHours(0, 0, 0, 0);
+                        setMonthCursor(x);
+                        setSelectedDay(null);
+                      }}
+                      className="mt-2 text-[11px] font-semibold text-primary pressable underline-offset-2 hover:underline"
+                    >
+                      Jump to this month
+                    </button>
+                  )}
+                </div>
+                <button
+                  type="button"
+                  onClick={() => setMonthCursor((d) => {
+                    const x = new Date(d);
+                    x.setMonth(x.getMonth() + 1);
+                    return x;
+                  })}
+                  className="p-2 rounded-xl border border-soft surface-soft pressable shrink-0 mt-0.5"
+                  aria-label="Next month"
+                >
                   <ChevronRight className="h-4 w-4" />
                 </button>
               </div>
 
-              <div className="grid grid-cols-7 gap-1 text-[10px] text-secondary-fg mb-1">
-                {["M","T","W","T","F","S","S"].map((d, i) => (
-                  <div key={i} className="text-center font-medium">{d}</div>
+              <div className="flex items-center justify-between gap-3 rounded-lg border border-soft/80 bg-muted/15 px-3 py-2">
+                <div>
+                  <div className="text-[10px] font-semibold uppercase tracking-wide text-secondary-fg">Month total</div>
+                  <div className="font-display text-lg font-semibold tabular-nums">{fmtHM(monthTotal)}</div>
+                </div>
+                <p className="text-[11px] text-secondary-fg text-right leading-snug max-w-[11rem]">
+                  Tap a square for that day&apos;s breakdown. Outline = today.
+                </p>
+              </div>
+
+              <div className="grid grid-cols-7 gap-x-0.5 gap-y-1">
+                {WEEKDAY_HEADERS.map((label) => (
+                  <div key={label} className="text-center text-[10px] font-semibold uppercase tracking-wide text-secondary-fg py-0.5">
+                    {label}
+                  </div>
                 ))}
               </div>
 
               <div className="grid grid-cols-7 gap-1">
                 {monthCells.map((c, i) => {
-                  if (!c) return <div key={i} className="aspect-square" />;
+                  if (!c) return <div key={`pad-${i}`} className="aspect-square min-h-[2.5rem]" aria-hidden />;
                   const intensity = c.total === 0 ? 0 : Math.min(1, c.total / monthMaxSec);
                   const isSelected = selectedDay === c.key;
                   const isToday = c.key === ymd(new Date());
-                  const opacity = c.total === 0 ? 0 : 0.15 + intensity * 0.85;
+                  const opacity = c.total === 0 ? 0 : 0.18 + intensity * 0.82;
+                  const title = `${c.date!.toLocaleDateString(undefined, { weekday: "long", month: "long", day: "numeric", year: "numeric" })} · ${fmtHM(c.total)}`;
                   return (
                     <button
                       key={c.key}
+                      type="button"
+                      title={title}
+                      aria-label={title}
+                      aria-pressed={isSelected}
                       onClick={() => setSelectedDay(isSelected ? null : c.key)}
-                      className={`aspect-square rounded-md text-[10px] font-medium relative pressable transition-all flex items-center justify-center ${isSelected ? "ring-2 ring-primary/80 ring-offset-2 ring-offset-background" : ""} ${isToday && !isSelected ? "ring-1 ring-foreground/25" : ""}`}
+                      className={`aspect-square min-h-[2.5rem] rounded-lg flex flex-col items-center justify-center gap-0.5 pressable transition-all text-center px-0.5 ${
+                        isSelected ? "ring-2 ring-primary ring-offset-2 ring-offset-background z-[1]" : ""
+                      } ${isToday && !isSelected ? "ring-1 ring-primary/50" : ""}`}
                       style={{
                         backgroundColor: c.total > 0 ? `hsl(var(--primary) / ${opacity})` : "hsl(var(--muted))",
-                        color: intensity > 0.5 ? "hsl(var(--primary-foreground))" : "hsl(var(--foreground))",
+                        color: intensity > 0.55 ? "hsl(var(--primary-foreground))" : "hsl(var(--foreground))",
                       }}
-                      aria-label={`${c.date!.toDateString()} — ${fmtHM(c.total)}`}
                     >
-                      {c.date!.getDate()}
+                      <span className="text-[12px] font-semibold tabular-nums leading-none">{c.date!.getDate()}</span>
+                      {c.total > 0 && (
+                        <span className="text-[9px] font-mono tabular-nums leading-none opacity-90">{fmtHM(c.total)}</span>
+                      )}
                     </button>
                   );
                 })}
               </div>
 
-              <div className="mt-3 pt-3 border-t border-soft flex items-center justify-between text-[11px]">
-                <div className="flex items-center gap-1.5">
-                  <span className="text-secondary-fg">Less</span>
-                  {[0.15, 0.4, 0.65, 1].map((o, i) => (
-                    <span key={i} className="h-2.5 w-2.5 rounded-sm" style={{ backgroundColor: `hsl(var(--primary) / ${o})` }} />
-                  ))}
-                  <span className="text-secondary-fg">More</span>
+              <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-2 pt-2 border-t border-soft text-[11px]">
+                <div className="flex items-center gap-2 flex-wrap">
+                  <span className="text-secondary-fg shrink-0">Relative intensity</span>
+                  <div className="flex items-center gap-1">
+                    <span className="text-faint">0</span>
+                    {[0.2, 0.45, 0.7, 1].map((o, idx) => (
+                      <span key={idx} className="h-3 w-3 rounded-sm border border-border/50" style={{ backgroundColor: `hsl(var(--primary) / ${o})` }} />
+                    ))}
+                    <span className="text-faint">max</span>
+                  </div>
                 </div>
-                <span className="font-medium">Total <span className="font-mono tabular-nums">{fmtHM(monthTotal)}</span></span>
+                <span className="text-secondary-fg sm:text-right">
+                  <span className="hidden sm:inline">This view = </span>
+                  calendar month only (not a rolling window).
+                </span>
               </div>
             </div>
 
@@ -1034,7 +990,6 @@ function TrackerInner({ embedded = false, onClose }: { embedded?: boolean; onClo
         )}
 
         {/* PDF export — placed at the bottom of the sheet, well clear of the X */}
-        {trackerMode === "free" && (
         <div className="px-5 pt-3 pb-2">
           <button
             onClick={exportPDF}
@@ -1047,7 +1002,6 @@ function TrackerInner({ embedded = false, onClose }: { embedded?: boolean; onClo
             {isPro ? `Export ${headerLabel} as PDF` : "Export as PDF · Pro"}
           </button>
         </div>
-        )}
         <div className="px-5 pb-6 pt-2 text-[11px] text-secondary-fg text-center">
           Tracking runs in the background — close the app and it keeps counting.
         </div>

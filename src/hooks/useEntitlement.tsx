@@ -1,6 +1,7 @@
 import { useEffect, useState, useCallback } from "react";
 import { supabase } from "@/integrations/supabase/client";
 import { useAuth } from "./useAuth";
+import { readDevSimulatePro } from "@/lib/devEntitlement";
 
 export type Tier = "free" | "trial" | "pro";
 
@@ -27,6 +28,16 @@ export const useEntitlement = () => {
   const [ent, setEnt] = useState<Entitlement | null>(null);
   const [planQuotaUsed, setPlanQuotaUsed] = useState(0);
   const [loading, setLoading] = useState(true);
+  const [devSimulatePro, setDevSimulatePro] = useState(() =>
+    import.meta.env.DEV ? readDevSimulatePro() : false,
+  );
+
+  useEffect(() => {
+    if (!import.meta.env.DEV) return;
+    const on = () => setDevSimulatePro(readDevSimulatePro());
+    window.addEventListener("dd-dev-simulate-pro", on);
+    return () => window.removeEventListener("dd-dev-simulate-pro", on);
+  }, []);
 
   const refresh = useCallback(async () => {
     if (!user) { setEnt(null); setLoading(false); return; }
@@ -61,12 +72,24 @@ export const useEntitlement = () => {
 
   useEffect(() => { refresh(); }, [refresh]);
 
-  const isPro = ent?.tier === "pro" || ent?.tier === "trial";
+  const subscriptionPro = ent?.tier === "pro" || ent?.tier === "trial";
+  const isPro = subscriptionPro || devSimulatePro;
   const planQuotaLimit = isPro ? Infinity : FREE_PLAN_QUOTA;
   const planQuotaRemaining = isPro ? Infinity : Math.max(0, FREE_PLAN_QUOTA - planQuotaUsed);
   const overQuota = !isPro && planQuotaUsed >= FREE_PLAN_QUOTA;
 
-  return { entitlement: ent, loading, isPro, planQuotaUsed, planQuotaLimit, planQuotaRemaining, overQuota, refresh };
+  return {
+    entitlement: ent,
+    loading,
+    isPro,
+    devSimulatePro,
+    subscriptionPro,
+    planQuotaUsed,
+    planQuotaLimit,
+    planQuotaRemaining,
+    overQuota,
+    refresh,
+  };
 };
 
 /**

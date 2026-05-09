@@ -82,10 +82,28 @@ export const SortableBlock = ({
             </span>
           )}
           </div>
-          <div className={`${rhythmType === "rest" ? "text-[10px]" : "text-[10.5px]"} text-secondary-fg mt-1 tabular-nums`}>{dur}</div>
-          {actualMin != null && (
-            <div className={`mt-1 text-[10px] tabular-nums ${actualToneClass}`}>
-              {fmtMin(estimatedMin)} planned · {fmtMin(actualMin)} actual
+          <div className={`${rhythmType === "rest" ? "text-[10px]" : "text-[10.5px]"} text-secondary-fg mt-1 tabular-nums`}>
+            {block.completed && actualMin != null ? (
+              <>
+                <span className="font-medium text-foreground">{fmtMin(actualMin)}</span>
+                <span className="text-faint"> actual</span>
+                {estimatedMin !== actualMin && (
+                  <span className="text-faint"> · {fmtMin(estimatedMin)} planned</span>
+                )}
+              </>
+            ) : (
+              <>
+                {dur} {block.completed ? "planned" : "scheduled"}
+              </>
+            )}
+          </div>
+          {block.completed && actualMin != null && estimatedMin > 0 && (
+            <div className={`mt-0.5 text-[10px] tabular-nums ${actualToneClass}`}>
+              {actualDeltaRatio > 0.15
+                ? `${Math.round(actualDeltaRatio * 100)}% longer than planned`
+                : actualDeltaRatio < -0.15
+                  ? `${Math.round(-actualDeltaRatio * 100)}% under plan`
+                  : "On track vs plan"}
             </div>
           )}
         </div>

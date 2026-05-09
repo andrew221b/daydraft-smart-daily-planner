@@ -12,6 +12,8 @@ serve(async (req) => {
   try {
     const { raw_input: rawInputValue, energy_preference, name, mode, start_time, clarified_tasks, planning_context, plan_date, now_iso, timezone, hours_already_committed, active_hours_start, active_hours_end, ai_tone, ai_tone_custom, behavior_signals, ai_memory } = await req.json();
     let raw_input = rawInputValue;
+    const clarifiedList = Array.isArray(clarified_tasks) ? clarified_tasks : [];
+    const reviewedTasksInSheet = clarifiedList.length > 0;
     if (!raw_input || typeof raw_input !== "string") {
       return new Response(JSON.stringify({ error: "raw_input required" }), { status: 400, headers: { ...corsHeaders, "Content-Type": "application/json" } });
     }
@@ -30,8 +32,10 @@ serve(async (req) => {
       if (!words.length) return false;
       return dangling.has(words[words.length - 1]);
     };
+    // Only flag clearly broken fragments — short titles like "Gym" or "Email Sarah"
+    // are valid; the old "< 4 words" rule blocked normal plans constantly.
     const isLikelyIncomplete = (line: string) => {
-      if (wordCount(line) < 4) return true;
+      if (wordCount(line) < 2) return true;
       if (endsWithDanglingWord(line)) return true;
       if (/[,:;/\-]\s*$/.test(line)) return true;
       return false;
@@ -66,16 +70,18 @@ serve(async (req) => {
       }
       return null;
     };
-    const incomplete = taskLines
-      .map((line) => ({
-        line,
-        incomplete: isLikelyIncomplete(line),
-      }))
-      .filter((x) => x.incomplete);
+    const incomplete = reviewedTasksInSheet
+      ? []
+      : taskLines
+          .map((line) => ({
+            line,
+            incomplete: isLikelyIncomplete(line),
+          }))
+          .filter((x) => x.incomplete);
     if (incomplete.length) {
       const findings = incomplete.map(({ line }) => {
         const suggestion = autoCompleteTask(line);
-        const reason = wordCount(line) < 4
+        const reason = wordCount(line) < 2
           ? "too short"
           : endsWithDanglingWord(line)
             ? "ends with a dangling preposition/article"

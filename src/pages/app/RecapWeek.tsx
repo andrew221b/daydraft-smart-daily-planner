@@ -4,6 +4,7 @@ import { Shell } from "@/components/app/Shell";
 import { useAuth } from "@/hooks/useAuth";
 import { supabase } from "@/integrations/supabase/client";
 import { Block, dateStr, isUserTask } from "@/lib/daydraft";
+import { effectiveDoneMinutes } from "@/lib/blockActualTime";
 import { CalendarDays, Target, Clock, Trophy, ArrowRight } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { isAiFlagEnabled, writeAiWeeklyMemory } from "@/lib/aiRuntime";
@@ -45,10 +46,10 @@ export default function RecapWeek() {
   const stats = useMemo(() => {
     const tasks = blocks.filter(isUserTask);
     const completed = tasks.filter(b => b.completed);
-    const focusMin = completed.filter(b => b.type === "deep_work").reduce((s, b) => s + b.duration_min, 0);
+    const focusMin = completed.filter(b => b.type === "deep_work").reduce((s, b) => s + effectiveDoneMinutes(b), 0);
     const completionPct = tasks.length ? Math.round((completed.length / tasks.length) * 100) : 0;
     const typeMin: Record<string, number> = { deep_work: 0, communication: 0, routine: 0 };
-    completed.forEach(b => { typeMin[b.type] = (typeMin[b.type] || 0) + b.duration_min; });
+    completed.forEach(b => { typeMin[b.type] = (typeMin[b.type] || 0) + effectiveDoneMinutes(b); });
     const top = Object.entries(typeMin).sort((a, b) => b[1] - a[1])[0];
     const topLabel = top && top[1] > 0
       ? (top[0] === "deep_work" ? "Deep Work" : top[0] === "communication" ? "Communication" : "Routine")
@@ -65,10 +66,10 @@ export default function RecapWeek() {
     const byHour = new Array(24).fill(0);
     completed.forEach((b) => {
       const h = Number((b.start_time || "00:00").slice(0, 2)) || 0;
-      byHour[h] += b.duration_min || 0;
+      byHour[h] += effectiveDoneMinutes(b) || 0;
     });
     const bestHour = byHour.reduce((best, val, idx) => (val > byHour[best] ? idx : best), 0);
-    const completedMins = completed.map((b) => b.duration_min || 0).filter((m) => m > 0);
+    const completedMins = completed.map((b) => effectiveDoneMinutes(b) || 0).filter((m) => m > 0);
     const realisticBlock = completedMins.length
       ? Math.round(completedMins.sort((a, b) => a - b)[Math.floor(completedMins.length / 2)])
       : 45;

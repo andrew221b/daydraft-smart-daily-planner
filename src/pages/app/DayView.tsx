@@ -34,6 +34,7 @@ import { firstTaskCompleteMessage } from "@/lib/microDelights";
 import { PullToRefresh } from "@/components/app/PullToRefresh";
 import { formatPlanAsPlainText, copyTextToClipboard } from "@/lib/planTextExport";
 import { fetchDayPlan, planDashboardQueryKey, planDayQueryKey } from "@/lib/planQueries";
+import { resolveActualMinutesOnComplete, wallMinutesFromSlotStart } from "@/lib/blockActualTime";
 import { useCalmMode } from "@/lib/calmMode";
 import { useEntitlement } from "@/hooks/useEntitlement";
 import { UpgradeSheet } from "@/components/app/UpgradeSheet";
@@ -45,6 +46,7 @@ type ExBlock = Block & {
   location_lat?: number | null;
   location_lng?: number | null;
   is_calendar_event?: boolean;
+  completed_at?: string | null;
 };
 
 const retime = (blocks: ExBlock[]): ExBlock[] => {
@@ -235,16 +237,54 @@ export default function DayView() {
     const snapshot = blocks;
     const wasDone = blocks.find(b => b.id === id)?.completed;
     const toggled = snapshot.find(b => b.id === id);
+    if (!toggled) {
+      blockOpLocksRef.current.delete(`complete:${id}`);
+      return;
+    }
     const userTasks = snapshot.filter(isUserTask);
     const doneBefore = userTasks.filter(b => b.completed).length;
     const firstUserTaskDoneToday =
-      isToday && toggled && isUserTask(toggled) && !wasDone && doneBefore === 0;
-    setBlocks(bs => bs.map(b => b.id === id ? { ...b, completed: !b.completed } : b));
+      isToday && isUserTask(toggled) && !wasDone && doneBefore === 0;
+
+    const completedAtIso = new Date().toISOString();
+    const completedAtMs = Date.now();
+    let resolvedActual: number | null = null;
+    if (!wasDone && user) {
+      try {
+        resolvedActual = await resolveActualMinutesOnComplete(
+          supabase,
+          user.id,
+          id,
+          viewDate,
+          toggled.start_time,
+          completedAtMs,
+        );
+      } catch {
+        resolvedActual = Math.max(1, Math.min(wallMinutesFromSlotStart(viewDate, toggled.start_time, completedAtMs), 24 * 60));
+      }
+    }
+
+    setBlocks((bs) =>
+      bs.map((b) =>
+        b.id === id
+          ? {
+              ...b,
+              completed: !wasDone,
+              completed_at: !wasDone ? completedAtIso : null,
+              actual_minutes: !wasDone ? resolvedActual : null,
+            }
+          : b,
+      ),
+    );
     haptics.notify("success");
     try {
       await supabase
         .from("blocks")
-        .update({ completed: !wasDone, completed_at: !wasDone ? new Date().toISOString() : null })
+        .update({
+          completed: !wasDone,
+          completed_at: !wasDone ? completedAtIso : null,
+          actual_minutes: !wasDone ? resolvedActual : null,
+        })
         .eq("id", id);
       if (!wasDone) {
         try { localStorage.setItem(`dd_last_plan_progress_${viewDate}`, new Date().toISOString()); } catch {/* ignore */}
@@ -256,9 +296,14 @@ export default function DayView() {
           label: "Undo",
           onClick: async () => {
             setBlocks(snapshot);
+            const prev = snapshot.find((b) => b.id === id);
             await supabase
               .from("blocks")
-              .update({ completed: !!wasDone, completed_at: !!wasDone ? new Date().toISOString() : null })
+              .update({
+                completed: prev?.completed ?? false,
+                completed_at: prev?.completed_at ?? null,
+                actual_minutes: prev?.actual_minutes ?? null,
+              })
               .eq("id", id);
             await invalidatePlanCaches();
           },
@@ -644,7 +689,16 @@ export default function DayView() {
               <SheetHeader className="text-left mb-3">
                 <SheetTitle className="text-[16px]">{tappedBlock.title}</SheetTitle>
                 <div className="text-[12px] text-secondary-fg tabular-nums">
-                  {fmtTime(tappedBlock.start_time)} · {tappedBlock.duration_min < 60 ? `${tappedBlock.duration_min}m` : `${Math.floor(tappedBlock.duration_min/60)}h${tappedBlock.duration_min%60 ? ` ${tappedBlock.duration_min%60}m` : ""}`}
+                  {fmtTime(tappedBlock.start_time)} ·{" "}
+                  {tappedBlock.completed && typeof tappedBlock.actual_minutes === "number"
+                    ? `${tappedBlock.actual_minutes}m actual${
+                        tappedBlock.duration_min !== tappedBlock.actual_minutes
+                          ? ` · ${tappedBlock.duration_min}m planned`
+                          : ""
+                      }`
+                    : tappedBlock.duration_min < 60
+                      ? `${tappedBlock.duration_min}m planned`
+                      : `${Math.floor(tappedBlock.duration_min / 60)}h${tappedBlock.duration_min % 60 ? ` ${tappedBlock.duration_min % 60}m` : ""} planned`}
                 </div>
               </SheetHeader>
 

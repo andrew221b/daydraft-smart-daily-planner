@@ -41,6 +41,7 @@ import { toast } from "sonner";
 import { ProBadge } from "@/components/app/ProBadge";
 import { useEntitlement } from "@/hooks/useEntitlement";
 import { UpgradeSheet } from "@/components/app/UpgradeSheet";
+import { ProFeatureHighlights } from "@/components/app/ProFeatureHighlights";
 import { ClarifySheet, ClarifiedTask } from "@/components/app/ClarifySheet";
 import { PullToRefresh } from "@/components/app/PullToRefresh";
 import { useTour, TOUR_TODAY } from "@/components/app/Tour";
@@ -481,18 +482,20 @@ export default function Today() {
     if (busy || rescueLoading || rescueApplying) return;
     if (!input.trim()) { toast.error("Add at least one task"); return; }
     if (!user || !profile) return;
-    try {
-      const since = new Date();
-      since.setDate(since.getDate() - 6);
-      const { data: q } = await supabase.functions.invoke("check-plan-quota", {
-        body: { since_date: dateStr(since) },
-      });
-      if (q && q.allowed === false) {
-        setUpgradeReason("quota");
-        setUpgradeOpen(true);
-        return;
-      }
-    } catch {/* fail open */}
+    if (!isPro) {
+      try {
+        const since = new Date();
+        since.setDate(since.getDate() - 6);
+        const { data: q } = await supabase.functions.invoke("check-plan-quota", {
+          body: { since_date: dateStr(since) },
+        });
+        if (q && q.allowed === false) {
+          setUpgradeReason("quota");
+          setUpgradeOpen(true);
+          return;
+        }
+      } catch {/* fail open */}
+    }
     setClarifyOpen(true);
   };
 
@@ -579,7 +582,7 @@ export default function Today() {
         },
       });
       const elapsed = Date.now() - startedAt;
-      if (elapsed < 500) await new Promise((r) => setTimeout(r, 500 - elapsed));
+      if (elapsed < 120) await new Promise((r) => setTimeout(r, 120 - elapsed));
       if (error) throw error;
       if (data?.code === "INCOMPLETE_TASKS_NEED_CLARIFICATION") {
         if (typeof data?.suggested_raw_input === "string" && data.suggested_raw_input.trim()) {
@@ -696,12 +699,17 @@ export default function Today() {
               </h1>
               {!profile?.onboarded ? (
                 <p className="type-body text-secondary-fg mt-2.25">
-                  Bottom bar: <span className="text-subtle">Today</span> · <span className="text-subtle">Timer</span> ·{" "}
-                  <span className="text-subtle">History</span> · <span className="text-subtle">Settings</span>
+                  Use the bar below: <span className="text-subtle">Today</span> for this screen,{" "}
+                  <span className="text-subtle">Timer</span> for time, <span className="text-subtle">History</span> to review past days,{" "}
+                  <span className="text-subtle">Settings</span> for your account.
                 </p>
               ) : hasPlanForDate && planDate === todayDateStr() ? (
                 <p className="type-body text-secondary-fg mt-2.25">
-                  <span className="text-subtle">Next up</span> jumps into Focus; open the plan card to tick tasks off.
+                  Your plan is below — check off tasks there. Open <span className="text-subtle">Focus</span> when you want a single full-screen view of the current block.
+                </p>
+              ) : hasPlanForDate && !isToday ? (
+                <p className="type-body text-secondary-fg mt-2.25">
+                  You&apos;re viewing another day. Switch back to today with the date control, or scroll down to edit this plan.
                 </p>
               ) : null}
             </div>
@@ -710,8 +718,14 @@ export default function Today() {
             </div>
           </div>
           <div className="mt-3.5 h-px w-full bg-gradient-to-r from-transparent via-border/80 to-transparent" />
-          <div className="mt-2.5 type-meta uppercase tracking-[0.08em]">
-            {hasPlanForDate ? "Plan ready" : "No plan yet"} · {isToday ? "Today" : friendlyDateFor(parseDateStr(planDate))}
+          <div className="mt-2.5 text-[11px] font-medium text-secondary-fg tracking-tight">
+            {hasPlanForDate
+              ? isToday
+                ? "Today's schedule is ready"
+                : `Plan for ${friendlyDateFor(parseDateStr(planDate))}`
+              : isToday
+                ? "No schedule yet — add tasks and generate"
+                : `No plan for ${friendlyDateFor(parseDateStr(planDate))}`}
           </div>
         </div>
         {hasPlanForDate && (
@@ -1003,16 +1017,46 @@ export default function Today() {
         )}
 
         {!isPro && (
-          <button
-            type="button"
-            onClick={() => openUpgrade("feature")}
-            className="mt-4 w-full h-10 rounded-xl border border-accent surface-accent text-[12px] text-foreground pressable inline-flex items-center justify-between px-3"
-          >
-            <span>
-              {planQuotaRemaining} free planning day{planQuotaRemaining === 1 ? "" : "s"} left
-            </span>
-            <span className="text-primary font-medium">Upgrade</span>
-          </button>
+          <>
+            <button
+              type="button"
+              onClick={() => openUpgrade(planQuotaRemaining <= 2 ? "quota" : "momentum")}
+              className={`mt-4 w-full rounded-xl border pressable text-left px-3.5 py-3 shadow-card ${
+                planQuotaRemaining <= 2
+                  ? "border-primary/45 bg-primary/[0.08] ring-1 ring-primary/12"
+                  : "border-accent surface-accent"
+              }`}
+            >
+              <div className="flex items-start justify-between gap-2">
+                <div className="min-w-0">
+                  <div className="text-[13px] font-semibold text-foreground leading-snug">
+                    {planQuotaRemaining <= 2
+                      ? "Almost out of free planning days"
+                      : "Unlock unlimited AI planning"}
+                  </div>
+                  <p className="text-[11px] text-secondary-fg mt-1 leading-relaxed">
+                    {planQuotaRemaining <= 2
+                      ? `${planQuotaRemaining} day${planQuotaRemaining === 1 ? "" : "s"} left, then AI scheduling stops until Pro. Upgrade and never hit the wall mid-month.`
+                      : `${planQuotaRemaining} free day${planQuotaRemaining === 1 ? "" : "s"} left — Pro adds calendar sync, pattern-aware AI, and no caps.`}
+                  </p>
+                </div>
+                <span className="shrink-0 text-[12px] font-semibold text-primary pt-0.5">Pro →</span>
+              </div>
+            </button>
+            <div className="mt-3 rounded-xl border border-soft surface-card overflow-hidden">
+              <div className="flex items-center justify-between gap-2 px-3 py-2 border-b border-border/60 bg-muted/20">
+                <span className="text-[11px] uppercase tracking-wider text-secondary-fg font-medium">What Pro unlocks</span>
+                <button
+                  type="button"
+                  onClick={() => nav("/settings#pro-features")}
+                  className="text-[11px] font-semibold text-primary pressable shrink-0"
+                >
+                  See all
+                </button>
+              </div>
+              <ProFeatureHighlights variant="compact" limit={4} onUpgrade={() => openUpgrade("feature")} />
+            </div>
+          </>
         )}
       </div>
       </PullToRefresh>

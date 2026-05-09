@@ -99,7 +99,6 @@ export function ClarifySheet({ open, onOpenChange, rawInput, onConfirm, planDate
     [rawInput],
   );
   const [tasks, setTasks] = useState<Row[]>(initial);
-  const [showAdvanced, setShowAdvanced] = useState(false);
   const [contextPromptOpen, setContextPromptOpen] = useState(false);
   const [planningContext, setPlanningContext] = useState("");
   const [loadingAI, setLoadingAI] = useState(false);
@@ -108,16 +107,6 @@ export function ClarifySheet({ open, onOpenChange, rawInput, onConfirm, planDate
     useSensor(PointerSensor, { activationConstraint: { distance: 6 } }),
     useSensor(TouchSensor, { activationConstraint: { delay: 200, tolerance: 8 } }),
   );
-
-  useEffect(() => {
-    if (!open) return;
-    setTasks(initial);
-    setShowAdvanced(false);
-    setContextPromptOpen(false);
-    setPlanningContext("");
-    splitWithAI(rawInput, initial);
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [open, rawInput]);
 
   const invokeWithTimeout = async (name: string, body: unknown, timeoutMs: number) => {
     const timeout = new Promise<never>((_, reject) => {
@@ -129,56 +118,120 @@ export function ClarifySheet({ open, onOpenChange, rawInput, onConfirm, planDate
     ]);
   };
 
-  const splitWithAI = async (raw: string, fallback: Row[]) => {
-    if (!raw.trim()) return;
-    setSplitting(true);
-    try {
-      const { data, error } = await invokeWithTimeout("split-tasks", { raw_input: raw }, 9000);
-      if (error) throw error;
-      const split: string[] = Array.isArray(data?.tasks) ? data.tasks : [];
-      const rows = split.map(parseLine);
-      // Only swap if AI returned something meaningful
-      const next = rows.length > 0 ? rows : fallback;
-      setTasks(next);
-      if (next.length > 0) fetchSuggestions(next);
-    } catch (e) {
-      console.error("split-tasks failed", e);
-      // keep fallback rows, still try to estimate them
-      if (fallback.length > 0) fetchSuggestions(fallback);
-    } finally {
-      setSplitting(false);
-    }
-  };
+  const mergeEstimatesIntoRows = (rows: Row[], ests: Array<Record<string, unknown>>): Row[] =>
+    rows.map((r, i) => {
+      const e = ests.find((x: any) => x.index === i) as any;
+      if (!e) return r;
+      return {
+        ...r,
+        ai_estimate_min: e.estimate_min,
+        ai_reason: e.reason,
+        ai_links: e.links || [],
+        ai_should_split: e.should_split,
+        ai_split_into: e.split_into || [],
+        estimate_min: e.estimate_min || r.estimate_min,
+      };
+    });
 
-  const fetchSuggestions = async (rows: Row[]) => {
-    setLoadingAI(true);
-    try {
-      const { data, error } = await invokeWithTimeout("suggest-estimates", { tasks: rows.map(r => r.title) }, 9000);
-      if (error) throw error;
-      const ests: Array<any> = data?.estimates || [];
-      // Auto-apply AI estimate so the user doesn't have to "Accept" anything.
-      // They can still adjust with the +/- stepper.
-      setTasks(prev => prev.map((r, i) => {
-        const e = ests.find((x: any) => x.index === i);
-        if (!e) return r;
-        return {
-          ...r,
-          ai_estimate_min: e.estimate_min,
-          ai_reason: e.reason,
-          ai_links: e.links || [],
-          ai_should_split: e.should_split,
-          ai_split_into: e.split_into || [],
-          // Apply AI estimate by default. User edits override.
-          estimate_min: e.estimate_min || r.estimate_min,
-        };
-      }));
-    } catch (e: any) {
-      console.error(e);
-      toast("AI suggestions took too long. Using your current estimates.");
-    } finally {
-      setLoadingAI(false);
-    }
-  };
+  const sameShapeAsFallback = (rows: Row[], fallback: Row[]) =>
+    rows.length === fallback.length &&
+    rows.every((r, i) => r.title.trim() === fallback[i]?.title.trim());
+
+  useEffect(() => {
+    if (!open) return;
+    const fallback = localSplit(rawInput).map(parseLine);
+    setTasks(fallback);
+    setContextPromptOpen(false);
+    setPlanningContext("");
+
+    if (!rawInput.trim()) return;
+
+    let cancelled = false;
+    (async () => {
+      setSplitting(true);
+      setLoadingAI(true);
+      try {
+        const splitP = invokeWithTimeout("split-tasks", { raw_input: rawInput }, 9000);
+        const suggestP =
+          fallback.length > 0
+            ? invokeWithTimeout("suggest-estimates", { tasks: fallback.map((r) => r.title) }, 9000)
+            : Promise.resolve({ data: null as any, error: null as any });
+
+        const [splitSettled, suggestSettled] = await Promise.allSettled([splitP, suggestP]);
+
+        if (cancelled) return;
+
+        let rows = fallback;
+        if (splitSettled.status === "fulfilled") {
+          const { data, error } = splitSettled.value;
+          if (!error && Array.isArray(data?.tasks) && data.tasks.length > 0) {
+            rows = data.tasks.map(parseLine);
+          }
+        } else {
+          console.error("split-tasks failed", splitSettled.reason);
+        }
+
+        let parallelEstimates: Array<Record<string, unknown>> | null = null;
+        if (suggestSettled.status === "fulfilled") {
+          const { data, error } = suggestSettled.value;
+          if (!error && Array.isArray(data?.estimates)) parallelEstimates = data.estimates;
+        }
+
+        const canUseParallel =
+          parallelEstimates &&
+          sameShapeAsFallback(rows, fallback);
+
+        if (canUseParallel && parallelEstimates) {
+          setTasks(mergeEstimatesIntoRows(rows, parallelEstimates));
+        } else {
+          setTasks(rows);
+          if (rows.length > 0) {
+            try {
+              const { data, error } = await invokeWithTimeout(
+                "suggest-estimates",
+                { tasks: rows.map((r) => r.title) },
+                9000,
+              );
+              if (cancelled) return;
+              if (!error && Array.isArray(data?.estimates)) {
+                setTasks(mergeEstimatesIntoRows(rows, data.estimates));
+              }
+            } catch (e) {
+              console.error(e);
+              toast("AI suggestions took too long. Using your current estimates.");
+            }
+          }
+        }
+      } catch (e) {
+        console.error("planning preflight failed", e);
+        if (!cancelled && fallback.length > 0) {
+          setTasks(fallback);
+          try {
+            const { data, error } = await invokeWithTimeout(
+              "suggest-estimates",
+              { tasks: fallback.map((r) => r.title) },
+              9000,
+            );
+            if (!cancelled && !error && Array.isArray(data?.estimates)) {
+              setTasks(mergeEstimatesIntoRows(fallback, data.estimates));
+            }
+          } catch (e2) {
+            console.error(e2);
+            toast("AI suggestions took too long. Using your current estimates.");
+          }
+        }
+      } finally {
+        if (!cancelled) {
+          setSplitting(false);
+          setLoadingAI(false);
+        }
+      }
+    })();
+
+    return () => {
+      cancelled = true;
+    };
+  }, [open, rawInput]);
 
   const update = (i: number, patch: Partial<Row>) =>
     setTasks(t => t.map((x, idx) => (idx === i ? { ...x, ...patch } : x)));
@@ -344,7 +397,6 @@ export function ClarifySheet({ open, onOpenChange, rawInput, onConfirm, planDate
                   id={String(i)}
                   index={i}
                   task={t}
-                  showAdvanced={showAdvanced}
                   loadingAI={loadingAI}
                   onUpdate={update}
                   onRemove={remove}
@@ -358,13 +410,6 @@ export function ClarifySheet({ open, onOpenChange, rawInput, onConfirm, planDate
 
         {/* Footer */}
         <div className="px-5 pb-6 pt-3 sticky bottom-0 bg-background/95 backdrop-blur-md border-t border-soft supports-[backdrop-filter]:bg-background/80">
-          <button
-            type="button"
-            onClick={() => setShowAdvanced((v) => !v)}
-            className="mb-3 w-full text-center text-[12px] text-secondary-fg hover:text-foreground pressable"
-          >
-            {showAdvanced ? "Hide advanced controls" : "Show advanced controls"}
-          </button>
           {contextPromptOpen && (
             <div className="mb-3 rounded-xl border border-soft surface-soft px-3 py-2.5">
               <p className="text-[12px] text-foreground leading-relaxed">
@@ -422,7 +467,6 @@ type CardProps = {
   id: string;
   index: number;
   task: Row;
-  showAdvanced: boolean;
   loadingAI: boolean;
   onUpdate: (i: number, patch: Partial<Row>) => void;
   onRemove: (i: number) => void;
@@ -430,7 +474,7 @@ type CardProps = {
   onSplit: (i: number) => void;
 };
 
-function SortableTaskCard({ id, index: i, task: t, showAdvanced, loadingAI, onUpdate, onRemove, onBump, onSplit }: CardProps) {
+function SortableTaskCard({ id, index: i, task: t, loadingAI, onUpdate, onRemove, onBump, onSplit }: CardProps) {
   const { attributes, listeners, setNodeRef, transform, transition, isDragging } = useSortable({ id });
   const [expanded, setExpanded] = useState(false);
   const [durOpen, setDurOpen] = useState(false);
@@ -442,12 +486,14 @@ function SortableTaskCard({ id, index: i, task: t, showAdvanced, loadingAI, onUp
     opacity: isDragging ? 0.6 : 1,
   };
 
-  const hasExtras =
+  const hasAiExtras =
     !!(t.ai_links && t.ai_links.length) ||
     !!(t.ai_should_split && t.ai_split_into && t.ai_split_into.length > 1) ||
-    !!t.ai_reason ||
-    !!t.fixed_time ||
-    expanded; // keep open once user expands
+    !!t.ai_reason;
+
+  useEffect(() => {
+    if (!hasAiExtras && expanded) setExpanded(false);
+  }, [hasAiExtras, expanded]);
 
   const priorityDot =
     t.priority === "high"
@@ -484,11 +530,11 @@ function SortableTaskCard({ id, index: i, task: t, showAdvanced, loadingAI, onUp
         </button>
       </div>
 
-      {/* Row 2 — estimate (tap to edit, presets + custom wheel) */}
+      {/* Row 2 — estimate */}
       <div className="mt-2 flex items-center justify-between gap-2 pl-7">
         <div className="flex items-center gap-1.5 text-[12px] text-secondary-fg">
           <Clock className="h-3.5 w-3.5" />
-          <span>Estimate</span>
+          <span>How long</span>
           {loadingAI && !t.ai_estimate_min && (
             <Loader2 className="h-3 w-3 animate-spin text-primary ml-1" />
           )}
@@ -509,64 +555,112 @@ function SortableTaskCard({ id, index: i, task: t, showAdvanced, loadingAI, onUp
         />
       </div>
 
-      {showAdvanced && (
-        <div className="mt-2 flex items-center justify-between gap-2 pl-7">
-          <div className="flex items-center gap-1.5 text-[12px] text-secondary-fg">
-            <Activity className="h-3.5 w-3.5" />
+      {/* Row 3 — priority (always visible) */}
+      <div className="mt-3 pl-7">
+        <div className="text-[10px] font-medium uppercase tracking-wide text-secondary-fg mb-1.5">Priority for scheduling</div>
+        <div className="flex flex-wrap items-center gap-1.5">
+          {(["high", "medium", "low"] as const).map((p) => (
+            <button
+              key={p}
+              type="button"
+              onClick={() => onUpdate(i, { priority: p })}
+              className={`px-3 py-1.5 rounded-full text-[11px] font-medium border pressable ${
+                t.priority === p
+                  ? p === "high"
+                    ? "bg-destructive/10 text-destructive border-destructive/30"
+                    : p === "low"
+                      ? "bg-muted text-muted-foreground border-soft"
+                      : "surface-accent text-primary border-accent"
+                  : "bg-background text-secondary-fg border-soft"
+              }`}
+            >
+              {p === "high" ? "High" : p === "low" ? "Low" : "Medium"}
+            </button>
+          ))}
+        </div>
+      </div>
+
+      {/* Row 4 — pin to clock time */}
+      <div className="mt-3 pl-7 rounded-xl border border-soft/80 bg-muted/20 px-3 py-2.5">
+        <div className="flex items-center gap-2 text-[12px] text-secondary-fg mb-1">
+          <CalendarClock className="h-3.5 w-3.5 shrink-0" />
+          <span className="font-medium text-foreground">Pin to a start time</span>
+        </div>
+        <p className="text-[10px] text-secondary-fg leading-snug mb-2">Optional. The planner will start this block at this clock time.</p>
+        <div className="flex items-center gap-2 flex-wrap">
+          <input
+            type="time"
+            value={t.fixed_time || ""}
+            onChange={(e) => onUpdate(i, { fixed_time: e.target.value || undefined })}
+            className="bg-background border border-soft rounded-lg px-2 py-1.5 text-xs text-foreground"
+            aria-label="Fixed start time"
+          />
+          {t.fixed_time ? (
+            <button
+              type="button"
+              onClick={() => onUpdate(i, { fixed_time: undefined })}
+              className="text-[11px] text-secondary-fg hover:text-foreground pressable"
+            >
+              Clear
+            </button>
+          ) : null}
+        </div>
+      </div>
+
+      {/* Row 5 — tracker opt-in */}
+      <div className="mt-3 flex items-center justify-between gap-2 pl-7 pr-0.5">
+        <div className="min-w-0">
+          <div className="flex items-center gap-1.5 text-[12px] text-foreground font-medium">
+            <Activity className="h-3.5 w-3.5 shrink-0 text-secondary-fg" />
             <span>{toneCopy(tone, "track_label")}</span>
           </div>
-          <button
-            type="button"
-            role="switch"
-            aria-checked={!!t.track_time}
-            onClick={() => onUpdate(i, { track_time: !t.track_time })}
-            className={`relative h-7 w-12 rounded-full transition-colors pressable shrink-0 ${
-              t.track_time ? "bg-primary" : "bg-muted border border-soft"
-            }`}
-            aria-label="Toggle time tracking for this task"
-          >
-            <span
-              className={`absolute top-1 h-5 w-5 rounded-full bg-white shadow-md transition-transform ${
-                t.track_time ? "translate-x-[22px]" : "translate-x-1"
-              }`}
-            />
-          </button>
+          <p className="text-[10px] text-secondary-fg mt-0.5 leading-snug">When you work this task, it can pre-select this title in the timer.</p>
         </div>
-      )}
-
-      {/* Row 3 — More toggle, only if there are extras */}
-      {showAdvanced && hasExtras && (
         <button
-          onClick={() => setExpanded(v => !v)}
-          className="mt-2 ml-7 inline-flex items-center gap-1 text-[11px] text-secondary-fg hover:text-foreground pressable"
+          type="button"
+          role="switch"
+          aria-checked={!!t.track_time}
+          onClick={() => onUpdate(i, { track_time: !t.track_time })}
+          className={`relative h-7 w-12 rounded-full transition-colors pressable shrink-0 ${
+            t.track_time ? "bg-primary" : "bg-muted border border-soft"
+          }`}
+          aria-label="Toggle time tracking for this task"
+        >
+          <span
+            className={`absolute top-1 h-5 w-5 rounded-full bg-white shadow-md transition-transform ${
+              t.track_time ? "translate-x-[22px]" : "translate-x-1"
+            }`}
+          />
+        </button>
+      </div>
+
+      {hasAiExtras && (
+        <button
+          type="button"
+          onClick={() => setExpanded((v) => !v)}
+          className="mt-3 ml-7 inline-flex items-center gap-1 text-[11px] font-medium text-primary pressable"
         >
           {expanded ? <ChevronUp className="h-3 w-3" /> : <ChevronDown className="h-3 w-3" />}
-          {expanded ? "Less" : "More options"}
+          {expanded ? "Hide AI suggestions" : "AI suggestions"}
         </button>
       )}
 
-      {/* Expanded extras */}
-      {showAdvanced && expanded && (
-        <div className="mt-2 ml-7 space-y-2">
-          {t.ai_reason && (
-            <p className="text-[11px] text-secondary-fg italic">AI: {t.ai_reason}</p>
-          )}
-
-          {/* Split suggestion */}
+      {expanded && hasAiExtras && (
+        <div className="mt-2 ml-7 space-y-2 rounded-xl border border-soft surface-soft px-3 py-2.5">
+          {t.ai_reason && <p className="text-[11px] text-secondary-fg leading-relaxed">{t.ai_reason}</p>}
           {t.ai_should_split && t.ai_split_into && t.ai_split_into.length > 1 && (
             <button
+              type="button"
               onClick={() => onSplit(i)}
-              className="w-full inline-flex items-center justify-center gap-1.5 px-2 py-1.5 rounded-lg surface-accent border border-accent text-[12px] font-medium text-primary pressable"
+              className="w-full inline-flex items-center justify-center gap-1.5 px-2 py-2 rounded-lg surface-accent border border-accent text-[12px] font-medium text-primary pressable"
             >
               <Split className="h-3 w-3" />
               Split into {t.ai_split_into.length} blocks
               <span className="text-primary/70 font-normal">
-                ({t.ai_split_into.map(s => fmt(s.estimate_min)).join(" + ")})
+                ({t.ai_split_into.map((s) => fmt(s.estimate_min)).join(" + ")})
               </span>
             </button>
           )}
-
-          {/* Links */}
           {t.ai_links && t.ai_links.length > 0 && (
             <div className="flex flex-wrap gap-1.5">
               {t.ai_links.slice(0, 2).map((l, li) => (
@@ -584,49 +678,6 @@ function SortableTaskCard({ id, index: i, task: t, showAdvanced, loadingAI, onUp
               ))}
             </div>
           )}
-
-          {/* Priority chips */}
-          <div className="flex items-center gap-1">
-            <span className="text-[11px] text-secondary-fg mr-1">Priority</span>
-            {(["high", "medium", "low"] as const).map(p => (
-              <button
-                key={p}
-                onClick={() => onUpdate(i, { priority: p })}
-                className={`px-2.5 py-1 rounded-full text-[11px] font-medium border pressable ${
-                  t.priority === p
-                    ? p === "high"
-                      ? "bg-destructive/10 text-destructive border-destructive/30"
-                      : p === "low"
-                        ? "bg-muted text-muted-foreground border-soft"
-                        : "surface-accent text-primary border-accent"
-                    : "bg-background text-secondary-fg border-soft"
-                }`}
-              >
-                {p}
-              </button>
-            ))}
-          </div>
-
-          {/* Fixed time */}
-          <label className="flex items-center gap-2 text-[12px] text-secondary-fg">
-            <CalendarClock className="h-3.5 w-3.5" />
-            <span>Fixed time</span>
-            <input
-              type="time"
-              value={t.fixed_time || ""}
-              onChange={e => onUpdate(i, { fixed_time: e.target.value || undefined })}
-              className="bg-background border border-soft rounded-md px-2 py-1 text-xs text-foreground ml-auto"
-            />
-            {t.fixed_time && (
-              <button
-                onClick={() => onUpdate(i, { fixed_time: undefined })}
-                className="text-secondary-fg hover:text-foreground"
-                aria-label="Clear fixed time"
-              >
-                <X className="h-3 w-3" />
-              </button>
-            )}
-          </label>
         </div>
       )}
     </div>

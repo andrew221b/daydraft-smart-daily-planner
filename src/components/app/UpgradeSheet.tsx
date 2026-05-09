@@ -1,44 +1,39 @@
 import { useEffect, useState } from "react";
 import { Sheet, SheetContent } from "@/components/ui/sheet";
 import { Button } from "@/components/ui/button";
-import { Check, Sparkles, Calendar, Brain, Zap, Palette } from "lucide-react";
+import { Check, Sparkles } from "lucide-react";
 import { startCheckout } from "@/hooks/useEntitlement";
 import { toast } from "sonner";
 import { supabase } from "@/integrations/supabase/client";
 import { useAuth } from "@/hooks/useAuth";
-
-const benefits = [
-  { icon: Calendar, label: "Google Calendar sync", sub: "Plan around your meetings" },
-  { icon: Brain, label: "Compounding AI", sub: "Learns your patterns each week" },
-  { icon: Zap, label: "Unlimited plans", sub: "No 5-day trial limit" },
-  { icon: Palette, label: "Premium visual styles", sub: "Aurora, Obsidian, Neon + richer effects" },
-];
+import { type ProFeatureId, proCatalogById } from "@/lib/proFeatures";
 
 export type UpgradeReason = "quota" | "feature" | "trial-banner" | "momentum";
 
 const reasonHeadline: Record<UpgradeReason, string> = {
-  quota: "You're on a roll.",
-  feature: "Unlock the full DayDraft.",
-  "trial-banner": "Two weeks in. Make it forever.",
-  momentum: "Keep your momentum compounding.",
+  quota: "You've used your free planning days.",
+  feature: "This is a Pro feature.",
+  "trial-banner": "Don't lose what you've built.",
+  momentum: "You're in a rhythm — protect it.",
 };
 const reasonSub: Record<UpgradeReason, string> = {
-  quota: "Free includes 5 planning days total. Pro is unlimited.",
-  feature: "This feature is part of DayDraft Pro.",
-  "trial-banner": "Lock in everything you've been using.",
-  momentum: "You are building consistency. Pro keeps coaching and planning unlimited.",
+  quota: "Upgrade now and never worry about hitting the wall mid-week again. Pro is unlimited AI planning plus calendar-aware schedules.",
+  feature: "Pro unlocks the full stack: unlimited plans, calendar sync, smarter AI, and every premium surface.",
+  "trial-banner": "Stay on unlimited plans, calendar sync, and pattern-aware AI — the version of DayDraft you already rely on.",
+  momentum: "Serious users upgrade so one busy week never blocks the next. Pro keeps plans, nudges, and insights uncapped.",
 };
-const reasonOrder: Record<UpgradeReason, string[]> = {
-  quota: ["Unlimited plans", "Compounding AI", "Google Calendar sync", "Premium visual styles"],
-  feature: ["Google Calendar sync", "Compounding AI", "Unlimited plans", "Premium visual styles"],
-  "trial-banner": ["Compounding AI", "Google Calendar sync", "Unlimited plans", "Premium visual styles"],
-  momentum: ["Compounding AI", "Unlimited plans", "Google Calendar sync", "Premium visual styles"],
+/** Bullet order per paywall context — ids must exist in `PRO_FEATURE_CATALOG`. */
+const reasonOrder: Record<UpgradeReason, ProFeatureId[]> = {
+  quota: ["unlimited", "calendar", "one_thing", "debrief"],
+  feature: ["unlimited", "calendar", "one_thing", "pdf_export"],
+  "trial-banner": ["unlimited", "calendar", "debrief", "drift"],
+  momentum: ["unlimited", "drift", "timer_reschedule", "calendar"],
 };
 const reasonCta: Record<UpgradeReason, string> = {
-  quota: "Go unlimited",
-  feature: "Unlock this in Pro",
-  "trial-banner": "Keep my Pro access",
-  momentum: "Turn momentum into Pro",
+  quota: "Upgrade to unlimited",
+  feature: "Get Pro — unlock everything",
+  "trial-banner": "Keep Pro access",
+  momentum: "Upgrade & stay ahead",
 };
 const PAYWALL_COOLDOWN_KEY = "dd_paywall_last_open";
 const PAYWALL_COOLDOWN_MS = 1000 * 60 * 30;
@@ -84,8 +79,9 @@ export const UpgradeSheet = ({
 
   const isDev = import.meta.env.DEV;
   const orderedBenefits = reasonOrder[reason]
-    .map((name) => benefits.find((b) => b.label === name))
-    .filter(Boolean) as typeof benefits;
+    .map((id) => proCatalogById(id))
+    .filter((item): item is NonNullable<typeof item> => item != null)
+    .map((item) => ({ icon: item.Icon, label: item.sheetLine, sub: item.tagline }));
 
   useEffect(() => {
     if (!open) return;
@@ -102,6 +98,9 @@ export const UpgradeSheet = ({
           </div>
           <h2 className="font-display text-[24px] font-semibold leading-tight mt-3 text-balance">{reasonHeadline[reason]}</h2>
           <p className="text-secondary-fg text-[13px] mt-2 leading-[1.55]">{reasonSub[reason]}</p>
+          <p className="text-[11px] text-primary/90 font-medium mt-3 leading-snug">
+            Most people who plan several days a week choose Pro within their first two weeks.
+          </p>
         </div>
 
         <div className="px-6 pb-6">
@@ -137,7 +136,9 @@ export const UpgradeSheet = ({
            >
             {reasonCta[reason]}
           </Button>
-          <p className="text-[11px] text-secondary-fg text-center mt-2">No charge today · Cancel anytime</p>
+          <p className="text-[11px] text-secondary-fg text-center mt-2 leading-relaxed">
+            Transparent pricing · cancel before renewal anytime · no surprise add-ons
+          </p>
 
           {isDev && (
             <button onClick={simulatePro} className="block mx-auto mt-4 text-[11px] text-faint hover:text-primary underline">

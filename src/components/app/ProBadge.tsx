@@ -28,11 +28,11 @@ export const ProBadge = () => {
     <>
       <button
         onClick={() => setOpen(true)}
-        className="relative inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full bg-gradient-to-r from-primary/15 to-primary/5 border border-primary/40 pressable"
+        className="relative inline-flex items-center gap-1.5 px-2.5 py-1.5 rounded-full bg-gradient-to-r from-primary/22 via-primary/12 to-primary/5 border border-primary/45 shadow-[0_0_20px_-8px_hsl(var(--primary)/0.55)] pressable"
         aria-label="Upgrade to Pro"
       >
         <Sparkles className="h-3.5 w-3.5 text-primary" fill="currentColor" />
-        <span className="text-xs font-semibold text-primary">{label}</span>
+        <span className="text-[11px] font-bold text-primary tracking-tight">{label}</span>
       </button>
       <UpgradeSheet open={open} onOpenChange={setOpen} reason="feature" />
     </>
