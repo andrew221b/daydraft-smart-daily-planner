@@ -30,7 +30,7 @@ export function KpiCard({
     <Comp
       onClick={onClick}
       className={cn(
-        "text-left app-card p-3 rounded-xl transition-all duration-200",
+        "text-left app-card px-3 rounded-xl transition-all duration-200",
         toneClass,
         onClick ? "pressable hover:border-primary/30" : "",
         className,
