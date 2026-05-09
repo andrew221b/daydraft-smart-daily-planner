@@ -541,7 +541,7 @@ export default function Focus() {
             className={`h-12 px-3 rounded-[14px] text-sm font-medium pressable flex items-center gap-1.5 transition-colors backdrop-blur-sm ${
               timeUp
                 ? "surface-accent border border-accent text-primary"
-                : "app-card py-0 border-soft"
+                : "app-card py-5 border-soft"
             }`}
           >
             <Plus className="h-3.5 w-3.5" /> 5 min
@@ -623,13 +623,13 @@ export default function Focus() {
           {!helpOpen ? (
             <button
               onClick={() => loadHelp()}
-              className="w-full h-10 rounded-[12px] app-card py-0 text-sm font-medium pressable inline-flex items-center justify-center gap-2 text-foreground"
+              className="w-full h-10 rounded-[12px] app-card py-5 text-sm font-medium pressable inline-flex items-center justify-center gap-2 text-foreground"
             >
               <Sparkles className="h-4 w-4 text-primary" />
               {toneCopy(tone, "ai_help_cta")}
             </button>
           ) : (
-            <div className="app-card panel-luxe p-3.5 space-y-3 text-left">
+            <div className="app-card panel-luxe px-3.5 py-5 space-y-3 text-left">
               <div className="flex items-center gap-2 eyebrow text-primary">
                 <Sparkles className="h-3.5 w-3.5" /> {toneCopy(tone, "ai_assistant_title")}
               </div>

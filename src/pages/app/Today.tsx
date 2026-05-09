@@ -715,7 +715,7 @@ export default function Today() {
           </div>
         </div>
         {hasPlanForDate && (
-          <div className="mt-3 app-card px-3 py-2.5 flex items-center justify-between gap-3">
+          <div className="mt-3 app-card px-3 py-5 flex items-center justify-between gap-3">
             <div className="min-w-0">
               <div className="type-section">Status</div>
               <div className="type-body truncate">{planStats.done} of {planStats.total} completed</div>
@@ -732,7 +732,7 @@ export default function Today() {
         )}
         {isPro && debriefOpen && (
           <div
-            className="mt-3 app-card p-3.5"
+            className="mt-3 app-card px-3.5 py-5"
             onTouchStart={(e) => {
               debriefSwipeStartX.current = e.changedTouches[0]?.clientX || 0;
             }}
@@ -799,7 +799,7 @@ export default function Today() {
         )}
 
         {profile?.onboarded && (
-          <div className="mt-4 app-card p-3.5">
+          <div className="mt-4 app-card px-3.5 py-5">
             <div className="flex items-center justify-between gap-2">
               <span className="text-[11px] uppercase tracking-wider text-secondary-fg inline-flex items-center gap-1.5">
                 <ShieldAlert className="h-3.5 w-3.5 text-primary" />
@@ -889,7 +889,7 @@ export default function Today() {
             <button
               data-tour="today-plan"
               onClick={() => nav(isToday ? "/today/plan" : `/today/plan?date=${planDate}`)}
-              className="w-full text-left hero-glass panel-luxe p-4.5 pressable hover:border-primary/28 transition-colors group"
+              className="w-full text-left hero-glass panel-luxe px-4.5 py-5 pressable hover:border-primary/28 transition-colors group"
             >
               <div className="flex items-center justify-between">
                 <span className="type-section text-primary">{isToday ? "Timeline preview" : friendlyDateFor(parseDateStr(planDate))}</span>
@@ -933,7 +933,7 @@ export default function Today() {
           </div>
         ) : (
           /* ── Empty state — single question ── */
-          <div className="mt-10 hero-glass panel-luxe p-5 shadow-elevated">
+          <div className="mt-10 hero-glass panel-luxe px-5 py-5 shadow-elevated">
             <p className="font-display text-[22px] leading-snug text-foreground">
               {toneCopy(tone, "plan_cta") || "What's on your plate today?"}
             </p>

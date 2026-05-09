@@ -64,7 +64,7 @@ export const SortableBlock = ({
             : rhythmType === "personal"
               ? "bg-[linear-gradient(165deg,hsl(278_72%_62%/.10)_0%,hsl(var(--surface)/.80)_58%,hsl(var(--surface-elevated)/.74)_100%)] border-[hsl(270_70%_66%/.36)] hover:border-[hsl(270_72%_70%/.52)]"
               : "hover:border-primary/30"
-      }`}
+      } py-5`}
     >
       <div className="flex items-center gap-3">
         <div className="shrink-0 min-w-[54px] h-9 rounded-lg border border-strong bg-background/45 backdrop-blur-sm px-2 inline-flex items-center justify-center text-secondary-fg text-[11px] font-mono-sf tabular-nums">

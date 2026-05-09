@@ -167,7 +167,7 @@ export default function Onboarding() {
                 <p className="text-secondary-fg mt-5 text-[15px] leading-[1.55] max-w-sm">
                   A live preview of how DayDraft turns raw tasks into a focused timeline.
                 </p>
-                <div className="mt-5 app-card p-4 space-y-2 fade-in">
+                <div className="mt-5 app-card px-4 py-5 space-y-2 fade-in">
                   <div className="text-[11px] uppercase tracking-wider text-secondary-fg inline-flex items-center gap-1.5">
                     <Sparkles className="h-3.5 w-3.5 text-primary" /> Day in glass
                   </div>
@@ -190,7 +190,7 @@ export default function Onboarding() {
                 Drop tasks as you think
               </h1>
               <p className="text-secondary-fg mt-2 text-[13px] leading-[1.55]">No strict format required.</p>
-              <div className="mt-6 app-card p-4 space-y-2.5 flex-1">
+              <div className="mt-6 app-card px-4 py-5 space-y-2.5 flex-1">
                 {draftTasks.map((task, i) => (
                   <div key={task} className="rounded-xl border border-soft surface-soft px-3 py-2 text-[13px] text-foreground fade-in" style={{ animationDelay: `${i * 80}ms` }}>
                     {task}
@@ -276,7 +276,7 @@ export default function Onboarding() {
               <p className="text-secondary-fg mt-2 text-[13px] leading-[1.55]">
                 Move the time and preview how Rescue re-focuses what still matters.
               </p>
-              <div className="mt-5 app-card p-4">
+              <div className="mt-5 app-card px-4 py-5">
                 <div className="flex items-center justify-between text-[12px] text-secondary-fg">
                   <span className="inline-flex items-center gap-1.5">
                     <ShieldAlert className="h-3.5 w-3.5 text-primary" /> Rescue simulation

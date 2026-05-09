@@ -132,7 +132,7 @@ export default function RecapWeek() {
             </div>
           </div>
           {aiWeeklyMemoryEnabled && (
-            <div className="mt-7 app-card p-4">
+            <div className="mt-7 app-card px-4 py-5">
               <div className="eyebrow text-primary">AI learned this week</div>
               <div className="mt-2 text-[14px] text-foreground">
                 Best focus window: <span className="font-mono">{memory.best_focus_hours}</span>
@@ -156,7 +156,7 @@ export default function RecapWeek() {
 }
 
 const Card = ({ icon, label, value, sub }: { icon: React.ReactNode; label: string; value: string; sub?: string }) => (
-  <div className="app-card p-4">
+  <div className="app-card px-4 py-5">
     <div className="flex items-center gap-1.5 text-secondary-fg">
       <span className="text-primary/90">{icon}</span>
       <span className="eyebrow">{label}</span>

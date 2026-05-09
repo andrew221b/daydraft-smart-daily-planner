@@ -275,7 +275,7 @@ export default function Recap() {
       <div className="relative">
         <div className="absolute inset-x-0 top-0 h-52 pointer-events-none" style={{ background: "var(--gradient-glow)" }} />
         <div className="relative px-5 pt-10">
-          <div className="hero-glass panel-luxe p-5 md:p-6">
+          <div className="hero-glass panel-luxe px-5 py-5 md:px-6 py-5">
             <h1 className="font-display text-[30px] font-semibold leading-[1.07] text-balance">
               {viewDate === todayDateStr() ? "Day complete." : `Recap · ${friendlyDateFor(parseDateStr(viewDate))}`}
             </h1>
@@ -296,7 +296,7 @@ export default function Recap() {
           </div>
 
           {tasks.length === 0 && (
-            <div className="mt-8 app-card p-6 text-center">
+            <div className="mt-8 app-card px-6 py-5 text-center">
               <div className="text-sm font-medium">No recap available yet</div>
               <p className="text-xs text-secondary-fg mt-1">No plan exists for this day.</p>
               <Button onClick={() => nav(viewDate === todayDateStr() ? "/today" : `/today?date=${viewDate}`)}
@@ -335,7 +335,7 @@ export default function Recap() {
           )}
 
           {isTodayRecap && (
-          <div className="mt-6 app-card p-4">
+          <div className="mt-6 app-card px-4 py-5">
             <div className="eyebrow mb-3">How did today feel?</div>
             <div className="flex gap-2">
               {([
@@ -390,7 +390,7 @@ export default function Recap() {
             </button>
           )}
 
-          <div className="mt-5 app-card p-4">
+          <div className="mt-5 app-card px-4 py-5">
             <div className="flex items-center gap-2 text-primary">
               <Sparkles className="h-4 w-4" />
               <span className="eyebrow">Today&apos;s insight</span>
@@ -400,7 +400,7 @@ export default function Recap() {
             </p>
           </div>
 
-          <div className="mt-3 app-card p-4">
+          <div className="mt-3 app-card px-4 py-5">
             <div className="flex items-center gap-2 text-primary">
               <ListChecks className="h-4 w-4" />
               <span className="eyebrow">Smart daily outcome</span>
@@ -422,7 +422,7 @@ export default function Recap() {
           </div>
 
           {weeklyScore && (
-            <div className="mt-3 app-card p-4">
+            <div className="mt-3 app-card px-4 py-5">
               <div className="flex items-center gap-2 text-primary">
                 <Gauge className="h-4 w-4" />
                 <span className="eyebrow">Weekly product score</span>
