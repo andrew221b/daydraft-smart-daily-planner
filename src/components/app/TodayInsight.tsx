@@ -126,7 +126,7 @@ export const TodayInsight = () => {
 
   return (
     <div
-      className="flex items-start gap-3 px-4 py-3 app-card"
+      className="flex items-start gap-3 px-4 app-card"
       aria-label="Today's insight"
     >
       {isQuote
