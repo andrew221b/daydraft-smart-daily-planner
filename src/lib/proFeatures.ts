@@ -2,7 +2,6 @@ import type { LucideIcon } from "lucide-react";
 import {
   Zap,
   Calendar,
-  Target,
   Sparkles,
   Compass,
   Clock,
