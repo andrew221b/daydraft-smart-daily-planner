@@ -304,7 +304,7 @@ export default function Focus() {
         }
       }
     }
-    const { error } = await supabase.from("blocks").update(patch as any).eq("id", block.id);
+    const { error } = await supabase.from("blocks").update(patch).eq("id", block.id);
     if (error) {
       setShowCheck(false);
       toast.error("Unable to save. Please try again.");
