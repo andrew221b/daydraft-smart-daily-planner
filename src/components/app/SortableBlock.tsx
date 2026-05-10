@@ -1,7 +1,7 @@
 import { useSortable } from "@dnd-kit/sortable";
 import { CSS } from "@dnd-kit/utilities";
 import { Block, fmtTime, inferScheduleBlockType, blockSlotEndHHMM } from "@/lib/daydraft";
-import { Check, Calendar, Sparkles, Layers } from "lucide-react";
+import { Check, Calendar, Sparkles, Layers, GripVertical } from "lucide-react";
 
 export const SortableBlock = ({
   block, editing, onTap, onToggleComplete, tourSpotlight,
@@ -21,7 +21,12 @@ export const SortableBlock = ({
   /** First visible row — tour hotspot only on one element. */
   tourSpotlight?: boolean;
 }) => {
-  const { attributes, listeners, setNodeRef, transform, transition, isDragging } = useSortable({ id: block.id, disabled: block.is_calendar_event });
+  const sortableDisabled =
+    !!block.is_calendar_event || (block.kind === "task" && block.completed);
+  const { attributes, listeners, setNodeRef, transform, transition, isDragging } = useSortable({
+    id: block.id,
+    disabled: sortableDisabled,
+  });
   const style = {
     transform: CSS.Transform.toString(transform),
     transition,
@@ -59,11 +64,8 @@ export const SortableBlock = ({
       ref={setNodeRef}
       style={style}
       data-tour={tourSpotlight ? "dayview-block" : undefined}
-      {...(isCal ? {} : attributes)}
-      {...(isCal ? {} : listeners)}
-      onClick={() => onTap?.(block)}
       className={`group cursor-pointer pressable transition-all duration-200 app-card px-3 py-4 shadow-none ${
-        block.completed ? "opacity-65" : ""
+        block.completed && block.kind === "task" ? "opacity-95" : ""
       } ${
         !isCal && block.overlap_ok ? "border-l-[3px] border-l-primary/45" : ""
       } ${
@@ -76,13 +78,31 @@ export const SortableBlock = ({
               : "!border-border/40 hover:border-border/55 hover:!border-primary/25"
       }`}
     >
-      <div className="flex items-center gap-3">
+      <div className="flex items-center gap-2">
+        {!sortableDisabled ? (
+          <button
+            type="button"
+            {...attributes}
+            {...listeners}
+            onClick={(e) => e.stopPropagation()}
+            className="touch-none shrink-0 flex h-9 w-8 items-center justify-center rounded-lg text-secondary-fg/70 hover:bg-muted/50 pressable cursor-grab active:cursor-grabbing"
+            aria-label="Drag to reorder"
+          >
+            <GripVertical className="h-4 w-4" />
+          </button>
+        ) : (
+          <div className="w-8 shrink-0" aria-hidden />
+        )}
+        <div
+          className="flex min-w-0 flex-1 cursor-pointer items-center gap-3"
+          onClick={() => onTap?.(block)}
+        >
         <div className="shrink-0 min-w-[54px] h-9 rounded-xl border border-border/40 bg-background/30 backdrop-blur-sm px-2 inline-flex items-center justify-center text-secondary-fg/90 text-[11px] font-mono-sf tabular-nums">
           {fmtTime(block.start_time)}
         </div>
         <div className="w-[4px] h-9 rounded-full shrink-0" style={{ background: stripeColor }} />
         <div className="flex-1 min-w-0">
-          <div className={`leading-tight flex items-center gap-1.5 min-w-0 ${rhythmType === "rest" ? "text-[12.5px]" : "text-[14px]"} ${block.completed ? "line-through text-secondary-fg" : "text-foreground"}`}>
+          <div className={`leading-tight flex items-center gap-1.5 min-w-0 ${rhythmType === "rest" ? "text-[12.5px]" : "text-[14px]"} ${block.completed && block.kind === "task" ? "text-foreground/80" : "text-foreground"}`}>
           {isCal && <Calendar className="h-3 w-3 text-secondary-fg shrink-0" />}
           {!isCal && rhythmType === "rest" && <span className="shrink-0 text-[12px] leading-none" aria-hidden>☕</span>}
           <span className="truncate">{block.title}</span>
@@ -155,6 +175,7 @@ export const SortableBlock = ({
             aria-label="Mark done"
           />
         )}
+        </div>
       </div>
     </div>
   );

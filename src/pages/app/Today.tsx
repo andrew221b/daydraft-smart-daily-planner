@@ -12,9 +12,7 @@ import {
   dateStr,
   parseDateStr,
   friendlyDateFor,
-  fmtTime,
   Block,
-  typeColor,
   isUserTask,
   inferScheduleBlockType,
   blockSlotEndHHMM,
@@ -471,15 +469,6 @@ export default function Today() {
         } catch {/* ignore */}
         setPendingCaptureIds([]);
       }
-      try {
-        const trackTitles = clarified
-          .filter(t => t.track_time)
-          .map(t => t.title.trim().toLowerCase());
-        localStorage.setItem(
-          `dd_track_titles_${planRow.id}`,
-          JSON.stringify(trackTitles),
-        );
-      } catch {/* ignore */}
       clearComposerDraft(planDate);
       sessionStorage.removeItem("dd_planning_input");
       sessionStorage.removeItem("dd_planning_plan_date");
@@ -539,7 +528,7 @@ export default function Today() {
               </p>
             ) : hasPlanForDate && planDate === todayDateStr() ? (
               <p className="text-[13px] text-secondary-fg/85 leading-relaxed pt-0.5 max-w-md">
-                Your plan is below — check off tasks in the timeline. Open <span className="text-foreground/75">Focus</span> for a calm full-screen view of the current block.
+                Next step is obvious: timeline, focus on one block, or adjust wording.
               </p>
             ) : hasPlanForDate && !isToday ? (
               <p className="text-[13px] text-secondary-fg/85 leading-relaxed pt-0.5 max-w-md">
@@ -548,15 +537,17 @@ export default function Today() {
             ) : null}
           </div>
           <div className="flex flex-wrap items-center justify-between gap-3 pt-1">
+            {!(hasPlanForDate && isToday) ? (
             <p className="text-[12px] text-secondary-fg/75 leading-snug">
               {hasPlanForDate
-                ? isToday
-                  ? "Schedule ready — open the timeline when you need detail."
-                  : `Plan for ${friendlyDateFor(parseDateStr(planDate))}.`
+                ? `Plan for ${friendlyDateFor(parseDateStr(planDate))}.`
                 : isToday
                   ? "No schedule yet — brain-dump below, then generate."
                   : `No plan for ${friendlyDateFor(parseDateStr(planDate))} yet.`}
             </p>
+            ) : (
+              <span className="sr-only">Plan ready</span>
+            )}
             {!isToday && (
               <button
                 type="button"
@@ -633,85 +624,84 @@ export default function Today() {
             )}
           </div>
         )}
-        {isToday && hasPlanForDate && planStats.total > 0 && (
-          <div className="rounded-[22px] border border-border/45 bg-background/30 backdrop-blur-[2px] px-4 py-4">
-            <div className="flex items-center justify-between text-[12px] text-secondary-fg/85">
-              <span className="tabular-nums">
-                {planStats.done} / {planStats.total} done · {remainingLabel} left
-              </span>
-              <span className="tabular-nums font-medium text-foreground/80">{progressPct}%</span>
-            </div>
-            <div className="mt-2.5 h-1.5 rounded-full bg-muted/60 overflow-hidden">
-              <div
-                className="h-full rounded-full bg-primary/85"
-                style={{
-                  width: `${progressPct}%`,
-                  transition: "width 420ms cubic-bezier(0.22, 1, 0.36, 1)",
-                }}
-              />
-            </div>
-          </div>
-        )}
-
         {/* ── Plan — primary surface when present ─ */}
         {hasPlanForDate ? (
           <section className="space-y-5">
-            {isToday && (
-              <div className="rounded-[22px] border border-border/45 bg-background/30 backdrop-blur-[2px] overflow-hidden p-1">
-                <NextUpCard
-                  blocks={planBlocks}
-                  nowHHMM={nowHM}
-                  onOpenPlan={() => nav("/today/plan")}
-                />
-              </div>
-            )}
-            <button
+            <div
               data-tour="today-plan"
-              onClick={() => nav(isToday ? "/today/plan" : `/today/plan?date=${planDate}`)}
-              className="w-full text-left rounded-[22px] border border-border/45 bg-background/30 backdrop-blur-[2px] px-5 py-5 pressable transition-colors hover:border-border/60 group"
+              className="overflow-hidden rounded-[22px] border border-border/45 bg-background/30 backdrop-blur-[2px]"
             >
-              <div className="flex items-baseline justify-between gap-3">
-                <span className="text-[10px] font-medium uppercase tracking-[0.18em] text-secondary-fg/65">
-                  {isToday ? "Timeline" : "Day"}
-                </span>
-                <span className="text-[11px] text-secondary-fg/70 shrink-0">Open editor</span>
-              </div>
-
-              {planSummary && (
-                <p className="font-display text-[18px] font-medium leading-snug text-foreground/95 mt-3 tracking-[-0.02em]">
+              {isToday && planStats.total > 0 && (
+                <div className="border-b border-border/35 px-4 py-3">
+                  <div className="flex items-center justify-between text-[13px] font-semibold text-secondary-fg/88">
+                    <span className="tabular-nums">
+                      {planStats.done}/{planStats.total} done · {remainingLabel} left
+                    </span>
+                    <span className="tabular-nums text-foreground/90">{progressPct}%</span>
+                  </div>
+                  <div className="mt-2 h-2 rounded-full bg-muted/55 overflow-hidden">
+                    <div
+                      className="h-full rounded-full bg-primary/88"
+                      style={{
+                        width: `${progressPct}%`,
+                        transition: "width 420ms cubic-bezier(0.22, 1, 0.36, 1)",
+                      }}
+                    />
+                  </div>
+                </div>
+              )}
+              {planSummary ? (
+                <p className="px-4 pt-4 font-display text-[19px] font-semibold leading-snug tracking-[-0.02em] text-foreground/95">
                   {planSummary}
                 </p>
+              ) : null}
+              {isToday && (
+                <div className="p-1 pt-2">
+                  <NextUpCard
+                    blocks={planBlocks}
+                    nowHHMM={nowHM}
+                    onOpenPlan={() => nav("/today/plan")}
+                  />
+                </div>
               )}
-
-              <div className="mt-4 space-y-2">
-                {planStats.tasks.slice(0, 4).map(b => (
-                  <div key={b.id} className="flex items-center gap-3 rounded-xl border border-border/35 bg-muted/[0.06] px-3 py-2.5">
-                    <span className="text-[11px] text-secondary-fg/80 font-mono-sf w-11 tabular-nums">{fmtTime(b.start_time)}</span>
-                    <span className="w-1 h-5 rounded-full shrink-0" style={{ background: typeColor(b.type) }} />
-                    <span className={`text-[13px] flex-1 truncate leading-snug ${b.completed ? "line-through text-secondary-fg/80" : "text-foreground/95"}`}>
-                      {b.title}
-                    </span>
-                  </div>
-                ))}
-                {planStats.total > 4 && (
-                  <div className="text-[11px] text-secondary-fg/70 pl-0.5 pt-0.5">+ {planStats.total - 4} more</div>
-                )}
+              {!isToday && (
+                <button
+                  type="button"
+                  onClick={() => nav(`/today/plan?date=${planDate}`)}
+                  className="flex w-full items-center justify-between px-4 py-4 text-left pressable hover:bg-muted/25"
+                >
+                  <span className="font-display text-[17px] font-semibold text-foreground/95">
+                    View timeline
+                  </span>
+                  <ArrowRight className="h-4 w-4 text-primary opacity-80" />
+                </button>
+              )}
+              <div className="grid grid-cols-2 gap-2 border-t border-border/35 p-3">
+                <Button
+                  type="button"
+                  variant="secondary"
+                  className="h-12 rounded-2xl text-[14px] font-semibold"
+                  onClick={() => nav(isToday ? "/today/plan" : `/today/plan?date=${planDate}`)}
+                >
+                  Timeline
+                </Button>
+                <Button
+                  type="button"
+                  variant="outline"
+                  className="h-12 rounded-2xl border-border/45 text-[14px] font-semibold text-foreground/90"
+                  onClick={() => setComposerOpen(true)}
+                >
+                  <Pencil className="mr-2 h-3.5 w-3.5 opacity-80" /> Edit
+                </Button>
               </div>
-
-              <div className="mt-5 flex items-center text-[13px] font-medium text-primary/95">
-                <span className="inline-flex items-center gap-1 group-hover:gap-2 transition-all">
-                  Full timeline <ArrowRight className="h-3.5 w-3.5 opacity-80" />
-                </span>
-              </div>
-            </button>
-
-            <button
-              onClick={() => setComposerOpen(true)}
-              type="button"
-              className="w-full flex items-center justify-center gap-2 h-11 rounded-2xl text-[13px] font-medium text-foreground/80 border border-border/40 bg-transparent hover:bg-muted/35 pressable transition-colors"
-            >
-              <Pencil className="h-3.5 w-3.5 opacity-70" /> Adjust plan
-            </button>
+              <button
+                onClick={() => setComposerOpen(true)}
+                type="button"
+                className="flex w-full items-center justify-center gap-2 border-t border-border/25 py-3 text-[12px] font-medium text-secondary-fg/90 hover:bg-muted/20 pressable"
+              >
+                Re-run AI with edited tasks →
+              </button>
+            </div>
           </section>
         ) : (
           /* ── Empty state — single question ── */
@@ -814,8 +804,8 @@ export default function Today() {
             </SheetTitle>
             <SheetDescription className="text-left text-[13px] leading-relaxed text-secondary-fg pr-6">
               {hasPlanForDate
-                ? "Append tasks below, then re-run planning. DayDraft will merge them into an updated schedule."
-                : "List everything you hope to do — bullets, commas, shorthand, rough times. You'll confirm durations on the next step before the schedule is built."}
+                ? "Add tasks, then generate — AI merges into your day."
+                : "Dump tasks in any format. Next step: quick review, then AI builds the timeline."}
             </SheetDescription>
           </SheetHeader>
           <Textarea

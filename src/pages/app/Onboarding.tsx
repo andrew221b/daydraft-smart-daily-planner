@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import { useNavigate } from "react-router-dom";
 import { Button } from "@/components/ui/button";
+import { Textarea } from "@/components/ui/textarea";
 import { useProfile } from "@/hooks/useProfile";
 import { ArrowRight, Check, Layers, Sparkles } from "lucide-react";
 import { enablePush, pushSupported } from "@/lib/push";
@@ -9,25 +10,30 @@ import { toast } from "sonner";
 import { TONE_OPTIONS, type Tone } from "@/lib/tone";
 import { haptics } from "@/lib/haptics";
 
-const PROGRESS_KEY = "dd_onboarding_progress";
+/** Bumped when step flow changes so stale sessionStorage does not mis-map steps. */
+const PROGRESS_KEY = "dd_onboarding_progress_v2";
 const TONE_KEYS = TONE_OPTIONS.map((o) => o.key);
 
 export default function Onboarding() {
   const initial = (() => {
     try {
       const raw = sessionStorage.getItem(PROGRESS_KEY);
-      if (!raw) return { step: 0, tone: "professional" as Tone };
+      if (!raw) return { step: 0, tone: "professional" as Tone, aiAbout: "", aiRules: "" };
       const p = JSON.parse(raw);
-      const step = [0, 1, 2, 3, 4].includes(p.step) ? p.step : 0;
+      const step = [0, 1, 2, 3, 4, 5].includes(p.step) ? p.step : 0;
       const tone = TONE_KEYS.includes(p.tone) ? (p.tone as Tone) : ("professional" as Tone);
-      return { step, tone };
+      const aiAbout = typeof p.aiAbout === "string" ? p.aiAbout : "";
+      const aiRules = typeof p.aiRules === "string" ? p.aiRules : "";
+      return { step, tone, aiAbout, aiRules };
     } catch {
-      return { step: 0, tone: "professional" as Tone };
+      return { step: 0, tone: "professional" as Tone, aiAbout: "", aiRules: "" };
     }
   })();
 
   const [step, setStep] = useState<number>(initial.step);
   const [tone, setTone] = useState<Tone>(initial.tone);
+  const [aiAbout, setAiAbout] = useState(initial.aiAbout);
+  const [aiRules, setAiRules] = useState(initial.aiRules);
   const [lateDayHour, setLateDayHour] = useState(19);
   const [timelineMorph, setTimelineMorph] = useState(false);
   const morphTimerRef = useRef<number | null>(null);
@@ -69,11 +75,11 @@ export default function Onboarding() {
 
   useEffect(() => {
     try {
-      sessionStorage.setItem(PROGRESS_KEY, JSON.stringify({ step, tone }));
+      sessionStorage.setItem(PROGRESS_KEY, JSON.stringify({ step, tone, aiAbout, aiRules }));
     } catch {
       // ignore
     }
-  }, [step, tone]);
+  }, [step, tone, aiAbout, aiRules]);
 
   useEffect(() => {
     return () => {
@@ -117,6 +123,8 @@ export default function Onboarding() {
       }
       await update({
         ai_tone: tone as any,
+        ai_context_custom: aiAbout.trim() || null,
+        ai_planning_rules: aiRules.trim() || null,
         notifications_enabled: enabled,
         onboarded: true,
         timezone: tz,
@@ -152,7 +160,7 @@ export default function Onboarding() {
         <div className="pointer-events-none absolute inset-x-0 top-0 h-[240px]" style={{ background: "var(--gradient-glow)" }} />
         <div className="relative z-10 flex-1 flex flex-col px-6 pt-14 pb-10 page-enter" key={step}>
           <div className="flex gap-1.5 mb-8">
-            {[0, 1, 2, 3, 4].map((i) => (
+            {[0, 1, 2, 3, 4, 5].map((i) => (
               <div key={i} className={`h-[3px] flex-1 rounded-full transition-colors ${i <= step ? "bg-primary" : "bg-border/70"}`} />
             ))}
           </div>
@@ -185,7 +193,7 @@ export default function Onboarding() {
 
           {step === 1 && (
             <div className="flex-1 flex flex-col">
-              <p className="eyebrow">Step 2 of 5</p>
+              <p className="eyebrow">Step 2 of 6</p>
               <h1 className="font-display text-[26px] font-semibold leading-tight mt-2 tracking-tight text-balance">
                 Drop tasks as you think
               </h1>
@@ -205,7 +213,7 @@ export default function Onboarding() {
 
           {step === 2 && (
             <div className="flex-1 flex flex-col">
-              <p className="eyebrow">Step 3 of 5</p>
+              <p className="eyebrow">Step 3 of 6</p>
               <h1 className="font-display text-[26px] font-semibold leading-tight mt-2 tracking-tight text-balance">
                 Your day, auto-structured
               </h1>
@@ -230,7 +238,7 @@ export default function Onboarding() {
 
           {step === 3 && (
             <div className="flex-1 flex flex-col">
-              <p className="eyebrow">Step 4 of 5</p>
+              <p className="eyebrow">Step 4 of 6</p>
               <h1 className="font-display text-[26px] font-semibold leading-tight mt-2 tracking-tight text-balance">
                 How should DayDraft talk to you?
               </h1>
@@ -262,14 +270,53 @@ export default function Onboarding() {
                 {tonePreview[tone]}
               </div>
               <Button disabled={finishing} onClick={() => setStep(4)} className="w-full h-[52px] rounded-[16px] bg-primary text-primary-foreground hover:bg-primary/92 pressable text-[15px] font-medium mt-5 shadow-card">
-                See how plans adapt
+                Continue
               </Button>
             </div>
           )}
 
           {step === 4 && (
+            <div className="flex-1 flex flex-col min-h-0">
+              <p className="eyebrow">Step 5 of 6</p>
+              <h1 className="font-display text-[26px] font-semibold leading-tight mt-2 tracking-tight text-balance">
+                Tell the AI about you
+              </h1>
+              <p className="text-secondary-fg mt-2 text-[13px] leading-[1.55]">
+                Optional — plans and replies adapt faster when DayDraft knows your life and rules.
+              </p>
+              <div className="mt-5 flex-1 flex flex-col min-h-0 space-y-4 overflow-y-auto">
+                <div>
+                  <div className="text-[11px] text-secondary-fg mb-1.5">About you</div>
+                  <Textarea
+                    value={aiAbout}
+                    onChange={(e) => setAiAbout(e.target.value)}
+                    placeholder="e.g. I'm a parent of a 4yo, work remote, struggle with mornings, prefer deep work after lunch."
+                    maxLength={500}
+                    className="min-h-[88px] surface-card border-soft rounded-xl text-[13px] resize-none"
+                  />
+                  <p className="mt-1 text-[10px] text-secondary-fg">{aiAbout.length}/500</p>
+                </div>
+                <div>
+                  <div className="text-[11px] text-secondary-fg mb-1.5 leading-relaxed">
+                    Planning rules — blackout windows, block length, family time, parallel work…
+                  </div>
+                  <Textarea
+                    value={aiRules}
+                    onChange={(e) => setAiRules(e.target.value)}
+                    placeholder="e.g. never schedule deep work before 10:00 · 45m blocks · kitchen break 12:30–13:00"
+                    className="min-h-[96px] surface-card border-soft rounded-xl text-[13px] resize-none"
+                  />
+                </div>
+              </div>
+              <Button disabled={finishing} onClick={() => setStep(5)} className="w-full h-[52px] rounded-[16px] bg-primary text-primary-foreground hover:bg-primary/92 pressable text-[15px] font-medium mt-5 shadow-card shrink-0">
+                See how plans adapt
+              </Button>
+            </div>
+          )}
+
+          {step === 5 && (
             <div className="flex-1 flex flex-col">
-              <p className="eyebrow">Step 5 of 5</p>
+              <p className="eyebrow">Step 6 of 6</p>
               <h1 className="font-display text-[26px] font-semibold leading-tight mt-2 tracking-tight text-balance">
                 Day shifts? Plan adapts.
               </h1>

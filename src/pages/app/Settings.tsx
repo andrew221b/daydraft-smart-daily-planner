@@ -13,7 +13,7 @@ import { Link, useNavigate, useLocation } from "react-router-dom";
 import { clearStoredPasskey, enrollPasskey, getStoredPasskey, passkeySupported } from "@/lib/passkeys";
 import { toast } from "sonner";
 import { useEntitlement } from "@/hooks/useEntitlement";
-import { writeDevSimulatePro } from "@/lib/devEntitlement";
+import { isSimulateProUiAllowed, writeDevSimulatePro } from "@/lib/devEntitlement";
 import { Sheet, SheetContent, SheetHeader, SheetTitle, SheetDescription } from "@/components/ui/sheet";
 import { UpgradeSheet } from "@/components/app/UpgradeSheet";
 import { ProFeatureHighlights } from "@/components/app/ProFeatureHighlights";
@@ -138,14 +138,14 @@ export default function Settings() {
             onUpgrade={() => setUpgradeOpen(true)}
             onOpenDetails={!isPro ? () => setProSheetOpen(true) : undefined}
           />
-          {import.meta.env.DEV && (
+          {isSimulateProUiAllowed() && (
             <Section title="Developer">
               <div className="rounded-[14px] border border-dashed border-soft surface-card px-4 py-3 space-y-2">
                 <div className="flex items-center justify-between gap-3">
                   <div>
                     <div className="text-[14px] text-foreground">Simulate Pro</div>
                     <p className="text-[11px] text-secondary-fg mt-1 leading-relaxed">
-                      Unlocks Pro UI locally. Planning quota on the server still follows your account unless you have a real subscription.
+                      Unlocks Pro UI in this browser. Server planning quota still follows your real subscription unless you enable this for testing.
                     </p>
                   </div>
                   <Switch

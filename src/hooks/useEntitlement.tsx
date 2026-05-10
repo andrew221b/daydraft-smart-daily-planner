@@ -1,7 +1,7 @@
 import { useEffect, useState, useCallback } from "react";
 import { supabase } from "@/integrations/supabase/client";
 import { useAuth } from "./useAuth";
-import { readDevSimulatePro } from "@/lib/devEntitlement";
+import { isSimulateProUiAllowed, readDevSimulatePro } from "@/lib/devEntitlement";
 
 export type Tier = "free" | "trial" | "pro";
 
@@ -29,11 +29,11 @@ export const useEntitlement = () => {
   const [planQuotaUsed, setPlanQuotaUsed] = useState(0);
   const [loading, setLoading] = useState(true);
   const [devSimulatePro, setDevSimulatePro] = useState(() =>
-    import.meta.env.DEV ? readDevSimulatePro() : false,
+    isSimulateProUiAllowed() ? readDevSimulatePro() : false,
   );
 
   useEffect(() => {
-    if (!import.meta.env.DEV) return;
+    if (!isSimulateProUiAllowed()) return;
     const on = () => setDevSimulatePro(readDevSimulatePro());
     window.addEventListener("dd-dev-simulate-pro", on);
     return () => window.removeEventListener("dd-dev-simulate-pro", on);

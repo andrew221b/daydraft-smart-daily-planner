@@ -2,9 +2,10 @@ import { useEffect, useMemo, useState } from "react";
 import { Sheet, SheetContent, SheetHeader, SheetTitle, SheetDescription } from "@/components/ui/sheet";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
+import { Textarea } from "@/components/ui/textarea";
 import {
   Sparkles, Clock, X, Check, Loader2, Split, GripVertical,
-  ChevronDown, ChevronUp, ExternalLink, CalendarClock, Activity, AlertTriangle,
+  ChevronDown, ChevronUp, ExternalLink, CalendarClock, AlertTriangle,
 } from "lucide-react";
 import { supabase } from "@/integrations/supabase/client";
 import { toast } from "sonner";
@@ -17,6 +18,8 @@ import {
 } from "@dnd-kit/sortable";
 import { CSS } from "@dnd-kit/utilities";
 import { DurationPicker } from "@/components/app/DurationPicker";
+import { Checkbox } from "@/components/ui/checkbox";
+import { setDndBodyScrollLock } from "@/lib/dndScrollLock";
 import { useProfile } from "@/hooks/useProfile";
 import { getTone, t as toneCopy } from "@/lib/tone";
 import { extractTaskTimeAnchors } from "@/lib/taskTimeAnchors";
@@ -92,7 +95,6 @@ export function ClarifySheet({ open, onOpenChange, rawInput, onConfirm, planDate
     [rawInput],
   );
   const [tasks, setTasks] = useState<Row[]>(initial);
-  const [contextPromptOpen, setContextPromptOpen] = useState(false);
   const [planningContext, setPlanningContext] = useState("");
   const [loadingAI, setLoadingAI] = useState(false);
   const [splitting, setSplitting] = useState(false);
@@ -134,7 +136,6 @@ export function ClarifySheet({ open, onOpenChange, rawInput, onConfirm, planDate
     if (!open) return;
     const fallback = localSplit(rawInput).map(parseLine);
     setTasks(fallback);
-    setContextPromptOpen(false);
     setPlanningContext("");
 
     if (!rawInput.trim()) return;
@@ -236,6 +237,7 @@ export function ClarifySheet({ open, onOpenChange, rawInput, onConfirm, planDate
 
   // Drag-reorder = priority. Top third = high, middle = medium, bottom = low.
   const onReorder = (e: DragEndEvent) => {
+    setDndBodyScrollLock(false);
     const { active, over } = e;
     if (!over || active.id === over.id) return;
     const oldIdx = parseInt(String(active.id), 10);
@@ -357,6 +359,19 @@ export function ClarifySheet({ open, onOpenChange, rawInput, onConfirm, planDate
                 {hours > 0 ? `${hours}h ` : ""}{mins}m total
               </span>
             </SheetDescription>
+            <div className="mt-3">
+              <label htmlFor="planning-context-ai" className="text-[10px] font-semibold uppercase tracking-[0.14em] text-secondary-fg">
+                For the AI (optional)
+              </label>
+              <Textarea
+                id="planning-context-ai"
+                value={planningContext}
+                onChange={(e) => setPlanningContext(e.target.value)}
+                placeholder="Deadlines, constraints, low energy, whatever changes the shape of the day."
+                rows={2}
+                className="mt-1.5 resize-none rounded-xl border-soft bg-muted/30 text-[13px] leading-relaxed"
+              />
+            </div>
           </SheetHeader>
           {overCapacity && tasks.length > 0 && (
             <div className="mt-2 flex items-start gap-2 px-2.5 py-2 rounded-lg bg-destructive/10 border border-destructive/30">
@@ -382,7 +397,13 @@ export function ClarifySheet({ open, onOpenChange, rawInput, onConfirm, planDate
           {tasks.length === 0 && (
             <p className="text-sm text-secondary-fg text-center py-8">No tasks detected. Add some first.</p>
           )}
-          <DndContext sensors={sensors} collisionDetection={closestCenter} onDragEnd={onReorder}>
+          <DndContext
+            sensors={sensors}
+            collisionDetection={closestCenter}
+            onDragStart={() => setDndBodyScrollLock(true)}
+            onDragCancel={() => setDndBodyScrollLock(false)}
+            onDragEnd={onReorder}
+          >
             <SortableContext items={tasks.map((_, i) => String(i))} strategy={verticalListSortingStrategy}>
               {tasks.map((t, i) => (
                 <SortableTaskCard
@@ -403,51 +424,18 @@ export function ClarifySheet({ open, onOpenChange, rawInput, onConfirm, planDate
 
         {/* Footer */}
         <div className="px-5 pb-6 pt-3 sticky bottom-0 bg-background/95 backdrop-blur-md border-t border-soft supports-[backdrop-filter]:bg-background/80">
-          {contextPromptOpen && (
-            <div className="mb-3 rounded-xl border border-soft surface-soft px-3 py-2.5">
-              <p className="text-[12px] text-foreground leading-relaxed">
-                Anything weighing on you today? A deadline, a call, something you're dreading?
-              </p>
-              <Input
-                value={planningContext}
-                onChange={(e) => setPlanningContext(e.target.value)}
-                placeholder="Optional — share if helpful"
-                className="mt-2 h-10 bg-background border-soft"
-              />
-              <div className="mt-2 flex items-center justify-end gap-2">
-                <button
-                  type="button"
-                  className="h-8 px-3 rounded-lg text-[12px] text-secondary-fg hover:text-foreground pressable"
-                  onClick={() => submitPlan()}
-                >
-                  Skip
-                </button>
-                <Button
-                  className="h-8 px-3 rounded-lg text-[12px]"
-                  onClick={() => submitPlan(planningContext)}
-                >
-                  Continue
-                </Button>
-              </div>
-            </div>
-          )}
           <Button
-            onClick={() => {
-              if (contextPromptOpen) {
-                submitPlan(planningContext);
-                return;
-              }
-              setContextPromptOpen(true);
-            }}
+            onClick={() => submitPlan(planningContext)}
             disabled={tasks.length === 0 || hasPastFixed}
             className="w-full h-12 rounded-[14px] bg-primary hover:bg-primary/92 text-primary-foreground text-[15px] font-medium pressable shadow-card"
-           
           >
-            {hasPastFixed
-              ? "Fix past times to continue"
-              : contextPromptOpen
-                ? <>Build plan <Sparkles className="h-4 w-4 ml-1" /></>
-                : <>Next: optional context <Sparkles className="h-4 w-4 ml-1" /></>}
+            {hasPastFixed ? (
+              "Fix past times to continue"
+            ) : (
+              <>
+                Build plan <Sparkles className="ml-1 h-4 w-4" />
+              </>
+            )}
           </Button>
         </div>
       </SheetContent>
@@ -600,31 +588,20 @@ function SortableTaskCard({ id, index: i, task: t, loadingAI, onUpdate, onRemove
         </div>
       </div>
 
-      {/* Row 5 — tracker opt-in */}
-      <div className="mt-3 flex items-center justify-between gap-2 pl-7 pr-0.5">
-        <div className="min-w-0">
-          <div className="flex items-center gap-1.5 text-[12px] text-foreground font-medium">
-            <Activity className="h-3.5 w-3.5 shrink-0 text-secondary-fg" />
-            <span>{toneCopy(tone, "track_label")}</span>
-          </div>
-          <p className="text-[10px] text-secondary-fg mt-0.5 leading-snug">When you work this task, it can pre-select this title in the timer.</p>
-        </div>
-        <button
-          type="button"
-          role="switch"
-          aria-checked={!!t.track_time}
-          onClick={() => onUpdate(i, { track_time: !t.track_time })}
-          className={`relative h-7 w-12 rounded-full transition-colors pressable shrink-0 ${
-            t.track_time ? "bg-primary" : "bg-muted border border-soft"
-          }`}
-          aria-label="Toggle time tracking for this task"
-        >
-          <span
-            className={`absolute top-1 h-5 w-5 rounded-full bg-white shadow-md transition-transform ${
-              t.track_time ? "translate-x-[22px]" : "translate-x-1"
-            }`}
-          />
-        </button>
+      {/* Row 5 — tracker preference (never auto-starts the timer) */}
+      <div className="mt-3 flex items-start gap-3 pl-7 pr-0.5">
+        <Checkbox
+          id={`clarify-track-${i}`}
+          checked={!!t.track_time}
+          onCheckedChange={(v) => onUpdate(i, { track_time: v === true })}
+          className="mt-0.5 border-soft"
+        />
+        <label htmlFor={`clarify-track-${i}`} className="min-w-0 cursor-pointer leading-snug">
+          <div className="text-[12px] font-medium text-foreground">{toneCopy(tone, "track_label")}</div>
+          <p className="text-[10px] text-secondary-fg mt-1 leading-snug">
+            Optional marker for scheduling — you start the timer yourself from Focus or Home when ready.
+          </p>
+        </label>
       </div>
 
       {hasAiExtras && (

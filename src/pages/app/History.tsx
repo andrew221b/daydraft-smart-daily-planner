@@ -6,9 +6,8 @@ import { useAuth } from "@/hooks/useAuth";
 import { supabase } from "@/integrations/supabase/client";
 import { parseDateStr, todayDateStr, isUserTask, dateStr } from "@/lib/daydraft";
 import { useNavigate } from "react-router-dom";
-import { CheckCircle2, Circle, CalendarDays, Timer as TimerIcon, Target } from "lucide-react";
+import { CheckCircle2, ChevronRight, Circle, CalendarDays } from "lucide-react";
 import { useTimeTracker, fmtHM } from "@/hooks/useTimeTracker";
-import { KpiCard } from "@/components/app/KpiCard";
 
 interface BlockLite {
   id: string;
@@ -30,14 +29,18 @@ interface PlanRow {
   plannedDoneMin: number;
   trackedSec: number;
 }
-type WeeklyCategoryRow = { name: string; sec: number; type: "work" | "personal" | "rest" };
+function weekHeadingLabel(d: Date): string {
+  const monOff = (d.getDay() + 6) % 7;
+  const start = new Date(d);
+  start.setDate(d.getDate() - monOff);
+  return `Week of ${start.toLocaleDateString(undefined, { month: "short", day: "numeric" })}`;
+}
 
 export default function History() {
   const { user } = useAuth();
   const nav = useNavigate();
   const { weekTotalSec, todayTotalSec } = useTimeTracker();
   const [plans, setPlans] = useState<PlanRow[]>([]);
-  const [weekCategoryRows, setWeekCategoryRows] = useState<WeeklyCategoryRow[]>([]);
   const [loading, setLoading] = useState(true);
 
   const load = async () => {
@@ -86,12 +89,10 @@ export default function History() {
       }
     });
     const byPlan = new Map<string, BlockLite[]>();
-    const blockById = new Map<string, BlockLite>();
     (blocks || []).forEach((b: any) => {
       if (!byPlan.has(b.plan_id)) byPlan.set(b.plan_id, []);
       const row = b as BlockLite;
       byPlan.get(b.plan_id)!.push(row);
-      blockById.set(row.id, row);
     });
     // Hide orphaned plans in UI only.
     // Read-path must never mutate user data from a client screen.
@@ -125,196 +126,119 @@ export default function History() {
           trackedSec: trackedByDate.get(p.date) || 0,
         };
       });
-    const since7 = new Date();
-    since7.setDate(since7.getDate() - 6);
-    since7.setHours(0, 0, 0, 0);
-    const weeklyByCategory = new Map<string, WeeklyCategoryRow>();
-    (entries || []).forEach((e: any) => {
-      const s = new Date(e.started_at).getTime();
-      const en = e.ended_at ? new Date(e.ended_at).getTime() : Date.now();
-      if (!Number.isFinite(s) || !Number.isFinite(en) || en <= s) return;
-      if (en < since7.getTime()) return;
-      const clippedStart = Math.max(s, since7.getTime());
-      const sec = Math.max(0, (en - clippedStart) / 1000);
-      if (!sec) return;
-      const b = e.block_id ? blockById.get(e.block_id) : null;
-      const name = (b?.title || "Other tracked").trim();
-      const type: "work" | "personal" | "rest" =
-        b?.block_type === "personal" || b?.block_type === "rest" || b?.block_type === "work"
-          ? b.block_type
-          : b?.kind === "break" || b?.kind === "lunch"
-            ? "rest"
-            : "work";
-      const cur = weeklyByCategory.get(name) || { name, sec: 0, type };
-      cur.sec += sec;
-      weeklyByCategory.set(name, cur);
-    });
-    const sortedWeekly = Array.from(weeklyByCategory.values()).sort((a, b) => b.sec - a.sec);
-    const top = sortedWeekly.slice(0, 5);
-    if (sortedWeekly.length > 5) {
-      const otherSec = sortedWeekly.slice(5).reduce((s, r) => s + r.sec, 0);
-      if (otherSec > 0) top.push({ name: "Other", sec: otherSec, type: "work" });
-    }
-    setWeekCategoryRows(top);
     setPlans(enriched);
     setLoading(false);
   };
 
   useEffect(() => { load(); /* eslint-disable-next-line */ }, [user?.id]);
 
-  // Group by ISO week (Mon–Sun), labeled by the Monday of that week.
-  const groups: Record<string, PlanRow[]> = {};
-  plans.forEach(p => {
-    const d = parseDateStr(p.date);
-    // Mon=0..Sun=6 — align week start to Monday for international consistency.
-    const monOffset = (d.getDay() + 6) % 7;
-    const start = new Date(d); start.setDate(d.getDate() - monOffset);
-    const key = `Week of ${start.toLocaleDateString(undefined, { month: "short", day: "numeric" })}`;
-    (groups[key] ||= []).push(p);
-  });
-
   const todayKey = todayDateStr();
 
-  // Roll-up across the last 7 plan rows (recent activity)
   const last7 = plans.slice(0, 7);
   const totalTasks = last7.reduce((s, p) => s + p.total, 0);
   const totalDone = last7.reduce((s, p) => s + p.done, 0);
   const completionPct = totalTasks ? Math.round((totalDone / totalTasks) * 100) : 0;
-  const weekMaxCategorySec = useMemo(() => Math.max(1, ...weekCategoryRows.map((r) => r.sec)), [weekCategoryRows]);
-  const mostTracked = weekCategoryRows[0] || null;
-  const leastTracked = weekCategoryRows.length ? [...weekCategoryRows].sort((a, b) => a.sec - b.sec)[0] : null;
-  const toneFor = (t: "work" | "personal" | "rest") =>
-    t === "work" ? "bg-cyan-400/90" : t === "personal" ? "bg-violet-400/90" : "bg-slate-400/85";
+
+  const planRows = useMemo(() => {
+    let prev: string | null = null;
+    return plans.map((p) => {
+      const dt = parseDateStr(p.date);
+      const wk = weekHeadingLabel(dt);
+      const showWeek = prev !== wk;
+      prev = wk;
+      return { p, dt, wk, showWeek };
+    });
+  }, [plans]);
 
   return (
     <Shell>
       <PullToRefresh onRefresh={async () => { await load(); }}>
-      <div className="px-5 pt-10">
-        <div className="hero-glass px-4.5 pt-4.5 pb-4 md:px-5 md:pt-5 md:pb-4.5 py-5">
+      <div className="px-6 pt-10 pb-12">
           <PageHeader
-            eyebrow="Your week"
+            eyebrow="Past plans"
             title="History"
-            hint="Planned days and tracked time. Tap a day for recap — only tasks you mark done count toward completion; open items stay open."
+            hint="Tap a row for recap. Done tasks only bump your score."
           />
-        </div>
 
-        {/* At-a-glance — the only numbers a busy person actually needs */}
-        <div className="mt-6 grid grid-cols-3 gap-3 section-switch-stagger">
-          <KpiCard
-            icon={<TimerIcon className="h-3.5 w-3.5" />}
-            label="Tracked this week"
-            value={fmtHM(weekTotalSec)}
-            sub={`${fmtHM(todayTotalSec)} today`}
-            tone="primary"
-            onClick={() => nav("/home?tracker=1")}
-          />
-          <KpiCard
-            icon={<Target className="h-3.5 w-3.5" />}
-            label="Tasks done"
-            value={`${completionPct}%`}
-            sub={`${totalDone} of ${totalTasks} planned`}
-          />
-          <KpiCard
-            icon={<CalendarDays className="h-3.5 w-3.5" />}
-            label="Days planned"
-            value={`${plans.length}`}
-            sub="Last 60 days"
-          />
-        </div>
-
-        <div className="mt-8 eyebrow">Recent days</div>
-        {!loading && weekCategoryRows.length > 0 && (
-          <div className="mt-4 app-card px-3.5 py-5">
-            <div className="text-[11px] uppercase tracking-[0.12em] text-secondary-fg mb-3">Last 7 days by category</div>
-            <div className="space-y-2.5">
-              {weekCategoryRows.map((row) => (
-                <div key={row.name} className="flex items-center gap-2">
-                  <div className="w-24 truncate text-[12px] text-foreground">{row.name}</div>
-                  <div className="flex-1 h-2 rounded-full bg-muted overflow-hidden">
-                    <div
-                      className={`h-full rounded-full ${toneFor(row.type)} transition-all duration-500`}
-                      style={{ width: `${Math.max(8, (row.sec / weekMaxCategorySec) * 100)}%` }}
-                    />
-                  </div>
-                  <div className="w-14 text-right text-[11px] text-secondary-fg font-mono tabular-nums">
-                    {(row.sec / 3600).toFixed(1)}h
-                  </div>
-                </div>
-              ))}
-            </div>
-            <div className="mt-3 text-[11px] text-secondary-fg">
-              Most time: <span className="text-foreground font-medium">{mostTracked?.name || "—"}</span> · {(mostTracked ? mostTracked.sec / 3600 : 0).toFixed(1)}h
-            </div>
-            <div className="mt-1 text-[11px] text-secondary-fg">
-              Least tracked: <span className="text-foreground font-medium">{leastTracked?.name || "—"}</span>
-            </div>
+        <div className="mt-6 rounded-[22px] border border-border/40 bg-background/25 px-4 py-4">
+          <p className="text-[11px] font-semibold uppercase tracking-[0.16em] text-secondary-fg/80">
+            Last 7 listed days
+          </p>
+          <div className="mt-2 flex flex-wrap items-baseline justify-between gap-3">
+            <p className="font-display text-[28px] font-semibold tabular-nums leading-none text-foreground/95">{completionPct}%</p>
+            <button
+              type="button"
+              onClick={() => nav("/home?tracker=1")}
+              className="text-[13px] font-semibold text-primary pressable hover:underline"
+            >
+              {fmtHM(weekTotalSec)} tracked · timer
+            </button>
           </div>
-        )}
+          <p className="mt-2 text-[14px] font-medium leading-snug text-secondary-fg/88">
+            {totalDone}/{totalTasks} tasks closed · <span className="tabular-nums">{fmtHM(todayTotalSec)}</span> today ·{" "}
+            <span className="tabular-nums">{plans.length}</span> days on file
+          </p>
+        </div>
+
+        <p className="mt-10 text-[11px] font-semibold uppercase tracking-[0.18em] text-secondary-fg/75">Days</p>
 
         {loading && (
-          <div className="mt-3 space-y-2">
+          <div className="mt-4 space-y-2">
             {[0, 1, 2].map(i => (
-              <div key={i} className="h-[88px] rounded-2xl surface-card border border-soft animate-pulse" />
+              <div key={i} className="h-20 rounded-2xl surface-card border border-soft animate-pulse" />
             ))}
           </div>
         )}
         {!loading && (
-          <div className="mt-4 space-y-8">
-            {Object.entries(groups).map(([w, items]) => (
-              <div key={w}>
-                <div className="eyebrow mb-2.5">{w}</div>
-                <div className="space-y-2">
-                  {items.map(p => {
+          <div className="mt-3 space-y-2">
+            {planRows.map(({ p, dt, wk, showWeek }, idx) => {
                     const isToday = p.date === todayKey;
-                    const completionPct = p.total ? Math.round((p.done / p.total) * 100) : 0;
+                    const pct = p.total ? Math.round((p.done / p.total) * 100) : 0;
                     const allDone = p.total > 0 && p.done === p.total;
-                    // ALL day rows route to Recap (read-only reflection +
-                    // AI insight). History is for looking back, never for
-                    // resuming work — that path is on the Today screen.
                     const goTo = `/recap?date=${p.date}`;
                     return (
-                      <div
-                        key={p.id}
-                        className="app-card px-0 py-5 flex overflow-hidden hover:border-primary/25 transition-colors border-soft rounded-xl"
-                      >
-                        <button
+                <div key={p.id}>
+                  {showWeek ? (
+                    <p
+                      className={`mb-2 text-[11px] font-semibold uppercase tracking-[0.14em] text-secondary-fg/70 ${idx > 0 ? "mt-6" : "mt-1"}`}
+                    >
+                      {wk}
+                    </p>
+                  ) : null}
+                  <button
                           type="button"
                           onClick={() => nav(goTo)}
-                          className="flex-1 text-left p-4 pressable min-w-0"
+                    className="flex w-full items-center gap-4 rounded-2xl border border-border/45 bg-muted/[0.04] px-4 py-4 text-left transition-colors hover:border-primary/35 pressable"
                         >
-                          <div className="flex items-center gap-2">
-                            {allDone ? (
-                              <CheckCircle2 className="h-3.5 w-3.5 text-success shrink-0" />
-                            ) : (
-                              <Circle className="h-3.5 w-3.5 text-faint shrink-0" />
-                            )}
-                            <div className="text-[11.5px] text-secondary-fg font-medium">
-                              {parseDateStr(p.date).toLocaleDateString(undefined, { weekday: "long", month: "long", day: "numeric" })}
-                              {isToday && <span className="ml-2 eyebrow text-primary">Today</span>}
+                          {allDone ? (
+                      <CheckCircle2 className="h-9 w-9 shrink-0 text-success opacity-95" strokeWidth={1.75} />
+                          ) : (
+                      <Circle className="text-faint h-9 w-9 shrink-0" strokeWidth={1.75} />
+                          )}
+                    <div className="min-w-0 flex-1">
+                      <div className="flex flex-wrap items-center gap-x-2 gap-y-1">
+                        <span className="font-display text-[17px] font-semibold tracking-tight text-foreground/95">
+                                {dt.toLocaleDateString(undefined, { weekday: "short", month: "short", day: "numeric" })}
+                              </span>
+                        {isToday ? (
+                          <span className="rounded-full bg-primary/15 px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wider text-primary">
+                            Today
+                          </span>
+                        ) : null}
                             </div>
+                      <p className="mt-1.5 font-display text-[20px] font-semibold tabular-nums text-foreground/95 leading-none">
+                              {p.done}/{p.total} <span className="text-[15px] font-medium text-secondary-fg/80">done</span>
+                            </p>
+                      <p className="mt-2 text-[13px] leading-snug text-secondary-fg/85">
+                              {fmtHM(p.trackedSec)} logged · {(p.plannedTaskMin / 60).toFixed(1)}h planned
+                            </p>
+                      <p className={`mt-0.5 text-[13px] font-semibold tabular-nums ${allDone ? "text-success" : "text-secondary-fg/80"}`}>{pct}%</p>
                           </div>
-                          <div className="mt-1.5 text-[14px] line-clamp-2 leading-snug font-display">
-                            {p.total} task{p.total === 1 ? "" : "s"} · {Math.round((p.plannedTaskMin || 0) / 6) / 10}h planned
-                            {p.doneByLabel ? ` · Done by ${p.doneByLabel}` : ""}
-                          </div>
-                          <div className="mt-3 flex items-center justify-between text-[11px] text-secondary-fg">
-                            <span>
-                              <span className="text-foreground font-medium">{p.done}</span>
-                              <span className="text-secondary-fg">/{p.total}</span>
-                              {" tasks done"}
-                            </span>
-                            <span className={`tabular-nums ${allDone ? "text-success font-medium" : ""}`}>{completionPct}%</span>
-                          </div>
-                          <div className="mt-1 text-[10.5px] text-secondary-fg">
-                            Actual tracked: {fmtHM(p.trackedSec)} · Planned done: {Math.round(p.plannedDoneMin)}m
-                          </div>
+                    <ChevronRight className="h-5 w-5 shrink-0 text-secondary-fg/50" aria-hidden />
                         </button>
-                      </div>
+                </div>
                     );
                   })}
-                </div>
-              </div>
-            ))}
             {plans.length === 0 && (
               <div className="text-center py-20">
                 <CalendarDays className="h-8 w-8 text-faint mx-auto mb-3" />

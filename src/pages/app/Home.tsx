@@ -78,56 +78,66 @@ export default function Home() {
   return (
     <Shell>
       <PullToRefresh onRefresh={onRefresh}>
-        <div className="px-6 pt-14 pb-14 space-y-12 max-h-[calc(100dvh-112px)] overflow-y-auto">
-          <header className="space-y-2">
-            <p className="text-[10px] font-medium uppercase tracking-[0.2em] text-secondary-fg/70">Today</p>
-            <h1 className="font-display text-[28px] font-medium tracking-[-0.02em] text-foreground/95 text-balance leading-[1.15]">
+        <div className="flex min-h-0 flex-1 flex-col px-6 pb-10 pt-12">
+          <header className="mb-5 shrink-0 space-y-1">
+            <p className="text-[11px] font-semibold uppercase tracking-[0.18em] text-secondary-fg/72">Today</p>
+            <h1 className="font-display text-[30px] font-semibold tracking-[-0.02em] text-foreground/95 text-balance leading-[1.12]">
               {greeting}
             </h1>
-            <p className="text-[13px] text-secondary-fg/85 leading-relaxed pt-0.5">
+            <p className="text-[14px] font-medium text-secondary-fg/85 pt-0.5 leading-snug">
               {friendlyDateFor(parseDateStr(viewDate))}
               {profile?.display_name ? ` · ${profile.display_name.split(" ")[0]}` : ""}
             </p>
           </header>
 
-          <HomeTimerCard onExpand={() => setTrackerSheet(true)} />
+          <div className="flex min-h-0 flex-1 flex-col gap-5">
+            <HomeTimerCard onExpand={() => setTrackerSheet(true)} />
 
-          <section className="space-y-4">
-            <div className="flex items-baseline justify-between gap-3">
-              <h2 className="text-[10px] font-medium uppercase tracking-[0.2em] text-secondary-fg/65">Plan</h2>
+            <section className="flex flex-col gap-3">
+              <div className="flex items-baseline justify-between gap-3">
+                <h2 className="text-[11px] font-semibold uppercase tracking-[0.18em] text-secondary-fg/70">Plan</h2>
+                {hasPlan ? (
+                  <span className="text-[13px] tabular-nums font-semibold text-secondary-fg/85">
+                    {done}/{tasks.length || 0}
+                  </span>
+                ) : null}
+              </div>
               {hasPlan ? (
-                <span className="text-[11px] text-secondary-fg/70 tabular-nums font-medium">
-                  {done}/{tasks.length || 0}
-                </span>
-              ) : null}
-            </div>
-            {hasPlan ? (
-              <div className="rounded-[22px] border border-border/45 bg-background/30 backdrop-blur-[2px] overflow-hidden">
-                <div className="p-1">
+              <div
+                data-tour="home-plan-cta"
+                className="relative overflow-hidden rounded-[22px] border border-border/45 bg-background/30 backdrop-blur-[2px]"
+              >
+                <div className="relative z-10">
                   <NextUpCard
                     blocks={blocks as Block[]}
                     nowHHMM={nowHM}
                     onOpenPlan={openTodayPlan}
+                    navigatePlanOnCardPress
                   />
                 </div>
-                <div className="flex gap-2 px-3 pb-3 pt-1">
+                <div className="relative z-20 flex gap-2 border-t border-border/30 px-3 pb-3 pt-2">
                   <Button
                     type="button"
                     variant="ghost"
-                    className="flex-1 h-11 rounded-2xl text-[13px] font-medium text-foreground/85 hover:bg-muted/50"
-                    onClick={openTodayPlan}
+                    className="flex-1 h-12 rounded-2xl text-[14px] font-semibold text-foreground/88 hover:bg-muted/50"
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      openTodayPlan();
+                    }}
                   >
-                    <ListTree className="h-4 w-4 mr-2 opacity-60" />
+                    <ListTree className="mr-2 h-4 w-4 opacity-65" />
                     Timeline
                   </Button>
                   <Button
                     type="button"
                     variant="ghost"
-                    data-tour="home-plan-cta"
-                    className="flex-1 h-11 rounded-2xl text-[13px] font-medium text-primary hover:bg-primary/[0.07]"
-                    onClick={openPlannerComposer}
+                    className="flex-1 h-12 rounded-2xl text-[14px] font-semibold text-primary hover:bg-primary/[0.08]"
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      openPlannerComposer();
+                    }}
                   >
-                    <Pencil className="h-4 w-4 mr-2 opacity-80" />
+                    <Pencil className="mr-2 h-4 w-4 opacity-85" />
                     Edit
                   </Button>
                 </div>
@@ -146,6 +156,7 @@ export default function Home() {
               </button>
             )}
           </section>
+          </div>
         </div>
       </PullToRefresh>
 

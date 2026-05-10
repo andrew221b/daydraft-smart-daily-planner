@@ -231,23 +231,6 @@ export default function Focus() {
     toast.success(`+5 min · ${extendedMin + 5}/${EXTEND_CAP_MIN}m extended`);
   };
 
-  // Start time-tracking only if the user opted in for THIS task during planning.
-  // The choice is persisted per plan in localStorage (see Today.tsx).
-  useEffect(() => {
-    if (!block || !categories.length) return;
-    if (tracking) return; // honor any existing session
-    let optedIn = false;
-    try {
-      const raw = localStorage.getItem(`dd_track_titles_${block.plan_id}`);
-      const titles: string[] = raw ? JSON.parse(raw) : [];
-      optedIn = titles.includes((block.title || "").trim().toLowerCase());
-    } catch {/* ignore */}
-    if (!optedIn) return;
-    startedHereRef.current = true;
-    startTracking(undefined, { source: "focus", blockId: block.id, note: block.title });
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [block?.id, categories.length]);
-
   useEffect(() => {
     trackingRef.current = tracking;
   }, [tracking]);
@@ -445,6 +428,7 @@ export default function Focus() {
   const secs = Math.floor(remaining % 60);
   const lowTime = remaining < 300;
   const oneThingElapsedSec = actualStartMsRef.current ? Math.max(0, Math.floor((Date.now() - actualStartMsRef.current) / 1000)) : 0;
+  const trackingThisBlock = !!(tracking && block && tracking.block_id === block.id);
 
   if (oneThingMode) {
     return (
@@ -605,6 +589,26 @@ export default function Focus() {
                   <span className="text-faint"> · </span>
                   {block.duration_min} min window
                 </div>
+                {armed && trackingThisBlock && trackingCat && (
+                  <div className="mt-3 text-center">
+                    <div className="text-[15px] font-mono-sf font-semibold tabular-nums text-foreground">
+                      {fmtHMS(elapsedSec)}
+                    </div>
+                    <div className="text-[11px] text-secondary-fg mt-1">
+                      Tracker · {trackingCat.name}
+                    </div>
+                    <button
+                      type="button"
+                      onClick={() => {
+                        stopTracking();
+                        startedHereRef.current = false;
+                      }}
+                      className="mt-2 inline-flex items-center gap-1 rounded-full border border-soft bg-background/70 px-3 py-1.5 text-[11px] font-medium text-foreground pressable"
+                    >
+                      <Square className="h-3 w-3" /> Stop tracking
+                    </button>
+                  </div>
+                )}
               </>
             )}
           </div>
@@ -637,7 +641,7 @@ export default function Focus() {
             {toneCopy(tone, "ai_stuck_cta")} <Sparkles className="h-3 w-3" />
           </button>
         )}
-        {!tracking && armed && categories.length > 0 && (
+        {!trackingThisBlock && armed && categories.length > 0 && (
           <Popover open={catPickerOpen} onOpenChange={setCatPickerOpen}>
             <PopoverTrigger asChild>
               <button className="mt-3 inline-flex items-center gap-1.5 px-3 py-1.5 rounded-full border border-soft bg-background/60 backdrop-blur-sm text-[12px] text-secondary-fg hover:text-foreground pressable">
@@ -664,17 +668,6 @@ export default function Focus() {
               </div>
             </PopoverContent>
           </Popover>
-        )}
-        {tracking && startedHereRef.current && trackingCat && (
-          <button
-            onClick={() => { stopTracking(); startedHereRef.current = false; }}
-            className="mt-3 inline-flex items-center gap-1.5 px-3 py-1.5 rounded-full border border-soft bg-background/60 backdrop-blur-sm text-[12px] text-secondary-fg hover:text-foreground pressable"
-          >
-            <span className="h-2 w-2 rounded-full animate-pulse" style={{ background: trackingCat.color }} />
-            <span className="text-foreground font-medium">{trackingCat.name}</span>
-            <span className="font-mono tabular-nums">{fmtHMS(elapsedSec)}</span>
-            <Square className="h-3 w-3 ml-1" />
-          </button>
         )}
         <style>{`@keyframes breathe {
           0%, 100% { transform: scale(0.92); opacity: 0.55; }

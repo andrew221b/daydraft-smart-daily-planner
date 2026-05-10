@@ -62,7 +62,11 @@ export const Shell = ({
         style={{ background: "radial-gradient(70% 70% at 50% 0%, hsl(var(--primary) / 0.11), transparent 72%)" }}
         aria-hidden
       />
-      <main className={`flex-1 ${hideTabBar ? "" : "pb-32"} page-enter ${pageSwitchClass}`}>{children}</main>
+      <main
+        className={`flex min-h-0 flex-1 flex-col ${hideTabBar ? "" : "pb-32"} page-enter ${pageSwitchClass}`}
+      >
+        {children}
+      </main>
       {!hideTabBar && <TabBar />}
       <TimerRescheduleSheet />
     </div>

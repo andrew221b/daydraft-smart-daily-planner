@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { useNavigate, useSearchParams } from "react-router-dom";
 import { Shell } from "@/components/app/Shell";
@@ -8,9 +8,9 @@ import {
   Block, fmtTime, todayDateStr, parseDateStr, friendlyDateFor, isFutureDateStr, isUserTask, inferScheduleBlockType, packLinearSchedule,
   blockSlotEndHHMM,
 } from "@/lib/daydraft";
-import { ChevronLeft, Sparkles, Play, RefreshCw, Plus, Coffee, ChevronDown, CalendarDays, Trash2, Bell, BellOff, MoreHorizontal, Clock, Info, MapPin, Copy, Target } from "lucide-react";
+import { ChevronLeft, Sparkles, Play, RefreshCw, Plus, Coffee, CalendarDays, Trash2, Bell, BellOff, MoreHorizontal, Clock, Info, MapPin, Copy, Target } from "lucide-react";
 import { Button } from "@/components/ui/button";
-import { DndContext, closestCenter, PointerSensor, TouchSensor, useSensor, useSensors, DragEndEvent } from "@dnd-kit/core";
+import { DndContext, closestCenter, PointerSensor, TouchSensor, useSensor, useSensors, DragEndEvent, DragStartEvent } from "@dnd-kit/core";
 import { SortableContext, arrayMove, verticalListSortingStrategy } from "@dnd-kit/sortable";
 import { SortableBlock } from "@/components/app/SortableBlock";
 import { Sheet, SheetContent, SheetHeader, SheetTitle } from "@/components/ui/sheet";
@@ -42,6 +42,7 @@ import { useCalmMode } from "@/lib/calmMode";
 import { useEntitlement } from "@/hooks/useEntitlement";
 import { UpgradeSheet } from "@/components/app/UpgradeSheet";
 import { trackAiEvent } from "@/lib/aiRuntime";
+import { setDndBodyScrollLock } from "@/lib/dndScrollLock";
 
 type ExBlock = Block & {
   ai_reasoning?: string | null;
@@ -70,7 +71,7 @@ export default function DayView() {
   const [blocks, setBlocks] = useState<ExBlock[]>([]);
   const [now, setNow] = useState(new Date());
   const [replanning, setReplanning] = useState(false);
-  const [collapseDone, setCollapseDone] = useState(true);
+  const dayScrollRef = useRef<HTMLDivElement>(null);
   const [addOpen, setAddOpen] = useState(false);
   const [newTitle, setNewTitle] = useState("");
   const [newKind, setNewKind] = useState<"task" | "break">("task");
@@ -393,7 +394,12 @@ export default function DayView() {
     if (failed?.error) throw failed.error;
   };
 
+  const handleDragStart = (_e: DragStartEvent) => {
+    setDndBodyScrollLock(true);
+  };
+
   const onDragEnd = (e: DragEndEvent) => {
+    setDndBodyScrollLock(false);
     const { active, over } = e;
     if (!over || active.id === over.id) return;
     const oldIdx = blocks.findIndex(b => b.id === active.id);
@@ -514,18 +520,22 @@ export default function DayView() {
   const totalTasks = userTasks.length;
   const doneTasks = userTasks.filter(b => b.completed).length;
 
-  const upcomingBlocks = blocks.filter(b => !(b.kind === "task" && b.completed));
-  const completedBlocks = blocks.filter(b => b.kind === "task" && b.completed);
+  const spotlightId = useMemo(
+    () => blocks.find((b) => isUserTask(b) && !b.completed && !b.is_calendar_event)?.id,
+    [blocks],
+  );
 
   return (
     <Shell>
       <PullToRefresh
+        scrollContainerRef={dayScrollRef}
         onRefresh={async () => {
           await refetch();
           await invalidatePlanCaches();
         }}
       >
-      <div className="px-6 pt-12 pb-2">
+      <div className="flex min-h-0 flex-1 flex-col">
+      <div className="shrink-0 px-6 pt-12 pb-2">
         <div className="rounded-[22px] border border-border/45 bg-background/30 backdrop-blur-[2px] px-3 py-3.5 flex items-center justify-between gap-2">
           <button
             type="button"
@@ -576,7 +586,7 @@ export default function DayView() {
       </div>
 
       {calmMode && !planMissing && (
-        <div className="px-6 mt-5">
+        <div className="mt-5 shrink-0 px-6">
           <div className="rounded-[18px] border border-border/40 bg-background/25 px-3.5 py-2.5 text-[11px] text-secondary-fg/85 leading-relaxed">
             Calm Mode — fewer secondary controls.
           </div>
@@ -584,7 +594,7 @@ export default function DayView() {
       )}
       {/* Progress — soft container */}
       {!calmMode && !planMissing && totalTasks > 0 && (
-        <div className="px-6 mt-5">
+        <div className="mt-5 shrink-0 px-6">
           <div className="rounded-[22px] border border-border/45 bg-background/25 backdrop-blur-[2px] px-4 py-3.5">
             <div className="flex items-baseline justify-between gap-2">
               <div className="text-[13px] text-foreground/95 tabular-nums">
@@ -605,7 +615,10 @@ export default function DayView() {
         </div>
       )}
 
-      <div className="px-6 mt-8 pb-6">
+      <div
+        ref={dayScrollRef}
+        className="min-h-0 flex-1 overflow-y-auto overscroll-y-contain px-6 pb-[calc(96px+env(safe-area-inset-bottom))] [-webkit-overflow-scrolling:touch] pt-8"
+      >
         {planMissing && (
           <div className="rounded-[22px] border border-dashed border-border/50 bg-muted/[0.1] px-6 py-8 text-center">
             <CalendarDays className="h-6 w-6 mx-auto text-secondary-fg/70 mb-3 opacity-80" />
@@ -630,15 +643,21 @@ export default function DayView() {
           <>
             {loading && <SkeletonBlock count={4} />}
             {!loading && (
-              <DndContext sensors={sensors} collisionDetection={closestCenter} onDragEnd={onDragEnd}>
-                <SortableContext items={upcomingBlocks.map(b => b.id)} strategy={verticalListSortingStrategy}>
-                  <div className="space-y-2.5">
-                    {upcomingBlocks.map((b, i) => (
+              <DndContext
+                sensors={sensors}
+                collisionDetection={closestCenter}
+                onDragStart={handleDragStart}
+                onDragCancel={() => setDndBodyScrollLock(false)}
+                onDragEnd={onDragEnd}
+              >
+                <SortableContext items={blocks.map((b) => b.id)} strategy={verticalListSortingStrategy}>
+                  <div className="touch-pan-y space-y-2.5">
+                    {blocks.map((b) => (
                       <SortableBlock
                         key={b.id}
                         block={b}
                         editing={false}
-                        tourSpotlight={i === 0}
+                        tourSpotlight={spotlightId === b.id}
                         onTap={(blk) => setTappedBlock(blk)}
                         onToggleComplete={(blk) => {
                           if (blk?.is_calendar_event) return;
@@ -646,7 +665,7 @@ export default function DayView() {
                         }}
                       />
                     ))}
-                    {upcomingBlocks.length === 0 && completedBlocks.length === 0 && (
+                    {blocks.length === 0 && (
                       <div className="text-center text-secondary-fg py-12 text-sm">No tasks scheduled.</div>
                     )}
                   </div>
@@ -665,35 +684,9 @@ export default function DayView() {
               </button>
             )}
 
-            {!calmMode && completedBlocks.length > 0 && (
-              <div className="mt-8">
-                <button
-                  onClick={() => setCollapseDone(c => !c)}
-                  className="w-full flex items-center justify-between px-1 py-2 text-[11px] font-medium uppercase tracking-[0.14em] text-secondary-fg/70 pressable hover:text-foreground/90"
-                >
-                  <span>{completedBlocks.length} completed</span>
-                  <ChevronDown className={`h-3.5 w-3.5 transition-transform opacity-70 ${collapseDone ? "" : "rotate-180"}`} />
-                </button>
-                {!collapseDone && (
-                  <div className="space-y-2.5 mt-2">
-                    {completedBlocks.map(b => (
-                      <SortableBlock
-                        key={b.id}
-                        block={b}
-                        editing={false}
-                        onTap={(blk) => setTappedBlock(blk)}
-                        onToggleComplete={(blk) => {
-                          if (blk?.is_calendar_event) return;
-                          completeBlock(blk.id);
-                        }}
-                      />
-                    ))}
-                  </div>
-                )}
-              </div>
-            )}
           </>
         )}
+      </div>
       </div>
       </PullToRefresh>
 

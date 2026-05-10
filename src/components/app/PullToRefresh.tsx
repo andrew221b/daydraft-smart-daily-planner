@@ -1,17 +1,25 @@
-import { ReactNode, useRef, useState } from "react";
+import { type ReactNode, type RefObject, useRef, useState } from "react";
 import { Loader2, ArrowDown } from "lucide-react";
 import { haptics } from "@/lib/haptics";
 
+const scrollTop = (scrollContainerRef?: RefObject<HTMLElement | null>) => {
+  if (scrollContainerRef?.current) return scrollContainerRef.current.scrollTop;
+  return typeof window !== "undefined" ? window.scrollY : 0;
+};
+
 /**
  * Native-feeling pull-to-refresh wrapper.
- * Activates only when scrolled to the top of the viewport.
+ * Activates only when scrolled to the top of the window or the optional scroll container.
  */
 export const PullToRefresh = ({
   onRefresh,
   children,
+  scrollContainerRef,
 }: {
   onRefresh: () => Promise<void> | void;
   children: ReactNode;
+  /** When the page uses an inner scroll root (e.g. DayView), pass it so pull checks scrollTop correctly. */
+  scrollContainerRef?: RefObject<HTMLElement | null>;
 }) => {
   const [pull, setPull] = useState(0);
   const [refreshing, setRefreshing] = useState(false);
@@ -22,7 +30,7 @@ export const PullToRefresh = ({
   const MAX = 110;
 
   const onStart = (y: number) => {
-    if (window.scrollY > 0) return;
+    if (scrollTop(scrollContainerRef) > 0) return;
     startY.current = y;
     triggered.current = false;
   };
@@ -54,6 +62,7 @@ export const PullToRefresh = ({
 
   return (
     <div
+      className="flex min-h-0 flex-1 flex-col"
       onTouchStart={(e) => onStart(e.touches[0].clientY)}
       onTouchMove={(e) => onMove(e.touches[0].clientY)}
       onTouchEnd={onEnd}

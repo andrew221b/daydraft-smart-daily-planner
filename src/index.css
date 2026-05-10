@@ -2,6 +2,13 @@
 @tailwind components;
 @tailwind utilities;
 
+html.dd-dnd-scroll-lock,
+body.dd-dnd-scroll-lock {
+  overflow: hidden !important;
+  touch-action: none;
+  overscroll-behavior: none;
+}
+
 /* ─────────────────────────────────────────────────────────────
    DayDraft — Premium Aurora Glass
    Rich sapphire + violet base with cyan highlights.
