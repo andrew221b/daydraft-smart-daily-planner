@@ -54,6 +54,7 @@ export type Database = {
           location: string | null
           location_lat: number | null
           location_lng: number | null
+          parallel_with: string | null
           plan_id: string
           position: number
           start_time: string
@@ -76,6 +77,7 @@ export type Database = {
           location?: string | null
           location_lat?: number | null
           location_lng?: number | null
+          parallel_with?: string | null
           plan_id: string
           position?: number
           start_time: string
@@ -98,6 +100,7 @@ export type Database = {
           location?: string | null
           location_lat?: number | null
           location_lng?: number | null
+          parallel_with?: string | null
           plan_id?: string
           position?: number
           start_time?: string
@@ -179,6 +182,7 @@ export type Database = {
         Row: {
           active_hours_end: string
           active_hours_start: string
+          ai_context_custom: string | null
           ai_tone: string
           ai_tone_custom: string | null
           created_at: string
@@ -201,6 +205,7 @@ export type Database = {
         Insert: {
           active_hours_end?: string
           active_hours_start?: string
+          ai_context_custom?: string | null
           ai_tone?: string
           ai_tone_custom?: string | null
           created_at?: string
@@ -223,6 +228,7 @@ export type Database = {
         Update: {
           active_hours_end?: string
           active_hours_start?: string
+          ai_context_custom?: string | null
           ai_tone?: string
           ai_tone_custom?: string | null
           created_at?: string
