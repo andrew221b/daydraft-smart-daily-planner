@@ -19,6 +19,7 @@ export interface Profile {
   tour_seen?: Record<string, boolean>;
   ai_tone?: "professional" | "coach" | "playful" | "motivational" | "tough_love" | "philosophical" | "custom";
   ai_tone_custom?: string | null;
+  ai_context_custom?: string | null;
   active_hours_start?: string;
   active_hours_end?: string;
 }

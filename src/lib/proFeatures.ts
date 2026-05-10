@@ -2,7 +2,6 @@ import type { LucideIcon } from "lucide-react";
 import {
   Zap,
   Calendar,
-  Target,
   Sparkles,
   Compass,
   Clock,
@@ -13,7 +12,6 @@ import {
 export type ProFeatureId =
   | "unlimited"
   | "calendar"
-  | "one_thing"
   | "debrief"
   | "drift"
   | "timer_reschedule"
@@ -44,13 +42,6 @@ export const PRO_FEATURE_CATALOG: ProCatalogItem[] = [
     headline: "Google Calendar in every plan",
     tagline: "Meetings and holds show up as fixed blocks the AI schedules around.",
     sheetLine: "Calendar-aware schedules",
-  },
-  {
-    id: "one_thing",
-    Icon: Target,
-    headline: "One thing mode",
-    tagline: "A distraction-free fullscreen focus view for a single task from your plan.",
-    sheetLine: "One thing focus mode",
   },
   {
     id: "debrief",

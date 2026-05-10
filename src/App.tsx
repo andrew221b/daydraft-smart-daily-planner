@@ -60,7 +60,7 @@ const RequireAuth = ({ children }: { children: JSX.Element }) => {
 const RootRedirect = () => {
   const { user, loading } = useAuth();
   if (loading) return <PageFallback />;
-  return <Navigate to={user ? "/today" : "/auth"} replace />;
+  return <Navigate to={user ? "/tracker" : "/auth"} replace />;
 };
 
 const ThemedToaster = () => {

@@ -24,8 +24,8 @@ const reasonSub: Record<UpgradeReason, string> = {
 };
 /** Bullet order per paywall context — ids must exist in `PRO_FEATURE_CATALOG`. */
 const reasonOrder: Record<UpgradeReason, ProFeatureId[]> = {
-  quota: ["unlimited", "calendar", "one_thing", "debrief"],
-  feature: ["unlimited", "calendar", "one_thing", "pdf_export"],
+  quota: ["unlimited", "calendar", "debrief", "pdf_export"],
+  feature: ["unlimited", "calendar", "debrief", "pdf_export"],
   "trial-banner": ["unlimited", "calendar", "debrief", "drift"],
   momentum: ["unlimited", "drift", "timer_reschedule", "calendar"],
 };

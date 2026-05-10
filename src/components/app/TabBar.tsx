@@ -7,8 +7,8 @@ import { haptics } from "@/lib/haptics";
 import type { LucideIcon } from "lucide-react";
 
 const tabs = [
-  { to: "/today", icon: Home, label: "Today", tour: "tab-today" },
   { to: "/tracker", icon: Timer, label: "Timer", tour: "tab-tracker" },
+  { to: "/today", icon: Home, label: "Today", tour: "tab-today" },
   { to: "/history", icon: BarChart2, label: "History", tour: "tab-history" },
   { to: "/settings", icon: SettingsIcon, label: "Settings", tour: "tab-settings" },
 ];

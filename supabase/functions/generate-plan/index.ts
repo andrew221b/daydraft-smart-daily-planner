@@ -10,7 +10,8 @@ const FREE_PLAN_LIMIT = 5;
 serve(async (req) => {
   if (req.method === "OPTIONS") return new Response(null, { headers: corsHeaders });
   try {
-    const { raw_input: rawInputValue, energy_preference, name, mode, start_time, clarified_tasks, planning_context, plan_date, now_iso, timezone, hours_already_committed, active_hours_start, active_hours_end, ai_tone, ai_tone_custom, behavior_signals, ai_memory } = await req.json();
+    const { raw_input: rawInputValue, energy_preference, name, mode, start_time, clarified_tasks, planning_context, plan_date, now_iso, timezone, hours_already_committed, active_hours_start, active_hours_end, ai_tone, ai_tone_custom, ai_context_custom: aiContextFromBody, behavior_signals, ai_memory } = await req.json();
+    let aiContextCustom: string = typeof aiContextFromBody === "string" ? aiContextFromBody : "";
     let raw_input = rawInputValue;
     const clarifiedList = Array.isArray(clarified_tasks) ? clarified_tasks : [];
     const reviewedTasksInSheet = clarifiedList.length > 0;
@@ -135,6 +136,18 @@ serve(async (req) => {
           authedUserId = u.user.id;
           const { data: p } = await supabase.from("user_patterns").select("*").eq("user_id", u.user.id).maybeSingle();
           pattern = p;
+          if (!aiContextCustom) {
+            try {
+              const { data: prof } = await supabase
+                .from("profiles")
+                .select("ai_context_custom")
+                .eq("id", u.user.id)
+                .maybeSingle();
+              if (prof && typeof (prof as any).ai_context_custom === "string") {
+                aiContextCustom = (prof as any).ai_context_custom || "";
+              }
+            } catch (_e) { /* non-fatal */ }
+          }
           // Pro: pull today's calendar events if connected
           const { data: sub } = await supabase.from("subscriptions").select("status").eq("user_id", u.user.id).maybeSingle();
           const isPro = sub?.status === "active" || sub?.status === "trialing";
@@ -477,6 +490,10 @@ How to use it:
 FIXED calendar events you must schedule around (do not move, do not duplicate; emit them as kind="task" with type="communication" and a reasoning that mentions "from your calendar"):
 ${calendarEvents.map((e: any) => `- ${e.start_time} (${e.duration_min}m) ${e.title}`).join("\n")}` : "";
 
+    const personalContextHints = aiContextCustom && aiContextCustom.trim()
+      ? `\nPersonal context about this user (treat as authoritative background, never repeat verbatim):\n- ${aiContextCustom.trim().slice(0, 500)}`
+      : "";
+
     const system = `You are DayDraft, an expert productivity planner. Build a realistic, energy-aware schedule from a raw task list.
 ${toneLine}
 Context:
@@ -495,6 +512,8 @@ Rules:
 - HARD BUDGET: the sum of duration_min of all task blocks MUST NOT exceed ${Math.round(trueHoursLeft * 60)} minutes. If the user's input would exceed this, drop the lowest-priority items and START the subtext with "⚠️ Heads up: " followed by exactly which items got dropped and why (e.g. "⚠️ Heads up: dropped 'finish slides' — only ${trueHoursLeft.toFixed(1)}h left today.").
 - Classify each task as deep_work, communication, or routine.
 - Use kind="task" for actual tasks, "break" for breaks, "lunch" for lunch.
+- EXPLICIT TIME EXTRACTION (HIGHEST PRIORITY): scan EVERY raw task line for an explicit clock time ("at 3pm", "15:00", "к 9 утра", "в 14:30", "9am call", "after 17:00"). If found, that task MUST use that exact time as start_time and MUST NOT be shifted. Treat it as a fixed commitment just like a calendar event. Schedule everything else around it.
+- PARALLEL / OVERLAPPING ACTIVITIES: if two tasks have overlapping time windows that the user clearly intends to do together (e.g. "walk with son 15:00-16:00" + "call client 15:19" → the call happens during the walk), KEEP BOTH at their explicit times and mark the secondary one with parallel_with_index = (zero-based index of the primary block). Do NOT push them sequentially. The shorter / interrupting task is parallel_with the longer one.
 - Also set block_type for every block:
   - "rest" for breaks/lunch and transition/recovery blocks,
   - "personal" for errands/personal logistics (visits, groceries, appointments, family logistics),
@@ -510,7 +529,7 @@ Rules:
 - LIGHT-DAY DETECTION: if the user only listed a tiny amount of work (≤ 60 min total) AND there is plenty of time left in the day (trueHoursLeft ≥ 4h), do NOT pad with invented tasks. Instead, schedule ONLY what the user gave you and START the subtext with "✨ Light day — " followed by a warm one-liner suggesting a self-care or restorative activity (walk, stretch, read, call a friend). Do not add those activities as blocks unless the user mentions them.
 - SELF-CARE NUDGE: if the day is heavy (≥ 6h of deep_work) consider inserting one short "Recharge" break (kind="break", 10-15 min, type="routine") between deep blocks, with a reasoning like "Quick reset to keep your focus sharp."
 - Summary: short, e.g. "5 tasks · 3 focus blocks · Done by 5pm".
-- Subtext: one short sentence.${clarifiedHints}${patternHints}${behaviorHints}${overshootHints}${memoryHints}${learningHints}${emotionalHints}${calHints}`;
+- Subtext: one short sentence.${clarifiedHints}${patternHints}${behaviorHints}${overshootHints}${memoryHints}${learningHints}${emotionalHints}${calHints}${personalContextHints}`;
 
     const tools = [{
       type: "function",
@@ -535,6 +554,7 @@ Rules:
                   block_type: { type: "string", enum: ["work", "rest", "personal"] },
                   reasoning: { type: "string" },
                   location: { type: "string" },
+                  parallel_with_index: { type: "integer", description: "Zero-based index of another block this one happens IN PARALLEL with (overlapping times intended to be done together). Omit if not parallel." },
                 },
                 required: ["start_time", "duration_min", "title", "type", "kind"],
                 additionalProperties: false,
