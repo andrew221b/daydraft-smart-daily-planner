@@ -38,7 +38,6 @@ import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover
 import { Calendar } from "@/components/ui/calendar";
 import { cn } from "@/lib/utils";
 import { toast } from "sonner";
-import { ProBadge } from "@/components/app/ProBadge";
 import { useEntitlement } from "@/hooks/useEntitlement";
 import { UpgradeSheet } from "@/components/app/UpgradeSheet";
 import { ProFeatureHighlights } from "@/components/app/ProFeatureHighlights";
@@ -713,9 +712,6 @@ export default function Today() {
                 </p>
               ) : null}
             </div>
-            <div className="flex shrink-0 items-start gap-1.5 pt-0.5">
-              <ProBadge />
-            </div>
           </div>
           <div className="mt-3.5 h-px w-full bg-gradient-to-r from-transparent via-border/80 to-transparent" />
           <div className="mt-2.5 text-[11px] font-medium text-secondary-fg tracking-tight">
@@ -734,14 +730,9 @@ export default function Today() {
               <div className="type-section">Status</div>
               <div className="type-body truncate">{planStats.done} of {planStats.total} completed</div>
             </div>
-            <button
-              type="button"
-              disabled={rescueLoading || rescueApplying}
-              onClick={() => void rescueMyDay(true)}
-              className="h-8 px-3 rounded-lg border border-accent surface-accent text-[12px] font-medium text-primary pressable shrink-0 disabled:opacity-50 disabled:pointer-events-none"
-            >
-              Rescue my day ↗
-            </button>
+            <span className="inline-flex items-center gap-1 h-7 px-2.5 rounded-full bg-primary/10 border border-primary/30 text-[11px] font-medium text-primary">
+              <CalendarDays className="h-3 w-3" /> Plan ready
+            </span>
           </div>
         )}
         {isPro && debriefOpen && (
