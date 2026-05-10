@@ -232,6 +232,17 @@ export default function Settings() {
                 className="mt-2 min-h-[70px] surface-card border-soft rounded-xl text-[13px]"
               />
             )}
+            <div className="mt-3">
+              <div className="text-[11px] text-secondary-fg mb-1.5">About you (optional context for AI)</div>
+              <Textarea
+                value={profile?.ai_context_custom || ""}
+                onChange={(e) => update({ ai_context_custom: e.target.value } as any)}
+                placeholder="e.g. I'm a parent of a 4yo, work remote, struggle with mornings, prefer deep work after lunch."
+                maxLength={500}
+                className="min-h-[80px] surface-card border-soft rounded-xl text-[13px]"
+              />
+              <p className="mt-1 text-[10px] text-secondary-fg">AI uses this in plans, insights, and replies.</p>
+            </div>
           </Section>
 
           {/* 4. Notifications + Calendar — connected channels */}
@@ -318,6 +329,16 @@ export default function Settings() {
           {/* 6. Help + legal — quiet, terminal items */}
           <Section title="More">
             <div className="rounded-[18px] border border-soft surface-card backdrop-blur-sm divide-y divide-border/50 overflow-hidden">
+              {!isPro && (
+                <button
+                  onClick={() => setUpgradeOpen(true)}
+                  className="w-full flex items-center gap-3 px-4 py-3 pressable hover:bg-surface-elevated"
+                >
+                  <Sparkles className="h-4 w-4 text-primary" />
+                  <span className="text-[14px] flex-1 text-left">Upgrade to Pro</span>
+                  <span className="text-secondary-fg">›</span>
+                </button>
+              )}
               <button
                 onClick={async () => {
                   await tour.resetAll();
