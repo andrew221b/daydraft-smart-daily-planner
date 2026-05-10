@@ -10,7 +10,8 @@ const FREE_PLAN_LIMIT = 5;
 serve(async (req) => {
   if (req.method === "OPTIONS") return new Response(null, { headers: corsHeaders });
   try {
-    const { raw_input: rawInputValue, energy_preference, name, mode, start_time, clarified_tasks, planning_context, plan_date, now_iso, timezone, hours_already_committed, active_hours_start, active_hours_end, ai_tone, ai_tone_custom, behavior_signals, ai_memory } = await req.json();
+    const { raw_input: rawInputValue, energy_preference, name, mode, start_time, clarified_tasks, planning_context, plan_date, now_iso, timezone, hours_already_committed, active_hours_start, active_hours_end, ai_tone, ai_tone_custom, ai_context_custom: aiContextFromBody, behavior_signals, ai_memory } = await req.json();
+    let aiContextCustom: string = typeof aiContextFromBody === "string" ? aiContextFromBody : "";
     let raw_input = rawInputValue;
     const clarifiedList = Array.isArray(clarified_tasks) ? clarified_tasks : [];
     const reviewedTasksInSheet = clarifiedList.length > 0;
@@ -135,6 +136,18 @@ serve(async (req) => {
           authedUserId = u.user.id;
           const { data: p } = await supabase.from("user_patterns").select("*").eq("user_id", u.user.id).maybeSingle();
           pattern = p;
+          if (!aiContextCustom) {
+            try {
+              const { data: prof } = await supabase
+                .from("profiles")
+                .select("ai_context_custom")
+                .eq("id", u.user.id)
+                .maybeSingle();
+              if (prof && typeof (prof as any).ai_context_custom === "string") {
+                aiContextCustom = (prof as any).ai_context_custom || "";
+              }
+            } catch (_e) { /* non-fatal */ }
+          }
           // Pro: pull today's calendar events if connected
           const { data: sub } = await supabase.from("subscriptions").select("status").eq("user_id", u.user.id).maybeSingle();
           const isPro = sub?.status === "active" || sub?.status === "trialing";
