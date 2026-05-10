@@ -529,8 +529,7 @@ Rules:
 - LIGHT-DAY DETECTION: if the user only listed a tiny amount of work (≤ 60 min total) AND there is plenty of time left in the day (trueHoursLeft ≥ 4h), do NOT pad with invented tasks. Instead, schedule ONLY what the user gave you and START the subtext with "✨ Light day — " followed by a warm one-liner suggesting a self-care or restorative activity (walk, stretch, read, call a friend). Do not add those activities as blocks unless the user mentions them.
 - SELF-CARE NUDGE: if the day is heavy (≥ 6h of deep_work) consider inserting one short "Recharge" break (kind="break", 10-15 min, type="routine") between deep blocks, with a reasoning like "Quick reset to keep your focus sharp."
 - Summary: short, e.g. "5 tasks · 3 focus blocks · Done by 5pm".
-- Subtext: one short sentence.${clarifiedHints}${patternHints}${behaviorHints}${overshootHints}${memoryHints}${learningHints}${emotionalHints}${calHints}`;
-const __SYSTEM_TAIL__ = personalContextHints; // kept for clarity
+- Subtext: one short sentence.${clarifiedHints}${patternHints}${behaviorHints}${overshootHints}${memoryHints}${learningHints}${emotionalHints}${calHints}${personalContextHints}`;
 
     const tools = [{
       type: "function",
@@ -555,6 +554,7 @@ const __SYSTEM_TAIL__ = personalContextHints; // kept for clarity
                   block_type: { type: "string", enum: ["work", "rest", "personal"] },
                   reasoning: { type: "string" },
                   location: { type: "string" },
+                  parallel_with_index: { type: "integer", description: "Zero-based index of another block this one happens IN PARALLEL with (overlapping times intended to be done together). Omit if not parallel." },
                 },
                 required: ["start_time", "duration_min", "title", "type", "kind"],
                 additionalProperties: false,
