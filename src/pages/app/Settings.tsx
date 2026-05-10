@@ -127,21 +127,6 @@ export default function Settings() {
         <h1 className="type-title mt-2 text-balance">Settings</h1>
 
         <div className="mt-8 space-y-8">
-          {/* 1. Plan card — most important context */}
-          <ProCard
-            entitlement={entitlement} isPro={isPro} subscriptionPro={subscriptionPro} devSimulatePro={devSimulatePro}
-            planQuotaUsed={planQuotaUsed} planQuotaLimit={planQuotaLimit} planQuotaRemaining={planQuotaRemaining}
-            onUpgrade={() => setUpgradeOpen(true)}
-          />
-
-          {!isPro && (
-            <Section title="Included with Pro">
-              <div id="pro-features" className="rounded-[14px] border border-soft surface-card overflow-hidden">
-                <ProFeatureHighlights onUpgrade={() => setUpgradeOpen(true)} />
-              </div>
-            </Section>
-          )}
-
           {import.meta.env.DEV && (
             <Section title="Developer">
               <div className="rounded-[14px] border border-dashed border-soft surface-card px-4 py-3 space-y-2">
