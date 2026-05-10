@@ -16,6 +16,7 @@ import { useEntitlement } from "@/hooks/useEntitlement";
 import { writeDevSimulatePro } from "@/lib/devEntitlement";
 import { Sheet, SheetContent, SheetHeader, SheetTitle, SheetDescription } from "@/components/ui/sheet";
 import { UpgradeSheet } from "@/components/app/UpgradeSheet";
+import { ProFeatureHighlights } from "@/components/app/ProFeatureHighlights";
 import { enablePush, disablePush, pushSupported } from "@/lib/push";
 import { useTour, TOUR_TODAY } from "@/components/app/Tour";
 import { VisualMode, useVisualMode } from "@/lib/visualMode";
