@@ -17,6 +17,7 @@ import ResetPassword from "./pages/app/ResetPassword";
 import Privacy from "./pages/legal/Privacy";
 import Terms from "./pages/legal/Terms";
 
+const Home = lazy(() => import("./pages/app/Home"));
 const Today = lazy(() => import("./pages/app/Today"));
 const Planning = lazy(() => import("./pages/app/Planning"));
 const DayView = lazy(() => import("./pages/app/DayView"));
@@ -25,7 +26,6 @@ const Recap = lazy(() => import("./pages/app/Recap"));
 const RecapWeek = lazy(() => import("./pages/app/RecapWeek"));
 const History = lazy(() => import("./pages/app/History"));
 const Settings = lazy(() => import("./pages/app/Settings"));
-const Tracker = lazy(() => import("./pages/app/Tracker"));
 const Onboarding = lazy(() => import("./pages/app/Onboarding"));
 const Auth = lazy(() => import("./pages/app/Auth"));
 const DeleteAccount = lazy(() => import("./pages/legal/DeleteAccount"));
@@ -53,14 +53,14 @@ const RequireAuth = ({ children }: { children: JSX.Element }) => {
   // authenticated users into app routes before profile/onboarding is known.
   const onboardingResolved = profile?.onboarded === true;
   if (!onboardingResolved && !onOnboardingRoute) return <Navigate to="/onboarding" replace />;
-  if (onboardingResolved && onOnboardingRoute) return <Navigate to="/today" replace />;
+  if (onboardingResolved && onOnboardingRoute) return <Navigate to="/home" replace />;
   return children;
 };
 
 const RootRedirect = () => {
   const { user, loading } = useAuth();
   if (loading) return <PageFallback />;
-  return <Navigate to={user ? "/tracker" : "/auth"} replace />;
+  return <Navigate to={user ? "/home" : "/auth"} replace />;
 };
 
 const ThemedToaster = () => {
@@ -91,11 +91,12 @@ const App = () => (
             <Route path="/forgot-password" element={<ForgotPassword />} />
             <Route path="/reset-password" element={<ResetPassword />} />
             <Route path="/onboarding" element={<RequireAuth><SuspenseRoute><Onboarding /></SuspenseRoute></RequireAuth>} />
+            <Route path="/home" element={<RequireAuth><SuspenseRoute><Home /></SuspenseRoute></RequireAuth>} />
             <Route path="/today" element={<RequireAuth><SuspenseRoute><Today /></SuspenseRoute></RequireAuth>} />
             <Route path="/today/planning" element={<RequireAuth><SuspenseRoute><Planning /></SuspenseRoute></RequireAuth>} />
             <Route path="/today/plan" element={<RequireAuth><SuspenseRoute><DayView /></SuspenseRoute></RequireAuth>} />
             <Route path="/focus/:blockId" element={<RequireAuth><SuspenseRoute><Focus /></SuspenseRoute></RequireAuth>} />
-            <Route path="/tracker" element={<RequireAuth><SuspenseRoute><Tracker /></SuspenseRoute></RequireAuth>} />
+            <Route path="/tracker" element={<RequireAuth><Navigate to="/home?tracker=1" replace /></RequireAuth>} />
             <Route path="/recap" element={<RequireAuth><SuspenseRoute><Recap /></SuspenseRoute></RequireAuth>} />
             <Route path="/recap/week" element={<RequireAuth><SuspenseRoute><RecapWeek /></SuspenseRoute></RequireAuth>} />
             <Route path="/history" element={<RequireAuth><SuspenseRoute><History /></SuspenseRoute></RequireAuth>} />

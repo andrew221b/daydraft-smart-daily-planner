@@ -1,6 +1,6 @@
 import { Play, PartyPopper } from "lucide-react";
 import { Button } from "@/components/ui/button";
-import { Block, fmtTime, typeColor, isUserTask } from "@/lib/daydraft";
+import { Block, fmtTime, typeColor, isUserTask, blockSlotEndHHMM } from "@/lib/daydraft";
 import { Link } from "react-router-dom";
 
 function timeToMin(t: string): number {
@@ -9,7 +9,7 @@ function timeToMin(t: string): number {
 }
 
 /**
- * Surfaces the next actionable task on today's plan — the fastest path back into Focus.
+ * Next task — restrained card, echoes DayView timing (until end of slot).
  */
 export function NextUpCard({
   blocks,
@@ -26,13 +26,15 @@ export function NextUpCard({
 
   if (pending.length === 0) {
     return (
-      <div className="rounded-[20px] border border-success/22 bg-success/[0.055] backdrop-blur-md px-4 py-3.5 shadow-card flex items-center gap-3">
-        <PartyPopper className="h-5 w-5 text-success shrink-0" />
+      <div className="rounded-[18px] border border-success/20 bg-success/[0.04] px-5 py-4 flex items-center gap-4">
+        <PartyPopper className="h-5 w-5 text-success shrink-0 opacity-90" />
         <div className="min-w-0 flex-1">
-          <div className="text-[13px] font-semibold text-foreground">All tasks done</div>
-          <p className="text-[11.5px] text-secondary-fg mt-0.5">Close the loop with a quick recap — it keeps tomorrow sharper.</p>
+          <div className="text-[14px] font-medium text-foreground/95 tracking-tight">All clear</div>
+          <p className="text-[12px] text-secondary-fg/75 mt-1 leading-snug">
+            Brief recap seals the rhythm for tomorrow.
+          </p>
         </div>
-        <Button asChild size="sm" className="shrink-0 rounded-xl bg-success text-success-foreground hover:bg-success/90">
+        <Button asChild size="sm" className="shrink-0 h-9 rounded-xl bg-success/90 text-success-foreground hover:bg-success">
           <Link to="/recap">Recap</Link>
         </Button>
       </div>
@@ -43,31 +45,32 @@ export function NextUpCard({
   const ordered = [...pending].sort((a, b) => timeToMin(a.start_time) - timeToMin(b.start_time));
   const next = ordered[0]!;
   const startM = timeToMin(next.start_time);
-  const endM = startM + next.duration_min;
+  const endM = timeToMin(blockSlotEndHHMM(next));
   const status =
-    nowM < startM ? "Coming up" : nowM <= endM ? "Now" : "Still open";
+    nowM < startM ? "Soon" : nowM <= endM ? "Now" : "Open";
 
   return (
-    <div className="rounded-[20px] border border-primary/14 bg-primary/[0.035] backdrop-blur-md px-4 py-3.5 shadow-card">
-      <div className="flex items-start justify-between gap-3">
-        <div className="min-w-0 flex-1">
-          <div className="flex items-center gap-2">
-            <span className="text-[10px] font-semibold uppercase tracking-wider text-primary">{status}</span>
-            <span className="text-[11px] text-secondary-fg font-mono-sf tabular-nums">{fmtTime(next.start_time)}</span>
-            <span className="h-1 w-1 rounded-full bg-border shrink-0" />
-            <span className="text-[11px] text-secondary-fg">{next.duration_min} min</span>
+    <div className="rounded-[18px] px-5 py-4 border border-transparent">
+      <div className="flex items-start justify-between gap-4">
+        <div className="min-w-0 flex-1 space-y-2">
+          <div className="flex flex-wrap items-center gap-x-2 gap-y-1 text-[11px] text-secondary-fg/75">
+            <span className="font-medium uppercase tracking-[0.12em] text-primary/85">{status}</span>
+            <span className="tabular-nums font-mono-sf">{fmtTime(next.start_time)}</span>
+            <span className="opacity-40">→</span>
+            <span className="tabular-nums font-mono-sf">{fmtTime(blockSlotEndHHMM(next))}</span>
           </div>
-          <div className="mt-1.5 flex items-center gap-2 min-w-0">
-            <span className="h-1.5 w-1.5 rounded-full shrink-0" style={{ background: typeColor(next.type) }} />
-            <span className="text-[15px] font-medium leading-snug line-clamp-2 break-words">{next.title}</span>
+          <div className="flex items-start gap-2.5 min-w-0 pt-0.5">
+            <span className="h-1.5 w-1.5 rounded-full shrink-0 mt-1.5 opacity-85" style={{ background: typeColor(next.type) }} />
+            <span className="text-[16px] font-medium leading-snug line-clamp-3 text-foreground/92 tracking-tight break-words">{next.title}</span>
           </div>
+          <p className="text-[11px] text-secondary-fg/65 pl-4">{next.duration_min} min window</p>
         </div>
         <Button
           asChild
           size="sm"
-          className="shrink-0 h-9 rounded-xl bg-primary text-primary-foreground hover:bg-primary/92 px-3"
+          className="shrink-0 h-10 rounded-xl px-4 bg-primary/92 text-primary-foreground hover:bg-primary shadow-none"
         >
-          <Link to={`/focus/${next.id}`} className="inline-flex items-center gap-1.5">
+          <Link to={`/focus/${next.id}`} className="inline-flex items-center gap-2 font-medium">
             <Play className="h-3.5 w-3.5" fill="currentColor" />
             Focus
           </Link>
@@ -76,9 +79,9 @@ export function NextUpCard({
       <button
         type="button"
         onClick={onOpenPlan}
-        className="mt-2.5 text-[11.5px] text-secondary-fg hover:text-primary transition-colors"
+        className="mt-4 text-[11.5px] text-secondary-fg/70 hover:text-primary/90 transition-colors font-medium pressable ml-4"
       >
-        View full day →
+        Full day →
       </button>
     </div>
   );

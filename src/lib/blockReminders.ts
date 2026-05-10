@@ -1,4 +1,4 @@
-import type { Block } from "@/lib/daydraft";
+import { type Block, blockSlotEndHHMM } from "@/lib/daydraft";
 
 /**
  * Local block-start reminders.
@@ -25,23 +25,26 @@ const REPEAT_INTERVAL_MIN = 5;
 export type ReminderConfig = {
   enabled: boolean;
   leadsMin: number[]; // e.g. [10, 2]
-  repeats: number;    // re-fire N times after start (every 5 min)
+  repeats: number; // re-fire N times after start (every 5 min)
+  /** Minutes before block end ("window closing"). Empty = off. Default one soft ping. */
+  endLeadsMin: number[];
 };
 
 const KEY = (blockId: string) => `dd_reminders_${blockId}`;
 
 export const getReminderConfig = (blockId: string): ReminderConfig => {
-  if (typeof window === "undefined") return { enabled: true, leadsMin: DEFAULT_LEADS_MIN, repeats: DEFAULT_REPEATS };
+  if (typeof window === "undefined") return { enabled: true, leadsMin: DEFAULT_LEADS_MIN, repeats: DEFAULT_REPEATS, endLeadsMin: [2] };
   try {
     const raw = localStorage.getItem(KEY(blockId));
-    if (!raw) return { enabled: true, leadsMin: DEFAULT_LEADS_MIN, repeats: DEFAULT_REPEATS };
+    if (!raw) return { enabled: true, leadsMin: DEFAULT_LEADS_MIN, repeats: DEFAULT_REPEATS, endLeadsMin: [2] };
     const parsed = JSON.parse(raw);
     return {
       enabled: parsed.enabled !== false,
       leadsMin: Array.isArray(parsed.leadsMin) && parsed.leadsMin.length ? parsed.leadsMin : DEFAULT_LEADS_MIN,
       repeats: typeof parsed.repeats === "number" ? parsed.repeats : DEFAULT_REPEATS,
+      endLeadsMin: Array.isArray(parsed.endLeadsMin) ? parsed.endLeadsMin : [2],
     };
-  } catch { return { enabled: true, leadsMin: DEFAULT_LEADS_MIN, repeats: DEFAULT_REPEATS }; }
+  } catch { return { enabled: true, leadsMin: DEFAULT_LEADS_MIN, repeats: DEFAULT_REPEATS, endLeadsMin: [2] }; }
 };
 
 export const setReminderConfig = (blockId: string, cfg: ReminderConfig) => {
@@ -125,8 +128,25 @@ export const scheduleBlockReminders = (
     cfg.leadsMin.forEach((lead) => {
       schedule(startMs - lead * 60_000, `In ${lead} min · ${b.start_time} · ${b.duration_min} min`);
     });
+    const [eh, emin] = blockSlotEndHHMM(b as Block).split(":").map(Number);
+    const endMs = new Date(today.getFullYear(), today.getMonth(), today.getDate(), eh || 0, emin || 0, 0).getTime();
+    (cfg.endLeadsMin ?? [2]).forEach((lead) => {
+      if (lead < 0) return;
+      const label =
+        lead === 0 ? `Ends now · ${b.title}` : `Ends in ${lead} min · ${b.title}`;
+      schedule(endMs - lead * 60_000, `${label} · ${fmtEndClock(endMs)}`);
+    });
     for (let i = 1; i <= cfg.repeats; i++) {
       schedule(startMs + i * REPEAT_INTERVAL_MIN * 60_000, `Reminder · started at ${b.start_time}`);
     }
   });
 };
+
+function fmtEndClock(endMs: number) {
+  try {
+    const d = new Date(endMs);
+    return d.toLocaleTimeString(undefined, { hour: "numeric", minute: "2-digit" }).replace(/\s/g, "").toLowerCase();
+  } catch {
+    return "";
+  }
+}

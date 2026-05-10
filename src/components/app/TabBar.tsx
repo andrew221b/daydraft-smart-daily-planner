@@ -1,95 +1,115 @@
 import { useEffect, useRef } from "react";
-import type { CSSProperties } from "react";
 import { NavLink, useLocation } from "react-router-dom";
-import { Home, Timer, BarChart2, Settings as SettingsIcon } from "lucide-react";
-import { useTimeTracker, useTimeTrackerElapsed } from "@/hooks/useTimeTracker";
+import { Home, CalendarDays, BarChart2, Settings as SettingsIcon } from "lucide-react";
 import { haptics } from "@/lib/haptics";
 import type { LucideIcon } from "lucide-react";
 
 const tabs = [
-  { to: "/tracker", icon: Timer, label: "Timer", tour: "tab-tracker" },
-  { to: "/today", icon: Home, label: "Today", tour: "tab-today" },
+  { to: "/home", icon: Home, label: "Home", tour: "tab-home" },
+  { to: "/today", icon: CalendarDays, label: "Today", tour: "tab-today" },
   { to: "/history", icon: BarChart2, label: "History", tour: "tab-history" },
   { to: "/settings", icon: SettingsIcon, label: "Settings", tour: "tab-settings" },
-];
+] as const;
 
-const fmtMMSS = (s: number) => {
-  const mm = Math.floor(s / 60);
-  const ss = Math.max(0, Math.floor(s % 60));
-  return `${String(mm).padStart(2, "0")}:${String(ss).padStart(2, "0")}`;
+/** Must match Tailwind gap-1.5 (6px). */
+const TAB_GAP_PX = 6;
+
+const activeTabIndex = (pathname: string) => {
+  if (
+    pathname === "/" ||
+    pathname.startsWith("/home") ||
+    pathname.startsWith("/tracker") ||
+    pathname.startsWith("/focus")
+  ) {
+    return 0;
+  }
+  if (pathname.startsWith("/today")) return 1;
+  if (pathname.startsWith("/history") || pathname.startsWith("/stats")) return 2;
+  if (pathname.startsWith("/settings")) return 3;
+  return 0;
 };
 
 export const TabBar = () => {
-  const { active } = useTimeTracker();
-  const elapsedSec = useTimeTrackerElapsed();
   const { pathname } = useLocation();
   const prevPath = useRef<string | null>(null);
-  const activeIdx = Math.max(0, tabs.findIndex((t) => pathname.startsWith(t.to)));
-  const trackerLabel = active ? fmtMMSS(elapsedSec) : "Timer";
+
+  const activeIdx = activeTabIndex(pathname);
 
   useEffect(() => {
     if (prevPath.current !== null && prevPath.current !== pathname) haptics.selection();
     prevPath.current = pathname;
   }, [pathname]);
 
-  const tabCount = tabs.length;
+  const n = tabs.length;
+  const totalGapPx = Math.max(0, n - 1) * TAB_GAP_PX;
+  const pillWidthCalc = `(100% - ${totalGapPx}px) / ${n}`;
+  const indicatorStyle = {
+    width: `calc(${pillWidthCalc})`,
+    left: `calc(${activeIdx} * ((${pillWidthCalc}) + ${TAB_GAP_PX}px))`,
+    transitionTimingFunction: "cubic-bezier(0.25, 0.9, 0.2, 1)",
+  } as const;
 
   return (
     <nav
-      className="fixed bottom-0 left-1/2 -translate-x-1/2 w-[min(calc(100vw-24px),424px)] z-40"
+      className="fixed bottom-0 left-1/2 z-40 w-[min(calc(100vw-24px),424px)] -translate-x-1/2 px-px"
       style={{ paddingBottom: "max(env(safe-area-inset-bottom), 10px)" }}
     >
-      <div className="relative rounded-[28px] p-[1.5px] tabbar-shell-glow tabbar-outer-ring">
-        <div
-          className="relative bg-background/[0.78] backdrop-blur-2xl border border-soft/90 rounded-[26px] shadow-tab flex items-center px-1.5 py-1.5 ring-1 ring-black/[0.04] dark:ring-white/[0.09] overflow-hidden tabbar-luxe tabbar-glass-fix"
-          style={
-            {
-              "--tab-active": activeIdx,
-              "--tab-n": tabCount,
-            } as CSSProperties
-          }
-        >
-          <span
-            aria-hidden
-            className="pointer-events-none absolute top-1.5 bottom-1.5 rounded-[20px] border border-primary/35 tab-indicator-liquid tab-indicator-pill-glow"
-            style={{
-              background: "linear-gradient(145deg, hsl(var(--primary) / 0.34), hsl(var(--primary-glow) / 0.22))",
-              width: "calc((100% - 12px) / var(--tab-n))",
-              left: "calc(6px + (100% - 12px) * var(--tab-active) / var(--tab-n))",
-            }}
-          />
-          {tabs.map((it) => (
-            <TabItem key={it.to} {...it} label={it.to === "/tracker" ? trackerLabel : it.label} pulse={it.to === "/tracker" && !!active} />
-          ))}
+      <div
+        className="rounded-[26px] border border-border/55 bg-background/85 shadow-[0_12px_40px_-16px_rgb(0,0,0,0.2)] backdrop-blur-2xl dark:border-border/50 dark:bg-background/82 dark:shadow-[0_12px_36px_-14px_rgb(0,0,0,0.48)] dark:ring-1 dark:ring-white/[0.06]"
+        style={{ WebkitBackdropFilter: "blur(28px)", backdropFilter: "blur(28px)" }}
+      >
+        <div className="p-1.5">
+          <div className="relative isolate flex min-h-[48px] gap-1.5">
+            <span
+              aria-hidden
+              className="pointer-events-none absolute inset-y-0 z-0 rounded-2xl bg-primary/[0.12] ring-1 ring-inset ring-primary/20 transition-[left,width] duration-300 will-change-[left,width] dark:bg-primary/[0.14] dark:ring-primary/[0.26]"
+              style={indicatorStyle}
+            />
+            {tabs.map((it, idx) => (
+              <TabItem key={it.to} {...it} highlighted={activeIdx === idx} />
+            ))}
+          </div>
         </div>
       </div>
     </nav>
   );
 };
 
-function TabItem({ to, icon: Icon, label, tour, pulse }: { to: string; icon: LucideIcon; label: string; tour: string; pulse?: boolean }) {
+function TabItem({
+  to,
+  icon: Icon,
+  label,
+  tour,
+  highlighted,
+}: {
+  to: string;
+  icon: LucideIcon;
+  label: string;
+  tour: string;
+  highlighted: boolean;
+}) {
   return (
     <NavLink
       to={to}
       data-tour={tour}
-      className={({ isActive }) =>
-        `relative z-[1] flex min-h-[48px] flex-col items-center justify-center gap-0.5 flex-1 rounded-[14px] py-1.5 px-0.5 pressable transition-colors duration-300 ease-out ${
-          isActive
-            ? "text-primary"
-            : "text-secondary-fg hover:text-subtle"
-        }`
-      }
+      className={`relative z-[1] flex min-h-[46px] flex-1 flex-col items-center justify-center gap-0.5 rounded-xl py-1.5 pressable transition-colors duration-200 ease-out ${
+        highlighted ? "text-primary" : "text-secondary-fg hover:text-foreground/80"
+      }`}
       aria-label={label}
+      aria-current={highlighted ? "page" : undefined}
     >
-      {({ isActive }) => (
-        <>
-          <Icon className={`h-[18px] w-[18px] transition-transform duration-300 ease-out ${isActive ? "scale-[1.06] -translate-y-px" : "scale-100"}`} strokeWidth={isActive ? 2.1 : 1.8} aria-hidden />
-          <span className={`max-w-full truncate px-0.5 text-center text-[10px] font-semibold leading-tight tracking-tight transition-all duration-300 ease-out ${isActive ? "opacity-100 translate-y-0" : "opacity-[0.88] translate-y-px"}`}>
-            {label}
-          </span>
-          {pulse && <span className="absolute left-1/2 -translate-x-1/2 -top-0.5 h-1.5 w-1.5 rounded-full bg-cyan-300 tab-live-dot-pulse" aria-hidden />}
-        </>
-      )}
+      <Icon
+        className={`h-[18px] w-[18px] transition-[transform,stroke-width] duration-200 ease-out ${highlighted ? "scale-[1.04]" : ""}`}
+        strokeWidth={highlighted ? 2.1 : 1.75}
+        aria-hidden
+      />
+      <span
+        className={`max-w-full truncate px-0.5 text-center text-[10px] font-semibold leading-tight tracking-wide transition-opacity duration-200 ${
+          highlighted ? "opacity-100" : "opacity-[0.78]"
+        }`}
+      >
+        {label}
+      </span>
     </NavLink>
   );
 }

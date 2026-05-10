@@ -19,6 +19,7 @@ import { CSS } from "@dnd-kit/utilities";
 import { DurationPicker } from "@/components/app/DurationPicker";
 import { useProfile } from "@/hooks/useProfile";
 import { getTone, t as toneCopy } from "@/lib/tone";
+import { extractTaskTimeAnchors } from "@/lib/taskTimeAnchors";
 
 export type ClarifiedTask = {
   title: string;
@@ -46,11 +47,12 @@ interface Props {
   planDate?: string;
 }
 
-// naive parse: extract "30m"/"1h", "at 2pm", urgency hints
+// naive parse: extract "30m"/"1h", explicit clock phrases + urgency hints
 function parseLine(line: string): Row {
-  let title = line.trim();
+  const anchors = extractTaskTimeAnchors(line);
+  let title = anchors.cleanedTitle;
   let estimate_min = 30;
-  let fixed_time: string | undefined;
+  let fixed_time: string | undefined = anchors.fixedStart;
 
   const dur = title.match(/\b(\d+)\s*(h|hr|hour|hrs|hours|m|min|mins|minutes)\b/i);
   if (dur) {
@@ -58,21 +60,12 @@ function parseLine(line: string): Row {
     estimate_min = /^h/i.test(dur[2]) ? n * 60 : n;
     title = title.replace(dur[0], "").trim();
   }
-  const at = title.match(/\bat\s+(\d{1,2})(?::(\d{2}))?\s*(am|pm)?\b/i);
-  if (at) {
-    let h = parseInt(at[1], 10);
-    const m = at[2] ? parseInt(at[2], 10) : 0;
-    const ap = at[3]?.toLowerCase();
-    if (ap === "pm" && h < 12) h += 12;
-    if (ap === "am" && h === 12) h = 0;
-    fixed_time = `${String(h).padStart(2, "0")}:${String(m).padStart(2, "0")}`;
-    title = title.replace(at[0], "").trim();
-  }
   let priority: ClarifiedTask["priority"] = "medium";
   if (/!{2,}|urgent|asap|critical/i.test(title)) priority = "high";
   if (/maybe|nice to have|optional|low/i.test(title)) priority = "low";
   title = title.replace(/!+$/, "").replace(/[-•*]\s*/, "").trim();
-  return { title, estimate_min, priority, fixed_time };
+  const notes = anchors.deadlineNote?.trim();
+  return { title, estimate_min, priority, fixed_time, ...(notes ? { notes } : {}) };
 }
 
 const fmt = (m: number) =>

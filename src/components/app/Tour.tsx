@@ -152,9 +152,9 @@ export const TOUR_TODAY: TourFlow = {
   steps: [
     {
       id: "plan",
-      selector: "[data-tour='today-plan']",
-      title: "Start here — plan your day",
-      body: "Tap to write everything on your mind (messy lists are fine). Then generate a timed schedule — DayDraft adds durations and realistic order.",
+      selector: "[data-tour='home-plan-cta']",
+      title: "Plan your day",
+      body: "Tap Edit plan to brain-dump tasks and generate a timed schedule. Your timer stays on Home for quick logging.",
       placement: "bottom",
     },
     {
@@ -165,10 +165,10 @@ export const TOUR_TODAY: TourFlow = {
       placement: "top",
     },
     {
-      id: "tab-tracker",
-      selector: "[data-tour='tab-tracker']",
-      title: "Timer",
-      body: "Optional: track time by category (work, admin, etc.). Helpful if you report hours or want honest data on your week.",
+      id: "tab-home",
+      selector: "[data-tour='tab-home']",
+      title: "Home",
+      body: "Track time and see today's next step here. Expand for week/month stats. Edit plan opens the full planner.",
       placement: "top",
     },
     {

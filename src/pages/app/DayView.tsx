@@ -4,7 +4,10 @@ import { useNavigate, useSearchParams } from "react-router-dom";
 import { Shell } from "@/components/app/Shell";
 import { useAuth } from "@/hooks/useAuth";
 import { supabase } from "@/integrations/supabase/client";
-import { Block, fmtTime, todayDateStr, parseDateStr, friendlyDateFor, isFutureDateStr, isUserTask, inferScheduleBlockType } from "@/lib/daydraft";
+import {
+  Block, fmtTime, todayDateStr, parseDateStr, friendlyDateFor, isFutureDateStr, isUserTask, inferScheduleBlockType, packLinearSchedule,
+  blockSlotEndHHMM,
+} from "@/lib/daydraft";
 import { ChevronLeft, Sparkles, Play, RefreshCw, Plus, Coffee, ChevronDown, CalendarDays, Trash2, Bell, BellOff, MoreHorizontal, Clock, Info, MapPin, Copy, Target } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { DndContext, closestCenter, PointerSensor, TouchSensor, useSensor, useSensors, DragEndEvent } from "@dnd-kit/core";
@@ -38,6 +41,7 @@ import { resolveActualMinutesOnComplete, wallMinutesFromSlotStart } from "@/lib/
 import { useCalmMode } from "@/lib/calmMode";
 import { useEntitlement } from "@/hooks/useEntitlement";
 import { UpgradeSheet } from "@/components/app/UpgradeSheet";
+import { trackAiEvent } from "@/lib/aiRuntime";
 
 type ExBlock = Block & {
   ai_reasoning?: string | null;
@@ -47,17 +51,9 @@ type ExBlock = Block & {
   location_lng?: number | null;
   is_calendar_event?: boolean;
   completed_at?: string | null;
-};
-
-const retime = (blocks: ExBlock[]): ExBlock[] => {
-  if (!blocks.length) return blocks;
-  const [h, m] = blocks[0].start_time.split(":").map(Number);
-  let cursor = h * 60 + m;
-  return blocks.map((b, i) => {
-    const start = i === 0 ? b.start_time : `${String(Math.floor(cursor / 60)).padStart(2,"0")}:${String(cursor % 60).padStart(2,"0")}`;
-    cursor += b.duration_min;
-    return { ...b, start_time: start };
-  });
+  overlap_ok?: boolean | null;
+  parallel_group_id?: string | null;
+  slot_end_time?: string | null;
 };
 
 export default function DayView() {
@@ -84,7 +80,7 @@ export default function DayView() {
   const [moreOpen, setMoreOpen] = useState(false);
   const [tappedBlock, setTappedBlock] = useState<ExBlock | null>(null);
   const [reminderBlockId, setReminderBlockId] = useState<string | null>(null);
-  const [reminderCfg, setReminderCfg] = useState<ReminderConfig>({ enabled: true, leadsMin: [2], repeats: 0 });
+  const [reminderCfg, setReminderCfg] = useState<ReminderConfig>({ enabled: true, leadsMin: [2], repeats: 0, endLeadsMin: [2] });
   const [durationEditId, setDurationEditId] = useState<string | null>(null);
   const [startTimeEditId, setStartTimeEditId] = useState<string | null>(null);
   const [startTimeDraft, setStartTimeDraft] = useState<string>("09:00");
@@ -180,7 +176,7 @@ export default function DayView() {
     const snapshot = blocks;
     const removed = snapshot.find(b => b.id === id);
     if (!removed) return;
-    const next = retime(blocks.filter(x => x.id !== id));
+    const next = packLinearSchedule(blocks.filter(x => x.id !== id));
     setBlocks(next);
     haptics.impact("light");
     try {
@@ -217,6 +213,9 @@ export default function DayView() {
               location_lat: removed.location_lat ?? null,
               location_lng: removed.location_lng ?? null,
               is_calendar_event: removed.is_calendar_event ?? null,
+              overlap_ok: removed.overlap_ok ?? false,
+              parallel_group_id: removed.parallel_group_id ?? null,
+              slot_end_time: removed.slot_end_time ?? blockSlotEndHHMM(removed),
             } as any);
             await persistOrder(snapshot);
             await invalidatePlanCaches();
@@ -344,26 +343,28 @@ export default function DayView() {
       position: insertAt,
     };
     const snapshot = blocks;
-    const next = retime([...snapshot, item]);
+    const next = packLinearSchedule([...snapshot, item]);
     setBlocks(next);
     setAddOpen(false);
     setNewTitle(""); setNewDuration(30); setNewKind("task");
     haptics.notify("success");
     setPlanMutating(true);
     try {
+      const placed = next.find((b) => b.id === newId)!;
       const { error: insertErr } = await supabase.from("blocks").insert({
         id: newId,
         plan_id: plan.id,
         user_id: user.id,
-        start_time: item.start_time,
-        duration_min: item.duration_min,
-        title: item.title,
-        type: item.type,
-        kind: item.kind,
-        estimated_minutes: item.estimated_minutes ?? item.duration_min,
-        actual_minutes: item.actual_minutes ?? null,
-        block_type: inferScheduleBlockType(item),
-        position: item.position,
+        start_time: placed.start_time,
+        duration_min: placed.duration_min,
+        title: placed.title,
+        type: placed.type,
+        kind: placed.kind,
+        estimated_minutes: placed.estimated_minutes ?? placed.duration_min,
+        actual_minutes: placed.actual_minutes ?? null,
+        block_type: inferScheduleBlockType(placed),
+        position: placed.position,
+        slot_end_time: blockSlotEndHHMM(placed),
       });
       if (insertErr) throw insertErr;
       await persistOrder(next);
@@ -383,6 +384,7 @@ export default function DayView() {
         .update({
           position: i,
           start_time: b.start_time,
+          slot_end_time: blockSlotEndHHMM(b),
         })
         .eq("id", b.id),
     );
@@ -397,7 +399,7 @@ export default function DayView() {
     const oldIdx = blocks.findIndex(b => b.id === active.id);
     const newIdx = blocks.findIndex(b => b.id === over.id);
     if (oldIdx === -1 || newIdx === -1) return;
-    const reordered = retime(arrayMove(blocks, oldIdx, newIdx));
+    const reordered = packLinearSchedule(arrayMove(blocks, oldIdx, newIdx));
     const snapshot = blocks;
     setBlocks(reordered);
     void persistOrder(reordered)
@@ -428,6 +430,11 @@ export default function DayView() {
           plan_date: viewDate,
           now_iso: new Date().toISOString(),
           timezone: tz,
+          active_hours_start: (profile as any)?.active_hours_start || "09:00",
+          active_hours_end: (profile as any)?.active_hours_end || "22:00",
+          ai_tone: (profile as any)?.ai_tone || "professional",
+          ai_tone_custom: (profile as any)?.ai_tone_custom || null,
+          ai_planning_rules: (profile as any)?.ai_planning_rules || "",
         },
       });
       if (error) throw error;
@@ -458,6 +465,11 @@ export default function DayView() {
         location: b.location ?? null,
         location_lat: b.location_lat ?? null,
         location_lng: b.location_lng ?? null,
+        overlap_ok: Boolean(b.overlap_ok),
+        parallel_group_id: typeof b.parallel_group_id === "string" && b.parallel_group_id ? b.parallel_group_id : null,
+        slot_end_time: typeof b.slot_end_time === "string" && /^\d{2}:\d{2}$/.test(b.slot_end_time)
+          ? b.slot_end_time
+          : blockSlotEndHHMM({ start_time: b.start_time, duration_min: b.duration_min } as Block),
       }));
       if (newBlocks.length) await supabase.from("blocks").insert(newBlocks);
       const { data: bs } = await supabase.from("blocks").select("*").eq("plan_id", plan.id).order("position");
@@ -513,76 +525,102 @@ export default function DayView() {
           await invalidatePlanCaches();
         }}
       >
-      <div className="px-5 pt-9">
-      <div className="hero-glass px-4 py-5 md:px-4.5 py-5 flex items-center justify-between gap-2 shadow-elevated">
-        <button onClick={() => nav("/today")} className="h-11 w-11 shrink-0 rounded-full flex items-center justify-center text-secondary-fg hover:text-foreground hover:bg-surface/50 pressable">
-          <ChevronLeft className="h-5 w-5" />
-        </button>
-        <h1 className="font-display text-[19px] font-semibold tracking-tight flex-1 text-center min-w-0 truncate">
-          {isToday ? "Today" : friendlyDateFor(parseDateStr(viewDate))}
-        </h1>
-        <div className="flex items-center shrink-0">
-          {!calmMode && !planMissing && blocks.length > 0 && (
-            <button
-              type="button"
-              onClick={() => void copyDayOutline()}
-              className="h-11 w-11 rounded-full flex items-center justify-center text-secondary-fg hover:text-foreground hover:bg-surface/50 pressable"
-              aria-label="Copy plan as text"
-            >
-              <Copy className="h-4 w-4" />
-            </button>
-          )}
+      <div className="px-6 pt-12 pb-2">
+        <div className="rounded-[22px] border border-border/45 bg-background/30 backdrop-blur-[2px] px-3 py-3.5 flex items-center justify-between gap-2">
           <button
-            onClick={() => setMoreOpen(true)}
-            disabled={planMissing}
-            className="h-11 w-11 rounded-full flex items-center justify-center text-secondary-fg hover:text-foreground hover:bg-surface/50 pressable disabled:opacity-30"
-            aria-label="More"
+            type="button"
+            onClick={() => nav(isToday ? "/home" : `/today?date=${viewDate}`)}
+            className="h-10 w-10 shrink-0 rounded-full flex items-center justify-center text-secondary-fg/90 hover:text-foreground hover:bg-muted/40 pressable transition-colors"
+            aria-label={isToday ? "Back to home" : "Back to planner"}
           >
-            <MoreHorizontal className="h-5 w-5" />
+            <ChevronLeft className="h-5 w-5" />
           </button>
+          <div className="flex-1 min-w-0 flex flex-col items-center px-1">
+            <p className="text-[10px] font-medium uppercase tracking-[0.2em] text-secondary-fg/65">
+              {isToday ? "Timeline" : "Plan"}
+            </p>
+            <h1 className="font-display text-[22px] font-medium tracking-[-0.02em] text-foreground/95 text-center truncate w-full mt-1 leading-tight">
+              {isToday ? "Today" : friendlyDateFor(parseDateStr(viewDate))}
+            </h1>
+            {!isToday && (
+              <button
+                type="button"
+                onClick={() => nav("/home")}
+                className="mt-1.5 text-[12px] font-medium text-primary/90 pressable"
+              >
+                Jump to today
+              </button>
+            )}
+          </div>
+          <div className="flex items-center shrink-0 gap-0.5">
+            {!calmMode && !planMissing && blocks.length > 0 && (
+              <button
+                type="button"
+                onClick={() => void copyDayOutline()}
+                className="h-10 w-10 rounded-full flex items-center justify-center text-secondary-fg/90 hover:text-foreground hover:bg-muted/40 pressable transition-colors"
+                aria-label="Copy plan as text"
+              >
+                <Copy className="h-4 w-4" />
+              </button>
+            )}
+            <button
+              onClick={() => setMoreOpen(true)}
+              disabled={planMissing}
+              className="h-10 w-10 rounded-full flex items-center justify-center text-secondary-fg/90 hover:text-foreground hover:bg-muted/40 pressable disabled:opacity-30 transition-colors"
+              aria-label="More"
+            >
+              <MoreHorizontal className="h-5 w-5" />
+            </button>
+          </div>
         </div>
-      </div>
       </div>
 
       {calmMode && !planMissing && (
-        <div className="px-5 mt-4">
-          <div className="rounded-xl border border-soft surface-soft px-3 py-2 text-[11px] text-secondary-fg">
-            Calm Mode: simplified view with fewer secondary controls.
+        <div className="px-6 mt-5">
+          <div className="rounded-[18px] border border-border/40 bg-background/25 px-3.5 py-2.5 text-[11px] text-secondary-fg/85 leading-relaxed">
+            Calm Mode — fewer secondary controls.
           </div>
         </div>
       )}
-      {/* Compact progress strip — single line, no boxed card */}
+      {/* Progress — soft container */}
       {!calmMode && !planMissing && totalTasks > 0 && (
-        <div className="px-5 mt-4">
-          <div className="flex items-baseline justify-between">
-            <div className="text-[13.5px] text-foreground tabular-nums">
-              <span className="font-semibold">{doneTasks}</span>
-              <span className="text-secondary-fg">/{totalTasks} done</span>
+        <div className="px-6 mt-5">
+          <div className="rounded-[22px] border border-border/45 bg-background/25 backdrop-blur-[2px] px-4 py-3.5">
+            <div className="flex items-baseline justify-between gap-2">
+              <div className="text-[13px] text-foreground/95 tabular-nums">
+                <span className="font-medium">{doneTasks}</span>
+                <span className="text-secondary-fg/80">/{totalTasks} done</span>
+              </div>
+              <div className="text-[11px] text-secondary-fg/75 tabular-nums">
+                {Math.round(userTasks.reduce((s, b) => s + b.duration_min, 0) / 6) / 10}h planned
+              </div>
             </div>
-            <div className="text-[11.5px] text-secondary-fg tabular-nums">
-              {Math.round(userTasks.reduce((s, b) => s + b.duration_min, 0) / 6) / 10}h planned
+            <div className="mt-2.5 h-1.5 rounded-full bg-muted/60 overflow-hidden">
+              <div
+                className="h-full rounded-full bg-primary/85 transition-all duration-500"
+                style={{ width: totalTasks ? `${(doneTasks / totalTasks) * 100}%` : "0%" }}
+              />
             </div>
-          </div>
-          <div className="mt-2 h-1 rounded-full bg-muted overflow-hidden">
-            <div className="h-full bg-primary transition-all duration-500" style={{ width: totalTasks ? `${(doneTasks / totalTasks) * 100}%` : "0%" }} />
           </div>
         </div>
       )}
 
-      <div className="px-4 mt-5">
+      <div className="px-6 mt-8 pb-6">
         {planMissing && (
-          <div className="mx-2 app-card px-6 py-5 text-center">
-            <CalendarDays className="h-6 w-6 mx-auto text-secondary-fg mb-2" />
-            <div className="text-sm font-medium">
+          <div className="rounded-[22px] border border-dashed border-border/50 bg-muted/[0.1] px-6 py-8 text-center">
+            <CalendarDays className="h-6 w-6 mx-auto text-secondary-fg/70 mb-3 opacity-80" />
+            <div className="text-[15px] font-medium text-foreground/95 tracking-tight">
               {isFuture ? `No plan for ${friendlyDateFor(parseDateStr(viewDate))} yet`
                 : isToday ? "No plan for today yet"
                 : `No plan for ${friendlyDateFor(parseDateStr(viewDate))}`}
             </div>
-            <p className="text-xs text-secondary-fg mt-1">
-              {isToday || isFuture ? "Head back to the planner." : "This day was never planned."}
+            <p className="text-[12px] text-secondary-fg/80 mt-2 leading-relaxed">
+              {isToday || isFuture ? "Head back to the planner to shape this day." : "This day was never planned."}
             </p>
-            <Button onClick={() => nav(isToday ? "/today" : `/today?date=${viewDate}`)}
-              className="mt-4 h-10 px-4 rounded-lg bg-primary hover:bg-primary/92 text-primary-foreground text-[13px] font-medium pressable">
+            <Button
+              onClick={() => nav(isToday ? "/today" : `/today?date=${viewDate}`)}
+              className="mt-6 h-11 px-5 rounded-2xl bg-primary hover:bg-primary/92 text-primary-foreground text-[13px] font-medium pressable"
+            >
               Open planner
             </Button>
           </div>
@@ -594,7 +632,7 @@ export default function DayView() {
             {!loading && (
               <DndContext sensors={sensors} collisionDetection={closestCenter} onDragEnd={onDragEnd}>
                 <SortableContext items={upcomingBlocks.map(b => b.id)} strategy={verticalListSortingStrategy}>
-                  <div className="space-y-2">
+                  <div className="space-y-2.5">
                     {upcomingBlocks.map((b, i) => (
                       <SortableBlock
                         key={b.id}
@@ -621,23 +659,23 @@ export default function DayView() {
               <button
                 onClick={() => setAddOpen(true)}
                 disabled={planMutating}
-                className="mt-3 w-full inline-flex items-center justify-center gap-1.5 text-[12px] text-secondary-fg hover:text-primary border border-soft rounded-xl h-11 surface-soft pressable"
+                className="mt-4 w-full inline-flex items-center justify-center gap-1.5 text-[12px] font-medium text-foreground/75 border border-border/40 rounded-2xl h-11 bg-transparent hover:bg-muted/35 pressable transition-colors"
               >
-                <Plus className="h-3.5 w-3.5" /> Add task
+                <Plus className="h-3.5 w-3.5 opacity-70" /> Add task
               </button>
             )}
 
             {!calmMode && completedBlocks.length > 0 && (
-              <div className="mt-6">
+              <div className="mt-8">
                 <button
                   onClick={() => setCollapseDone(c => !c)}
-                  className="w-full flex items-center justify-between px-3 py-2 text-[11px] text-secondary-fg pressable hover:text-foreground"
+                  className="w-full flex items-center justify-between px-1 py-2 text-[11px] font-medium uppercase tracking-[0.14em] text-secondary-fg/70 pressable hover:text-foreground/90"
                 >
                   <span>{completedBlocks.length} completed</span>
-                  <ChevronDown className={`h-3.5 w-3.5 transition-transform ${collapseDone ? "" : "rotate-180"}`} />
+                  <ChevronDown className={`h-3.5 w-3.5 transition-transform opacity-70 ${collapseDone ? "" : "rotate-180"}`} />
                 </button>
                 {!collapseDone && (
-                  <div className="space-y-2 mt-1.5">
+                  <div className="space-y-2.5 mt-2">
                     {completedBlocks.map(b => (
                       <SortableBlock
                         key={b.id}
@@ -665,7 +703,7 @@ export default function DayView() {
           style={{ bottom: "calc(84px + env(safe-area-inset-bottom))" }}
         >
           <Button onClick={() => nav(`/focus/${firstUnfinishedTask.id}`)}
-            className="w-full h-12 rounded-xl bg-primary hover:bg-primary/92 text-primary-foreground text-[15px] font-medium pressable shadow-elevated">
+            className="w-full h-12 rounded-2xl bg-primary hover:bg-primary/92 text-primary-foreground text-[15px] font-medium pressable">
             <Play className="h-4 w-4" fill="currentColor" /> {toneCopy(getTone(profile as any), doneTasks === 0 ? "start_first" : "start_next")}
           </Button>
         </div>
@@ -675,7 +713,7 @@ export default function DayView() {
           className="fixed left-1/2 -translate-x-1/2 w-full max-w-[440px] px-6 z-30"
           style={{ bottom: "calc(84px + env(safe-area-inset-bottom))" }}
         >
-          <Button onClick={() => nav(isToday ? "/recap" : `/recap?date=${viewDate}`)} className="w-full h-12 rounded-xl bg-success text-success-foreground hover:bg-success/90 text-[15px] font-medium pressable shadow-elevated">
+          <Button onClick={() => nav(isToday ? "/recap" : `/recap?date=${viewDate}`)} className="w-full h-12 rounded-2xl bg-success text-success-foreground hover:bg-success/90 text-[15px] font-medium pressable">
             {toneCopy(getTone(profile as any), "recap_cta")} →
           </Button>
         </div>
@@ -683,7 +721,7 @@ export default function DayView() {
 
       {/* Block tap sheet — single place for all per-block actions */}
       <Sheet open={!!tappedBlock} onOpenChange={(v) => !v && setTappedBlock(null)}>
-        <SheetContent side="bottom" className="rounded-t-2xl border-soft bg-popover">
+        <SheetContent side="bottom" className="rounded-t-[28px] border-border/45 bg-popover">
           {tappedBlock && (
             <div className="space-y-1">
               <SheetHeader className="text-left mb-3">
@@ -776,7 +814,7 @@ export default function DayView() {
 
       {/* Header "more" sheet — Re-plan, Delete plan */}
       <Sheet open={moreOpen} onOpenChange={setMoreOpen}>
-        <SheetContent side="bottom" className="rounded-t-2xl border-soft bg-popover">
+        <SheetContent side="bottom" className="rounded-t-[28px] border-border/45 bg-popover">
           <SheetHeader className="text-left mb-3">
             <SheetTitle className="text-[16px]">Plan options</SheetTitle>
           </SheetHeader>
@@ -805,7 +843,7 @@ export default function DayView() {
 
       {/* Add task sheet */}
       <Sheet open={addOpen} onOpenChange={setAddOpen}>
-        <SheetContent side="bottom" className="rounded-t-2xl border-soft bg-popover">
+        <SheetContent side="bottom" className="rounded-t-[28px] border-border/45 bg-popover">
           <SheetHeader className="text-left">
             <SheetTitle className="flex items-center gap-2 text-[16px]">
               <Plus className="h-4 w-4 text-primary" /> Add to day
@@ -883,7 +921,7 @@ export default function DayView() {
       </AlertDialog>
 
       <Sheet open={!!reminderBlockId} onOpenChange={(v) => !v && setReminderBlockId(null)}>
-        <SheetContent side="bottom" className="rounded-t-3xl border-soft bg-surface-elevated">
+        <SheetContent side="bottom" className="rounded-t-[28px] border-border/45 bg-surface-elevated">
           <SheetHeader>
             <SheetTitle className="flex items-center gap-2"><Bell className="h-4 w-4 text-primary" /> Reminders</SheetTitle>
           </SheetHeader>
@@ -934,6 +972,30 @@ export default function DayView() {
                       >{n === 0 ? "Don't repeat" : `${n}× every 5 min`}</button>
                     ))}
                   </div>
+                  <div className="text-[11px] uppercase tracking-wider text-secondary-fg mt-5 mb-2">Before scheduled end</div>
+                  <div className="flex flex-wrap gap-1.5">
+                    {[
+                      { n: [] as number[], label: "Off" },
+                      { n: [2], label: "2 min" },
+                      { n: [5], label: "5 min" },
+                      { n: [2, 0], label: "2 + at end" },
+                    ].map((opt) => {
+                      const arr = reminderCfg.endLeadsMin ?? [2];
+                      const on =
+                        opt.n.length === 0 ? arr.length === 0 :
+                        arr.length === opt.n.length && opt.n.every((v, i) => v === arr[i]);
+                      return (
+                        <button
+                          key={opt.label}
+                          onClick={() => saveReminders({ ...reminderCfg, endLeadsMin: [...opt.n] })}
+                          type="button"
+                          className={`h-8 px-3 rounded-full text-[12px] font-medium pressable border ${on ? "surface-accent border-accent text-primary" : "surface-soft border-soft text-secondary-fg"}`}
+                        >
+                          {opt.label}
+                        </button>
+                      );
+                    })}
+                  </div>
                 </div>
                 <p className="text-[11px] text-secondary-fg leading-relaxed">
                   Reminders fire while the app is open. Saved on this device.
@@ -958,11 +1020,18 @@ export default function DayView() {
           const snapshot = blocks;
           const updated = [...blocks];
           updated[idx] = { ...updated[idx], duration_min: v };
-          const next = retime(updated);
+          const next = packLinearSchedule(updated);
           setBlocks(next);
           setPlanMutating(true);
           try {
-            const { error } = await supabase.from("blocks").update({ duration_min: v }).eq("id", id);
+            if ((snapshot[idx] as ExBlock)?.ai_reasoning) {
+              trackAiEvent("plan_manual_edit_after_ai", { field: "duration_min", block_id: id });
+            }
+            const updatedBlock = next.find((x) => x.id === id)!;
+            const { error } = await supabase.from("blocks").update({
+              duration_min: v,
+              slot_end_time: blockSlotEndHHMM(updatedBlock),
+            }).eq("id", id);
             if (error) throw error;
             await persistOrder(next);
             await invalidatePlanCaches();
@@ -985,7 +1054,7 @@ export default function DayView() {
       />
 
       <Sheet open={!!startTimeEditId} onOpenChange={(v) => !v && setStartTimeEditId(null)}>
-        <SheetContent side="bottom" className="rounded-t-2xl border-soft bg-popover">
+        <SheetContent side="bottom" className="rounded-t-[28px] border-border/45 bg-popover">
           <SheetHeader className="text-left mb-3">
             <SheetTitle className="text-[16px]">Change start time</SheetTitle>
           </SheetHeader>
@@ -1018,24 +1087,16 @@ export default function DayView() {
                 const snapshot = blocks;
                 const updated = [...blocks];
                 updated[idx] = { ...updated[idx], start_time: startTimeDraft };
-                // Re-flow only blocks after this one
-                const [hh, mm] = startTimeDraft.split(":").map(Number);
-                let cursor = hh * 60 + mm + updated[idx].duration_min;
-                for (let i = idx + 1; i < updated.length; i++) {
-                  updated[i] = {
-                    ...updated[i],
-                    start_time: `${String(Math.floor(cursor / 60)).padStart(2,"0")}:${String(cursor % 60).padStart(2,"0")}`,
-                  };
-                  cursor += updated[i].duration_min;
-                }
-                setBlocks(updated);
+                const packed = packLinearSchedule(updated);
+                setBlocks(packed);
                 setStartTimeEditId(null);
                 haptics.notify("success");
                 setPlanMutating(true);
                 try {
-                  const { error } = await supabase.from("blocks").update({ start_time: startTimeDraft }).eq("id", id);
-                  if (error) throw error;
-                  await persistOrder(updated);
+                  if ((snapshot[idx] as ExBlock)?.ai_reasoning) {
+                    trackAiEvent("plan_manual_edit_after_ai", { field: "start_time", block_id: id });
+                  }
+                  await persistOrder(packed);
                   await invalidatePlanCaches();
                 } catch (e: any) {
                   setBlocks(snapshot);

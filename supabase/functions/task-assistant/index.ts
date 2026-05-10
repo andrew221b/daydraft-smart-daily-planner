@@ -8,7 +8,7 @@ const corsHeaders = {
 serve(async (req) => {
   if (req.method === "OPTIONS") return new Response(null, { headers: corsHeaders });
   try {
-    const { title, type, location, duration_min, ai_tone, ai_tone_custom, runtime_reason } = await req.json();
+    const { title, type, location, duration_min, ai_tone, ai_tone_custom, runtime_reason, ai_planning_rules } = await req.json();
     if (!title || typeof title !== "string") {
       return new Response(JSON.stringify({ error: "title required" }), {
         status: 400, headers: { ...corsHeaders, "Content-Type": "application/json" },
@@ -46,9 +46,13 @@ serve(async (req) => {
     const toneLine = ai_tone === "custom" && ai_tone_custom
       ? `Custom tone guidance: ${String(ai_tone_custom).slice(0, 250)}`
       : (toneMap[ai_tone] || toneMap.professional);
+    const prefsBlock =
+      typeof ai_planning_rules === "string" && ai_planning_rules.trim()
+        ? `\nUSER PLANNING PREFERENCES (keep advice compatible with these constraints):\n${String(ai_planning_rules).trim().slice(0, 900)}`
+        : "";
 
     const system = `You are a focused execution coach. The user is about to start a single task.
-${toneLine}
+${toneLine}${prefsBlock}
 Return:
 - 3-5 concrete sub-steps (verb-led, max 8 words each) that break the task down.
 - 2-4 useful resource links (real, well-known URLs only — docs, official sites, common tools). If you're not certain a URL is correct, omit it. Do not invent links.

@@ -8,7 +8,6 @@ import { useProfile } from "@/hooks/useProfile";
 import { useAuth } from "@/hooks/useAuth";
 import { supabase } from "@/integrations/supabase/client";
 import {
-  friendlyDate,
   todayDateStr,
   dateStr,
   parseDateStr,
@@ -18,6 +17,7 @@ import {
   typeColor,
   isUserTask,
   inferScheduleBlockType,
+  blockSlotEndHHMM,
 } from "@/lib/daydraft";
 import { getTone, t as toneCopy, greetingFor } from "@/lib/tone";
 import {
@@ -29,8 +29,6 @@ import {
   Plus,
   Pencil,
   ListChecks,
-  ShieldAlert,
-  Info,
   ChevronDown,
   ChevronUp,
 } from "lucide-react";
@@ -40,16 +38,14 @@ import { cn } from "@/lib/utils";
 import { toast } from "sonner";
 import { useEntitlement } from "@/hooks/useEntitlement";
 import { UpgradeSheet } from "@/components/app/UpgradeSheet";
-import { ProFeatureHighlights } from "@/components/app/ProFeatureHighlights";
 import { ClarifySheet, ClarifiedTask } from "@/components/app/ClarifySheet";
 import { PullToRefresh } from "@/components/app/PullToRefresh";
-import { useTour, TOUR_TODAY } from "@/components/app/Tour";
 import { haptics } from "@/lib/haptics";
 import { Sheet, SheetContent, SheetDescription, SheetHeader, SheetTitle } from "@/components/ui/sheet";
 import { NextUpCard } from "@/components/app/NextUpCard";
 import { readComposerDraft, writeComposerDraft, clearComposerDraft } from "@/lib/composerDraft";
 import { fetchPlanDashboard, planDashboardQueryKey } from "@/lib/planQueries";
-import { RescueMode } from "@/lib/productPolish";
+import { usePlannedDates } from "@/hooks/usePlannedDates";
 import { readAiWeeklyMemory, trackAiEvent } from "@/lib/aiRuntime";
 
 const DEFAULT_PLACEHOLDER =
@@ -62,7 +58,6 @@ export default function Today() {
   const nav = useNavigate();
   const [searchParams, setSearchParams] = useSearchParams();
   const { isPro, planQuotaRemaining } = useEntitlement();
-  const tour = useTour();
   const [upgradeOpen, setUpgradeOpen] = useState(false);
   const [upgradeReason, setUpgradeReason] = useState<"quota" | "feature" | "trial-banner" | "momentum">("feature");
   const [input, setInput] = useState("");
@@ -76,6 +71,8 @@ export default function Today() {
   const [composerOpen, setComposerOpen] = useState(false);
   const [composerExtrasOpen, setComposerExtrasOpen] = useState(false);
   const [pendingCaptureIds, setPendingCaptureIds] = useState<string[]>([]);
+  const { data: plannedDates = new Set<string>() } = usePlannedDates(user?.id);
+
   const { data: planData } = useQuery({
     queryKey: planDashboardQueryKey(user?.id ?? "", planDate),
     queryFn: () => fetchPlanDashboard(user!.id, planDate),
@@ -86,16 +83,6 @@ export default function Today() {
   const planBlocks = planData?.planBlocks ?? [];
   const hasPlanForDate = planData?.hasPlanForDate ?? false;
   const planSummary = planData?.planSummary ?? null;
-  const [rescueMode, setRescueMode] = useState<RescueMode>("balanced");
-  const [rescueRationale, setRescueRationale] = useState<string>("");
-  const [rescueExplain, setRescueExplain] = useState<string[]>([]);
-  const [rescueSheetOpen, setRescueSheetOpen] = useState(false);
-  const [rescueLoading, setRescueLoading] = useState(false);
-  const [rescueApplying, setRescueApplying] = useState(false);
-  const [rescuePendingBlocks, setRescuePendingBlocks] = useState<any[]>([]);
-  const [rescueDiffRows, setRescueDiffRows] = useState<Array<{ title: string; before: string; after: string }>>([]);
-  const [rescueDeferredRows, setRescueDeferredRows] = useState<Array<{ title: string; mins: number }>>([]);
-  const [rescueWindowLabel, setRescueWindowLabel] = useState("");
   const [debriefOpen, setDebriefOpen] = useState(false);
   const [debriefExpanded, setDebriefExpanded] = useState(false);
   const [debriefTitle, setDebriefTitle] = useState("Yesterday's debrief");
@@ -108,14 +95,6 @@ export default function Today() {
   const toMin = (hhmm: string) => {
     const [h, m] = String(hhmm || "").split(":").map(Number);
     return (Number.isFinite(h) ? h : 0) * 60 + (Number.isFinite(m) ? m : 0);
-  };
-  const fmtMin = (min: number) => {
-    const safe = Math.max(0, Math.round(min));
-    const h = Math.floor(safe / 60);
-    const m = safe % 60;
-    if (h <= 0) return `${m}m`;
-    if (m <= 0) return `${h}h`;
-    return `${h}h ${m}m`;
   };
   const openUpgrade = (reason: "quota" | "feature" | "trial-banner" | "momentum") => {
     setUpgradeReason(reason);
@@ -243,13 +222,6 @@ export default function Today() {
     })();
   }, [user?.id, planDate]);
 
-  useEffect(() => {
-    if (!profile?.onboarded) return;
-    if (profile.tour_seen && (profile.tour_seen as any).today) return;
-    const t = setTimeout(() => tour.start(TOUR_TODAY), 800);
-    return () => clearTimeout(t);
-  }, [profile?.onboarded, profile?.tour_seen]);
-
   const useYesterday = async (): Promise<boolean> => {
     if (!user) return false;
     const { data } = await supabase
@@ -317,137 +289,6 @@ export default function Today() {
     if (!loaded) toast("No reusable tasks found in previous plans");
   };
 
-  const rescueMyDay = async (manual = true) => {
-    if (busy || rescueLoading || rescueApplying) return;
-    if (!user || !profile || !hasPlanForDate || !planBlocks.length) return;
-    const activeEnd = (profile as any)?.active_hours_end || "18:00";
-    const nowMin = toMin(nowHM);
-    const endMin = Math.max(nowMin + 30, toMin(activeEnd));
-    const remaining = (planBlocks as Block[]).filter((b) => isUserTask(b) && !b.completed);
-    if (!remaining.length) {
-      toast("No remaining tasks to rescue.");
-      return;
-    }
-    const occupiedMin = (planBlocks as Block[])
-      .filter((b) => !b.completed && (b.is_calendar_event || b.kind === "lunch" || b.kind === "break"))
-      .filter((b) => {
-        const start = toMin(b.start_time);
-        const end = start + (b.duration_min || 0);
-        return end > nowMin && start < endMin;
-      })
-      .reduce((sum, b) => {
-        const start = toMin(b.start_time);
-        const end = start + (b.duration_min || 0);
-        return sum + Math.max(0, Math.min(end, endMin) - Math.max(start, nowMin));
-      }, 0);
-    const baseBudgetMin = Math.max(30, endMin - nowMin - occupiedMin);
-    const modeConfig = {
-      conservative: { maxBlocks: 2, maxTaskMin: 60, minTaskMin: 20, reserveMin: 30, label: "conservative" },
-      balanced: { maxBlocks: 4, maxTaskMin: 90, minTaskMin: 20, reserveMin: 15, label: "balanced" },
-      aggressive: { maxBlocks: 6, maxTaskMin: 110, minTaskMin: 15, reserveMin: 0, label: "aggressive" },
-    } as const;
-    const cfg = modeConfig[rescueMode];
-    const budgetMin = Math.max(30, baseBudgetMin - cfg.reserveMin);
-    const scored = remaining
-      .map((b) => {
-        const base = b.type === "deep_work" ? 24 : b.type === "communication" ? 15 : 12;
-        const overdueBoost = toMin(b.start_time) + (b.duration_min || 0) < nowMin ? 4 : 0;
-        const sizePenalty = Math.max(0, (b.duration_min || 0) - 75) * 0.08;
-        const modeBias =
-          rescueMode === "aggressive"
-            ? (isUserTask(b) ? 3 : 0)
-            : rescueMode === "conservative"
-              ? (b.type === "communication" || b.type === "routine" ? 2 : 0)
-              : 0;
-        return { ...b, score: base + overdueBoost + modeBias - sizePenalty };
-      })
-      .sort((a, b) => b.score - a.score);
-    const selected: Array<{ id: string; title: string; mins: number }> = [];
-    let used = 0;
-    for (const task of scored) {
-      const mins = Math.max(cfg.minTaskMin, Math.min(cfg.maxTaskMin, task.duration_min || 30));
-      if (used + mins > budgetMin && selected.length > 0) continue;
-      selected.push({ id: task.id, title: task.title, mins });
-      used += mins;
-      if (used >= budgetMin || selected.length >= cfg.maxBlocks) break;
-    }
-    if (!selected.length) {
-      toast("No rescue needed. Your plan is already realistic.");
-      return;
-    }
-    const selectedIds = new Set(selected.map((s) => s.id));
-    const deferred = remaining
-      .filter((b) => !selectedIds.has(b.id))
-      .map((b) => ({ title: b.title, mins: b.duration_min || 0 }));
-
-    setRescueSheetOpen(true);
-    setRescueLoading(true);
-    setRescueWindowLabel(`${fmtMin(budgetMin)} left before ${activeEnd}`);
-    setRescueDeferredRows(deferred);
-    haptics.impact("light");
-    try {
-      const raw_input = selected.map((b) => `${b.title} (${b.mins}m)`).join("\n");
-      const { data, error } = await supabase.functions.invoke("generate-plan", {
-        body: {
-          raw_input,
-          planning_context:
-            `Rescue mode: ${cfg.label}. Build a realistic re-plan from ${nowHM} to ${activeEnd}. ` +
-            `Respect this intensity: conservative keeps a lighter load, balanced keeps key priorities, aggressive maximizes what fits. ` +
-            `Defer everything that does not fit today.`,
-          energy_preference: profile.energy_preference,
-          name: profile.display_name,
-          mode: "replan",
-          start_time: nowHM,
-          plan_date: planDate,
-          now_iso: new Date().toISOString(),
-          timezone: profile.timezone || Intl.DateTimeFormat().resolvedOptions().timeZone,
-          active_hours_start: (profile as any).active_hours_start || "09:00",
-          active_hours_end: activeEnd,
-          ai_tone: (profile as any).ai_tone || "professional",
-          ai_tone_custom: (profile as any).ai_tone_custom || null,
-        },
-      });
-      if (error) throw error;
-      if (data?.error) throw new Error(data.error);
-      const nextBlocks = (data?.blocks || []) as any[];
-      const nextTasks = nextBlocks.filter((b: any) => b?.kind === "task");
-      const oldRows = remaining.map((b) => ({ title: b.title, before: b.start_time }));
-      const usedIdx = new Set<number>();
-      const diff = oldRows.map((row) => {
-        const exact = nextTasks.findIndex((n: any, i: number) => !usedIdx.has(i) && String(n.title || "").trim().toLowerCase() === row.title.trim().toLowerCase());
-        const pick = exact >= 0 ? exact : nextTasks.findIndex((_: any, i: number) => !usedIdx.has(i));
-        if (pick >= 0) usedIdx.add(pick);
-        const after = pick >= 0 ? String(nextTasks[pick]?.start_time || row.before) : "Deferred";
-        return { title: row.title, before: row.before, after };
-      }).filter((r) => r.before !== r.after).slice(0, 10);
-      setRescuePendingBlocks(nextBlocks);
-      setRescueDiffRows(diff);
-      setRescueRationale(`Rescue window (${cfg.label}): ${fmtMin(budgetMin)} before ${activeEnd}.`);
-      setRescueExplain([
-        `${selected.length} highest-priority tasks kept for today.`,
-        `${deferred.length} lower-priority task${deferred.length === 1 ? "" : "s"} moved to deferred.`,
-      ]);
-      trackAiEvent("ai_rescue_opened", {
-        mode: rescueMode,
-        selected_count: selected.length,
-        budget_min: budgetMin,
-        manual,
-        overdue_count: overdueCount,
-      });
-    } catch (e: any) {
-      setRescueSheetOpen(false);
-      toast.error(e?.message || "Unable to build rescue plan.");
-    } finally {
-      setRescueLoading(false);
-    }
-  };
-
-  const recalculateRescue = () => {
-    if (rescueLoading || rescueApplying) return;
-    void rescueMyDay(true);
-    trackAiEvent("ai_rescue_recalculated", { mode: rescueMode });
-  };
-
   const saveAsTemplate = async () => {
     if (!user || !input.trim()) { toast.error("Add tasks first"); return; }
     const name = prompt("Template name", "My standard day");
@@ -478,7 +319,7 @@ export default function Today() {
   };
 
   const openClarify = async () => {
-    if (busy || rescueLoading || rescueApplying) return;
+    if (busy) return;
     if (!input.trim()) { toast.error("Add at least one task"); return; }
     if (!user || !profile) return;
     if (!isPro) {
@@ -576,6 +417,7 @@ export default function Today() {
           active_hours_end: (profile as any).active_hours_end || "22:00",
           ai_tone: (profile as any).ai_tone || "professional",
           ai_tone_custom: (profile as any).ai_tone_custom || null,
+          ai_planning_rules: (profile as any).ai_planning_rules || "",
           behavior_signals: behaviorSignals,
           ai_memory: readAiWeeklyMemory(),
         },
@@ -609,18 +451,19 @@ export default function Today() {
         location: b.location ?? null,
         location_lat: b.location_lat ?? null,
         location_lng: b.location_lng ?? null,
+        overlap_ok: Boolean(b.overlap_ok),
+        parallel_group_id: typeof b.parallel_group_id === "string" && b.parallel_group_id ? b.parallel_group_id : null,
+        slot_end_time: blockSlotEndHHMM({
+          start_time: b.start_time,
+          duration_min: b.duration_min,
+          slot_end_time: b.slot_end_time ?? null,
+        } as any),
       }));
       if (!blocks.length) {
         await supabase.from("plans").delete().eq("id", planRow.id);
         throw new Error("No schedule was generated — try fewer tasks or simpler wording.");
       }
       await supabase.from("blocks").insert(blocks);
-      if (rescueRationale) {
-        trackAiEvent("ai_rescue_applied", {
-          mode: rescueMode,
-          blocks_generated: blocks.length,
-        });
-      }
       if (pendingCaptureIds.length) {
         try {
           await supabase.from("quick_captures").update({ consumed: true } as any)
@@ -641,6 +484,7 @@ export default function Today() {
       sessionStorage.removeItem("dd_planning_input");
       sessionStorage.removeItem("dd_planning_plan_date");
       void queryClient.invalidateQueries({ queryKey: planDashboardQueryKey(user.id, planDate) });
+      void queryClient.invalidateQueries({ queryKey: ["plan-dates-markers", user.id] });
       nav(planDate === todayDateStr() ? "/today/plan" : `/today/plan?date=${planDate}`);
     } catch (e: any) {
       toast.error(e.message || "Planning failed");
@@ -667,16 +511,6 @@ export default function Today() {
   }, [remainingMin]);
 
   const isToday = planDate === todayDateStr();
-  const overdueCount = useMemo(() => {
-    if (!isToday || !hasPlanForDate) return 0;
-    const nowMin = toMin(nowHM);
-    return (planBlocks as Block[]).filter((b) => {
-      if (!isUserTask(b) || b.completed) return false;
-      const end = toMin(b.start_time) + (b.duration_min || 0);
-      return end < nowMin;
-    }).length;
-  }, [hasPlanForDate, isToday, nowHM, planBlocks]);
-  const isRunningBehind = overdueCount >= 2;
   const tone = getTone(profile as any);
 
   return (
@@ -685,59 +519,73 @@ export default function Today() {
         onRefresh={async () => {
           if (!user) return;
           await queryClient.invalidateQueries({ queryKey: planDashboardQueryKey(user.id, planDate) });
+          await queryClient.invalidateQueries({ queryKey: ["plan-dates-markers", user.id] });
         }}
       >
-      <div className="px-5 pt-8">
+      <div className="px-6 pt-14 pb-12 space-y-10">
         {/* ── Header ─────────────────────────── */}
-        <div className="hero-glass px-4.5 py-5 md:px-5 shadow-elevated px-[20px]">
-          <div className="flex items-start justify-between gap-2.5">
-            <div className="min-w-0 flex-1">
-              <p className="kicker">{friendlyDate()}</p>
-              <h1 className="type-title mt-1.5 pr-1 text-balance leading-[1.08] break-words">
+        <header className="space-y-4">
+          <div className="space-y-2 min-w-0">
+            <p className="text-[10px] font-medium uppercase tracking-[0.2em] text-secondary-fg/70">
+              {isToday ? "Today · planner" : friendlyDateFor(parseDateStr(planDate))}
+            </p>
+            <h1 className="font-display text-[28px] font-medium tracking-[-0.02em] text-foreground/95 text-balance leading-[1.15] break-words pr-1">
               {greetingFor(tone, profile?.display_name)}
-              </h1>
-              {!profile?.onboarded ? (
-                <p className="type-body text-secondary-fg mt-2.25">
-                  Use the bar below: <span className="text-subtle">Today</span> for this screen,{" "}
-                  <span className="text-subtle">Timer</span> for time, <span className="text-subtle">History</span> to review past days,{" "}
-                  <span className="text-subtle">Settings</span> for your account.
-                </p>
-              ) : hasPlanForDate && planDate === todayDateStr() ? (
-                <p className="type-body text-secondary-fg mt-2.25">
-                  Your plan is below — check off tasks there. Open <span className="text-subtle">Focus</span> when you want a single full-screen view of the current block.
-                </p>
-              ) : hasPlanForDate && !isToday ? (
-                <p className="type-body text-secondary-fg mt-2.25">
-                  You&apos;re viewing another day. Switch back to today with the date control, or scroll down to edit this plan.
-                </p>
-              ) : null}
-            </div>
+            </h1>
+            {!profile?.onboarded ? (
+              <p className="text-[13px] text-secondary-fg/85 leading-relaxed pt-0.5 max-w-md">
+                Use <span className="text-foreground/75">Home</span> for time and glance, <span className="text-foreground/75">Today</span> on the bar for this planner,{" "}
+                <span className="text-foreground/75">History</span> for past days, <span className="text-foreground/75">Settings</span> for your account.
+              </p>
+            ) : hasPlanForDate && planDate === todayDateStr() ? (
+              <p className="text-[13px] text-secondary-fg/85 leading-relaxed pt-0.5 max-w-md">
+                Your plan is below — check off tasks in the timeline. Open <span className="text-foreground/75">Focus</span> for a calm full-screen view of the current block.
+              </p>
+            ) : hasPlanForDate && !isToday ? (
+              <p className="text-[13px] text-secondary-fg/85 leading-relaxed pt-0.5 max-w-md">
+                You&apos;re viewing another day. Use the date control to return to today, or scroll to edit this plan.
+              </p>
+            ) : null}
           </div>
-          <div className="mt-3.5 h-px w-full bg-gradient-to-r from-transparent via-border/80 to-transparent" />
-          <div className="mt-2.5 text-[11px] font-medium text-secondary-fg tracking-tight">
-            {hasPlanForDate
-              ? isToday
-                ? "Today's schedule is ready"
-                : `Plan for ${friendlyDateFor(parseDateStr(planDate))}`
-              : isToday
-                ? "No schedule yet — add tasks and generate"
-                : `No plan for ${friendlyDateFor(parseDateStr(planDate))}`}
+          <div className="flex flex-wrap items-center justify-between gap-3 pt-1">
+            <p className="text-[12px] text-secondary-fg/75 leading-snug">
+              {hasPlanForDate
+                ? isToday
+                  ? "Schedule ready — open the timeline when you need detail."
+                  : `Plan for ${friendlyDateFor(parseDateStr(planDate))}.`
+                : isToday
+                  ? "No schedule yet — brain-dump below, then generate."
+                  : `No plan for ${friendlyDateFor(parseDateStr(planDate))} yet.`}
+            </p>
+            {!isToday && (
+              <button
+                type="button"
+                onClick={() => {
+                  setPlanDate(todayDateStr());
+                  setSearchParams((prev) => {
+                    const n = new URLSearchParams(prev);
+                    n.delete("date");
+                    return n;
+                  });
+                }}
+                className="text-[12px] font-medium text-primary/90 pressable whitespace-nowrap shrink-0"
+              >
+                Back to today
+              </button>
+            )}
           </div>
-        </div>
-        {hasPlanForDate && (
-          <div className="mt-3 app-card px-3 py-5 flex items-center justify-between gap-3">
-            <div className="min-w-0">
-              <div className="type-section">Status</div>
-              <div className="type-body truncate">{planStats.done} of {planStats.total} completed</div>
-            </div>
-            <span className="inline-flex items-center gap-1 h-7 px-2.5 rounded-full bg-primary/10 border border-primary/30 text-[11px] font-medium text-primary">
-              <CalendarDays className="h-3 w-3" /> Plan ready
-            </span>
+        </header>
+        {hasPlanForDate && !isToday && (
+          <div className="rounded-[22px] border border-border/45 bg-background/30 backdrop-blur-[2px] px-4 py-3.5">
+            <p className="text-[10px] font-medium uppercase tracking-[0.18em] text-secondary-fg/65">That day</p>
+            <p className="text-[13px] text-foreground/90 mt-1.5 tabular-nums">
+              {planStats.done} of {planStats.total} completed
+            </p>
           </div>
         )}
         {isPro && debriefOpen && (
           <div
-            className="mt-3 app-card px-3.5 py-5"
+            className="rounded-[22px] border border-border/45 bg-background/30 backdrop-blur-[2px] px-4 py-5"
             onTouchStart={(e) => {
               debriefSwipeStartX.current = e.changedTouches[0]?.clientX || 0;
             }}
@@ -786,14 +634,16 @@ export default function Today() {
           </div>
         )}
         {isToday && hasPlanForDate && planStats.total > 0 && (
-          <div className="mt-3 px-1">
-            <div className="flex items-center justify-between type-meta">
-              <span>{planStats.done} / {planStats.total} done · {remainingLabel} remaining</span>
-              <span className="tabular-nums">{progressPct}%</span>
+          <div className="rounded-[22px] border border-border/45 bg-background/30 backdrop-blur-[2px] px-4 py-4">
+            <div className="flex items-center justify-between text-[12px] text-secondary-fg/85">
+              <span className="tabular-nums">
+                {planStats.done} / {planStats.total} done · {remainingLabel} left
+              </span>
+              <span className="tabular-nums font-medium text-foreground/80">{progressPct}%</span>
             </div>
-            <div className="mt-1.5 h-1.5 rounded-full bg-muted/70 overflow-hidden">
+            <div className="mt-2.5 h-1.5 rounded-full bg-muted/60 overflow-hidden">
               <div
-                className="h-full rounded-full bg-primary/90"
+                className="h-full rounded-full bg-primary/85"
                 style={{
                   width: `${progressPct}%`,
                   transition: "width 420ms cubic-bezier(0.22, 1, 0.36, 1)",
@@ -803,156 +653,83 @@ export default function Today() {
           </div>
         )}
 
-        {profile?.onboarded && (
-          <div className="mt-4 app-card px-3.5 py-5">
-            <div className="flex items-center justify-between gap-2">
-              <span className="text-[11px] uppercase tracking-wider text-secondary-fg inline-flex items-center gap-1.5">
-                <ShieldAlert className="h-3.5 w-3.5 text-primary" />
-                Rescue
-              </span>
-              <span className="text-[11px] text-secondary-fg">{nowHM}</span>
-            </div>
-            {hasPlanForDate ? (
-            <div className="mt-2.5 space-y-2">
-                <div className="grid grid-cols-3 gap-2">
-                  <button
-                    type="button"
-                    disabled={rescueLoading || rescueApplying}
-                    onClick={() => setRescueMode("conservative")}
-                    className={`h-9 rounded-lg border text-[11px] font-medium pressable disabled:opacity-50 disabled:pointer-events-none ${rescueMode === "conservative" ? "surface-accent border-accent text-primary" : "surface-soft border-soft text-secondary-fg"}`}
-                  >
-                    Conservative
-                  </button>
-                  <button
-                    type="button"
-                    disabled={rescueLoading || rescueApplying}
-                    onClick={() => setRescueMode("balanced")}
-                    className={`h-9 rounded-lg border text-[11px] font-medium pressable disabled:opacity-50 disabled:pointer-events-none ${rescueMode === "balanced" ? "surface-accent border-accent text-primary" : "surface-soft border-soft text-secondary-fg"}`}
-                  >
-                    Balanced
-                  </button>
-                  <button
-                    type="button"
-                    disabled={rescueLoading || rescueApplying}
-                    onClick={() => setRescueMode("aggressive")}
-                    className={`h-9 rounded-lg border text-[11px] font-medium pressable disabled:opacity-50 disabled:pointer-events-none ${rescueMode === "aggressive" ? "surface-accent border-accent text-primary" : "surface-soft border-soft text-secondary-fg"}`}
-                  >
-                    Aggressive
-                  </button>
-                </div>
-                <button
-                  type="button"
-                  disabled={rescueLoading || rescueApplying}
-                  onClick={() => void rescueMyDay(true)}
-                  className="w-full h-10 rounded-lg border border-soft surface-soft text-[12px] text-secondary-fg hover:text-foreground pressable inline-flex items-center justify-center gap-1.5 disabled:opacity-50 disabled:pointer-events-none"
-                >
-                  <ShieldAlert className="h-3.5 w-3.5" />
-                  Rescue my day ↗
-                </button>
-                {rescueRationale && (
-                  <p className="text-[11px] text-secondary-fg leading-relaxed px-1">
-                    {rescueRationale}
-                  </p>
-                )}
-                {rescueExplain.length > 0 && (
-                  <ul className="px-4 list-disc text-[11px] text-secondary-fg space-y-1">
-                    {rescueExplain.map((line, idx) => (
-                      <li key={idx}>{line}</li>
-                    ))}
-                  </ul>
-                )}
-              </div>
-            ) : (
-              <p className="mt-2 text-[11px] text-secondary-fg">Generate a plan first to unlock Rescue.</p>
-            )}
-          </div>
-        )}
-
         {/* ── Plan — primary surface when present ─ */}
         {hasPlanForDate ? (
-          <div className="mt-7 space-y-4">
+          <section className="space-y-5">
             {isToday && (
-              <NextUpCard
-                blocks={planBlocks}
-                nowHHMM={nowHM}
-                onOpenPlan={() => nav("/today/plan")}
-              />
+              <div className="rounded-[22px] border border-border/45 bg-background/30 backdrop-blur-[2px] overflow-hidden p-1">
+                <NextUpCard
+                  blocks={planBlocks}
+                  nowHHMM={nowHM}
+                  onOpenPlan={() => nav("/today/plan")}
+                />
+              </div>
             )}
-            {isRunningBehind && (
-              <button
-                type="button"
-                disabled={rescueLoading || rescueApplying}
-                onClick={() => void rescueMyDay(false)}
-                className="w-full h-10 rounded-xl border border-accent surface-accent text-[12.5px] font-medium text-primary hover:opacity-95 pressable inline-flex items-center justify-center gap-2 disabled:opacity-50 disabled:pointer-events-none"
-              >
-                <ShieldAlert className="h-4 w-4" />
-                Rescue my day ↗
-                <span className="text-[11px] text-secondary-fg">({overdueCount} overdue)</span>
-              </button>
-            )}
-
             <button
               data-tour="today-plan"
               onClick={() => nav(isToday ? "/today/plan" : `/today/plan?date=${planDate}`)}
-              className="w-full text-left hero-glass panel-luxe px-4.5 py-5 pressable hover:border-primary/28 transition-colors group"
+              className="w-full text-left rounded-[22px] border border-border/45 bg-background/30 backdrop-blur-[2px] px-5 py-5 pressable transition-colors hover:border-border/60 group"
             >
-              <div className="flex items-center justify-between">
-                <span className="type-section text-primary">{isToday ? "Timeline preview" : friendlyDateFor(parseDateStr(planDate))}</span>
-                <span className="type-meta">Tap to open full editor</span>
+              <div className="flex items-baseline justify-between gap-3">
+                <span className="text-[10px] font-medium uppercase tracking-[0.18em] text-secondary-fg/65">
+                  {isToday ? "Timeline" : "Day"}
+                </span>
+                <span className="text-[11px] text-secondary-fg/70 shrink-0">Open editor</span>
               </div>
 
               {planSummary && (
-                <p className="font-display text-[19px] leading-snug text-foreground mt-2.5">
+                <p className="font-display text-[18px] font-medium leading-snug text-foreground/95 mt-3 tracking-[-0.02em]">
                   {planSummary}
                 </p>
               )}
 
-              <div className="mt-4 space-y-2.5">
+              <div className="mt-4 space-y-2">
                 {planStats.tasks.slice(0, 4).map(b => (
-                  <div key={b.id} className="flex items-center gap-3 rounded-xl border border-soft surface-soft px-3 py-2">
-                    <span className="text-[11px] text-secondary-fg font-mono-sf w-11 tabular-nums">{fmtTime(b.start_time)}</span>
-                    <span className="w-1 h-5 rounded-full" style={{ background: typeColor(b.type) }} />
-                    <span className={`text-[13.5px] flex-1 truncate ${b.completed ? "line-through text-secondary-fg" : "text-foreground"}`}>
+                  <div key={b.id} className="flex items-center gap-3 rounded-xl border border-border/35 bg-muted/[0.06] px-3 py-2.5">
+                    <span className="text-[11px] text-secondary-fg/80 font-mono-sf w-11 tabular-nums">{fmtTime(b.start_time)}</span>
+                    <span className="w-1 h-5 rounded-full shrink-0" style={{ background: typeColor(b.type) }} />
+                    <span className={`text-[13px] flex-1 truncate leading-snug ${b.completed ? "line-through text-secondary-fg/80" : "text-foreground/95"}`}>
                       {b.title}
                     </span>
                   </div>
                 ))}
                 {planStats.total > 4 && (
-                  <div className="text-[11.5px] text-secondary-fg pl-1">+ {planStats.total - 4} more blocks</div>
+                  <div className="text-[11px] text-secondary-fg/70 pl-0.5 pt-0.5">+ {planStats.total - 4} more</div>
                 )}
               </div>
 
-              <div className="mt-4 flex items-center justify-between">
-                <span className="text-[13px] text-primary inline-flex items-center gap-1 group-hover:gap-2 transition-all">
-                  Open plan editor <ArrowRight className="h-3.5 w-3.5" />
+              <div className="mt-5 flex items-center text-[13px] font-medium text-primary/95">
+                <span className="inline-flex items-center gap-1 group-hover:gap-2 transition-all">
+                  Full timeline <ArrowRight className="h-3.5 w-3.5 opacity-80" />
                 </span>
               </div>
             </button>
 
             <button
               onClick={() => setComposerOpen(true)}
-              className="mt-3 w-full flex items-center justify-center gap-2 h-11 rounded-2xl text-[13px] text-secondary-fg hover:text-foreground border border-soft surface-soft pressable"
+              type="button"
+              className="w-full flex items-center justify-center gap-2 h-11 rounded-2xl text-[13px] font-medium text-foreground/80 border border-border/40 bg-transparent hover:bg-muted/35 pressable transition-colors"
             >
-              <Pencil className="h-3.5 w-3.5" /> Adjust plan
+              <Pencil className="h-3.5 w-3.5 opacity-70" /> Adjust plan
             </button>
-          </div>
+          </section>
         ) : (
           /* ── Empty state — single question ── */
-          <div className="mt-10 hero-glass panel-luxe px-5 py-5 shadow-elevated">
-            <p className="font-display text-[22px] leading-snug text-foreground">
+          <div className="rounded-[22px] border border-dashed border-border/50 bg-muted/[0.12] px-6 py-10 text-center">
+            <p className="font-display text-[22px] font-medium tracking-[-0.02em] text-foreground/95 leading-snug">
               {toneCopy(tone, "plan_cta") || "What's on your plate today?"}
             </p>
-            <p className="text-[13.5px] text-secondary-fg mt-2 leading-relaxed">
+            <p className="text-[13px] text-secondary-fg/85 mt-3 leading-relaxed max-w-[280px] mx-auto">
               Brain-dump in any format. AI shapes it into a focused day.
             </p>
-            <p className="text-[11.5px] text-secondary-fg mt-2">
-              Next step: add 3-5 tasks, then tap Generate plan.
+            <p className="text-[12px] text-secondary-fg/65 mt-2">
+              Add a few tasks, then generate.
             </p>
 
             <Button
               onClick={() => setComposerOpen(true)}
               data-tour="today-plan"
-              className="w-full mt-6 h-14 rounded-2xl bg-primary hover:bg-primary/92 text-primary-foreground text-[15.5px] font-semibold pressable shadow-elevated"
+              className="w-full mt-8 h-14 rounded-2xl bg-primary hover:bg-primary/92 text-primary-foreground text-[15px] font-semibold pressable"
             >
               <Plus className="h-4 w-4" strokeWidth={2.5} /> Plan my day
             </Button>
@@ -960,7 +737,7 @@ export default function Today() {
             <button
               type="button"
               onClick={() => setComposerExtrasOpen((v) => !v)}
-              className="mt-3 w-full h-10 rounded-xl border border-soft surface-soft text-[12px] text-secondary-fg hover:text-foreground pressable inline-flex items-center justify-center gap-1.5"
+              className="mt-3 w-full h-11 rounded-2xl border border-border/40 text-[12px] font-medium text-secondary-fg/90 hover:bg-muted/30 pressable inline-flex items-center justify-center gap-1.5"
             >
               {composerExtrasOpen ? "Hide extra options" : "More options"}
             </button>
@@ -989,6 +766,10 @@ export default function Today() {
                       mode="single"
                       selected={parseDateStr(planDate)}
                       onSelect={(d) => { if (d) { setPlanDate(dateStr(d)); setDatePopoverOpen(false); } }}
+                      modifiers={{ hasPlan: (d: Date) => plannedDates.has(dateStr(d)) }}
+                      modifiersClassNames={{
+                        hasPlan: "relative after:absolute after:bottom-1 after:left-1/2 after:-translate-x-1/2 after:w-1 after:h-1 after:rounded-full after:bg-primary",
+                      }}
                       disabled={(d) => { const today = new Date(); today.setHours(0,0,0,0); return d < today; }}
                       initialFocus
                       className="p-3 pointer-events-auto"
@@ -1008,53 +789,25 @@ export default function Today() {
         )}
 
         {!isPro && (
-          <>
-            <button
-              type="button"
-              onClick={() => openUpgrade(planQuotaRemaining <= 2 ? "quota" : "momentum")}
-              className={`mt-4 w-full rounded-xl border pressable text-left px-3.5 py-3 shadow-card ${
-                planQuotaRemaining <= 2
-                  ? "border-primary/45 bg-primary/[0.08] ring-1 ring-primary/12"
-                  : "border-accent surface-accent"
-              }`}
-            >
-              <div className="flex items-start justify-between gap-2">
-                <div className="min-w-0">
-                  <div className="text-[13px] font-semibold text-foreground leading-snug">
-                    {planQuotaRemaining <= 2
-                      ? "Almost out of free planning days"
-                      : "Unlock unlimited AI planning"}
-                  </div>
-                  <p className="text-[11px] text-secondary-fg mt-1 leading-relaxed">
-                    {planQuotaRemaining <= 2
-                      ? `${planQuotaRemaining} day${planQuotaRemaining === 1 ? "" : "s"} left, then AI scheduling stops until Pro. Upgrade and never hit the wall mid-month.`
-                      : `${planQuotaRemaining} free day${planQuotaRemaining === 1 ? "" : "s"} left — Pro adds calendar sync, pattern-aware AI, and no caps.`}
-                  </p>
-                </div>
-                <span className="shrink-0 text-[12px] font-semibold text-primary pt-0.5">Pro →</span>
-              </div>
-            </button>
-            <div className="mt-3 rounded-xl border border-soft surface-card overflow-hidden">
-              <div className="flex items-center justify-between gap-2 px-3 py-2 border-b border-border/60 bg-muted/20">
-                <span className="text-[11px] uppercase tracking-wider text-secondary-fg font-medium">What Pro unlocks</span>
-                <button
-                  type="button"
-                  onClick={() => nav("/settings#pro-features")}
-                  className="text-[11px] font-semibold text-primary pressable shrink-0"
-                >
-                  See all
-                </button>
-              </div>
-              <ProFeatureHighlights variant="compact" limit={4} onUpgrade={() => openUpgrade("feature")} />
-            </div>
-          </>
+          <button
+            type="button"
+            onClick={() => openUpgrade(planQuotaRemaining <= 2 ? "quota" : "momentum")}
+            className={`w-full rounded-[22px] border pressable text-left px-4 py-3.5 transition-colors ${
+              planQuotaRemaining <= 2 ? "border-primary/30 bg-primary/[0.05]" : "border-border/45 bg-background/25"
+            }`}
+          >
+            <span className="text-[12px] text-secondary-fg">
+              {planQuotaRemaining <= 2 ? `${planQuotaRemaining} free planning day(s) left — ` : `${planQuotaRemaining} free days · `}
+            </span>
+            <span className="text-[12px] font-semibold text-primary">DayDraft Pro →</span>
+          </button>
         )}
       </div>
       </PullToRefresh>
 
       {/* ─── Composer sheet — write tasks here ─── */}
       <Sheet open={composerOpen} onOpenChange={setComposerOpen}>
-        <SheetContent side="bottom" className="rounded-t-[24px] border-soft bg-popover p-5 max-h-[88vh]">
+        <SheetContent side="bottom" className="rounded-t-[28px] border-border/45 bg-popover p-5 max-h-[88vh]">
           <SheetHeader className="text-left mb-3">
             <SheetTitle className="font-display text-[18px]">
               {hasPlanForDate ? "Add or re-plan" : (isToday ? "Plan today" : `Plan ${friendlyDateFor(parseDateStr(planDate))}`)}
@@ -1065,34 +818,6 @@ export default function Today() {
                 : "List everything you hope to do — bullets, commas, shorthand, rough times. You'll confirm durations on the next step before the schedule is built."}
             </SheetDescription>
           </SheetHeader>
-          {rescueRationale && (
-            <div className="mb-3 rounded-xl border border-soft surface-soft px-3 py-2.5">
-              <div className="flex items-center justify-between gap-2">
-                <div className="text-[11px] uppercase tracking-wider text-secondary-fg inline-flex items-center gap-1.5">
-                  <Info className="h-3.5 w-3.5 text-primary" />
-                  Why these tasks
-                </div>
-                <button
-                  type="button"
-                  disabled={rescueLoading || rescueApplying}
-                  onClick={recalculateRescue}
-                  className="h-7 px-2.5 rounded-md border border-soft surface-card text-[11px] text-secondary-fg hover:text-foreground pressable disabled:opacity-50 disabled:pointer-events-none"
-                >
-                  Recalculate
-                </button>
-              </div>
-              <p className="text-[12px] text-subtle leading-relaxed mt-1">
-                {rescueRationale}
-              </p>
-              {rescueExplain.length > 0 && (
-                <ul className="mt-1.5 px-4 list-disc text-[11px] text-secondary-fg space-y-1">
-                  {rescueExplain.map((line, idx) => (
-                    <li key={idx}>{line}</li>
-                  ))}
-                </ul>
-              )}
-            </div>
-          )}
           <Textarea
             data-tour="today-input"
             autoFocus
@@ -1119,10 +844,18 @@ export default function Today() {
                 </button>
               </PopoverTrigger>
               <PopoverContent className="w-auto p-0" align="start">
-                <Calendar mode="single" selected={parseDateStr(planDate)}
+                <Calendar
+                  mode="single"
+                  selected={parseDateStr(planDate)}
                   onSelect={(d) => { if (d) { setPlanDate(dateStr(d)); setDatePopoverOpen(false); } }}
+                  modifiers={{ hasPlan: (d: Date) => plannedDates.has(dateStr(d)) }}
+                  modifiersClassNames={{
+                    hasPlan: "relative after:absolute after:bottom-1 after:left-1/2 after:-translate-x-1/2 after:w-1 after:h-1 after:rounded-full after:bg-primary",
+                  }}
                   disabled={(d) => { const today = new Date(); today.setHours(0,0,0,0); return d < today; }}
-                  initialFocus className="p-3 pointer-events-auto" />
+                  initialFocus
+                  className="p-3 pointer-events-auto"
+                />
               </PopoverContent>
             </Popover>
             <button onClick={() => setMoreOpen(true)}
@@ -1130,7 +863,7 @@ export default function Today() {
               <MoreHorizontal className="h-4 w-4" />
             </button>
           </div>
-          <Button onClick={openClarify} disabled={busy || rescueLoading || rescueApplying}
+          <Button onClick={openClarify} disabled={busy}
             className="w-full mt-3 h-12 rounded-xl bg-primary hover:bg-primary/92 text-primary-foreground text-[15px] font-semibold pressable">
             {hasPlanForDate ? "Re-plan with these" : "Generate plan"} <ArrowRight className="h-4 w-4" />
           </Button>
@@ -1139,7 +872,7 @@ export default function Today() {
 
       {/* ── More sheet ─────────────────────── */}
       <Sheet open={moreOpen} onOpenChange={setMoreOpen}>
-        <SheetContent side="bottom" className="rounded-t-[24px] border-soft bg-popover">
+        <SheetContent side="bottom" className="rounded-t-[28px] border-border/45 bg-popover">
           <SheetHeader className="text-left mb-3">
             <SheetTitle className="font-display text-[18px]">Quick actions</SheetTitle>
             <SheetDescription className="text-left text-[13px] text-secondary-fg">
@@ -1148,9 +881,6 @@ export default function Today() {
           </SheetHeader>
           <div className="space-y-1">
             <MoreRow onClick={() => { setMoreOpen(false); reusePreviousPlan(); }} icon={<ListChecks className="h-4 w-4" />} label="Reuse previous plan tasks" />
-            {hasPlanForDate && (
-              <MoreRow onClick={() => { setMoreOpen(false); void rescueMyDay(true); }} icon={<ShieldAlert className="h-4 w-4" />} label="Rescue my day ↗" />
-            )}
             <MoreRow onClick={() => { setMoreOpen(false); saveAsTemplate(); }} icon={<Bookmark className="h-4 w-4" />} label="Save current as template" />
             {templates.length > 0 && (
               <div className="pt-2 mt-2 border-t border-soft">
@@ -1165,120 +895,6 @@ export default function Today() {
       </Sheet>
 
       <UpgradeSheet open={upgradeOpen} onOpenChange={setUpgradeOpen} reason={upgradeReason} />
-      <Sheet open={rescueSheetOpen} onOpenChange={(v) => { if (!rescueApplying) setRescueSheetOpen(v); }}>
-        <SheetContent side="bottom" className="rounded-t-2xl border-soft bg-popover">
-          <SheetHeader className="text-left">
-            <SheetTitle className="text-[16px]">Rescue my day</SheetTitle>
-            <SheetDescription>Keep what still fits today, defer the rest.</SheetDescription>
-          </SheetHeader>
-          {rescueLoading ? (
-            <div className="mt-3 text-[12px] text-secondary-fg">Building a realistic rescue plan…</div>
-          ) : (
-            <div className="mt-3 space-y-3">
-              <div className="type-meta">{rescueWindowLabel}</div>
-              <div>
-                <div className="text-[12px] font-medium text-foreground">Here&apos;s what changed</div>
-                {rescueDiffRows.length === 0 ? (
-                  <div className="mt-1 text-[12px] text-secondary-fg">No schedule shifts needed.</div>
-                ) : (
-                  <div className="mt-1 space-y-1.5 max-h-44 overflow-y-auto">
-                    {rescueDiffRows.map((r, i) => (
-                      <div key={`${r.title}-${i}`} className="rounded-lg border border-soft surface-soft px-3 py-2">
-                        <div className="text-[12px] text-foreground truncate">{r.title}</div>
-                        <div className="text-[11px] text-secondary-fg tabular-nums">{fmtTime(r.before)} → {r.after === "Deferred" ? "Deferred" : fmtTime(r.after)}</div>
-                      </div>
-                    ))}
-                  </div>
-                )}
-              </div>
-              <div>
-                <div className="text-[12px] font-medium text-foreground">Deferred</div>
-                <div className="text-[11px] text-secondary-fg">These didn&apos;t make today&apos;s cut.</div>
-                {rescueDeferredRows.length === 0 ? (
-                  <div className="mt-1 text-[12px] text-secondary-fg">Nothing deferred.</div>
-                ) : (
-                  <div className="mt-1 space-y-1 max-h-28 overflow-y-auto">
-                    {rescueDeferredRows.slice(0, 8).map((r, i) => (
-                      <div key={`${r.title}-${i}`} className="text-[12px] text-secondary-fg truncate">
-                        • {r.title} {r.mins > 0 ? `(${fmtMin(r.mins)})` : ""}
-                      </div>
-                    ))}
-                  </div>
-                )}
-              </div>
-              <div className="flex gap-2 pt-1">
-                <Button
-                  disabled={rescueLoading || rescueApplying}
-                  onClick={async () => {
-                    if (rescueApplying || rescueLoading) return;
-                    if (!user || !rescuePendingBlocks.length) return;
-                    setRescueApplying(true);
-                    try {
-                      const { data: planRow, error: planErr } = await supabase
-                        .from("plans")
-                        .select("id")
-                        .eq("user_id", user.id)
-                        .eq("date", planDate)
-                        .maybeSingle();
-                      if (planErr || !planRow?.id) throw new Error("Plan not found.");
-                      const { data: current } = await supabase
-                        .from("blocks")
-                        .select("*")
-                        .eq("plan_id", planRow.id)
-                        .order("position");
-                      const currentBlocks = (current || []) as any[];
-                      const toRemoveIds = currentBlocks
-                        .filter((b) => {
-                          if (b.is_calendar_event) return false;
-                          if (isUserTask(b) && !b.completed) return true;
-                          if ((b.kind === "break" || b.kind === "lunch") && !b.completed) return true;
-                          return false;
-                        })
-                        .map((b) => b.id);
-                      const keep = currentBlocks.filter((b) => !toRemoveIds.includes(b.id));
-                      if (toRemoveIds.length) await supabase.from("blocks").delete().in("id", toRemoveIds);
-                      const inserts = rescuePendingBlocks.map((b: any, i: number) => ({
-                        plan_id: planRow.id,
-                        user_id: user.id,
-                        start_time: b.start_time,
-                        duration_min: b.duration_min,
-                        estimated_minutes: b.estimated_minutes ?? b.duration_min,
-                        actual_minutes: null,
-                        title: b.title,
-                        type: b.type,
-                        kind: b.kind,
-                        block_type: inferScheduleBlockType(b),
-                        position: keep.length + i,
-                        ai_reasoning: b.reasoning ?? null,
-                        location: b.location ?? null,
-                        location_lat: b.location_lat ?? null,
-                        location_lng: b.location_lng ?? null,
-                      }));
-                      if (inserts.length) await supabase.from("blocks").insert(inserts);
-                      await queryClient.invalidateQueries({ queryKey: planDashboardQueryKey(user.id, planDate) });
-                      setRescueSheetOpen(false);
-                      setRescuePendingBlocks([]);
-                      setRescueDiffRows([]);
-                      trackAiEvent("ai_rescue_applied", { mode: rescueMode, deferred_count: rescueDeferredRows.length });
-                      toast.success("Rescue plan applied.");
-                    } catch (e: any) {
-                      toast.error(e?.message || "Unable to apply rescue plan.");
-                    } finally {
-                      setRescueApplying(false);
-                    }
-                  }}
-                  className="flex-1 h-10 rounded-xl"
-                >
-                  Use this plan
-                </Button>
-                <Button disabled={rescueApplying} variant="outline" className="flex-1 h-10 rounded-xl border-soft" onClick={() => setRescueSheetOpen(false)}>
-                  Go back
-                </Button>
-              </div>
-            </div>
-          )}
-        </SheetContent>
-      </Sheet>
       <ClarifySheet open={clarifyOpen} onOpenChange={setClarifyOpen} rawInput={input} onConfirm={plan} planDate={planDate} />
     </Shell>
   );

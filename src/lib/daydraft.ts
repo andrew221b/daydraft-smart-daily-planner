@@ -19,6 +19,65 @@ export interface Block {
   position: number;
   /** Synced calendar blocks are not user tasks — exclude from Focus / Next up. */
   is_calendar_event?: boolean;
+  /** When true, reordering preserves overlap with overlapping task windows (walking + calls, etc.). */
+  overlap_ok?: boolean | null;
+  parallel_group_id?: string | null;
+  /** Planned window end (HH:MM, same calendar day as the plan); Focus counts down wall-clock to this instant. */
+  slot_end_time?: string | null;
+}
+
+const timeToMinutes = (hhmm: string) => {
+  const [h, m] = String(hhmm || "00:00").split(":").map(Number);
+  return (Number.isFinite(h) ? h : 0) * 60 + (Number.isFinite(m) ? m : 0);
+};
+
+const minutesToHHMM = (mins: number) =>
+  `${String(Math.floor(mins / 60)).padStart(2, "0")}:${String(Math.max(0, mins % 60)).padStart(2, "0")}`;
+
+/** Local wall-clock instant for YYYY-MM-DD + HH:mm on the user's calendar. */
+export function wallMsOnPlanDay(planDateYMD: string, hhmm: string): number {
+  const [y, mo, d] = planDateYMD.split("-").map(Number);
+  const [h, m] = String(hhmm || "00:00").split(":").map(Number);
+  return new Date(y, (mo || 1) - 1, d || 1, h || 0, m || 0, 0, 0).getTime();
+}
+
+/** Effective slot end (persisted or start + duration). */
+export function blockSlotEndHHMM(b: Pick<Block, "start_time" | "duration_min" | "slot_end_time">): string {
+  const raw = typeof b.slot_end_time === "string" ? b.slot_end_time.trim() : "";
+  if (/^\d{2}:\d{2}$/.test(raw)) return raw;
+  return minutesToHHMM(timeToMinutes(b.start_time) + Number(b.duration_min || 0));
+}
+
+export function addMinutesToWallClock(planDateYMD: string, hhmm: string, addMin: number): string {
+  const next = wallMsOnPlanDay(planDateYMD, hhmm) + addMin * 60_000;
+  const d = new Date(next);
+  return `${String(d.getHours()).padStart(2, "0")}:${String(d.getMinutes()).padStart(2, "0")}`;
+}
+
+/**
+ * Sequential packing with optional concurrency: blocks with overlap_ok keep their stored start_time
+ * while advancing the planner cursor so the following non-overlapping blocks line up afterward.
+ */
+export function packLinearSchedule<T extends Pick<Block, "start_time" | "duration_min"> & { overlap_ok?: boolean | null }>(
+  ordered: T[],
+): T[] {
+  if (!ordered.length) return ordered;
+  let cursorMin = timeToMinutes(ordered[0].start_time) + Number(ordered[0].duration_min || 0);
+  const out: T[] = [{ ...ordered[0] }];
+  for (let i = 1; i < ordered.length; i++) {
+    const b = ordered[i];
+    if (b.overlap_ok) {
+      const spanEnd = timeToMinutes(b.start_time) + Number(b.duration_min || 0);
+      cursorMin = Math.max(cursorMin, spanEnd);
+      out.push({ ...b });
+      continue;
+    }
+    const startMin = cursorMin;
+    const nb = { ...b, start_time: minutesToHHMM(startMin) };
+    cursorMin = startMin + Number(nb.duration_min || 0);
+    out.push(nb);
+  }
+  return out;
 }
 
 /** User-owned tasks only (excludes synced calendar rows from metrics & carry-over). */

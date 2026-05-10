@@ -1,5 +1,6 @@
 import { serve } from "https://deno.land/std@0.168.0/http/server.ts";
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2.95.0";
+import { extractTaskTimeAnchors } from "../_shared/taskTimeAnchors.ts";
 
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
@@ -10,7 +11,27 @@ const FREE_PLAN_LIMIT = 5;
 serve(async (req) => {
   if (req.method === "OPTIONS") return new Response(null, { headers: corsHeaders });
   try {
-    const { raw_input: rawInputValue, energy_preference, name, mode, start_time, clarified_tasks, planning_context, plan_date, now_iso, timezone, hours_already_committed, active_hours_start, active_hours_end, ai_tone, ai_tone_custom, ai_context_custom: aiContextFromBody, behavior_signals, ai_memory } = await req.json();
+    const {
+      raw_input: rawInputValue,
+      energy_preference,
+      name,
+      mode,
+      start_time,
+      clarified_tasks,
+      planning_context,
+      plan_date,
+      now_iso,
+      timezone,
+      hours_already_committed,
+      active_hours_start,
+      active_hours_end,
+      ai_tone,
+      ai_tone_custom,
+      ai_context_custom: aiContextFromBody,
+      behavior_signals,
+      ai_memory,
+      ai_planning_rules,
+    } = await req.json();
     let aiContextCustom: string = typeof aiContextFromBody === "string" ? aiContextFromBody : "";
     let raw_input = rawInputValue;
     const clarifiedList = Array.isArray(clarified_tasks) ? clarified_tasks : [];
@@ -113,6 +134,31 @@ serve(async (req) => {
       // Use rewritten input for planning; include a note in subtext via context.
       raw_input = rewritten;
     }
+
+    let mergedClarified = clarifiedList.map((t: any) => ({ ...t }));
+    const anchorSplitLines = splitTaskLines(raw_input);
+    for (let i = 0; i < mergedClarified.length; i++) {
+      const lineSource = anchorSplitLines[i] || String(mergedClarified[i]?.title || "");
+      const anchors = extractTaskTimeAnchors(lineSource);
+      if (!mergedClarified[i].fixed_time && anchors.fixedStart) mergedClarified[i].fixed_time = anchors.fixedStart;
+      const note = anchors.deadlineNote?.trim();
+      if (note) {
+        mergedClarified[i].notes = mergedClarified[i].notes ? `${mergedClarified[i].notes}\n${note}` : note;
+      }
+    }
+    const rawOnlyAnchorHints =
+      mergedClarified.length === 0
+        ? anchorSplitLines.map((ln) => {
+          const a = extractTaskTimeAnchors(ln);
+          if (!(a.fixedStart || a.deadlineNote)) return "";
+          const parts: string[] = [];
+          parts.push(`"${a.cleanedTitle || ln.trim()}"`);
+          if (a.fixedStart) parts.push(`starts ${a.fixedStart}`);
+          if (a.deadlineNote) parts.push(a.deadlineNote);
+          return `- ${parts.join(" · ")}`;
+        }).filter(Boolean).join("\n")
+        : "";
+
     const LOVABLE_API_KEY = Deno.env.get("LOVABLE_API_KEY");
     if (!LOVABLE_API_KEY) throw new Error("LOVABLE_API_KEY missing");
 
@@ -122,6 +168,7 @@ serve(async (req) => {
     let authedUserId: string | null = null;
     let authedSupabase: ReturnType<typeof createClient> | null = null;
     let tier: "free" | "trial" | "pro" = "free";
+    let profilePlanningRules = "";
     const auth = req.headers.get("Authorization");
     if (auth) {
       try {
@@ -134,20 +181,17 @@ serve(async (req) => {
         const { data: u } = await supabase.auth.getUser();
         if (u?.user) {
           authedUserId = u.user.id;
+          const { data: profRow } = await supabase
+            .from("profiles")
+            .select("ai_planning_rules, ai_context_custom")
+            .eq("id", u.user.id)
+            .maybeSingle();
+          if (profRow?.ai_planning_rules) profilePlanningRules = String(profRow.ai_planning_rules).trim();
+          if (!aiContextCustom && profRow && typeof (profRow as { ai_context_custom?: string }).ai_context_custom === "string") {
+            aiContextCustom = (profRow as { ai_context_custom: string }).ai_context_custom || "";
+          }
           const { data: p } = await supabase.from("user_patterns").select("*").eq("user_id", u.user.id).maybeSingle();
           pattern = p;
-          if (!aiContextCustom) {
-            try {
-              const { data: prof } = await supabase
-                .from("profiles")
-                .select("ai_context_custom")
-                .eq("id", u.user.id)
-                .maybeSingle();
-              if (prof && typeof (prof as any).ai_context_custom === "string") {
-                aiContextCustom = (prof as any).ai_context_custom || "";
-              }
-            } catch (_e) { /* non-fatal */ }
-          }
           // Pro: pull today's calendar events if connected
           const { data: sub } = await supabase.from("subscriptions").select("status").eq("user_id", u.user.id).maybeSingle();
           const isPro = sub?.status === "active" || sub?.status === "trialing";
@@ -165,6 +209,12 @@ serve(async (req) => {
         }
       } catch (_e) { /* non-fatal */ }
     }
+
+    const userPlanningRules = (
+      typeof ai_planning_rules === "string" && ai_planning_rules.trim()
+        ? ai_planning_rules.trim()
+        : profilePlanningRules
+    ).slice(0, 1200);
 
     const peakMap: Record<string, string> = {
       morning: "8:00 to 12:00",
@@ -425,20 +475,33 @@ ${toneOutputHint}`;
     // subtract this from the available window so it never over-promises.
     const committed = Number(hours_already_committed) || 0;
     const trueHoursLeft = Math.max(0, hoursLeftToday - committed);
-    const clarifiedHints = Array.isArray(clarified_tasks) && clarified_tasks.length ? `
+    const planningPrefsHints = userPlanningRules ? `
 
-USER-CLARIFIED TASKS (authoritative — DO NOT change titles, durations, or fixed times; use these instead of re-parsing raw_input):
-${clarified_tasks.map((t: any, i: number) => {
+USER PLANNING PREFERENCES — follow wherever consistent with hard budget (${Math.round(trueHoursLeft * 60)}m), active hours (${activeStart}–${activeEnd}), calendar holds, and "no past slots" (${earliestStart} onward today):
+${userPlanningRules}` : "";
+
+    const rawParsedAnchorSection = rawOnlyAnchorHints ? `
+
+AUTO-PARSED TIME CONSTRAINTS from raw_input (respect even without the clarify sheet):
+${rawOnlyAnchorHints}
+` : "";
+
+    const clarifiedHints = mergedClarified.length ? `
+
+USER-CLARIFIED TASKS (authoritative — DO NOT change titles, durations, fixed times, or notes; merge with parsed anchors below):
+${mergedClarified.map((t: any, i: number) => {
   const fixed = t.fixed_time ? ` — FIXED at ${t.fixed_time} (must start exactly here)` : "";
   const prio = t.priority ? ` [${t.priority} priority]` : "";
-  return `${i + 1}. "${t.title}" — ${t.estimate_min}m${prio}${fixed}`;
+  const n = t.notes ? ` — Note: ${String(t.notes).slice(0, 280)}` : "";
+  return `${i + 1}. "${t.title}" — ${t.estimate_min}m${prio}${fixed}${n}`;
 }).join("\n")}
-
+${rawParsedAnchorSection}
 Rules for clarified tasks:
-- Use the EXACT title and duration_min the user provided.
+- Use the EXACT title and duration_min the user provided (unless clarified explicitly asks AI to reshape).
 - Schedule HIGH priority tasks in the peak window first.
 - LOW priority tasks fill remaining time; drop them if the day overflows 8h.
-- For tasks with FIXED times, set start_time to that exact value and arrange other tasks around them.` : "";
+- For FIXED times / parsed anchors / finish-by hints, obey them unless physically impossible vs ${earliestStart} or overlaps a calendar hold.` : rawParsedAnchorSection;
+
 
     const patternHints = pattern ? `
 User patterns (use to compound intelligence):
@@ -524,12 +587,13 @@ Rules:
 - TASK TITLE SOURCE OF TRUTH: task titles MUST reuse the user's original wording from raw_input (or clarified_tasks when provided). Preserve key nouns/verbs from the user's phrasing and only normalize capitalization/punctuation.
 - FORBIDDEN TITLES: never invent generic labels like "Deep focus work session 1", "Focus block 2", "Work session", "Task block", or similar template names.
 - WHEN SPLITTING ONE TASK: keep the same base title from user wording and append a natural qualifier in parentheses, e.g. "Work on landing page (part 1)", "Work on landing page (part 2)". Do not use "session 1/2" wording.
+- PARALLEL / LIGHT BACKGROUND TASKS: only when raw text implies concurrent low-attention activity (walking, commute/errand cardio) alongside stationary work (call, headset meeting, inbox), schedule both with overlap_ok=true, the SAME parallel_group_id, and matching start_times. Never overlap_two deep_work-heavy blocks. Prefer sequential ordering when unsure.
 - Buffers: when pattern-based buffers are active, insert a short 10-15m "Buffer" or "Transition" block (kind="break", type="routine", block_type="rest") between deep-work tasks. If no history and default buffers are active, insert a 10m buffer after each 2h+ work sequence.
 - Buffer note in subtext: if buffers are inserted, include exactly one note — "Buffers added based on your patterns" or "Buffers added as default" (for new users).
 - LIGHT-DAY DETECTION: if the user only listed a tiny amount of work (≤ 60 min total) AND there is plenty of time left in the day (trueHoursLeft ≥ 4h), do NOT pad with invented tasks. Instead, schedule ONLY what the user gave you and START the subtext with "✨ Light day — " followed by a warm one-liner suggesting a self-care or restorative activity (walk, stretch, read, call a friend). Do not add those activities as blocks unless the user mentions them.
 - SELF-CARE NUDGE: if the day is heavy (≥ 6h of deep_work) consider inserting one short "Recharge" break (kind="break", 10-15 min, type="routine") between deep blocks, with a reasoning like "Quick reset to keep your focus sharp."
 - Summary: short, e.g. "5 tasks · 3 focus blocks · Done by 5pm".
-- Subtext: one short sentence.${clarifiedHints}${patternHints}${behaviorHints}${overshootHints}${memoryHints}${learningHints}${emotionalHints}${calHints}${personalContextHints}`;
+- Subtext: one short sentence.${planningPrefsHints}${clarifiedHints}${patternHints}${behaviorHints}${overshootHints}${memoryHints}${learningHints}${emotionalHints}${calHints}${personalContextHints}`;
 
     const tools = [{
       type: "function",
@@ -555,6 +619,8 @@ Rules:
                   reasoning: { type: "string" },
                   location: { type: "string" },
                   parallel_with_index: { type: "integer", description: "Zero-based index of another block this one happens IN PARALLEL with (overlapping times intended to be done together). Omit if not parallel." },
+                  overlap_ok: { type: "boolean", description: "True only for intentional concurrent background tasks paired with anchored work." },
+                  parallel_group_id: { type: "string", description: "Shared id for concurrently overlapping companions." },
                 },
                 required: ["start_time", "duration_min", "title", "type", "kind"],
                 additionalProperties: false,
@@ -630,22 +696,49 @@ Rules:
       }
       return "work";
     };
-    const normalizedBlocks = Array.isArray(args.blocks)
-      ? args.blocks
-        .flatMap((b: any) => (b?.kind === "task" && Number(b?.duration_min || 0) > 90 ? splitLongTask(b) : [b]))
-        .map((b: any) => ({ ...b, block_type: inferBlockType(b) }))
-      : [];
     const timeToMin = (hhmm: string) => {
       const [h, m] = String(hhmm || "").split(":").map(Number);
       return (Number.isFinite(h) ? h : 0) * 60 + (Number.isFinite(m) ? m : 0);
     };
+    const normalizePlannerTitleKey = (t: string) =>
+      String(t || "").replace(/\s*\(part\s+\d+\)$/i, "").trim().toLowerCase();
+    let normalizedBlocks = Array.isArray(args.blocks)
+      ? args.blocks
+        .flatMap((b: any) => (b?.kind === "task" && Number(b?.duration_min || 0) > 90 ? splitLongTask(b) : [b]))
+        .map((b: any) => ({
+          ...b,
+          block_type: inferBlockType(b),
+          overlap_ok: Boolean(b?.overlap_ok),
+          parallel_group_id:
+            typeof b?.parallel_group_id === "string" && b.parallel_group_id.trim().length
+              ? String(b.parallel_group_id).trim().slice(0, 120)
+              : null,
+        }))
+      : [];
+    const anchorMap = new Map<string, string>();
+    for (const t of mergedClarified) {
+      const ft = typeof t.fixed_time === "string" ? t.fixed_time.trim() : "";
+      if (/^\d{2}:\d{2}$/.test(ft)) anchorMap.set(normalizePlannerTitleKey(String(t.title || "")), ft);
+    }
+    normalizedBlocks = normalizedBlocks.map((b: any) => {
+      if (b.kind !== "task" || !anchorMap.size) return b;
+      const key = normalizePlannerTitleKey(String(b.title || ""));
+      if (!anchorMap.has(key)) return b;
+      return { ...b, start_time: anchorMap.get(key) };
+    });
+    normalizedBlocks = [...normalizedBlocks].sort((a: any, b: any) => timeToMin(a.start_time) - timeToMin(b.start_time));
     const minToTime = (mins: number) => `${String(Math.floor(mins / 60)).padStart(2, "0")}:${String(Math.max(0, mins % 60)).padStart(2, "0")}`;
+    normalizedBlocks = normalizedBlocks.map((b: any) => ({
+      ...b,
+      slot_end_time: minToTime(timeToMin(b.start_time) + Number(b.duration_min || 0)),
+    }));
     const addBuffers = (blocks: any[]) => {
       const out: any[] = [];
       let inserted = 0;
       const buildBuffer = (atMin: number, minutes: number, idx: number) => ({
         start_time: minToTime(atMin),
         duration_min: minutes,
+        slot_end_time: minToTime(atMin + minutes),
         title: idx % 2 === 0 ? "Buffer" : "Transition",
         type: "routine",
         kind: "break",

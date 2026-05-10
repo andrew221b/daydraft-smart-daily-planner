@@ -22,6 +22,7 @@ export interface Profile {
   ai_context_custom?: string | null;
   active_hours_start?: string;
   active_hours_end?: string;
+  ai_planning_rules?: string | null;
 }
 
 type ProfileCtx = {

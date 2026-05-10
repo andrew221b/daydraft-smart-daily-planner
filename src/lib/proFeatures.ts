@@ -53,9 +53,9 @@ export const PRO_FEATURE_CATALOG: ProCatalogItem[] = [
   {
     id: "drift",
     Icon: Compass,
-    headline: "Plan drift rescue",
+    headline: "Plan drift nudges",
     tagline: "When the day slips, get a gentle nudge and a one-tap way to reshuffle what’s left.",
-    sheetLine: "Plan drift nudges & rescue",
+    sheetLine: "Plan drift nudges & replan hints",
   },
   {
     id: "timer_reschedule",

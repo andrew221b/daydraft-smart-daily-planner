@@ -1,7 +1,7 @@
 import { useEffect, useRef, useState } from "react";
 import { useNavigate, useParams, useSearchParams } from "react-router-dom";
 import { supabase } from "@/integrations/supabase/client";
-import { Block, todayDateStr } from "@/lib/daydraft";
+import { Block, todayDateStr, wallMsOnPlanDay, blockSlotEndHHMM, addMinutesToWallClock, fmtTime } from "@/lib/daydraft";
 import { minutesFromFocusArmSeconds, resolveActualMinutesOnComplete } from "@/lib/blockActualTime";
 import { Check, ChevronRight, Plus, Sparkles, MapPin, ExternalLink, Loader2, Lightbulb, Copy, Phone, CalendarPlus, Mail, Timer, Square, X, ShieldAlert } from "lucide-react";
 import { useAuth } from "@/hooks/useAuth";
@@ -49,8 +49,11 @@ export default function Focus() {
   const elapsedSec = useTimeTrackerElapsed();
   const [block, setBlock] = useState<any | null>(null);
   const [next, setNext] = useState<Block | null>(null);
-  const [remaining, setRemaining] = useState<number>(0); // seconds
-  const [total, setTotal] = useState<number>(1);
+  /** Seconds until scheduled window end (wall clock on plan day). */
+  const [remaining, setRemaining] = useState<number>(0);
+  /** Ring fill: elapsed within [start,end] vs full window span. */
+  const [progressPct, setProgressPct] = useState(0);
+  const windowWallRef = useRef({ startMs: 0, endMs: 0 });
   const [showCheck, setShowCheck] = useState(false);
   const [help, setHelp] = useState<AIHelp | null>(null);
   const [helpLoading, setHelpLoading] = useState(false);
@@ -73,6 +76,8 @@ export default function Focus() {
   const [searchParams] = useSearchParams();
   const oneThingMode = searchParams.get("mode") === "one";
   const [oneThingDoneFlash, setOneThingDoneFlash] = useState(false);
+  /** One-thing mode: wall-clock seconds until slot end. */
+  const [oneWindowRemain, setOneWindowRemain] = useState(0);
   const calmAutoEnabledRef = useRef(false);
   const guardrailToastShownRef = useRef(false);
   const trackingRef = useRef(tracking);
@@ -99,7 +104,8 @@ export default function Focus() {
     setBlock(null);
     setNext(null);
     setRemaining(0);
-    setTotal(1);
+    setProgressPct(0);
+    windowWallRef.current = { startMs: 0, endMs: 0 };
     setShowCheck(false);
     setExtended(false);
     setExtendedMin(0);
@@ -122,8 +128,16 @@ export default function Focus() {
       const { data: planRow } = await supabase.from("plans").select("date").eq("id", data.plan_id).maybeSingle();
       setPlanDate((planRow as { date?: string } | null)?.date ?? todayDateStr());
       setBlock(data as Block);
-      setTotal(data.duration_min * 60);
-      setRemaining(data.duration_min * 60);
+      const pd =
+        ((planRow as { date?: string } | null)?.date ?? todayDateStr());
+      const startMs = wallMsOnPlanDay(pd, data.start_time);
+      const endMs = wallMsOnPlanDay(pd, blockSlotEndHHMM(data as Block));
+      const wl = Math.max(60, (endMs - startMs) / 1000);
+      windowWallRef.current = { startMs, endMs };
+      const rem = Math.max(0, (endMs - Date.now()) / 1000);
+      setRemaining(rem);
+      const elapsed = Math.min(Math.max((Date.now() - startMs) / 1000, 0), wl);
+      setProgressPct(wl > 0 ? elapsed / wl : 0);
       // Match DayView's "Start" button: skip calendar events the user can't act on
       // inside Focus mode. Otherwise the "Next" jump lands on a non-actionable item.
       const { data: rest } = await supabase.from("blocks").select("*").eq("plan_id", data.plan_id)
@@ -157,20 +171,22 @@ export default function Focus() {
 
   useEffect(() => {
     if (!block || !armed) return;
-    const onVis = () => { /* timer pauses naturally when tab hidden — we use realtime */ };
+    const onVis = () => { /* visibility */ };
     document.addEventListener("visibilitychange", onVis);
-    let last = Date.now();
     const tick = () => {
-      const now = Date.now();
-      if (!document.hidden) {
-        const dt = (now - last) / 1000;
-        setRemaining(r => Math.max(0, r - dt));
-      }
-      last = now;
+      const { startMs, endMs } = windowWallRef.current;
+      const wl = Math.max(1, (endMs - startMs) / 1000);
+      const rem = Math.max(0, (endMs - Date.now()) / 1000);
+      setRemaining(rem);
+      const elapsed = Math.min(Math.max((Date.now() - startMs) / 1000, 0), wl);
+      setProgressPct(elapsed / wl);
       tickRef.current = window.setTimeout(tick, 250);
     };
     tick();
-    return () => { if (tickRef.current) clearTimeout(tickRef.current); document.removeEventListener("visibilitychange", onVis); };
+    return () => {
+      if (tickRef.current) clearTimeout(tickRef.current);
+      document.removeEventListener("visibilitychange", onVis);
+    };
   }, [block?.id, armed]);
 
   useEffect(() => {
@@ -192,11 +208,26 @@ export default function Focus() {
       toast("You have already extended this block by 60 minutes. Wrap up or complete it.", { duration: 3500 });
       return;
     }
-    setRemaining(r => r + 5 * 60);
-    setTotal(t => t + 5 * 60);
-    setExtendedMin(m => m + 5);
+    setRemaining((r) => r + 5 * 60);
+    windowWallRef.current.endMs += 5 * 60 * 1000;
+    setExtendedMin((m) => m + 5);
     setExtended(true);
     haptics.tap();
+    void (async () => {
+      if (!block || !user) return;
+      const pd = planDate || todayDateStr();
+      const newDur = block.duration_min + 5;
+      const newEnd = addMinutesToWallClock(pd, blockSlotEndHHMM(block), 5);
+      try {
+        await supabase
+          .from("blocks")
+          .update({ duration_min: newDur, slot_end_time: newEnd })
+          .eq("id", block.id);
+        setBlock({ ...block, duration_min: newDur, slot_end_time: newEnd });
+      } catch {
+        toast.error("Could not extend window on the server");
+      }
+    })();
     toast.success(`+5 min · ${extendedMin + 5}/${EXTEND_CAP_MIN}m extended`);
   };
 
@@ -249,6 +280,7 @@ export default function Focus() {
           duration_min: block.duration_min,
           ai_tone: (profile as any)?.ai_tone || "professional",
           ai_tone_custom: (profile as any)?.ai_tone_custom || null,
+          ai_planning_rules: (profile as any)?.ai_planning_rules || "",
           runtime_reason: reason || null,
         },
       });
@@ -382,6 +414,17 @@ export default function Focus() {
     void loadHelp("overtime");
   }, [aiFocusRuntimeEnabled, timeUp, runtimeReason]);
 
+  useEffect(() => {
+    if (!oneThingMode || !block || !planDate) return;
+    const tick = () => {
+      const end = wallMsOnPlanDay(planDate, blockSlotEndHHMM(block));
+      setOneWindowRemain(Math.max(0, (end - Date.now()) / 1000));
+    };
+    tick();
+    const id = window.setInterval(tick, 1000);
+    return () => clearInterval(id);
+  }, [oneThingMode, block?.id, planDate, block?.start_time, block?.duration_min, block?.slot_end_time]);
+
   if (!block) return <div className="min-h-screen bg-background" />;
   if (oneThingMode && !isPro) {
     return (
@@ -394,7 +437,7 @@ export default function Focus() {
     );
   }
 
-  const pct = 1 - remaining / total;
+  const pct = progressPct;
   const radius = 110;
   const circ = 2 * Math.PI * radius;
   const offset = circ * pct;
@@ -416,7 +459,13 @@ export default function Focus() {
         <div className="relative z-10 w-full max-w-[430px] min-h-screen flex flex-col items-center justify-center px-8">
           <div className="text-[10px] uppercase tracking-[0.16em] text-slate-400">One thing mode</div>
           <h1 className="mt-3 text-center font-display text-[34px] leading-[1.08] text-white text-balance">{block.title}</h1>
-          <div className="mt-8 text-[46px] font-mono-sf tabular-nums text-cyan-300">{fmtHMS(oneThingElapsedSec)}</div>
+          <div className="mt-8 text-[40px] font-mono-sf tabular-nums text-cyan-200 leading-none">
+            {fmtHMS(Math.floor(oneWindowRemain))}
+          </div>
+          <div className="text-[11px] uppercase tracking-[0.14em] text-slate-500 mt-3">Until {fmtTime(blockSlotEndHHMM(block))}</div>
+          <div className="mt-6 text-[13px] text-slate-500 tabular-nums">
+            In focus · {fmtHMS(oneThingElapsedSec)}
+          </div>
           <button
             onClick={complete}
             className="mt-10 h-14 px-10 rounded-2xl bg-cyan-400 text-slate-950 font-semibold text-[17px] pressable shadow-[0_10px_40px_-12px_rgba(34,211,238,0.7)]"
@@ -543,15 +592,19 @@ export default function Focus() {
               </div>
             ) : timeUp ? (
               <div className="text-center">
-                <div className="text-[28px] font-mono-sf font-semibold tabular-nums leading-none text-primary">Time's up</div>
-                <div className="text-secondary-fg text-xs mt-2">Need a little more?</div>
+                <div className="text-[26px] font-mono-sf font-semibold tabular-nums leading-none text-primary">Window ended</div>
+                <div className="text-secondary-fg text-xs mt-2">Extend if you need a little more</div>
               </div>
             ) : (
               <>
                 <div className="text-[48px] font-mono-sf font-medium tabular-nums leading-none">
                   {String(mins).padStart(2,"0")}:{String(secs).padStart(2,"0")}
                 </div>
-                <div className="text-secondary-fg text-sm mt-2">of {block.duration_min} minutes</div>
+                <div className="text-secondary-fg text-[12px] mt-2.5 text-center leading-relaxed max-w-[280px] px-1">
+                  Until {fmtTime(blockSlotEndHHMM(block))}
+                  <span className="text-faint"> · </span>
+                  {block.duration_min} min window
+                </div>
               </>
             )}
           </div>

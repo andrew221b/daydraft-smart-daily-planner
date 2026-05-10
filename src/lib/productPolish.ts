@@ -85,7 +85,7 @@ export function weeklyProductScore(days: Block[][]): { score: number; tips: stri
   if (avgDeep < 60) tips.push("Protect one uninterrupted deep-work block daily.");
   if (realisticPlanningFactor < 0.7) tips.push("Daily plans are too packed; keep planned work under 9h.");
   if (!tips.length) tips.push("Momentum is strong. Keep your morning start ritual consistent.");
-  if (tips.length < 2) tips.push("Use Rescue my day when schedule slips instead of abandoning the plan.");
+  if (tips.length < 2) tips.push("When things slip, adjust the rest of the day instead of abandoning the whole plan.");
   return { score, tips: tips.slice(0, 2) };
 }
 

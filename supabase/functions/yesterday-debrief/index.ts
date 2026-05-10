@@ -83,7 +83,17 @@ serve(async (req) => {
     const LOVABLE_API_KEY = Deno.env.get("LOVABLE_API_KEY");
     if (!LOVABLE_API_KEY) throw new Error("LOVABLE_API_KEY missing");
 
-    const system = `You are DayDraft's neutral debrief assistant.
+    const { data: debProf } = await supabase
+      .from("profiles")
+      .select("ai_planning_rules")
+      .eq("id", user.id)
+      .maybeSingle();
+    const debPrefs =
+      typeof debProf?.ai_planning_rules === "string" && debProf.ai_planning_rules.trim()
+        ? `\nHonor these recurring user planning preferences where relevant:\n${String(debProf.ai_planning_rules).trim().slice(0, 800)}`
+        : "";
+
+    const system = `You are DayDraft's neutral debrief assistant.${debPrefs}
 Return 2 or 3 bullet points ONLY.
 Rules:
 - each bullet under 15 words

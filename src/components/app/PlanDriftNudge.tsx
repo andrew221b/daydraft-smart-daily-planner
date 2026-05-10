@@ -6,7 +6,7 @@ import { useProfile } from "@/hooks/useProfile";
 import { useEntitlement } from "@/hooks/useEntitlement";
 import { useTimeTracker } from "@/hooks/useTimeTracker";
 import { supabase } from "@/integrations/supabase/client";
-import { todayDateStr, isUserTask, inferScheduleBlockType } from "@/lib/daydraft";
+import { todayDateStr, isUserTask, inferScheduleBlockType, blockSlotEndHHMM } from "@/lib/daydraft";
 import { toast } from "sonner";
 import { useQueryClient } from "@tanstack/react-query";
 import { planDashboardQueryKey, planDayQueryKey } from "@/lib/planQueries";
@@ -136,6 +136,7 @@ export function PlanDriftNudge() {
           active_hours_end: (profile as any)?.active_hours_end || "22:00",
           ai_tone: (profile as any)?.ai_tone || "professional",
           ai_tone_custom: (profile as any)?.ai_tone_custom || null,
+          ai_planning_rules: (profile as any)?.ai_planning_rules || "",
         },
       });
       if (error) throw error;
@@ -164,6 +165,13 @@ export function PlanDriftNudge() {
         block_type: inferScheduleBlockType(b),
         position: startPos + i,
         ai_reasoning: b.reasoning ?? null,
+        overlap_ok: Boolean(b.overlap_ok),
+        parallel_group_id: typeof b.parallel_group_id === "string" && b.parallel_group_id ? b.parallel_group_id : null,
+        slot_end_time: blockSlotEndHHMM({
+          start_time: b.start_time,
+          duration_min: b.duration_min,
+          slot_end_time: b.slot_end_time ?? null,
+        } as any),
       }));
       if (newBlocks.length) await supabase.from("blocks").insert(newBlocks);
       await Promise.all([

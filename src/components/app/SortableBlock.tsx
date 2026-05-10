@@ -1,12 +1,20 @@
 import { useSortable } from "@dnd-kit/sortable";
 import { CSS } from "@dnd-kit/utilities";
-import { Block, fmtTime, inferScheduleBlockType } from "@/lib/daydraft";
-import { Check, Calendar, Sparkles } from "lucide-react";
+import { Block, fmtTime, inferScheduleBlockType, blockSlotEndHHMM } from "@/lib/daydraft";
+import { Check, Calendar, Sparkles, Layers } from "lucide-react";
 
 export const SortableBlock = ({
   block, editing, onTap, onToggleComplete, tourSpotlight,
 }: {
-  block: Block & { ai_reasoning?: string | null; location?: string | null; location_lat?: number | null; location_lng?: number | null; is_calendar_event?: boolean };
+  block: Block & {
+    ai_reasoning?: string | null;
+    location?: string | null;
+    location_lat?: number | null;
+    location_lng?: number | null;
+    is_calendar_event?: boolean;
+    overlap_ok?: boolean | null;
+    slot_end_time?: string | null;
+  };
   editing: boolean;
   onTap?: (b: any) => void;
   onToggleComplete?: (b: any) => void;
@@ -54,20 +62,22 @@ export const SortableBlock = ({
       {...(isCal ? {} : attributes)}
       {...(isCal ? {} : listeners)}
       onClick={() => onTap?.(block)}
-    className={`group cursor-pointer pressable transition-all duration-200 app-card px-2.5 py-5 ${
+      className={`group cursor-pointer pressable transition-all duration-200 app-card px-3 py-4 shadow-none ${
         block.completed ? "opacity-65" : ""
       } ${
+        !isCal && block.overlap_ok ? "border-l-[3px] border-l-primary/45" : ""
+      } ${
         isCal
-          ? "border-soft"
+          ? "!border-border/35"
           : rhythmType === "rest"
-            ? "bg-muted/40 border-soft hover:border-strong"
+            ? "bg-muted/25 !border-border/35 hover:border-border/50"
             : rhythmType === "personal"
-              ? "bg-[linear-gradient(165deg,hsl(278_72%_62%/.10)_0%,hsl(var(--surface)/.80)_58%,hsl(var(--surface-elevated)/.74)_100%)] border-[hsl(270_70%_66%/.36)] hover:border-[hsl(270_72%_70%/.52)]"
-              : "hover:border-primary/30"
-      } py-5`}
+              ? "bg-[linear-gradient(165deg,hsl(278_72%_62%/.08)_0%,hsl(var(--surface)/.72)_58%,hsl(var(--surface-elevated)/.65)_100%)] border-[hsl(270_70%_66%/.28)] hover:border-[hsl(270_72%_70%/.44)]"
+              : "!border-border/40 hover:border-border/55 hover:!border-primary/25"
+      }`}
     >
       <div className="flex items-center gap-3">
-        <div className="shrink-0 min-w-[54px] h-9 rounded-lg border border-strong bg-background/45 backdrop-blur-sm px-2 inline-flex items-center justify-center text-secondary-fg text-[11px] font-mono-sf tabular-nums">
+        <div className="shrink-0 min-w-[54px] h-9 rounded-xl border border-border/40 bg-background/30 backdrop-blur-sm px-2 inline-flex items-center justify-center text-secondary-fg/90 text-[11px] font-mono-sf tabular-nums">
           {fmtTime(block.start_time)}
         </div>
         <div className="w-[4px] h-9 rounded-full shrink-0" style={{ background: stripeColor }} />
@@ -76,6 +86,11 @@ export const SortableBlock = ({
           {isCal && <Calendar className="h-3 w-3 text-secondary-fg shrink-0" />}
           {!isCal && rhythmType === "rest" && <span className="shrink-0 text-[12px] leading-none" aria-hidden>☕</span>}
           <span className="truncate">{block.title}</span>
+          {!isCal && Boolean(block.overlap_ok) && (
+            <span className="shrink-0 text-secondary-fg" title="Runs alongside other work">
+              <Layers className="h-3 w-3" aria-hidden />
+            </span>
+          )}
           {!isCal && block.ai_reasoning && (
             <span className="shrink-0 text-primary/70" title="Why this slot">
               <Sparkles className="h-3 w-3" aria-hidden />
@@ -83,6 +98,12 @@ export const SortableBlock = ({
           )}
           </div>
           <div className={`${rhythmType === "rest" ? "text-[10px]" : "text-[10.5px]"} text-secondary-fg mt-1 tabular-nums`}>
+            {!block.completed && !isCal && (block.kind === "task" || block.kind === "lunch") && (
+              <>
+                <span className="text-faint">until {fmtTime(blockSlotEndHHMM(block))}</span>
+                <span className="text-faint mx-1">·</span>
+              </>
+            )}
             {block.completed && actualMin != null ? (
               <>
                 <span className="font-medium text-foreground">{fmtMin(actualMin)}</span>
@@ -130,7 +151,7 @@ export const SortableBlock = ({
               e.stopPropagation();
               onToggleComplete?.(block);
             }}
-            className="h-6 w-6 rounded-full border-[1.5px] border-soft shrink-0 pressable"
+            className="h-6 w-6 rounded-full border-[1.5px] border-border/45 shrink-0 pressable hover:border-primary/35"
             aria-label="Mark done"
           />
         )}

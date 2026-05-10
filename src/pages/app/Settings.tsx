@@ -7,13 +7,14 @@ import { Button } from "@/components/ui/button";
 import { useEffect, useState } from "react";
 import { peakWindow } from "@/lib/daydraft";
 import { ThemeToggle } from "@/components/app/ThemeToggle";
-import { Fingerprint, Sparkles, Bell, Calendar, FileText, Shield, Trash2, HelpCircle, ChevronDown, Check } from "lucide-react";
+import { Fingerprint, Sparkles, Bell, Calendar, FileText, Shield, Trash2, HelpCircle, ChevronDown } from "lucide-react";
 import { Textarea } from "@/components/ui/textarea";
 import { Link, useNavigate, useLocation } from "react-router-dom";
 import { clearStoredPasskey, enrollPasskey, getStoredPasskey, passkeySupported } from "@/lib/passkeys";
 import { toast } from "sonner";
 import { useEntitlement } from "@/hooks/useEntitlement";
 import { writeDevSimulatePro } from "@/lib/devEntitlement";
+import { Sheet, SheetContent, SheetHeader, SheetTitle, SheetDescription } from "@/components/ui/sheet";
 import { UpgradeSheet } from "@/components/app/UpgradeSheet";
 import { enablePush, disablePush, pushSupported } from "@/lib/push";
 import { useTour, TOUR_TODAY } from "@/components/app/Tour";
@@ -45,6 +46,7 @@ export default function Settings() {
   const [hasPasskey, setHasPasskey] = useState(!!getStoredPasskey());
   const { entitlement, isPro, devSimulatePro, subscriptionPro, planQuotaUsed, planQuotaLimit, planQuotaRemaining } = useEntitlement();
   const [upgradeOpen, setUpgradeOpen] = useState(false);
+  const [proSheetOpen, setProSheetOpen] = useState(false);
   const [calConnecting, setCalConnecting] = useState(false);
   const [advancedOpen, setAdvancedOpen] = useState(false);
   const [visualMode, setVisualMode] = useVisualMode();
@@ -52,10 +54,13 @@ export default function Settings() {
 
   useEffect(() => {
     const hash = location.hash;
-    if (hash !== "#week-intention" && hash !== "#pro-features") return;
+    if (hash === "#pro-features") {
+      setProSheetOpen(true);
+      return;
+    }
+    if (hash !== "#week-intention") return;
     const id = requestAnimationFrame(() => {
-      const elId = hash === "#pro-features" ? "pro-features" : "week-intention";
-      document.getElementById(elId)?.scrollIntoView({ behavior: "smooth", block: "start" });
+      document.getElementById("week-intention")?.scrollIntoView({ behavior: "smooth", block: "start" });
     });
     return () => cancelAnimationFrame(id);
   }, [location.hash]);
@@ -126,6 +131,12 @@ export default function Settings() {
         <h1 className="type-title mt-2 text-balance">Settings</h1>
 
         <div className="mt-8 space-y-8">
+          <ProCard
+            entitlement={entitlement} isPro={isPro} subscriptionPro={subscriptionPro} devSimulatePro={devSimulatePro}
+            planQuotaUsed={planQuotaUsed} planQuotaLimit={planQuotaLimit} planQuotaRemaining={planQuotaRemaining}
+            onUpgrade={() => setUpgradeOpen(true)}
+            onOpenDetails={!isPro ? () => setProSheetOpen(true) : undefined}
+          />
           {import.meta.env.DEV && (
             <Section title="Developer">
               <div className="rounded-[14px] border border-dashed border-soft surface-card px-4 py-3 space-y-2">
@@ -226,6 +237,17 @@ export default function Settings() {
                 className="min-h-[80px] surface-card border-soft rounded-xl text-[13px]"
               />
               <p className="mt-1 text-[10px] text-secondary-fg">AI uses this in plans, insights, and replies.</p>
+            </div>
+            <div className="mt-4">
+              <div className="text-[11px] text-secondary-fg mb-2 leading-relaxed">
+                Planning rules · short notes the AI must read (blackout windows, preferred block length, family time, etc.).
+              </div>
+              <Textarea
+                value={(profile as any)?.ai_planning_rules || ""}
+                onChange={(e) => update({ ai_planning_rules: e.target.value } as any)}
+                placeholder="e.g. never schedule deep work before 10:00 · 45m blocks · kitchen break 12:30–13:00"
+                className="min-h-[88px] surface-card border-soft rounded-xl text-[13px]"
+              />
             </div>
           </Section>
 
@@ -360,6 +382,19 @@ export default function Settings() {
           <p className="text-center text-[11px] text-secondary-fg pt-1">DayDraft · v1.0</p>
         </div>
       </div>
+      <Sheet open={proSheetOpen} onOpenChange={setProSheetOpen}>
+        <SheetContent side="bottom" className="rounded-t-[24px] border-soft max-h-[85vh] overflow-y-auto">
+          <SheetHeader className="text-left">
+            <SheetTitle className="font-display text-[17px]">Included with Pro</SheetTitle>
+            <SheetDescription className="text-[13px]">
+              Full list — same features you unlock at checkout.
+            </SheetDescription>
+          </SheetHeader>
+          <div className="mt-4 pb-6">
+            <ProFeatureHighlights onUpgrade={() => { setProSheetOpen(false); setUpgradeOpen(true); }} />
+          </div>
+        </SheetContent>
+      </Sheet>
       <UpgradeSheet open={upgradeOpen} onOpenChange={setUpgradeOpen} reason="feature" />
     </Shell>
   );
@@ -372,7 +407,7 @@ const Section = ({ title, children }: { title: string; children: React.ReactNode
   </div>
 );
 
-const ProCard = ({ entitlement, isPro, subscriptionPro, devSimulatePro, planQuotaUsed, planQuotaLimit, planQuotaRemaining, onUpgrade }: {
+const ProCard = ({ entitlement, isPro, subscriptionPro, devSimulatePro, planQuotaUsed, planQuotaLimit, planQuotaRemaining, onUpgrade, onOpenDetails }: {
   entitlement: ReturnType<typeof useEntitlement>["entitlement"];
   isPro: boolean;
   subscriptionPro: boolean;
@@ -381,6 +416,7 @@ const ProCard = ({ entitlement, isPro, subscriptionPro, devSimulatePro, planQuot
   planQuotaLimit: number;
   planQuotaRemaining: number;
   onUpgrade: () => void;
+  onOpenDetails?: () => void;
 }) => {
   const tier = entitlement?.tier || "free";
   const badge = devSimulatePro && !subscriptionPro
@@ -413,19 +449,15 @@ const ProCard = ({ entitlement, isPro, subscriptionPro, devSimulatePro, planQuot
           Only {planQuotaRemaining} free planning day{planQuotaRemaining === 1 ? "" : "s"} left. Upgrade so a busy week never blocks the next.
         </p>
       )}
-      {!isPro && (
-        <ul className="mt-3 space-y-2 text-[12px] text-foreground">
-          {[
-            "Unlimited generate & re-plan days",
-            "Google Calendar folded into every schedule",
-            "AI that learns how long your work really takes",
-          ].map((line) => (
-            <li key={line} className="flex items-start gap-2">
-              <Check className="h-3.5 w-3.5 text-primary shrink-0 mt-0.5" strokeWidth={2.5} />
-              <span>{line}</span>
-            </li>
-          ))}
-        </ul>
+      {!isPro && onOpenDetails && (
+        <button
+          type="button"
+          id="pro-features"
+          onClick={onOpenDetails}
+          className="mt-3 text-[12px] font-medium text-primary pressable block"
+        >
+          What&apos;s included · Full list
+        </button>
       )}
       {!isPro && (
         <p className="text-[11px] text-secondary-fg mt-2.5 leading-relaxed">

@@ -2,7 +2,7 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import { useNavigate } from "react-router-dom";
 import { Button } from "@/components/ui/button";
 import { useProfile } from "@/hooks/useProfile";
-import { ArrowRight, Check, ShieldAlert, Sparkles } from "lucide-react";
+import { ArrowRight, Check, Layers, Sparkles } from "lucide-react";
 import { enablePush, pushSupported } from "@/lib/push";
 import { supabase } from "@/integrations/supabase/client";
 import { toast } from "sonner";
@@ -28,7 +28,7 @@ export default function Onboarding() {
 
   const [step, setStep] = useState<number>(initial.step);
   const [tone, setTone] = useState<Tone>(initial.tone);
-  const [rescueHour, setRescueHour] = useState(19);
+  const [lateDayHour, setLateDayHour] = useState(19);
   const [timelineMorph, setTimelineMorph] = useState(false);
   const morphTimerRef = useRef<number | null>(null);
   const { update } = useProfile();
@@ -49,13 +49,13 @@ export default function Onboarding() {
       { time: "13:15", title: "Inbox zero", minutes: 35 },
       { time: "18:00", title: "Gym 45m", minutes: 45 },
     ];
-    if (rescueHour < 18) return base;
+    if (lateDayHour < 18) return base;
     return [
       { time: "19:10", title: "Finish investor update", minutes: 45 },
       { time: "20:05", title: "Deep work: onboarding polish", minutes: 50 },
       { time: "21:10", title: "Inbox zero", minutes: 20 },
     ];
-  }, [rescueHour]);
+  }, [lateDayHour]);
 
   const tonePreview: Record<Tone, string> = {
     professional: "Priority order is clear. We start with the highest-value task.",
@@ -126,7 +126,7 @@ export default function Onboarding() {
       } catch {
         // ignore
       }
-      nav("/today");
+      nav("/home");
     } catch (e: any) {
       toast.error(e?.message || "Could not finish onboarding. Please try again.");
     } finally {
@@ -171,7 +171,7 @@ export default function Onboarding() {
                   <div className="text-[11px] uppercase tracking-wider text-secondary-fg inline-flex items-center gap-1.5">
                     <Sparkles className="h-3.5 w-3.5 text-primary" /> Day in glass
                   </div>
-                  <div className="text-[13px] text-subtle">Input -&gt; smart schedule -&gt; rescue if your day shifts.</div>
+                  <div className="text-[13px] text-subtle">Input → smart schedule → quick replan when reality moves.</div>
                 </div>
               </div>
               <Button disabled={finishing} onClick={() => setStep(1)} className="w-full h-[52px] rounded-[16px] bg-primary text-primary-foreground hover:bg-primary/92 pressable text-[15px] font-medium shadow-card">
@@ -262,7 +262,7 @@ export default function Onboarding() {
                 {tonePreview[tone]}
               </div>
               <Button disabled={finishing} onClick={() => setStep(4)} className="w-full h-[52px] rounded-[16px] bg-primary text-primary-foreground hover:bg-primary/92 pressable text-[15px] font-medium mt-5 shadow-card">
-                Show rescue mode
+                See how plans adapt
               </Button>
             </div>
           )}
@@ -274,22 +274,22 @@ export default function Onboarding() {
                 Day shifts? Plan adapts.
               </h1>
               <p className="text-secondary-fg mt-2 text-[13px] leading-[1.55]">
-                Move the time and preview how Rescue re-focuses what still matters.
+                Move the time — see how the planner tightens what&apos;s still doable.
               </p>
               <div className="mt-5 app-card px-4 py-5">
                 <div className="flex items-center justify-between text-[12px] text-secondary-fg">
                   <span className="inline-flex items-center gap-1.5">
-                    <ShieldAlert className="h-3.5 w-3.5 text-primary" /> Rescue simulation
+                    <Layers className="h-3.5 w-3.5 text-primary" /> Afternoon shift preview
                   </span>
-                  <span>{String(rescueHour).padStart(2, "0")}:00</span>
+                  <span>{String(lateDayHour).padStart(2, "0")}:00</span>
                 </div>
                 <input
                   type="range"
                   min={15}
                   max={22}
                   step={1}
-                  value={rescueHour}
-                  onChange={(e) => setRescueHour(Number(e.target.value))}
+                  value={lateDayHour}
+                  onChange={(e) => setLateDayHour(Number(e.target.value))}
                   className="mt-3 w-full"
                 />
               </div>

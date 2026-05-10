@@ -17,7 +17,7 @@ export const Shell = ({
 
   const pageSwitchClass = pathname.startsWith("/today/plan")
     ? "page-switch-luxe page-switch-right"
-    : pathname.startsWith("/today")
+    : pathname.startsWith("/today") || pathname.startsWith("/home")
       ? "page-switch-luxe page-switch-left"
       : "page-switch-luxe";
 
@@ -27,7 +27,7 @@ export const Shell = ({
       void import("@/pages/app/Planning");
       void import("@/pages/app/DayView");
       void import("@/pages/app/Focus");
-      void import("@/pages/app/Tracker");
+      void import("@/pages/app/Home");
       void import("@/pages/app/History");
       void import("@/pages/app/Settings");
       void import("@/pages/app/Recap");

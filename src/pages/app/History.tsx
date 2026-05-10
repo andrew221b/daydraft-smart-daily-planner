@@ -206,7 +206,7 @@ export default function History() {
             value={fmtHM(weekTotalSec)}
             sub={`${fmtHM(todayTotalSec)} today`}
             tone="primary"
-            onClick={() => nav("/tracker")}
+            onClick={() => nav("/home?tracker=1")}
           />
           <KpiCard
             icon={<Target className="h-3.5 w-3.5" />}
