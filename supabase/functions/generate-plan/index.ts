@@ -576,6 +576,13 @@ Rules:
 - Classify each task as deep_work, communication, or routine.
 - Use kind="task" for actual tasks, "break" for breaks, "lunch" for lunch.
 - EXPLICIT TIME EXTRACTION (HIGHEST PRIORITY): scan EVERY raw task line for an explicit clock time ("at 3pm", "15:00", "к 9 утра", "в 14:30", "9am call", "after 17:00"). If found, that task MUST use that exact time as start_time and MUST NOT be shifted. Treat it as a fixed commitment just like a calendar event. Schedule everything else around it.
+- SEQUENCING / CAUSAL ORDER (HIGHEST PRIORITY, equal to explicit times): the raw input is a real human braindump, not a sorted list. Read it like a routine, not a queue. Scan every line for ordering cues the user used to describe their day:
+    · "after / потом / после / then / once I … / when I get back / по возвращении" → the task MUST come AFTER the referenced activity, never before it.
+    · "before / перед / до / by / к" → the task must come BEFORE the referenced activity / deadline.
+    · "in the morning / утром", "afternoon / днём", "evening / вечером", "tonight / ночью", "first thing", "last thing" → respect that part of day.
+    · "while / during / пока" → that's a parallel/background task, mark with parallel_with_index.
+  Example: "I'll see friends, then work on the app" → 'see friends' is FIRST, 'work on the app' is AFTER. Do NOT front-load the app work just because it's "deep work" — the user's stated routine wins over the peak-window heuristic. The peak-window rule applies only to tasks the user did NOT anchor with sequencing or time language.
+- ROUTINE-FIRST PLANNING: treat the raw input as the user's intended day, in roughly the order they wrote it, unless explicit times or sequencing cues say otherwise. Re-order ONLY to (a) honor explicit times/sequencing, (b) respect calendar holds, (c) place a clearly mentioned break/meal sensibly, (d) move a task into the peak window when the user has NOT signaled when it should happen. Never silently invert the order the user dictated.
 - PARALLEL / OVERLAPPING ACTIVITIES: if two tasks have overlapping time windows that the user clearly intends to do together (e.g. "walk with son 15:00-16:00" + "call client 15:19" → the call happens during the walk), KEEP BOTH at their explicit times and mark the secondary one with parallel_with_index = (zero-based index of the primary block). Do NOT push them sequentially. The shorter / interrupting task is parallel_with the longer one.
 - Also set block_type for every block:
   - "rest" for breaks/lunch and transition/recovery blocks,
