@@ -192,6 +192,7 @@ export type Database = {
           active_hours_end: string
           active_hours_start: string
           ai_context_custom: string | null
+          ai_planning_rules: string | null
           ai_tone: string
           ai_tone_custom: string | null
           created_at: string
@@ -215,6 +216,7 @@ export type Database = {
           active_hours_end?: string
           active_hours_start?: string
           ai_context_custom?: string | null
+          ai_planning_rules?: string | null
           ai_tone?: string
           ai_tone_custom?: string | null
           created_at?: string
@@ -238,6 +240,7 @@ export type Database = {
           active_hours_end?: string
           active_hours_start?: string
           ai_context_custom?: string | null
+          ai_planning_rules?: string | null
           ai_tone?: string
           ai_tone_custom?: string | null
           created_at?: string
