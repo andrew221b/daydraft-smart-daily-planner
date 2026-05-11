@@ -74,7 +74,10 @@ export default function Focus() {
   /** Plan calendar day (YYYY-MM-DD) — for recap / back navigation off the default "today". */
   const [planDate, setPlanDate] = useState<string | null>(null);
   const [searchParams] = useSearchParams();
-  const oneThingMode = searchParams.get("mode") === "one";
+  // "One thing mode" was removed from the product. Keep the variable so
+  // existing branches stay dead without a large refactor.
+  void searchParams;
+  const oneThingMode = false;
   const [oneThingDoneFlash, setOneThingDoneFlash] = useState(false);
   /** One-thing mode: wall-clock seconds until slot end. */
   const [oneWindowRemain, setOneWindowRemain] = useState(0);
