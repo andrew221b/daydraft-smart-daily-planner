@@ -96,6 +96,7 @@ export function ClarifySheet({ open, onOpenChange, rawInput, onConfirm, planDate
   );
   const [tasks, setTasks] = useState<Row[]>(initial);
   const [planningContext, setPlanningContext] = useState("");
+  const [contextOpen, setContextOpen] = useState(false);
   const [loadingAI, setLoadingAI] = useState(false);
   const [splitting, setSplitting] = useState(false);
   const sensors = useSensors(
