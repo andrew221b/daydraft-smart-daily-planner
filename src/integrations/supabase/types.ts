@@ -43,9 +43,6 @@ export type Database = {
           actual_minutes: number | null
           ai_reasoning: string | null
           block_type: string | null
-          overlap_ok: boolean
-          parallel_group_id: string | null
-          slot_end_time: string | null
           completed: boolean
           completed_at: string | null
           created_at: string
@@ -69,9 +66,6 @@ export type Database = {
           actual_minutes?: number | null
           ai_reasoning?: string | null
           block_type?: string | null
-          overlap_ok?: boolean
-          parallel_group_id?: string | null
-          slot_end_time?: string | null
           completed?: boolean
           completed_at?: string | null
           created_at?: string
@@ -95,9 +89,6 @@ export type Database = {
           actual_minutes?: number | null
           ai_reasoning?: string | null
           block_type?: string | null
-          overlap_ok?: boolean
-          parallel_group_id?: string | null
-          slot_end_time?: string | null
           completed?: boolean
           completed_at?: string | null
           created_at?: string
@@ -192,7 +183,6 @@ export type Database = {
           active_hours_end: string
           active_hours_start: string
           ai_context_custom: string | null
-          ai_planning_rules: string | null
           ai_tone: string
           ai_tone_custom: string | null
           created_at: string
@@ -216,7 +206,6 @@ export type Database = {
           active_hours_end?: string
           active_hours_start?: string
           ai_context_custom?: string | null
-          ai_planning_rules?: string | null
           ai_tone?: string
           ai_tone_custom?: string | null
           created_at?: string
@@ -240,7 +229,6 @@ export type Database = {
           active_hours_end?: string
           active_hours_start?: string
           ai_context_custom?: string | null
-          ai_planning_rules?: string | null
           ai_tone?: string
           ai_tone_custom?: string | null
           created_at?: string
