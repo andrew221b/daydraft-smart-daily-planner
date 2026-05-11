@@ -1,4 +1,4 @@
-import { Block, dateStr, isUserTask, parseDateStr, todayDateStr } from "@/lib/daydraft";
+import { Block, dateStr, isUserTask, isUserTaskDone, isOpenUserTask, parseDateStr, todayDateStr } from "@/lib/daydraft";
 
 export type EnergyState = "low" | "medium" | "high";
 export type RescueMode = "conservative" | "balanced" | "aggressive";
@@ -31,30 +31,11 @@ export function writeEnergyState(v: EnergyState): void {
   }
 }
 
-export function smartDailyOutcome(blocks: Block[]): string[] {
-  const tasks = blocks.filter(isUserTask);
-  const done = tasks.filter((b) => b.completed);
-  const open = tasks.filter((b) => !b.completed);
-  const focusedMinutes = done
-    .filter((b) => b.type === "deep_work")
-    .reduce((sum, b) => sum + (b.duration_min || 0), 0);
-  const line1 = `${done.length} of ${tasks.length || 0} tasks completed today.`;
-  const line2 =
-    open.length > 0
-      ? `Carry ${open.slice(0, 3).map((b) => b.title).join(", ")}${open.length > 3 ? "…" : ""} to tomorrow.`
-      : "No carry-over needed. Tomorrow can start clean.";
-  const line3 =
-    focusedMinutes >= 90
-      ? `Strong focus block total: ${Math.floor(focusedMinutes / 60)}h ${focusedMinutes % 60}m.`
-      : "Consider one protected 60-90m deep-work block tomorrow morning.";
-  return [line1, line2, line3];
-}
-
 export function weeklyProductScore(days: Block[][]): { score: number; tips: string[] } {
   const stats = days.map((blocks) => {
     const tasks = blocks.filter(isUserTask);
     const planned = tasks.reduce((s, b) => s + (b.duration_min || 0), 0);
-    const done = tasks.filter((b) => b.completed);
+    const done = tasks.filter((b) => isUserTaskDone(b));
     const completed = done.reduce((s, b) => s + (b.duration_min || 0), 0);
     const deep = done.filter((b) => b.type === "deep_work").reduce((s, b) => s + (b.duration_min || 0), 0);
     return { planned, completed, deep, completionRate: planned > 0 ? completed / planned : 0 };
@@ -137,7 +118,7 @@ export function rescuePlanFromBlocks(
   const budgetMin = Math.max(35, grossBudget - occupiedMin);
 
   const scored = blocks
-    .filter((b) => isUserTask(b) && !b.completed && !b.is_calendar_event)
+    .filter((b) => isUserTask(b) && isOpenUserTask(b) && !b.is_calendar_event)
     .map((b) => {
       const deepBias =
         b.type === "deep_work"

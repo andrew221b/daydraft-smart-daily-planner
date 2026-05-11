@@ -1,4 +1,4 @@
-import { type Block, blockSlotEndHHMM } from "@/lib/daydraft";
+import { type Block, blockSlotEndHHMM, isOpenUserTask } from "@/lib/daydraft";
 
 /**
  * Local block-start reminders.
@@ -26,25 +26,48 @@ export type ReminderConfig = {
   enabled: boolean;
   leadsMin: number[]; // e.g. [10, 2]
   repeats: number; // re-fire N times after start (every 5 min)
-  /** Minutes before block end ("window closing"). Empty = off. Default one soft ping. */
+  /** Minutes before block end ("window closing"). Empty = off. Legacy; see endAlertLeadMin. */
   endLeadsMin: number[];
+  /** Primary alert this many minutes before the task window ends. */
+  endAlertLeadMin: number;
+  /** After the primary end alert, fire up to this many extra pings every minute while still before end. */
+  endAlertRepeat: number;
 };
 
 const KEY = (blockId: string) => `dd_reminders_${blockId}`;
 
+const defaultEndAlert = (): Pick<ReminderConfig, "endLeadsMin" | "endAlertLeadMin" | "endAlertRepeat"> => ({
+  endLeadsMin: [2],
+  endAlertLeadMin: 5,
+  endAlertRepeat: 0,
+});
+
 export const getReminderConfig = (blockId: string): ReminderConfig => {
-  if (typeof window === "undefined") return { enabled: true, leadsMin: DEFAULT_LEADS_MIN, repeats: DEFAULT_REPEATS, endLeadsMin: [2] };
+  if (typeof window === "undefined")
+    return { enabled: true, leadsMin: DEFAULT_LEADS_MIN, repeats: DEFAULT_REPEATS, ...defaultEndAlert() };
   try {
     const raw = localStorage.getItem(KEY(blockId));
-    if (!raw) return { enabled: true, leadsMin: DEFAULT_LEADS_MIN, repeats: DEFAULT_REPEATS, endLeadsMin: [2] };
+    if (!raw)
+      return { enabled: true, leadsMin: DEFAULT_LEADS_MIN, repeats: DEFAULT_REPEATS, ...defaultEndAlert() };
     const parsed = JSON.parse(raw);
+    const endLeadsMin = Array.isArray(parsed.endLeadsMin) ? parsed.endLeadsMin : [2];
+    const endAlertLeadMin =
+      typeof parsed.endAlertLeadMin === "number" && parsed.endAlertLeadMin >= 0
+        ? parsed.endAlertLeadMin
+        : Math.max(1, ...(endLeadsMin as number[]));
+    const endAlertRepeat =
+      typeof parsed.endAlertRepeat === "number" && parsed.endAlertRepeat >= 0 ? parsed.endAlertRepeat : 0;
     return {
       enabled: parsed.enabled !== false,
       leadsMin: Array.isArray(parsed.leadsMin) && parsed.leadsMin.length ? parsed.leadsMin : DEFAULT_LEADS_MIN,
       repeats: typeof parsed.repeats === "number" ? parsed.repeats : DEFAULT_REPEATS,
-      endLeadsMin: Array.isArray(parsed.endLeadsMin) ? parsed.endLeadsMin : [2],
+      endLeadsMin,
+      endAlertLeadMin,
+      endAlertRepeat,
     };
-  } catch { return { enabled: true, leadsMin: DEFAULT_LEADS_MIN, repeats: DEFAULT_REPEATS, endLeadsMin: [2] }; }
+  } catch {
+    return { enabled: true, leadsMin: DEFAULT_LEADS_MIN, repeats: DEFAULT_REPEATS, ...defaultEndAlert() };
+  }
 };
 
 export const setReminderConfig = (blockId: string, cfg: ReminderConfig) => {
@@ -105,6 +128,7 @@ export const scheduleBlockReminders = (
   const now = Date.now();
   blocks.forEach((b: any) => {
     if (b.completed) return;
+    if (b.kind === "task" && !b.is_calendar_event && !isOpenUserTask(b)) return;
     if (b.kind !== "task" && b.kind !== "lunch" && b.kind !== "break") {
       // also skip calendar events — the user's calendar handles those.
       if (!b.is_calendar_event) return;
@@ -130,12 +154,19 @@ export const scheduleBlockReminders = (
     });
     const [eh, emin] = blockSlotEndHHMM(b as Block).split(":").map(Number);
     const endMs = new Date(today.getFullYear(), today.getMonth(), today.getDate(), eh || 0, emin || 0, 0).getTime();
-    (cfg.endLeadsMin ?? [2]).forEach((lead) => {
-      if (lead < 0) return;
-      const label =
-        lead === 0 ? `Ends now · ${b.title}` : `Ends in ${lead} min · ${b.title}`;
-      schedule(endMs - lead * 60_000, `${label} · ${fmtEndClock(endMs)}`);
-    });
+    const leadMin = typeof cfg.endAlertLeadMin === "number" ? cfg.endAlertLeadMin : 5;
+    const endRepeat = typeof cfg.endAlertRepeat === "number" ? cfg.endAlertRepeat : 0;
+    const primaryEndPing = endMs - leadMin * 60_000;
+    if (leadMin === 0) {
+      schedule(endMs, `Window ends · ${b.title} · ${fmtEndClock(endMs)}`);
+    } else {
+      schedule(primaryEndPing, `Window ends in ${leadMin} min · ${b.title} · ${fmtEndClock(endMs)}`);
+      for (let i = 1; i <= endRepeat; i++) {
+        const t = primaryEndPing + i * 60_000;
+        if (t >= endMs) break;
+        schedule(t, `Reminder · ${b.title} · ends ${fmtEndClock(endMs)}`);
+      }
+    }
     for (let i = 1; i <= cfg.repeats; i++) {
       schedule(startMs + i * REPEAT_INTERVAL_MIN * 60_000, `Reminder · started at ${b.start_time}`);
     }

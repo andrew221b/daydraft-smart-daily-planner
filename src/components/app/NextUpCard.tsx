@@ -1,7 +1,7 @@
 import type { KeyboardEvent } from "react";
 import { PartyPopper, Play } from "lucide-react";
 import { Button } from "@/components/ui/button";
-import { Block, fmtTime, typeColor, isUserTask, blockSlotEndHHMM } from "@/lib/daydraft";
+import { Block, fmtTime, typeColor, isUserTask, isOpenUserTask, blockSlotEndHHMM } from "@/lib/daydraft";
 import { Link } from "react-router-dom";
 
 function timeToMin(t: string): number {
@@ -25,7 +25,7 @@ export function NextUpCard({
   navigatePlanOnCardPress?: boolean;
 }) {
   const tasks = blocks.filter(isUserTask);
-  const pending = tasks.filter((b) => !b.completed);
+  const pending = tasks.filter((b) => isOpenUserTask(b));
   if (tasks.length === 0) return null;
 
   if (pending.length === 0) {

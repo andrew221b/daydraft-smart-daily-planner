@@ -4,7 +4,7 @@ import { useAuth } from "@/hooks/useAuth";
 import { Switch } from "@/components/ui/switch";
 import { Input } from "@/components/ui/input";
 import { Button } from "@/components/ui/button";
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { peakWindow } from "@/lib/daydraft";
 import { ThemeToggle } from "@/components/app/ThemeToggle";
 import { Fingerprint, Sparkles, Bell, Calendar, FileText, Shield, Trash2, HelpCircle, ChevronDown } from "lucide-react";
@@ -51,7 +51,22 @@ export default function Settings() {
   const [calConnecting, setCalConnecting] = useState(false);
   const [advancedOpen, setAdvancedOpen] = useState(false);
   const [visualMode, setVisualMode] = useVisualMode();
+  const [planningRulesDraft, setPlanningRulesDraft] = useState("");
+  const planningRulesSaveTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const planningRulesDirty = useRef(false);
+  const planningRulesDraftRef = useRef("");
   useEffect(() => { if (profile) setName(profile.display_name || ""); }, [profile?.id]);
+
+  useEffect(() => {
+    if (!profile || planningRulesDirty.current) return;
+    const v = ((profile as any)?.ai_planning_rules as string | null | undefined) ?? "";
+    setPlanningRulesDraft(v);
+    planningRulesDraftRef.current = v;
+  }, [profile?.id, (profile as any)?.ai_planning_rules]);
+
+  useEffect(() => {
+    planningRulesDraftRef.current = planningRulesDraft;
+  }, [planningRulesDraft]);
 
   useEffect(() => {
     const hash = location.hash;
@@ -244,8 +259,19 @@ export default function Settings() {
                 Planning rules · short notes the AI must read (blackout windows, preferred block length, family time, etc.).
               </div>
               <Textarea
-                value={(profile as any)?.ai_planning_rules || ""}
-                onChange={(e) => update({ ai_planning_rules: e.target.value } as any)}
+                value={planningRulesDraft}
+                onChange={(e) => {
+                  const v = e.target.value;
+                  planningRulesDirty.current = true;
+                  planningRulesDraftRef.current = v;
+                  setPlanningRulesDraft(v);
+                  if (planningRulesSaveTimer.current) clearTimeout(planningRulesSaveTimer.current);
+                  planningRulesSaveTimer.current = setTimeout(async () => {
+                    planningRulesSaveTimer.current = null;
+                    await update({ ai_planning_rules: planningRulesDraftRef.current } as any);
+                    planningRulesDirty.current = false;
+                  }, 500);
+                }}
                 placeholder="e.g. never schedule deep work before 10:00 · 45m blocks · kitchen break 12:30–13:00"
                 className="min-h-[88px] surface-card border-soft rounded-xl text-[13px]"
               />

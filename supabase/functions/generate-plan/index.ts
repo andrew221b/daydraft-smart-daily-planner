@@ -508,12 +508,24 @@ User patterns (use to compound intelligence):
 - Deep work overrun: ${Number(pattern.deep_work_overrun_pct || 0).toFixed(0)}% (account for it; pad deep blocks if positive)
 - Top abandoned types: ${JSON.stringify(pattern.abandoned_types || [])}
 - Completion by hour: ${JSON.stringify(pattern.completion_by_hour || {})}` : "";
+    const punct = behavior_signals?.closure_punctuality_7d;
+    const skipM = behavior_signals?.skip_or_miss_rate_7d;
+    const punctLine =
+      typeof punct === "number" && Number.isFinite(punct)
+        ? `\n- Task closures on/before planned window end (7d): ${(punct * 100).toFixed(0)}% of completed tasks`
+        : "";
+    const skipLine =
+      typeof skipM === "number" && Number.isFinite(skipM)
+        ? `\n- Skip/miss rate on tasks (7d): ${(skipM * 100).toFixed(0)}%`
+        : "";
     const behaviorHints = behavior_signals ? `
 Recent behavior signals:
 - Completion rate (14d): ${Number(behavior_signals.completion_rate_14d || 0).toFixed(2)}
 - Average completed task duration (14d): ${Math.round(Number(behavior_signals.avg_completed_task_min_14d || 0))}m
-- Tracking coverage (7d): ${Number(behavior_signals.tracking_coverage_7d || 0).toFixed(2)}
-Use this to keep plans realistic: if completion rate < 0.65, trim low-priority volume by default; if avg completed task duration is short, prefer smaller blocks.` : "";
+- Tracking coverage (7d): ${Number(behavior_signals.tracking_coverage_7d || 0).toFixed(2)}${punctLine}${skipLine}
+Use this to keep plans realistic: if completion rate < 0.65, trim low-priority volume by default; if avg completed task duration is short, prefer smaller blocks.
+If skip/miss rate is high (>0.25), suggest fewer parallel commitments and smaller first wins; mention gently without shaming.
+If closure punctuality is high (>0.75), acknowledge they usually wrap on time — keep plans ambitious but humane; if low (<0.45), add lighter buffers and fewer back-to-back deep blocks.` : "";
     const overshootHints = `
 14-day plan vs actual history:
 - Samples: ${overshootSamples}

@@ -14,8 +14,11 @@ import {
   friendlyDateFor,
   Block,
   isUserTask,
+  isOpenUserTask,
+  isUserTaskDone,
   inferScheduleBlockType,
   blockSlotEndHHMM,
+  wallMsOnPlanDay,
 } from "@/lib/daydraft";
 import { getTone, t as toneCopy, greetingFor } from "@/lib/tone";
 import {
@@ -349,7 +352,13 @@ export default function Today() {
     try {
       const startedAt = Date.now();
       let hoursAlreadyCommitted = 0;
-      let behaviorSignals: { completion_rate_14d?: number; avg_completed_task_min_14d?: number; tracking_coverage_7d?: number } = {};
+      let behaviorSignals: {
+        completion_rate_14d?: number;
+        avg_completed_task_min_14d?: number;
+        tracking_coverage_7d?: number;
+        closure_punctuality_7d?: number;
+        skip_or_miss_rate_7d?: number;
+      } = {};
       let completedMin14 = 0;
       try {
         if (planDate === todayDateStr()) {
@@ -398,6 +407,41 @@ export default function Today() {
         }, 0);
         if (trackedSec > 0 && completedMin14 > 0) {
           behaviorSignals.tracking_coverage_7d = Math.min(1.5, trackedSec / (completedMin14 * 60));
+        }
+        const since7d = new Date();
+        since7d.setDate(since7d.getDate() - 6);
+        const { data: plans7 } = await supabase
+          .from("plans")
+          .select("id,date")
+          .eq("user_id", user.id)
+          .gte("date", dateStr(since7d));
+        const planDateById = new Map<string, string>((plans7 || []).map((p: any) => [p.id as string, p.date as string]));
+        const ids7 = [...planDateById.keys()];
+        if (ids7.length) {
+          const { data: b7 } = await supabase
+            .from("blocks")
+            .select("plan_id,kind,is_calendar_event,completed,resolution,completed_at,start_time,duration_min,slot_end_time")
+            .in("plan_id", ids7);
+          const tasks7 = (b7 || []).filter((b: any) => b.kind === "task" && !b.is_calendar_event);
+          if (tasks7.length) {
+            const skipped = tasks7.filter((b: any) => b.resolution === "skipped").length;
+            const missed = tasks7.filter((b: any) => b.resolution === "missed").length;
+            behaviorSignals.skip_or_miss_rate_7d = (skipped + missed) / tasks7.length;
+            const doneTasks = tasks7.filter(
+              (b: any) => b.resolution === "done" || (b.completed && !b.resolution),
+            );
+            if (doneTasks.length) {
+              let early = 0;
+              for (const b of doneTasks) {
+                const pd = planDateById.get(b.plan_id);
+                const at = b.completed_at ? new Date(String(b.completed_at)).getTime() : 0;
+                if (!pd || !at) continue;
+                const endMs = wallMsOnPlanDay(pd, blockSlotEndHHMM(b as Block));
+                if (at <= endMs + 120_000) early += 1;
+              }
+              behaviorSignals.closure_punctuality_7d = early / doneTasks.length;
+            }
+          }
         }
       } catch {/* non-fatal */}
       const { data, error } = await supabase.functions.invoke("generate-plan", {
@@ -484,12 +528,12 @@ export default function Today() {
   // Derive a glanceable plan summary
   const planStats = useMemo(() => {
     const tasks = planBlocks.filter(isUserTask);
-    const done = tasks.filter(b => b.completed).length;
+    const done = tasks.filter((b) => isUserTaskDone(b)).length;
     const totalMin = tasks.reduce((s, b) => s + b.duration_min, 0);
     return { tasks, done, total: tasks.length, hours: Math.round(totalMin / 6) / 10 };
   }, [planBlocks]);
   const remainingMin = useMemo(
-    () => planStats.tasks.filter((b) => !b.completed).reduce((s, b) => s + (b.duration_min || 0), 0),
+    () => planStats.tasks.filter((b) => isOpenUserTask(b)).reduce((s, b) => s + (b.duration_min || 0), 0),
     [planStats.tasks],
   );
   const progressPct = planStats.total > 0 ? Math.round((planStats.done / planStats.total) * 100) : 0;

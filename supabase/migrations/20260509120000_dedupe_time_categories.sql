@@ -25,6 +25,20 @@ SET category_id = r.keeper_id
 FROM reassign r
 WHERE e.category_id = r.dup_id;
 
+-- CTE scope is per-statement; repeat `ranked` for this DELETE.
+WITH ranked AS (
+  SELECT
+    id,
+    user_id,
+    lower(trim(name)) AS nk,
+    is_default,
+    created_at,
+    ROW_NUMBER() OVER (
+      PARTITION BY user_id, lower(trim(name))
+      ORDER BY is_default DESC, created_at ASC
+    ) AS rn
+  FROM public.time_categories
+)
 DELETE FROM public.time_categories c
 WHERE c.id IN (SELECT id FROM ranked WHERE rn > 1);
 

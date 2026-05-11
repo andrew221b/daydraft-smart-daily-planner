@@ -16,6 +16,8 @@ export interface Block {
   kind: BlockKind;
   block_type?: ScheduleBlockType;
   completed: boolean;
+  /** When marked done (wall clock). */
+  completed_at?: string | null;
   position: number;
   /** Synced calendar blocks are not user tasks — exclude from Focus / Next up. */
   is_calendar_event?: boolean;
@@ -24,6 +26,10 @@ export interface Block {
   parallel_group_id?: string | null;
   /** Planned window end (HH:MM, same calendar day as the plan); Focus counts down wall-clock to this instant. */
   slot_end_time?: string | null;
+  /** done | skipped | missed — null means still active (not completed / skipped / auto-missed). */
+  resolution?: "done" | "skipped" | "missed" | null;
+  /** When the block reached a terminal state (complete, skip, or auto-miss). */
+  resolved_at?: string | null;
 }
 
 const timeToMinutes = (hhmm: string) => {
@@ -83,6 +89,22 @@ export function packLinearSchedule<T extends Pick<Block, "start_time" | "duratio
 /** User-owned tasks only (excludes synced calendar rows from metrics & carry-over). */
 export function isUserTask(b: { kind: string; is_calendar_event?: boolean | null }): boolean {
   return b.kind === "task" && !b.is_calendar_event;
+}
+
+/** Task still counts as "on your plate" for Next up / Home (not done, skipped, or missed). */
+export function isOpenUserTask(
+  b: Pick<Block, "kind" | "is_calendar_event" | "completed" | "resolution">,
+): boolean {
+  return isUserTask(b) && !b.completed && !b.resolution;
+}
+
+/** Completed successfully (includes legacy rows before `resolution` existed). */
+export function isUserTaskDone(
+  b: Pick<Block, "kind" | "is_calendar_event" | "completed" | "resolution">,
+): boolean {
+  if (!isUserTask(b)) return false;
+  if (b.resolution === "done") return true;
+  return b.completed === true && !b.resolution;
 }
 
 export const peakWindow = (e: EnergyPref) =>

@@ -3,7 +3,7 @@ import { useNavigate } from "react-router-dom";
 import { Shell } from "@/components/app/Shell";
 import { useAuth } from "@/hooks/useAuth";
 import { supabase } from "@/integrations/supabase/client";
-import { Block, dateStr, isUserTask } from "@/lib/daydraft";
+import { Block, dateStr, isUserTask, isUserTaskDone, isOpenUserTask } from "@/lib/daydraft";
 import { effectiveDoneMinutes } from "@/lib/blockActualTime";
 import { CalendarDays, Target, Clock, Trophy, ArrowRight } from "lucide-react";
 import { Button } from "@/components/ui/button";
@@ -45,7 +45,7 @@ export default function RecapWeek() {
 
   const stats = useMemo(() => {
     const tasks = blocks.filter(isUserTask);
-    const completed = tasks.filter(b => b.completed);
+    const completed = tasks.filter((b) => isUserTaskDone(b));
     const focusMin = completed.filter(b => b.type === "deep_work").reduce((s, b) => s + effectiveDoneMinutes(b), 0);
     const completionPct = tasks.length ? Math.round((completed.length / tasks.length) * 100) : 0;
     const typeMin: Record<string, number> = { deep_work: 0, communication: 0, routine: 0 };
@@ -62,7 +62,7 @@ export default function RecapWeek() {
   const aiWeeklyMemoryEnabled = isAiFlagEnabled("aiWeeklyMemory", user?.id);
   const memory = useMemo(() => {
     const tasks = blocks.filter(isUserTask);
-    const completed = tasks.filter((b) => b.completed);
+    const completed = tasks.filter((b) => isUserTaskDone(b));
     const byHour = new Array(24).fill(0);
     completed.forEach((b) => {
       const h = Number((b.start_time || "00:00").slice(0, 2)) || 0;
@@ -73,7 +73,7 @@ export default function RecapWeek() {
     const realisticBlock = completedMins.length
       ? Math.round(completedMins.sort((a, b) => a - b)[Math.floor(completedMins.length / 2)])
       : 45;
-    const unfinished = tasks.filter((b) => !b.completed);
+    const unfinished = tasks.filter((b) => isOpenUserTask(b));
     const commonSlip = unfinished.length
       ? unfinished.filter((b) => b.type === "deep_work").length >= unfinished.filter((b) => b.type !== "deep_work").length
         ? "Deep work blocks are over-ambitious late in the day."

@@ -6,7 +6,7 @@ import { useProfile } from "@/hooks/useProfile";
 import { useEntitlement } from "@/hooks/useEntitlement";
 import { useTimeTracker } from "@/hooks/useTimeTracker";
 import { supabase } from "@/integrations/supabase/client";
-import { todayDateStr, isUserTask, inferScheduleBlockType, blockSlotEndHHMM } from "@/lib/daydraft";
+import { todayDateStr, isUserTask, isOpenUserTask, inferScheduleBlockType, blockSlotEndHHMM } from "@/lib/daydraft";
 import { toast } from "sonner";
 import { useQueryClient } from "@tanstack/react-query";
 import { planDashboardQueryKey, planDayQueryKey } from "@/lib/planQueries";
@@ -40,7 +40,7 @@ export function PlanDriftNudge() {
   const today = todayDateStr();
 
   const remainingTasks = useMemo(
-    () => (pending?.blocks || []).filter((b) => isUserTask(b) && !b.completed),
+    () => (pending?.blocks || []).filter((b) => isUserTask(b) && isOpenUserTask(b as any)),
     [pending?.blocks],
   );
 
@@ -60,11 +60,11 @@ export function PlanDriftNudge() {
         if (!plan?.id) return;
         const { data: blocks } = await supabase
           .from("blocks")
-          .select("id,plan_id,start_time,duration_min,title,type,kind,completed,completed_at,is_calendar_event")
+          .select("id,plan_id,start_time,duration_min,title,type,kind,completed,completed_at,is_calendar_event,resolution")
           .eq("plan_id", plan.id)
           .order("position");
         const list = (blocks || []) as PlanBlock[];
-        const remaining = list.filter((b) => isUserTask(b) && !b.completed);
+        const remaining = list.filter((b) => isUserTask(b) && isOpenUserTask(b as any));
         if (!remaining.length) return; // all complete or no tasks
         const blockIds = list.map((b) => b.id);
         const dayStart = new Date();
@@ -144,7 +144,7 @@ export function PlanDriftNudge() {
       const toRemoveIds = pending.blocks
         .filter((b) => {
           if (b.is_calendar_event) return false;
-          if (isUserTask(b) && !b.completed) return true;
+          if (isUserTask(b) && isOpenUserTask(b as any)) return true;
           if ((b.kind === "break" || b.kind === "lunch") && !b.completed) return true;
           return false;
         })

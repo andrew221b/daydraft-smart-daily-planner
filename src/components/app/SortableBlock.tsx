@@ -1,6 +1,6 @@
 import { useSortable } from "@dnd-kit/sortable";
 import { CSS } from "@dnd-kit/utilities";
-import { Block, fmtTime, inferScheduleBlockType, blockSlotEndHHMM } from "@/lib/daydraft";
+import { Block, fmtTime, inferScheduleBlockType, blockSlotEndHHMM, isOpenUserTask, isUserTaskDone } from "@/lib/daydraft";
 import { Check, Calendar, Sparkles, Layers, GripVertical } from "lucide-react";
 
 export const SortableBlock = ({
@@ -14,6 +14,9 @@ export const SortableBlock = ({
     is_calendar_event?: boolean;
     overlap_ok?: boolean | null;
     slot_end_time?: string | null;
+    completed_at?: string | null;
+    resolution?: string | null;
+    resolved_at?: string | null;
   };
   editing: boolean;
   onTap?: (b: any) => void;
@@ -23,7 +26,7 @@ export const SortableBlock = ({
   tourSpotlight?: boolean;
 }) => {
   const sortableDisabled =
-    !!block.is_calendar_event || (block.kind === "task" && block.completed);
+    !!block.is_calendar_event || (block.kind === "task" && !isOpenUserTask(block));
   const { attributes, listeners, setNodeRef, transform, transition, isDragging } = useSortable({
     id: block.id,
     disabled: sortableDisabled,
@@ -66,7 +69,7 @@ export const SortableBlock = ({
       style={style}
       data-tour={tourSpotlight ? "dayview-block" : undefined}
       className={`group cursor-pointer pressable transition-all duration-200 app-card px-3 py-4 shadow-none ${
-        block.completed && block.kind === "task" ? "opacity-95" : ""
+        isUserTaskDone(block) && block.kind === "task" ? "opacity-95" : ""
       } ${
         !isCal && block.overlap_ok ? "border-l-[3px] border-l-primary/45" : ""
       } ${
@@ -115,7 +118,7 @@ export const SortableBlock = ({
         )}
         <div className="w-[4px] h-9 rounded-full shrink-0" style={{ background: stripeColor }} />
         <div className="flex-1 min-w-0">
-          <div className={`leading-tight flex items-center gap-1.5 min-w-0 ${rhythmType === "rest" ? "text-[12.5px]" : "text-[14px]"} ${block.completed && block.kind === "task" ? "text-foreground/80" : "text-foreground"}`}>
+          <div className={`leading-tight flex items-center gap-1.5 min-w-0 ${rhythmType === "rest" ? "text-[12.5px]" : "text-[14px]"} ${isUserTaskDone(block) && block.kind === "task" ? "text-foreground/80" : "text-foreground"}`}>
           {isCal && <Calendar className="h-3 w-3 text-secondary-fg shrink-0" />}
           {!isCal && rhythmType === "rest" && <span className="shrink-0 text-[12px] leading-none" aria-hidden>☕</span>}
           <span className="truncate">{block.title}</span>
@@ -131,13 +134,33 @@ export const SortableBlock = ({
           )}
           </div>
           <div className={`${rhythmType === "rest" ? "text-[10px]" : "text-[10.5px]"} text-secondary-fg mt-1 tabular-nums`}>
-            {!block.completed && !isCal && (block.kind === "task" || block.kind === "lunch") && (
+            {block.kind === "task" && !isCal && block.resolution === "skipped" && block.resolved_at && (
+              <span className="text-amber-700/90 dark:text-amber-400/85">
+                Skipped ·{" "}
+                {new Date(block.resolved_at).toLocaleTimeString(undefined, { hour: "numeric", minute: "2-digit" }).replace(/\s/g, "")}
+                <span className="text-faint mx-1">·</span>
+              </span>
+            )}
+            {block.kind === "task" && !isCal && block.resolution === "missed" && block.resolved_at && (
+              <span className="text-destructive/85">
+                Missed ·{" "}
+                {new Date(block.resolved_at).toLocaleTimeString(undefined, { hour: "numeric", minute: "2-digit" }).replace(/\s/g, "")}
+                <span className="text-faint mx-1">·</span>
+              </span>
+            )}
+            {isOpenUserTask(block) && !isCal && (block.kind === "task" || block.kind === "lunch") && (
               <>
                 <span className="text-faint">until {fmtTime(blockSlotEndHHMM(block))}</span>
                 <span className="text-faint mx-1">·</span>
               </>
             )}
-            {block.completed && actualMin != null ? (
+            {isUserTaskDone(block) && block.completed_at && (
+              <span className="text-faint">
+                Done {new Date(block.completed_at).toLocaleTimeString(undefined, { hour: "numeric", minute: "2-digit" }).replace(/\s/g, "")}
+                <span className="text-faint mx-1">·</span>
+              </span>
+            )}
+            {isUserTaskDone(block) && actualMin != null ? (
               <>
                 <span className="font-medium text-foreground">{fmtMin(actualMin)}</span>
                 <span className="text-faint"> actual</span>
@@ -147,11 +170,16 @@ export const SortableBlock = ({
               </>
             ) : (
               <>
-                {dur} {block.completed ? "planned" : "scheduled"}
+                {dur}{" "}
+                {block.kind === "task" && (block.resolution === "skipped" || block.resolution === "missed")
+                  ? "planned"
+                  : isUserTaskDone(block) || (block.completed && block.kind !== "task")
+                    ? "planned"
+                    : "scheduled"}
               </>
             )}
           </div>
-          {block.completed && actualMin != null && estimatedMin > 0 && (
+          {isUserTaskDone(block) && actualMin != null && estimatedMin > 0 && (
             <div className={`mt-0.5 text-[10px] tabular-nums ${actualToneClass}`}>
               {actualDeltaRatio > 0.15
                 ? `${Math.round(actualDeltaRatio * 100)}% longer than planned`
@@ -161,7 +189,11 @@ export const SortableBlock = ({
             </div>
           )}
         </div>
-        {block.completed ? (
+        {block.kind === "task" && !isCal && block.resolution === "skipped" ? (
+          <div className="h-6 w-6 rounded-full border border-amber-500/40 bg-amber-500/10 shrink-0" title="Skipped" aria-hidden />
+        ) : block.kind === "task" && !isCal && block.resolution === "missed" ? (
+          <div className="h-6 w-6 rounded-full border border-destructive/35 bg-destructive/10 shrink-0" title="Missed" aria-hidden />
+        ) : isUserTaskDone(block) || (block.completed && block.kind !== "task") ? (
           <button
             type="button"
             data-tour={tourSpotlight ? "dayview-complete" : undefined}

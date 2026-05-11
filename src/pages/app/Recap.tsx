@@ -4,16 +4,15 @@ import { Shell } from "@/components/app/Shell";
 import { useAuth } from "@/hooks/useAuth";
 import { useProfile } from "@/hooks/useProfile";
 import { supabase } from "@/integrations/supabase/client";
-import { Block, todayDateStr, parseDateStr, friendlyDateFor, dateStr, isUserTask } from "@/lib/daydraft";
-import { Sparkles, Clock, RotateCcw, TrendingUp, Smile, Meh, Frown, Copy, Gauge, ListChecks } from "lucide-react";
+import { Block, todayDateStr, parseDateStr, friendlyDateFor, dateStr, isUserTask, isUserTaskDone, isOpenUserTask } from "@/lib/daydraft";
+import { Sparkles, Clock, RotateCcw, TrendingUp, Smile, Meh, Frown, Gauge } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { useTimeTracker, fmtHM } from "@/hooks/useTimeTracker";
 import { toast } from "sonner";
 import { effectiveDoneMinutes } from "@/lib/blockActualTime";
 import { haptics } from "@/lib/haptics";
-import { formatPlanAsPlainText, copyTextToClipboard } from "@/lib/planTextExport";
 import { KpiCard } from "@/components/app/KpiCard";
-import { smartDailyOutcome, weeklyProductScore } from "@/lib/productPolish";
+import { weeklyProductScore } from "@/lib/productPolish";
 import { useEntitlement } from "@/hooks/useEntitlement";
 import { UpgradeSheet } from "@/components/app/UpgradeSheet";
 
@@ -134,10 +133,10 @@ export default function Recap() {
   }, [user?.id, viewDate]);
 
   const tasks = blocks.filter(isUserTask);
-  const done = tasks.filter(b => b.completed).length;
-  const focusMin = tasks.filter(b => b.completed && b.type === "deep_work").reduce((s, b) => s + effectiveDoneMinutes(b), 0);
+  const done = tasks.filter((b) => isUserTaskDone(b)).length;
+  const focusMin = tasks.filter((b) => isUserTaskDone(b) && b.type === "deep_work").reduce((s, b) => s + effectiveDoneMinutes(b), 0);
   const plannedMin = tasks.reduce((s, b) => s + b.duration_min, 0);
-  const completedMin = tasks.filter(b => b.completed).reduce((s, b) => s + effectiveDoneMinutes(b), 0);
+  const completedMin = tasks.filter((b) => isUserTaskDone(b)).reduce((s, b) => s + effectiveDoneMinutes(b), 0);
   const eff = plannedMin ? Math.round((completedMin / plannedMin) * 100) : 0;
   const trackingCoverage = completedMin > 0 ? Math.round((actualTrackedSec / (completedMin * 60)) * 100) : 0;
   const fh = Math.floor(focusMin / 60), fm = focusMin % 60;
@@ -146,7 +145,7 @@ export default function Recap() {
   const celebratedRef = useRef(false);
   useEffect(() => {
     if (viewDate !== todayDateStr()) return;
-    if (tasks.length > 0 && done === tasks.length && !celebratedRef.current) {
+    if (tasks.length > 0 && tasks.every((b) => !isOpenUserTask(b)) && !celebratedRef.current) {
       celebratedRef.current = true;
       haptics.notify("success");
     }
@@ -180,7 +179,7 @@ export default function Recap() {
   // backfill (the timer source-of-truth is `now`), and crediting hours dated
   // "today" for work that happened yesterday would corrupt the tracker.
   const isTodayRecap = viewDate === todayDateStr();
-  const completedFocusSec = tasks.filter(b => b.completed).reduce((s, b) => s + effectiveDoneMinutes(b) * 60, 0);
+  const completedFocusSec = tasks.filter((b) => isUserTaskDone(b)).reduce((s, b) => s + effectiveDoneMinutes(b) * 60, 0);
   const showRecover = isTodayRecap && !backfilled && completedFocusSec >= 30 * 60 && todayTotalSec < completedFocusSec * 0.5;
 
   const backfill = async () => {
@@ -188,7 +187,7 @@ export default function Recap() {
     if (!isTodayRecap) { toast.error("Backfill is only available for today"); return; }
     const cat = categories.find(c => c.is_default) || categories[0];
     if (!cat) { toast.error("No category found"); return; }
-    const completed = tasks.filter(b => b.completed);
+    const completed = tasks.filter((b) => isUserTaskDone(b));
     const now = new Date();
     // Sequentially place blocks ending now, going backwards
     let cursor = now.getTime();
@@ -217,26 +216,7 @@ export default function Recap() {
 
   // Carry unfinished tasks to tomorrow's quick_captures inbox so they're
   // pre-loaded into the next plan. One-tap shortcut for the 80% case.
-  const unfinished = tasks.filter(b => !b.completed);
-  const outcomeLines = smartDailyOutcome(tasks);
-
-  const buildTomorrowFromOutcome = () => {
-    const tomorrow = new Date(parseDateStr(viewDate));
-    tomorrow.setDate(tomorrow.getDate() + 1);
-    const tomorrowDate = dateStr(tomorrow);
-    const carry = unfinished.slice(0, 4).map((b) => `${b.title} (${Math.max(20, b.duration_min)}m)`).join("\n");
-    if (carry) sessionStorage.setItem("dd_planning_input", carry);
-    sessionStorage.setItem("dd_planning_plan_date", tomorrowDate);
-    nav(`/today?date=${tomorrowDate}&composer=1`);
-  };
-  const copyRecapOutline = async () => {
-    if (!blocks.length) return;
-    const headline = `Recap · ${parseDateStr(viewDate).toLocaleDateString(undefined, { weekday: "long", month: "long", day: "numeric" })}`;
-    const text = formatPlanAsPlainText({ headline, blocks });
-    const ok = await copyTextToClipboard(text);
-    if (ok) toast.success("Copied day outline");
-    else toast.error("Could not copy");
-  };
+  const unfinished = tasks.filter((b) => isOpenUserTask(b));
 
   const carryOver = async () => {
     if (!user || unfinished.length === 0) return;
@@ -281,20 +261,9 @@ export default function Recap() {
             <h1 className="font-display text-[30px] font-semibold leading-[1.07] text-balance">
               {viewDate === todayDateStr() ? "Day complete." : `Recap · ${friendlyDateFor(parseDateStr(viewDate))}`}
             </h1>
-            <div className="mt-2 flex items-center justify-between gap-3">
-              <p className="text-secondary-fg flex-1 min-w-0">
-                {parseDateStr(viewDate).toLocaleDateString(undefined, { weekday: "long", month: "long", day: "numeric" })}
-              </p>
-              {blocks.length > 0 && (
-                <button
-                  type="button"
-                  onClick={() => void copyRecapOutline()}
-                  className="shrink-0 inline-flex items-center gap-1.5 h-10 px-3 rounded-xl border border-soft surface-soft text-[11px] font-medium text-secondary-fg hover:text-foreground pressable"
-                >
-                  <Copy className="h-3.5 w-3.5" /> Copy outline
-                </button>
-              )}
-            </div>
+            <p className="mt-2 text-secondary-fg">
+              {parseDateStr(viewDate).toLocaleDateString(undefined, { weekday: "long", month: "long", day: "numeric" })}
+            </p>
           </div>
 
           {tasks.length === 0 && (
@@ -402,27 +371,6 @@ export default function Recap() {
             </p>
           </div>
 
-          <div className="mt-3 app-card px-4 py-5">
-            <div className="flex items-center gap-2 text-primary">
-              <ListChecks className="h-4 w-4" />
-              <span className="eyebrow">Smart daily outcome</span>
-            </div>
-            <div className="mt-2.5 space-y-1.5">
-              {outcomeLines.map((line) => (
-                <p key={line} className="text-[13px] leading-relaxed text-subtle">
-                  {line}
-                </p>
-              ))}
-            </div>
-            <button
-              type="button"
-              onClick={buildTomorrowFromOutcome}
-              className="mt-3 w-full h-10 rounded-xl border border-soft surface-soft text-[12px] text-secondary-fg hover:text-foreground pressable"
-            >
-              Build tomorrow from outcome
-            </button>
-          </div>
-
           {weeklyScore && (
             <div className="mt-3 app-card px-4 py-5">
               <div className="flex items-center gap-2 text-primary">
@@ -467,9 +415,6 @@ export default function Recap() {
                 </Button>
                 <button onClick={() => nav("/recap/week")} className="w-full text-primary text-sm hover:underline">
                   See your week →
-                </button>
-                <button onClick={() => nav("/today")} className="w-full text-secondary-fg text-sm hover:text-foreground transition-colors">
-                  Close for today
                 </button>
               </>
             ) : (

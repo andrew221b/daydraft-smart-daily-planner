@@ -4,9 +4,9 @@ import { PageHeader } from "@/components/app/PageHeader";
 import { PullToRefresh } from "@/components/app/PullToRefresh";
 import { useAuth } from "@/hooks/useAuth";
 import { supabase } from "@/integrations/supabase/client";
-import { parseDateStr, todayDateStr, isUserTask, dateStr } from "@/lib/daydraft";
+import { parseDateStr, todayDateStr, isUserTask, isUserTaskDone, dateStr } from "@/lib/daydraft";
 import { useNavigate } from "react-router-dom";
-import { CheckCircle2, ChevronRight, Circle, CalendarDays } from "lucide-react";
+import { CheckCircle2, ChevronRight, CalendarDays } from "lucide-react";
 import { useTimeTracker, fmtHM } from "@/hooks/useTimeTracker";
 
 interface BlockLite {
@@ -29,6 +29,31 @@ interface PlanRow {
   plannedDoneMin: number;
   trackedSec: number;
 }
+function DayProgressGlyph({ pct, allDone }: { pct: number; allDone: boolean }) {
+  const r = 15;
+  const c = 2 * Math.PI * r;
+  const dash = c * (1 - Math.min(100, Math.max(0, pct)) / 100);
+  if (allDone) {
+    return <CheckCircle2 className="h-9 w-9 shrink-0 text-success opacity-95" strokeWidth={1.75} />;
+  }
+  return (
+    <svg className="h-9 w-9 shrink-0 -rotate-90 text-primary" viewBox="0 0 36 36" aria-hidden>
+      <circle cx="18" cy="18" r={r} fill="none" stroke="currentColor" strokeWidth="2.5" className="text-border/55" />
+      <circle
+        cx="18"
+        cy="18"
+        r={r}
+        fill="none"
+        stroke="currentColor"
+        strokeWidth="2.5"
+        strokeLinecap="round"
+        strokeDasharray={c}
+        strokeDashoffset={dash}
+      />
+    </svg>
+  );
+}
+
 function weekHeadingLabel(d: Date): string {
   const monOff = (d.getDay() + 6) % 7;
   const start = new Date(d);
@@ -61,7 +86,7 @@ export default function History() {
     const [{ data: blocks }, { data: entries }] = await Promise.all([
       supabase
         .from("blocks")
-        .select("id,plan_id,kind,completed,title,position,is_calendar_event,duration_min,block_type,completed_at")
+        .select("id,plan_id,kind,completed,title,position,is_calendar_event,duration_min,block_type,completed_at,resolution")
         .in("plan_id", ids)
         .order("position"),
       supabase
@@ -102,10 +127,10 @@ export default function History() {
       .map(p => {
         const bs = byPlan.get(p.id) || [];
         const tasks = bs.filter(b => isUserTask(b));
-        const done = tasks.filter(b => b.completed).length;
+        const done = tasks.filter((b) => isUserTaskDone(b as any)).length;
         const plannedTaskMin = tasks.reduce((s, b) => s + (((b as any).duration_min as number) || 0), 0);
         const plannedDoneMin = tasks
-          .filter((b) => b.completed)
+          .filter((b) => isUserTaskDone(b as any))
           .reduce((s, b) => s + (((b as any).duration_min as number) || 0), 0);
         const latestCompletedAt = tasks
           .map((b) => (b as any).completed_at as string | null | undefined)
@@ -210,11 +235,7 @@ export default function History() {
                           onClick={() => nav(goTo)}
                     className="flex w-full items-center gap-4 rounded-2xl border border-border/45 bg-muted/[0.04] px-4 py-4 text-left transition-colors hover:border-primary/35 pressable"
                         >
-                          {allDone ? (
-                      <CheckCircle2 className="h-9 w-9 shrink-0 text-success opacity-95" strokeWidth={1.75} />
-                          ) : (
-                      <Circle className="text-faint h-9 w-9 shrink-0" strokeWidth={1.75} />
-                          )}
+                          <DayProgressGlyph pct={pct} allDone={allDone} />
                     <div className="min-w-0 flex-1">
                       <div className="flex flex-wrap items-center gap-x-2 gap-y-1">
                         <span className="font-display text-[17px] font-semibold tracking-tight text-foreground/95">

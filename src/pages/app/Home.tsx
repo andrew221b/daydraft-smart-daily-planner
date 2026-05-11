@@ -11,8 +11,10 @@ import { TrackerView } from "@/components/app/TrackerPill";
 import { useAuth } from "@/hooks/useAuth";
 import { useProfile } from "@/hooks/useProfile";
 import { useTour, TOUR_TODAY } from "@/components/app/Tour";
-import { todayDateStr, parseDateStr, friendlyDateFor, type Block } from "@/lib/daydraft";
+import { todayDateStr, parseDateStr, friendlyDateFor, type Block, isUserTaskDone, isOpenUserTask } from "@/lib/daydraft";
 import { fetchPlanDashboard, planDashboardQueryKey } from "@/lib/planQueries";
+import { supabase } from "@/integrations/supabase/client";
+import { applyAutoMissedBlocks } from "@/lib/blockResolution";
 import { getTone, greetingFor } from "@/lib/tone";
 import { ListTree, Pencil } from "lucide-react";
 
@@ -62,7 +64,25 @@ export default function Home() {
   }, []);
 
   const tasks = blocks.filter((b) => (b as Block).kind === "task" && !(b as Block).is_calendar_event);
-  const done = tasks.filter((b) => b.completed).length;
+  const done = tasks.filter((b) => isUserTaskDone(b as Block)).length;
+  const allTasksDone = tasks.length > 0 && tasks.every((b) => !isOpenUserTask(b as Block));
+
+  useEffect(() => {
+    if (!user?.id) return;
+    let alive = true;
+    const run = async () => {
+      const d = await fetchPlanDashboard(user.id, viewDate);
+      if (!d.planBlocks.length || !alive) return;
+      const changed = await applyAutoMissedBlocks(supabase, viewDate, d.planBlocks as Block[]);
+      if (alive && changed) void queryClient.invalidateQueries({ queryKey: planDashboardQueryKey(user.id, viewDate) });
+    };
+    void run();
+    const id = setInterval(run, 60_000);
+    return () => {
+      alive = false;
+      clearInterval(id);
+    };
+  }, [user?.id, viewDate, queryClient]);
 
   const onRefresh = async () => {
     if (!user?.id) return;
@@ -128,6 +148,7 @@ export default function Home() {
                     <ListTree className="mr-2 h-4 w-4 opacity-65" />
                     Timeline
                   </Button>
+                  {!allTasksDone && (
                   <Button
                     type="button"
                     variant="ghost"
@@ -140,6 +161,7 @@ export default function Home() {
                     <Pencil className="mr-2 h-4 w-4 opacity-85" />
                     Edit
                   </Button>
+                  )}
                 </div>
               </div>
             ) : (

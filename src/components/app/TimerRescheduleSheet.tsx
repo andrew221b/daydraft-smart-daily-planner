@@ -4,7 +4,7 @@ import { Button } from "@/components/ui/button";
 import { useAuth } from "@/hooks/useAuth";
 import { useEntitlement } from "@/hooks/useEntitlement";
 import { supabase } from "@/integrations/supabase/client";
-import { isUserTask, todayDateStr } from "@/lib/daydraft";
+import { isUserTask, isOpenUserTask, todayDateStr } from "@/lib/daydraft";
 import { useQueryClient } from "@tanstack/react-query";
 import { planDashboardQueryKey, planDayQueryKey } from "@/lib/planQueries";
 import { toast } from "sonner";
@@ -22,6 +22,7 @@ type BlockLite = {
   actual_minutes?: number | null;
   start_time: string;
   is_calendar_event?: boolean | null;
+  resolution?: string | null;
 };
 type Action = { type: "shift_later"; minutes?: number } | { type: "shorten_next_break"; target_minutes?: number };
 type Opt = { label: string; action: Action };
@@ -55,7 +56,7 @@ export function TimerRescheduleSheet() {
       try {
         const { data: b } = await supabase
           .from("blocks")
-          .select("id,plan_id,position,title,kind,type,completed,duration_min,estimated_minutes,actual_minutes,start_time,is_calendar_event")
+          .select("id,plan_id,position,title,kind,type,completed,duration_min,estimated_minutes,actual_minutes,start_time,is_calendar_event,resolution")
           .eq("id", blockId)
           .maybeSingle();
         const endedBlock = b as BlockLite | null;
@@ -68,11 +69,14 @@ export function TimerRescheduleSheet() {
         if (!plan || (plan as any).date !== today) return;
         const { data: bs } = await supabase
           .from("blocks")
-          .select("id,plan_id,position,title,kind,type,completed,duration_min,estimated_minutes,actual_minutes,start_time,is_calendar_event")
+          .select("id,plan_id,position,title,kind,type,completed,duration_min,estimated_minutes,actual_minutes,start_time,is_calendar_event,resolution")
           .eq("plan_id", endedBlock.plan_id)
           .order("position");
         const all = (bs || []) as BlockLite[];
-        const rem = all.filter((x) => x.position > endedBlock.position && !x.completed && !x.is_calendar_event);
+        const rem = all.filter((x) => {
+          if (x.position <= endedBlock.position || x.is_calendar_event) return false;
+          return isUserTask(x) ? isOpenUserTask(x as any) : !x.completed;
+        });
         if (!rem.length) return;
         const payload = {
           ended_block: {

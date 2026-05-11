@@ -28,6 +28,7 @@ type Entry = {
   started_at: string;
   ended_at: string | null;
   note: string | null;
+  block_id?: string | null;
 };
 
 type Tab = "today" | "week" | "month";
@@ -80,7 +81,15 @@ function TrackerInner({ embedded = false, onClose }: { embedded?: boolean; onClo
   const [todayPlanBlocks, setTodayPlanBlocks] = useState<Block[]>([]);
   const [stopBusy, setStopBusy] = useState(false);
   const [categoryBusyId, setCategoryBusyId] = useState<string | null>(null);
+  /** Plan tab tracker: show all entries, only planner-linked (`block_id`), or manual/custom. */
+  const [entryScope, setEntryScope] = useState<"all" | "planner" | "custom">("all");
   const tabIndex = TABS.indexOf(tab);
+
+  const entriesInScope = useMemo(() => {
+    if (entryScope === "planner") return entries.filter((e) => e.block_id);
+    if (entryScope === "custom") return entries.filter((e) => !e.block_id);
+    return entries;
+  }, [entries, entryScope]);
 
   const activeCat = categories.find(c => c.id === active?.category_id);
   const catMap = useMemo(() => new Map(categories.map(c => [c.id, c])), [categories]);
@@ -94,7 +103,7 @@ function TrackerInner({ embedded = false, onClose }: { embedded?: boolean; onClo
     const since = new Date(); since.setDate(since.getDate() - 60); since.setHours(0,0,0,0);
     supabase
       .from("time_entries")
-      .select("id,category_id,started_at,ended_at,note")
+      .select("id,category_id,started_at,ended_at,note,block_id")
       .eq("user_id", user.id)
       .gte("started_at", since.toISOString())
       .order("started_at", { ascending: false })
@@ -231,7 +240,8 @@ function TrackerInner({ embedded = false, onClose }: { embedded?: boolean; onClo
     const dayStart = startOfDay(new Date()).getTime();
     const dayEnd = dayStart + DAY_MS;
     const byCat = new Map<string, number>();
-    entries.forEach(e => {
+    const src = tab === "today" ? entriesInScope : entries;
+    src.forEach(e => {
       const d = clipDuration(e, dayStart, dayEnd, now);
       if (d > 0 && e.category_id) byCat.set(e.category_id, (byCat.get(e.category_id) || 0) + d);
     });
@@ -239,14 +249,15 @@ function TrackerInner({ embedded = false, onClose }: { embedded?: boolean; onClo
       .map(([id, sec]) => ({ cat: catMap.get(id), sec }))
       .filter(x => x.cat)
       .sort((a, b) => b.sec - a.sec);
-  }, [entries, catMap, now]);
+  }, [entries, entriesInScope, tab, catMap, now]);
 
   // Today: build 24h timeline segments (clipped to today)
   const todayTimeline = useMemo(() => {
     const dayStart = startOfDay(new Date()).getTime();
     const dayEnd = dayStart + DAY_MS;
     const segs: Array<{ id: string; start: number; end: number; color: string; name: string }> = [];
-    entries.forEach(e => {
+    const src = tab === "today" ? entriesInScope : entries;
+    src.forEach(e => {
       const s = new Date(e.started_at).getTime();
       const en = e.ended_at ? new Date(e.ended_at).getTime() : now;
       const a = Math.max(s, dayStart);
@@ -256,7 +267,19 @@ function TrackerInner({ embedded = false, onClose }: { embedded?: boolean; onClo
       segs.push({ id: e.id, start: a - dayStart, end: b - dayStart, color: cat?.color || "hsl(var(--muted-foreground))", name: cat?.name || "Untracked" });
     });
     return segs;
-  }, [entries, catMap, now]);
+  }, [entries, entriesInScope, tab, catMap, now]);
+
+  const plannerVelocityHint = useMemo(() => {
+    const cutoff = now - 7 * DAY_MS;
+    const planner = entries.filter((e) => e.block_id && new Date(e.started_at).getTime() >= cutoff);
+    if (!planner.length) return "Planner pace: log time from Focus (linked to tasks) to see 7-day rhythm.";
+    let sec = 0;
+    planner.forEach((e) => {
+      sec += clipDuration(e, cutoff, now + DAY_MS, now);
+    });
+    const avg = sec / planner.length;
+    return `Planner (7d): ${planner.length} sessions · ~${fmtHM(avg)} avg per logged block`;
+  }, [entries, now]);
 
   // Period boundaries based on active tab (used for PDF + category drill-in)
   const period = useMemo(() => {
@@ -521,9 +544,26 @@ function TrackerInner({ embedded = false, onClose }: { embedded?: boolean; onClo
           ) : null}
         </div>
 
-        {/* TODAY TAB — categories + start/stop + today summary */}
+        {/* PLAN TAB — categories + start/stop + today summary */}
         {tab === "today" && (
           <>
+            <div className="px-5 pt-4 space-y-2">
+              <div className="inline-flex w-full rounded-[12px] bg-muted/70 p-0.5">
+                {(["all", "planner", "custom"] as const).map((s) => (
+                  <button
+                    key={s}
+                    type="button"
+                    onClick={() => setEntryScope(s)}
+                    className={`flex-1 rounded-[10px] py-1.5 text-[11px] font-semibold capitalize pressable ${
+                      entryScope === s ? "bg-background shadow-sm text-foreground" : "text-secondary-fg"
+                    }`}
+                  >
+                    {s === "all" ? "All" : s === "planner" ? "Planner" : "Custom"}
+                  </button>
+                ))}
+              </div>
+              <p className="text-[11px] leading-snug text-secondary-fg">{plannerVelocityHint}</p>
+            </div>
             {/* Hero stopwatch — premium, centered */}
             <div className="px-5 pt-5">
               <div

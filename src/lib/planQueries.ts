@@ -10,6 +10,7 @@ export {
 
 export type PlanDashboardData = {
   hasPlanForDate: boolean;
+  planId: string | null;
   planBlocks: Block[];
   planSummary: string | null;
 };
@@ -29,7 +30,7 @@ export async function fetchPlanDashboard(userId: string, date: string): Promise<
     .maybeSingle();
   if (planError) throw planError;
   if (!p) {
-    return { hasPlanForDate: false, planBlocks: [], planSummary: null };
+    return { hasPlanForDate: false, planId: null, planBlocks: [], planSummary: null };
   }
   const { data: bs, error: blockError } = await supabase
     .from("blocks")
@@ -40,6 +41,7 @@ export async function fetchPlanDashboard(userId: string, date: string): Promise<
   const list = (bs || []) as Block[];
   return {
     hasPlanForDate: list.length > 0,
+    planId: p.id,
     planBlocks: list,
     planSummary: list.length > 0 ? (p.ai_summary || null) : null,
   };

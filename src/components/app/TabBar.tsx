@@ -6,7 +6,7 @@ import type { LucideIcon } from "lucide-react";
 
 const tabs = [
   { to: "/home", icon: Home, label: "Home", tour: "tab-home" },
-  { to: "/today", icon: CalendarDays, label: "Today", tour: "tab-today" },
+  { to: "/today", icon: CalendarDays, label: "Plan", tour: "tab-today" },
   { to: "/history", icon: BarChart2, label: "History", tour: "tab-history" },
   { to: "/settings", icon: SettingsIcon, label: "Settings", tour: "tab-settings" },
 ] as const;

@@ -16,11 +16,11 @@ export function HomeTimerCard({ onExpand }: { onExpand: () => void }) {
     <div className="relative overflow-hidden rounded-[22px] border border-border/40 bg-muted/[0.06] shadow-none backdrop-blur-sm">
       <button
         type="button"
-        aria-label="Open time tracker details"
+        aria-label="Open time tracker"
         onClick={onExpand}
         className="absolute inset-0 z-0 rounded-[22px]"
       />
-      <div className="relative z-10">
+      <div className="relative z-10 pointer-events-none">
         <div className="flex items-center justify-between px-4 py-2.5">
           <span className="text-[11px] font-semibold uppercase tracking-[0.18em] text-secondary-fg/75">Time</span>
           <button
@@ -29,7 +29,7 @@ export function HomeTimerCard({ onExpand }: { onExpand: () => void }) {
               e.stopPropagation();
               onExpand();
             }}
-            className="text-[12px] font-semibold text-primary/90 inline-flex items-center gap-1 pressable hover:text-primary"
+            className="pointer-events-auto text-[12px] font-semibold text-primary/90 inline-flex items-center gap-1 pressable hover:text-primary"
           >
             Details
             <ChevronRight className="h-4 w-4 opacity-75" />
@@ -39,7 +39,7 @@ export function HomeTimerCard({ onExpand }: { onExpand: () => void }) {
           {active && activeCat ? (
             <div className="flex items-center gap-4">
               <div
-                className="flex min-w-0 flex-1 flex-col gap-1.5"
+                className="flex min-w-0 flex-1 flex-col gap-1.5 pointer-events-none"
                 style={{ "--home-accent": activeCat.color } as CSSProperties}
               >
                 <span className="text-[11px] font-semibold uppercase tracking-[0.14em] text-secondary-fg/70">
@@ -56,7 +56,7 @@ export function HomeTimerCard({ onExpand }: { onExpand: () => void }) {
                   e.stopPropagation();
                   stop();
                 }}
-                className="relative z-20 inline-flex shrink-0 items-center gap-2 rounded-full bg-foreground/[0.92] px-6 py-3 text-[14px] font-semibold text-background shadow-sm pressable"
+                className="pointer-events-auto relative z-20 inline-flex shrink-0 items-center gap-2 rounded-full bg-foreground/[0.92] px-6 py-3 text-[14px] font-semibold text-background shadow-sm pressable"
               >
                 <Pause className="h-4 w-4" fill="currentColor" />
                 Stop
@@ -80,7 +80,7 @@ export function HomeTimerCard({ onExpand }: { onExpand: () => void }) {
                       e.stopPropagation();
                       start(c.id);
                     }}
-                    className="relative z-20 inline-flex items-center gap-2 rounded-full border border-border/55 bg-background/55 py-2.5 pl-2.5 pr-4 text-[14px] font-semibold transition-colors hover:bg-background/85 pressable disabled:opacity-45"
+                    className="pointer-events-auto relative z-20 inline-flex items-center gap-2 rounded-full border border-border/55 bg-background/55 py-2.5 pl-2.5 pr-4 text-[14px] font-semibold transition-colors hover:bg-background/85 pressable disabled:opacity-45"
                     style={{ borderColor: `${c.color}55` }}
                   >
                     <span className="h-2 w-2 shrink-0 rounded-full opacity-90" style={{ background: c.color }} />

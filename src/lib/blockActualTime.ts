@@ -52,7 +52,9 @@ export function effectiveDoneMinutes(b: {
   completed: boolean;
   duration_min: number;
   actual_minutes?: number | null;
+  resolution?: string | null;
 }): number {
-  if (!b.completed) return 0;
+  const done = b.resolution === "done" || (b.completed && !b.resolution);
+  if (!done) return 0;
   return typeof b.actual_minutes === "number" ? b.actual_minutes : b.duration_min;
 }

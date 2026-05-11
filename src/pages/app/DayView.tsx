@@ -5,7 +5,7 @@ import { Shell } from "@/components/app/Shell";
 import { useAuth } from "@/hooks/useAuth";
 import { supabase } from "@/integrations/supabase/client";
 import {
-  Block, fmtTime, todayDateStr, parseDateStr, friendlyDateFor, isFutureDateStr, isUserTask, inferScheduleBlockType, packLinearSchedule,
+  Block, fmtTime, todayDateStr, parseDateStr, friendlyDateFor, isFutureDateStr, isUserTask, isOpenUserTask, isUserTaskDone, inferScheduleBlockType, packLinearSchedule,
   blockSlotEndHHMM,
 } from "@/lib/daydraft";
 import { ChevronLeft, Sparkles, Play, RefreshCw, Plus, Coffee, CalendarDays, Trash2, Bell, BellOff, MoreHorizontal, Clock, Info, MapPin, Copy } from "lucide-react";
@@ -37,6 +37,7 @@ import { firstTaskCompleteMessage } from "@/lib/microDelights";
 import { PullToRefresh } from "@/components/app/PullToRefresh";
 import { formatPlanAsPlainText, copyTextToClipboard } from "@/lib/planTextExport";
 import { fetchDayPlan, planDashboardQueryKey, planDayQueryKey } from "@/lib/planQueries";
+import { applyAutoMissedBlocks } from "@/lib/blockResolution";
 import { resolveActualMinutesOnComplete, wallMinutesFromSlotStart } from "@/lib/blockActualTime";
 import { useCalmMode } from "@/lib/calmMode";
 import { useEntitlement } from "@/hooks/useEntitlement";
@@ -55,6 +56,8 @@ type ExBlock = Block & {
   overlap_ok?: boolean | null;
   parallel_group_id?: string | null;
   slot_end_time?: string | null;
+  resolution?: string | null;
+  resolved_at?: string | null;
 };
 
 export default function DayView() {
@@ -81,7 +84,14 @@ export default function DayView() {
   const [moreOpen, setMoreOpen] = useState(false);
   const [tappedBlock, setTappedBlock] = useState<ExBlock | null>(null);
   const [reminderBlockId, setReminderBlockId] = useState<string | null>(null);
-  const [reminderCfg, setReminderCfg] = useState<ReminderConfig>({ enabled: true, leadsMin: [2], repeats: 0, endLeadsMin: [2] });
+  const [reminderCfg, setReminderCfg] = useState<ReminderConfig>({
+    enabled: true,
+    leadsMin: [2],
+    repeats: 0,
+    endLeadsMin: [2],
+    endAlertLeadMin: 5,
+    endAlertRepeat: 0,
+  });
   const [durationEditId, setDurationEditId] = useState<string | null>(null);
   const [startTimeEditId, setStartTimeEditId] = useState<string | null>(null);
   const [startTimeDraft, setStartTimeDraft] = useState<string>("09:00");
@@ -171,6 +181,18 @@ export default function DayView() {
     ]);
   };
 
+  useEffect(() => {
+    if (!user?.id || !viewDate || blocks.length === 0 || isFuture) return;
+    let cancelled = false;
+    (async () => {
+      const changed = await applyAutoMissedBlocks(supabase, viewDate, blocks as Block[]);
+      if (!cancelled && changed) void invalidatePlanCaches();
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [user?.id, viewDate, blocks, isFuture]);
+
   const removeBlock = async (id: string) => {
     if (blockOpLocksRef.current.has(`remove:${id}`)) return;
     blockOpLocksRef.current.add(`remove:${id}`);
@@ -217,6 +239,9 @@ export default function DayView() {
               overlap_ok: removed.overlap_ok ?? false,
               parallel_group_id: removed.parallel_group_id ?? null,
               slot_end_time: removed.slot_end_time ?? blockSlotEndHHMM(removed),
+              resolution: removed.resolution ?? null,
+              resolved_at: removed.resolved_at ?? null,
+              completed_at: removed.completed_at ?? null,
             } as any);
             await persistOrder(snapshot);
             await invalidatePlanCaches();
@@ -242,7 +267,7 @@ export default function DayView() {
       return;
     }
     const userTasks = snapshot.filter(isUserTask);
-    const doneBefore = userTasks.filter(b => b.completed).length;
+    const doneBefore = userTasks.filter((b) => isUserTaskDone(b)).length;
     const firstUserTaskDoneToday =
       isToday && isUserTask(toggled) && !wasDone && doneBefore === 0;
 
@@ -272,6 +297,8 @@ export default function DayView() {
               completed: !wasDone,
               completed_at: !wasDone ? completedAtIso : null,
               actual_minutes: !wasDone ? resolvedActual : null,
+              resolution: !wasDone ? ("done" as const) : null,
+              resolved_at: !wasDone ? completedAtIso : null,
             }
           : b,
       ),
@@ -284,6 +311,8 @@ export default function DayView() {
           completed: !wasDone,
           completed_at: !wasDone ? completedAtIso : null,
           actual_minutes: !wasDone ? resolvedActual : null,
+          resolution: !wasDone ? "done" : null,
+          resolved_at: !wasDone ? completedAtIso : null,
         })
         .eq("id", id);
       if (!wasDone) {
@@ -303,6 +332,8 @@ export default function DayView() {
                 completed: prev?.completed ?? false,
                 completed_at: prev?.completed_at ?? null,
                 actual_minutes: prev?.actual_minutes ?? null,
+                resolution: (prev as ExBlock)?.resolution ?? null,
+                resolved_at: (prev as ExBlock)?.resolved_at ?? null,
               })
               .eq("id", id);
             await invalidatePlanCaches();
@@ -423,7 +454,7 @@ export default function DayView() {
     setReplanning(true);
     setPlanMutating(true);
     try {
-      const remaining = blocks.filter(b => isUserTask(b) && !b.completed);
+      const remaining = blocks.filter((b) => isUserTask(b) && isOpenUserTask(b));
       const nowHM = `${String(now.getHours()).padStart(2,"0")}:${String(now.getMinutes()).padStart(2,"0")}`;
       const tz = profile?.timezone || Intl.DateTimeFormat().resolvedOptions().timeZone;
       const { data, error } = await supabase.functions.invoke("generate-plan", {
@@ -451,7 +482,7 @@ export default function DayView() {
       const toRemoveIds = blocks
         .filter((b) => {
           if (b.is_calendar_event) return false;
-          if (isUserTask(b) && !b.completed) return true;
+          if (isUserTask(b) && isOpenUserTask(b)) return true;
           if ((b.kind === "break" || b.kind === "lunch") && !b.completed) return true;
           return false;
         })
@@ -493,7 +524,7 @@ export default function DayView() {
   const rollOverUnfinishedToTomorrow = async () => {
     if (!user) return;
     const openTasks = blocks
-      .filter((b) => isUserTask(b) && !b.completed && !b.is_calendar_event)
+      .filter((b) => isUserTask(b) && isOpenUserTask(b) && !b.is_calendar_event)
       .map((b) => b.title?.trim())
       .filter(Boolean) as string[];
     if (!openTasks.length) {
@@ -515,13 +546,13 @@ export default function DayView() {
     }
   };
 
-  const firstUnfinishedTask = blocks.find(b => isUserTask(b) && !b.completed);
+  const firstUnfinishedTask = blocks.find((b) => isUserTask(b) && isOpenUserTask(b));
   const userTasks = blocks.filter(isUserTask);
   const totalTasks = userTasks.length;
-  const doneTasks = userTasks.filter(b => b.completed).length;
+  const doneTasks = userTasks.filter((b) => isUserTaskDone(b)).length;
 
   const spotlightId = useMemo(
-    () => blocks.find((b) => isUserTask(b) && !b.completed && !b.is_calendar_event)?.id,
+    () => blocks.find((b) => isUserTask(b) && isOpenUserTask(b) && !b.is_calendar_event)?.id,
     [blocks],
   );
 
@@ -745,6 +776,33 @@ export default function DayView() {
                   label="Change duration"
                 />
               )}
+              {!tappedBlock.is_calendar_event && (
+                <ActionRow
+                  onClick={() => {
+                    setStartTimeDraft(tappedBlock.start_time || "09:00");
+                    setStartTimeEditId(tappedBlock.id);
+                    setTappedBlock(null);
+                  }}
+                  icon={<Clock className="h-4 w-4" />}
+                  label="Change start time"
+                />
+              )}
+              {!tappedBlock.is_calendar_event && tappedBlock.kind === "task" && isOpenUserTask(tappedBlock) && (
+                <ActionRow
+                  onClick={() => {
+                    if (!isPro) {
+                      setTappedBlock(null);
+                      setUpgradeOpen(true);
+                      return;
+                    }
+                    const id = tappedBlock.id;
+                    setTappedBlock(null);
+                    nav(`/focus/${id}?mode=one`);
+                  }}
+                  icon={<Target className="h-4 w-4" />}
+                  label="One thing mode · Pro"
+                />
+              )}
               {!calmMode && !tappedBlock.is_calendar_event && isToday && (
                 <ActionRow
                   onClick={() => openReminders(tappedBlock.id)}
@@ -943,26 +1001,34 @@ export default function DayView() {
                       >{n === 0 ? "Don't repeat" : `${n}× every 5 min`}</button>
                     ))}
                   </div>
-                  <div className="text-[11px] uppercase tracking-wider text-secondary-fg mt-5 mb-2">Before scheduled end</div>
+                  <div className="text-[11px] uppercase tracking-wider text-secondary-fg mt-5 mb-2">Before window ends</div>
                   <div className="flex flex-wrap gap-1.5">
-                    {[
-                      { n: [] as number[], label: "Off" },
-                      { n: [2], label: "2 min" },
-                      { n: [5], label: "5 min" },
-                      { n: [2, 0], label: "2 + at end" },
-                    ].map((opt) => {
-                      const arr = reminderCfg.endLeadsMin ?? [2];
-                      const on =
-                        opt.n.length === 0 ? arr.length === 0 :
-                        arr.length === opt.n.length && opt.n.every((v, i) => v === arr[i]);
+                    {[0, 2, 5, 10, 15, 30].map((n) => {
+                      const on = (reminderCfg.endAlertLeadMin ?? 5) === n;
                       return (
                         <button
-                          key={opt.label}
-                          onClick={() => saveReminders({ ...reminderCfg, endLeadsMin: [...opt.n] })}
+                          key={n}
                           type="button"
+                          onClick={() => saveReminders({ ...reminderCfg, endAlertLeadMin: n })}
                           className={`h-8 px-3 rounded-full text-[12px] font-medium pressable border ${on ? "surface-accent border-accent text-primary" : "surface-soft border-soft text-secondary-fg"}`}
                         >
-                          {opt.label}
+                          {n === 0 ? "At end" : `${n} min`}
+                        </button>
+                      );
+                    })}
+                  </div>
+                  <div className="text-[11px] uppercase tracking-wider text-secondary-fg mt-5 mb-2">Extra pings (every 1 min after first)</div>
+                  <div className="flex flex-wrap gap-1.5">
+                    {[0, 1, 2, 3, 5].map((n) => {
+                      const on = (reminderCfg.endAlertRepeat ?? 0) === n;
+                      return (
+                        <button
+                          key={n}
+                          type="button"
+                          onClick={() => saveReminders({ ...reminderCfg, endAlertRepeat: n })}
+                          className={`h-8 px-3 rounded-full text-[12px] font-medium pressable border ${on ? "surface-accent border-accent text-primary" : "surface-soft border-soft text-secondary-fg"}`}
+                        >
+                          {n === 0 ? "None" : `${n} extra`}
                         </button>
                       );
                     })}
