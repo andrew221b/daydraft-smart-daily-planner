@@ -65,7 +65,7 @@ export function ProfileProvider({ children }: { children: ReactNode }) {
 
   const update = async (patch: Partial<Profile>) => {
     if (!user) return;
-    const { data } = await supabase.from("profiles").update(patch).eq("id", user.id).select().maybeSingle();
+    const { data } = await supabase.from("profiles").update(patch as never).eq("id", user.id).select().maybeSingle();
     if (data) setProfile(data as Profile);
   };
 

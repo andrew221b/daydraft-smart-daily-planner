@@ -96,6 +96,7 @@ export function ClarifySheet({ open, onOpenChange, rawInput, onConfirm, planDate
   );
   const [tasks, setTasks] = useState<Row[]>(initial);
   const [planningContext, setPlanningContext] = useState("");
+  const [contextOpen, setContextOpen] = useState(false);
   const [loadingAI, setLoadingAI] = useState(false);
   const [splitting, setSplitting] = useState(false);
   const sensors = useSensors(
@@ -347,7 +348,7 @@ export function ClarifySheet({ open, onOpenChange, rawInput, onConfirm, planDate
   return (
     <Sheet open={open} onOpenChange={onOpenChange}>
       <SheetContent side="bottom" className="rounded-t-[24px] max-h-[94vh] overflow-y-auto p-0 border-soft bg-background/95 backdrop-blur-xl">
-        <div className="px-5 pt-6 pb-4 sticky top-0 z-10 border-b border-soft bg-background/90 backdrop-blur-md supports-[backdrop-filter]:bg-background/75">
+        <div className="px-5 pt-5 pb-3 sticky top-0 z-10 border-b border-soft bg-background/90 backdrop-blur-md supports-[backdrop-filter]:bg-background/75">
           <SheetHeader className="text-left">
             <SheetTitle className="flex items-center gap-2 font-display text-[19px] font-semibold tracking-tight">
               Review tasks
@@ -359,19 +360,6 @@ export function ClarifySheet({ open, onOpenChange, rawInput, onConfirm, planDate
                 {hours > 0 ? `${hours}h ` : ""}{mins}m total
               </span>
             </SheetDescription>
-            <div className="mt-3">
-              <label htmlFor="planning-context-ai" className="text-[10px] font-semibold uppercase tracking-[0.14em] text-secondary-fg">
-                For the AI (optional)
-              </label>
-              <Textarea
-                id="planning-context-ai"
-                value={planningContext}
-                onChange={(e) => setPlanningContext(e.target.value)}
-                placeholder="Deadlines, constraints, low energy, whatever changes the shape of the day."
-                rows={2}
-                className="mt-1.5 resize-none rounded-xl border-soft bg-muted/30 text-[13px] leading-relaxed"
-              />
-            </div>
           </SheetHeader>
           {overCapacity && tasks.length > 0 && (
             <div className="mt-2 flex items-start gap-2 px-2.5 py-2 rounded-lg bg-destructive/10 border border-destructive/30">
@@ -394,6 +382,29 @@ export function ClarifySheet({ open, onOpenChange, rawInput, onConfirm, planDate
 
         {/* List */}
         <div className="px-3 py-3 space-y-2">
+          <div className="px-2">
+            <button
+              type="button"
+              onClick={() => setContextOpen((v) => !v)}
+              className="w-full flex items-center justify-between text-[11px] font-semibold uppercase tracking-[0.14em] text-secondary-fg py-1.5"
+              aria-expanded={contextOpen}
+            >
+              <span className="flex items-center gap-1.5">
+                <Sparkles className="h-3 w-3" /> For the AI {planningContext.trim() ? "· added" : "(optional)"}
+              </span>
+              {contextOpen ? <ChevronUp className="h-3.5 w-3.5" /> : <ChevronDown className="h-3.5 w-3.5" />}
+            </button>
+            {contextOpen && (
+              <Textarea
+                id="planning-context-ai"
+                value={planningContext}
+                onChange={(e) => setPlanningContext(e.target.value)}
+                placeholder="Deadlines, constraints, low energy, whatever changes the shape of the day."
+                rows={2}
+                className="mt-1 mb-2 resize-none rounded-xl border-soft bg-muted/30 text-[13px] leading-relaxed"
+              />
+            )}
+          </div>
           {tasks.length === 0 && (
             <p className="text-sm text-secondary-fg text-center py-8">No tasks detected. Add some first.</p>
           )}

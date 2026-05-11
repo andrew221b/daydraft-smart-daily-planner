@@ -43,9 +43,6 @@ export type Database = {
           actual_minutes: number | null
           ai_reasoning: string | null
           block_type: string | null
-          overlap_ok: boolean
-          parallel_group_id: string | null
-          slot_end_time: string | null
           completed: boolean
           completed_at: string | null
           created_at: string
@@ -57,9 +54,12 @@ export type Database = {
           location: string | null
           location_lat: number | null
           location_lng: number | null
+          overlap_ok: boolean
+          parallel_group_id: string | null
           parallel_with: string | null
           plan_id: string
           position: number
+          slot_end_time: string | null
           start_time: string
           title: string
           type: string
@@ -69,9 +69,6 @@ export type Database = {
           actual_minutes?: number | null
           ai_reasoning?: string | null
           block_type?: string | null
-          overlap_ok?: boolean
-          parallel_group_id?: string | null
-          slot_end_time?: string | null
           completed?: boolean
           completed_at?: string | null
           created_at?: string
@@ -83,9 +80,12 @@ export type Database = {
           location?: string | null
           location_lat?: number | null
           location_lng?: number | null
+          overlap_ok?: boolean
+          parallel_group_id?: string | null
           parallel_with?: string | null
           plan_id: string
           position?: number
+          slot_end_time?: string | null
           start_time: string
           title: string
           type: string
@@ -95,9 +95,6 @@ export type Database = {
           actual_minutes?: number | null
           ai_reasoning?: string | null
           block_type?: string | null
-          overlap_ok?: boolean
-          parallel_group_id?: string | null
-          slot_end_time?: string | null
           completed?: boolean
           completed_at?: string | null
           created_at?: string
@@ -109,9 +106,12 @@ export type Database = {
           location?: string | null
           location_lat?: number | null
           location_lng?: number | null
+          overlap_ok?: boolean
+          parallel_group_id?: string | null
           parallel_with?: string | null
           plan_id?: string
           position?: number
+          slot_end_time?: string | null
           start_time?: string
           title?: string
           type?: string
