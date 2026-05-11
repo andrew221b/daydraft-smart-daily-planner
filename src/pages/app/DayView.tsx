@@ -8,7 +8,7 @@ import {
   Block, fmtTime, todayDateStr, parseDateStr, friendlyDateFor, isFutureDateStr, isUserTask, inferScheduleBlockType, packLinearSchedule,
   blockSlotEndHHMM,
 } from "@/lib/daydraft";
-import { ChevronLeft, Sparkles, Play, RefreshCw, Plus, Coffee, CalendarDays, Trash2, Bell, BellOff, MoreHorizontal, Clock, Info, MapPin, Copy, Target } from "lucide-react";
+import { ChevronLeft, Sparkles, Play, RefreshCw, Plus, Coffee, CalendarDays, Trash2, Bell, BellOff, MoreHorizontal, Clock, Info, MapPin, Copy } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { DndContext, closestCenter, PointerSensor, TouchSensor, useSensor, useSensors, DragEndEvent, DragStartEvent } from "@dnd-kit/core";
 import { SortableContext, arrayMove, verticalListSortingStrategy } from "@dnd-kit/sortable";
@@ -659,6 +659,11 @@ export default function DayView() {
                         editing={false}
                         tourSpotlight={spotlightId === b.id}
                         onTap={(blk) => setTappedBlock(blk)}
+                        onTapTime={(blk) => {
+                          if (blk?.is_calendar_event) return;
+                          setStartTimeDraft(blk.start_time || "09:00");
+                          setStartTimeEditId(blk.id);
+                        }}
                         onToggleComplete={(blk) => {
                           if (blk?.is_calendar_event) return;
                           completeBlock(blk.id);
@@ -738,33 +743,6 @@ export default function DayView() {
                   onClick={() => { setDurationEditId(tappedBlock.id); setTappedBlock(null); }}
                   icon={<Clock className="h-4 w-4" />}
                   label="Change duration"
-                />
-              )}
-              {!tappedBlock.is_calendar_event && (
-                <ActionRow
-                  onClick={() => {
-                    setStartTimeDraft(tappedBlock.start_time || "09:00");
-                    setStartTimeEditId(tappedBlock.id);
-                    setTappedBlock(null);
-                  }}
-                  icon={<Clock className="h-4 w-4" />}
-                  label="Change start time"
-                />
-              )}
-              {!tappedBlock.is_calendar_event && tappedBlock.kind === "task" && !tappedBlock.completed && (
-                <ActionRow
-                  onClick={() => {
-                    if (!isPro) {
-                      setTappedBlock(null);
-                      setUpgradeOpen(true);
-                      return;
-                    }
-                    const id = tappedBlock.id;
-                    setTappedBlock(null);
-                    nav(`/focus/${id}?mode=one`);
-                  }}
-                  icon={<Target className="h-4 w-4" />}
-                  label="One thing mode · Pro"
                 />
               )}
               {!calmMode && !tappedBlock.is_calendar_event && isToday && (

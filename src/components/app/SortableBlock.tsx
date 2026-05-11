@@ -4,7 +4,7 @@ import { Block, fmtTime, inferScheduleBlockType, blockSlotEndHHMM } from "@/lib/
 import { Check, Calendar, Sparkles, Layers, GripVertical } from "lucide-react";
 
 export const SortableBlock = ({
-  block, editing, onTap, onToggleComplete, tourSpotlight,
+  block, editing, onTap, onTapTime, onToggleComplete, tourSpotlight,
 }: {
   block: Block & {
     ai_reasoning?: string | null;
@@ -17,6 +17,7 @@ export const SortableBlock = ({
   };
   editing: boolean;
   onTap?: (b: any) => void;
+  onTapTime?: (b: any) => void;
   onToggleComplete?: (b: any) => void;
   /** First visible row — tour hotspot only on one element. */
   tourSpotlight?: boolean;
@@ -97,9 +98,21 @@ export const SortableBlock = ({
           className="flex min-w-0 flex-1 cursor-pointer items-center gap-3"
           onClick={() => onTap?.(block)}
         >
-        <div className="shrink-0 min-w-[54px] h-9 rounded-xl border border-border/40 bg-background/30 backdrop-blur-sm px-2 inline-flex items-center justify-center text-secondary-fg/90 text-[11px] font-mono-sf tabular-nums">
-          {fmtTime(block.start_time)}
-        </div>
+        {onTapTime && !block.is_calendar_event ? (
+          <button
+            type="button"
+            onPointerDown={(e) => e.stopPropagation()}
+            onClick={(e) => { e.stopPropagation(); onTapTime?.(block); }}
+            className="shrink-0 min-w-[54px] h-9 rounded-xl border border-border/40 bg-background/30 backdrop-blur-sm px-2 inline-flex items-center justify-center text-secondary-fg/90 text-[11px] font-mono-sf tabular-nums pressable hover:border-primary/40 hover:text-foreground"
+            aria-label="Change start time"
+          >
+            {fmtTime(block.start_time)}
+          </button>
+        ) : (
+          <div className="shrink-0 min-w-[54px] h-9 rounded-xl border border-border/40 bg-background/30 backdrop-blur-sm px-2 inline-flex items-center justify-center text-secondary-fg/90 text-[11px] font-mono-sf tabular-nums">
+            {fmtTime(block.start_time)}
+          </div>
+        )}
         <div className="w-[4px] h-9 rounded-full shrink-0" style={{ background: stripeColor }} />
         <div className="flex-1 min-w-0">
           <div className={`leading-tight flex items-center gap-1.5 min-w-0 ${rhythmType === "rest" ? "text-[12.5px]" : "text-[14px]"} ${block.completed && block.kind === "task" ? "text-foreground/80" : "text-foreground"}`}>
