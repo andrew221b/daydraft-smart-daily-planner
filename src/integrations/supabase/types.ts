@@ -57,8 +57,6 @@ export type Database = {
           overlap_ok: boolean
           parallel_group_id: string | null
           parallel_with: string | null
-          resolution: string | null
-          resolved_at: string | null
           plan_id: string
           position: number
           slot_end_time: string | null
@@ -85,8 +83,6 @@ export type Database = {
           overlap_ok?: boolean
           parallel_group_id?: string | null
           parallel_with?: string | null
-          resolution?: string | null
-          resolved_at?: string | null
           plan_id: string
           position?: number
           slot_end_time?: string | null
@@ -113,8 +109,6 @@ export type Database = {
           overlap_ok?: boolean
           parallel_group_id?: string | null
           parallel_with?: string | null
-          resolution?: string | null
-          resolved_at?: string | null
           plan_id?: string
           position?: number
           slot_end_time?: string | null
