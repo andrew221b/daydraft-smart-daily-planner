@@ -59,6 +59,8 @@ export type Database = {
           parallel_with: string | null
           plan_id: string
           position: number
+          resolution: string | null
+          resolved_at: string | null
           slot_end_time: string | null
           start_time: string
           title: string
@@ -85,6 +87,8 @@ export type Database = {
           parallel_with?: string | null
           plan_id: string
           position?: number
+          resolution?: string | null
+          resolved_at?: string | null
           slot_end_time?: string | null
           start_time: string
           title: string
@@ -111,6 +115,8 @@ export type Database = {
           parallel_with?: string | null
           plan_id?: string
           position?: number
+          resolution?: string | null
+          resolved_at?: string | null
           slot_end_time?: string | null
           start_time?: string
           title?: string
