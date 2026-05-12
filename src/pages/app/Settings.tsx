@@ -27,16 +27,6 @@ const energies = [
   { key: "night" as const, label: "Night owl" },
 ];
 
-const TONES: Array<{ key: NonNullable<ReturnType<typeof useProfile>["profile"]>["ai_tone"]; label: string; sub: string }> = [
-  { key: "professional", label: "Professional", sub: "Clear, concise, practical" },
-  { key: "coach", label: "Coach", sub: "Supportive and structured" },
-  { key: "playful", label: "Playful", sub: "Light and friendly" },
-  { key: "motivational", label: "Motivational", sub: "Energetic and momentum-first" },
-  { key: "tough_love", label: "Tough love", sub: "Direct accountability" },
-  { key: "philosophical", label: "Philosophical", sub: "Reflective and thoughtful" },
-  { key: "custom", label: "Custom", sub: "Define your own voice" },
-];
-
 export default function Settings() {
   const { profile, update } = useProfile();
   const { signOut, user } = useAuth();
@@ -212,52 +202,12 @@ export default function Settings() {
             </div>
           </Section>
 
-          {/* 3. AI tone — single most-used preference */}
-          <Section title="AI tone">
+          {/* 3. AI personalization — minimal: just rules the AI must follow */}
+          <Section title="AI rules">
             <p className="text-[12px] text-secondary-fg mb-2 leading-relaxed">
-              This affects how AI writes plans, task help, nudges, and recap insights.
+              Short notes the AI must respect when planning (blackout windows, block length, family time, etc.).
             </p>
-            <div className="rounded-[14px] border border-soft surface-card backdrop-blur-sm divide-y divide-border/50 overflow-hidden">
-              {TONES.map(t => {
-                const active = (profile?.ai_tone || "professional") === t.key;
-                return (
-                  <button
-                    key={t.key}
-                    onClick={() => update({ ai_tone: t.key } as any)}
-                    className={`w-full flex items-center justify-between px-4 py-3 pressable transition-colors ${active ? "surface-accent" : "hover:bg-surface-elevated"}`}
-                  >
-                    <div className="text-left">
-                      <div className="text-[14px] text-foreground">{t.label}</div>
-                      <div className="text-[11px] text-secondary-fg mt-0.5">{t.sub}</div>
-                    </div>
-                    {active && <span className="h-2 w-2 rounded-full bg-primary" />}
-                  </button>
-                );
-              })}
-            </div>
-            {profile?.ai_tone === "custom" && (
-              <Textarea
-                value={profile?.ai_tone_custom || ""}
-                onChange={(e) => update({ ai_tone_custom: e.target.value } as any)}
-                placeholder="e.g. talk to me like a calm Stoic mentor; no emojis; concise"
-                className="mt-2 min-h-[70px] surface-card border-soft rounded-xl text-[13px]"
-              />
-            )}
-            <div className="mt-3">
-              <div className="text-[11px] text-secondary-fg mb-1.5">About you (optional context for AI)</div>
-              <Textarea
-                value={profile?.ai_context_custom || ""}
-                onChange={(e) => update({ ai_context_custom: e.target.value } as any)}
-                placeholder="e.g. I'm a parent of a 4yo, work remote, struggle with mornings, prefer deep work after lunch."
-                maxLength={500}
-                className="min-h-[80px] surface-card border-soft rounded-xl text-[13px]"
-              />
-              <p className="mt-1 text-[10px] text-secondary-fg">AI uses this in plans, insights, and replies.</p>
-            </div>
-            <div className="mt-4">
-              <div className="text-[11px] text-secondary-fg mb-2 leading-relaxed">
-                Planning rules · short notes the AI must read (blackout windows, preferred block length, family time, etc.).
-              </div>
+            <div>
               <Textarea
                 value={planningRulesDraft}
                 onChange={(e) => {
