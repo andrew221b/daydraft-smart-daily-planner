@@ -788,20 +788,7 @@ export default function DayView() {
                 />
               )}
               {!tappedBlock.is_calendar_event && tappedBlock.kind === "task" && isOpenUserTask(tappedBlock) && (
-                <ActionRow
-                  onClick={() => {
-                    if (!isPro) {
-                      setTappedBlock(null);
-                      setUpgradeOpen(true);
-                      return;
-                    }
-                    const id = tappedBlock.id;
-                    setTappedBlock(null);
-                    nav(`/focus/${id}?mode=one`);
-                  }}
-                  icon={<Target className="h-4 w-4" />}
-                  label="One thing mode · Pro"
-                />
+                null
               )}
               {!calmMode && !tappedBlock.is_calendar_event && isToday && (
                 <ActionRow
