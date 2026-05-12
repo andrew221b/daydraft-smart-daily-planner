@@ -25,72 +25,64 @@ export function HomeTrackerHero({ onOpenDetails }: { onOpenDetails: () => void }
 
   return (
     <section
-      className="relative overflow-hidden rounded-[28px] border border-border/40 bg-gradient-to-b from-card/60 to-card/20 px-5 pt-6 pb-5 shadow-[0_24px_60px_-30px_rgba(0,0,0,0.55)]"
+      className="relative overflow-hidden rounded-[28px] border border-border/35 bg-card/40 px-5 pt-6 pb-5"
       style={{ "--hero-accent": accent } as CSSProperties}
     >
-      {/* ambient halo */}
-      <div
-        aria-hidden
-        className="pointer-events-none absolute inset-0 opacity-90"
-        style={{
-          background:
-            "radial-gradient(120% 70% at 50% -10%, color-mix(in oklab, var(--hero-accent) 28%, transparent), transparent 65%)",
-        }}
-      />
+      {/* Subtle accent wash — only when recording */}
       {active && (
         <div
           aria-hidden
-          className="pointer-events-none absolute -inset-1 rounded-[32px] opacity-60 blur-2xl animate-pulse"
+          className="pointer-events-none absolute inset-0 opacity-70"
           style={{
             background:
-              "radial-gradient(60% 60% at 50% 50%, color-mix(in oklab, var(--hero-accent) 35%, transparent), transparent 70%)",
+              "radial-gradient(80% 50% at 50% 0%, color-mix(in oklab, var(--hero-accent) 18%, transparent), transparent 70%)",
           }}
         />
       )}
 
       <div className="relative">
         <div className="flex items-center justify-between">
-          <span className="text-[10px] font-bold uppercase tracking-[0.22em] text-secondary-fg/70">
+          <span className="text-[10px] font-semibold uppercase tracking-[0.2em] text-secondary-fg/70">
             {active ? "Recording" : "Time tracker"}
           </span>
           <button
             type="button"
             onClick={onOpenDetails}
-            className="text-[12px] font-semibold text-secondary-fg/80 hover:text-foreground transition-colors pressable"
+            className="text-[12px] font-medium text-secondary-fg/80 hover:text-foreground transition-colors pressable"
           >
-            Stats →
+            All stats →
           </button>
         </div>
 
         {/* Hero timer */}
-        <div className="mt-5 flex flex-col items-center text-center">
+        <div className="mt-4 flex flex-col items-center text-center">
           {active && activeCat ? (
             <>
-              <div className="inline-flex items-center gap-2 rounded-full bg-foreground/[0.06] px-3 py-1">
+              <div className="inline-flex items-center gap-2 rounded-full bg-foreground/[0.05] px-3 py-1">
                 <span
-                  className="h-2 w-2 rounded-full animate-pulse"
-                  style={{ background: accent, boxShadow: `0 0 12px ${accent}` }}
+                  className="h-1.5 w-1.5 rounded-full animate-pulse"
+                  style={{ background: accent }}
                 />
-                <span className="text-[13px] font-semibold text-foreground/90 truncate max-w-[14rem]">
+                <span className="text-[12px] font-medium text-foreground/85 truncate max-w-[14rem]">
                   {activeCat.name}
                 </span>
               </div>
-              <div className="mt-3 font-display text-[3.6rem] font-semibold tabular-nums leading-none tracking-[-0.03em] text-foreground">
+              <div className="mt-3 font-display text-[3.4rem] font-semibold tabular-nums leading-none tracking-[-0.04em] text-foreground">
                 {fmtHMS(elapsedSec)}
               </div>
               <button
                 type="button"
                 onClick={() => stop()}
-                className="mt-5 inline-flex items-center gap-2 rounded-full bg-foreground text-background px-7 py-3.5 text-[15px] font-bold pressable shadow-[0_10px_30px_-12px_rgba(0,0,0,0.5)] active:scale-[0.97] transition-transform"
+                className="mt-4 inline-flex items-center gap-2 rounded-full bg-foreground text-background px-7 py-3 text-[14px] font-semibold pressable active:scale-[0.97] transition-transform"
               >
-                <Square className="h-4 w-4" fill="currentColor" />
+                <Square className="h-3.5 w-3.5" fill="currentColor" />
                 Stop
               </button>
             </>
           ) : (
             <>
-              <span className="text-[12px] font-medium text-secondary-fg/75">Tracked today</span>
-              <div className="mt-1 font-display text-[3.6rem] font-semibold tabular-nums leading-none tracking-[-0.03em] text-foreground">
+              <span className="text-[11px] font-medium text-secondary-fg/70">Tracked today</span>
+              <div className="mt-1 font-display text-[3.4rem] font-semibold tabular-nums leading-none tracking-[-0.04em] text-foreground">
                 {fmtHM(todayTotalSec)}
               </div>
               <button
@@ -106,9 +98,9 @@ export function HomeTrackerHero({ onOpenDetails }: { onOpenDetails: () => void }
                   }
                   setPickerOpen(true);
                 }}
-                className="mt-5 inline-flex items-center gap-2 rounded-full bg-primary text-primary-foreground px-8 py-4 text-[15px] font-bold pressable shadow-[0_14px_40px_-14px_hsl(var(--primary)/0.7)] active:scale-[0.97] transition-transform"
+                className="mt-4 inline-flex items-center gap-2 rounded-full bg-primary text-primary-foreground px-8 py-3.5 text-[14px] font-semibold pressable active:scale-[0.97] transition-transform"
               >
-                <Play className="h-4 w-4" fill="currentColor" />
+                <Play className="h-3.5 w-3.5" fill="currentColor" />
                 Start tracking
               </button>
             </>
@@ -117,17 +109,15 @@ export function HomeTrackerHero({ onOpenDetails }: { onOpenDetails: () => void }
 
         {/* Quick category chips when idle */}
         {!active && topCats.length > 0 && (
-          <div className="mt-5 -mx-1 flex gap-2 overflow-x-auto pb-1 px-1 scrollbar-none">
+          <div className="mt-4 -mx-1 flex gap-1.5 overflow-x-auto pb-1 px-1 scrollbar-none">
             {topCats.map((c) => (
               <button
                 key={c.id}
                 type="button"
                 onClick={() => start(c.id)}
-                className="shrink-0 inline-flex items-center gap-2 rounded-full border border-border/45 bg-background/55 backdrop-blur-sm py-2 pl-2.5 pr-3.5 text-[13px] font-semibold text-foreground/95 hover:bg-background/85 transition-colors pressable"
-                style={{ borderColor: `${c.color}55` }}
+                className="shrink-0 inline-flex items-center gap-1.5 rounded-full border border-border/40 bg-background/50 py-1.5 pl-2 pr-3 text-[12px] font-medium text-foreground/90 hover:bg-background/80 transition-colors pressable"
               >
-                <span className="h-2 w-2 rounded-full" style={{ background: c.color }} />
-                <Play className="h-3 w-3 opacity-70" />
+                <span className="h-1.5 w-1.5 rounded-full" style={{ background: c.color }} />
                 <span className="max-w-[8rem] truncate">{c.name}</span>
               </button>
             ))}
@@ -135,18 +125,18 @@ export function HomeTrackerHero({ onOpenDetails }: { onOpenDetails: () => void }
               <button
                 type="button"
                 onClick={() => setPickerOpen(true)}
-                className="shrink-0 inline-flex items-center gap-1.5 rounded-full border border-border/40 bg-background/40 py-2 px-3 text-[13px] font-semibold text-secondary-fg/85 hover:text-foreground pressable"
+                className="shrink-0 inline-flex items-center gap-1 rounded-full border border-border/40 bg-background/40 py-1.5 px-2.5 text-[12px] font-medium text-secondary-fg/85 hover:text-foreground pressable"
               >
-                <ChevronDown className="h-3.5 w-3.5" />
+                <ChevronDown className="h-3 w-3" />
                 More
               </button>
             )}
             <button
               type="button"
               onClick={onOpenDetails}
-              className="shrink-0 inline-flex items-center gap-1.5 rounded-full border border-dashed border-border/45 bg-transparent py-2 px-3 text-[13px] font-semibold text-secondary-fg/80 hover:text-foreground pressable"
+              className="shrink-0 inline-flex items-center gap-1 rounded-full border border-dashed border-border/40 bg-transparent py-1.5 px-2.5 text-[12px] font-medium text-secondary-fg/80 hover:text-foreground pressable"
             >
-              <Plus className="h-3.5 w-3.5" />
+              <Plus className="h-3 w-3" />
               New
             </button>
           </div>
