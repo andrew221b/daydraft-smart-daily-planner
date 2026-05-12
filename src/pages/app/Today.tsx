@@ -567,7 +567,7 @@ export default function Today() {
             </h1>
             {!profile?.onboarded ? (
               <p className="text-[13px] text-secondary-fg/85 leading-relaxed pt-0.5 max-w-md">
-                Use <span className="text-foreground/75">Home</span> for time and glance, <span className="text-foreground/75">Today</span> on the bar for this planner,{" "}
+                Use <span className="text-foreground/75">Track</span> for time and glance, <span className="text-foreground/75">Plan</span> on the bar for this planner,{" "}
                 <span className="text-foreground/75">History</span> for past days, <span className="text-foreground/75">Settings</span> for your account.
               </p>
             ) : hasPlanForDate && planDate === todayDateStr() ? (

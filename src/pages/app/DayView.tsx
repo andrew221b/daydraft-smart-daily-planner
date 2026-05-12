@@ -260,12 +260,14 @@ export default function DayView() {
     if (blockOpLocksRef.current.has(`complete:${id}`)) return;
     blockOpLocksRef.current.add(`complete:${id}`);
     const snapshot = blocks;
-    const wasDone = blocks.find(b => b.id === id)?.completed;
     const toggled = snapshot.find(b => b.id === id);
     if (!toggled) {
       blockOpLocksRef.current.delete(`complete:${id}`);
       return;
     }
+    const wasDone = isUserTask(toggled as Block)
+      ? isUserTaskDone(toggled as Block)
+      : !!toggled.completed;
     const userTasks = snapshot.filter(isUserTask);
     const doneBefore = userTasks.filter((b) => isUserTaskDone(b)).length;
     const firstUserTaskDoneToday =
@@ -305,7 +307,7 @@ export default function DayView() {
     );
     haptics.notify("success");
     try {
-      await supabase
+      const { error: upErr } = await supabase
         .from("blocks")
         .update({
           completed: !wasDone,
@@ -315,6 +317,7 @@ export default function DayView() {
           resolved_at: !wasDone ? completedAtIso : null,
         })
         .eq("id", id);
+      if (upErr) throw upErr;
       if (!wasDone) {
         try { localStorage.setItem(`dd_last_plan_progress_${viewDate}`, new Date().toISOString()); } catch {/* ignore */}
       }

@@ -182,7 +182,7 @@ export default function History() {
           <PageHeader
             eyebrow="Past plans"
             title="History"
-            hint="Tap a row for recap. Done tasks only bump your score."
+            hint="Each row is a saved day. Progress updates when tasks are marked done on the server."
           />
 
         <div className="mt-6 rounded-[22px] border border-border/40 bg-background/25 px-4 py-4">

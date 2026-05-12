@@ -9,6 +9,7 @@ import { useProfile } from "@/hooks/useProfile";
 import { mapsUrl } from "@/lib/maps";
 import { toast } from "sonner";
 import { useTimeTracker, useTimeTrackerElapsed, fmtHMS } from "@/hooks/useTimeTracker";
+import { Input } from "@/components/ui/input";
 import { getTone, t as toneCopy } from "@/lib/tone";
 import {
   Popover,
@@ -45,7 +46,7 @@ export default function Focus() {
   const { user } = useAuth();
   const { profile } = useProfile();
   const tone = getTone(profile as any);
-  const { active: tracking, start: startTracking, stop: stopTracking, categories } = useTimeTracker();
+  const { active: tracking, start: startTracking, stop: stopTracking, categories, addCategory } = useTimeTracker();
   const elapsedSec = useTimeTrackerElapsed();
   const [block, setBlock] = useState<any | null>(null);
   const [next, setNext] = useState<Block | null>(null);
@@ -68,6 +69,7 @@ export default function Focus() {
   // Used to attribute REAL elapsed time to time_entries on complete().
   const actualStartMsRef = useRef<number | null>(null);
   const [catPickerOpen, setCatPickerOpen] = useState(false);
+  const [newFocusCatName, setNewFocusCatName] = useState("");
   /** Plan calendar day (YYYY-MM-DD) — for recap / back navigation off the default "today". */
   const [planDate, setPlanDate] = useState<string | null>(null);
   const [searchParams] = useSearchParams();
@@ -258,11 +260,12 @@ export default function Focus() {
     const completedIso = new Date(completedAtMs).toISOString();
     // Stop linked tracker first so `actual_minutes` can be derived from time_entries.
     const hadTrackerForBlock = !!(startedHereRef.current && tracking);
+    let trackerStopOk = true;
     if (hadTrackerForBlock) {
       try {
-        await stopTracking();
+        trackerStopOk = (await stopTracking()) !== false;
       } catch {
-        /* ignore */
+        trackerStopOk = false;
       }
       startedHereRef.current = false;
     }
@@ -288,6 +291,27 @@ export default function Focus() {
         } catch {
           patch.actual_minutes = 1;
         }
+      }
+    } else {
+      try {
+        const { data: row } = await supabase.from("blocks").select("actual_minutes").eq("id", block.id).maybeSingle();
+        const am = (row as { actual_minutes?: number | null } | null)?.actual_minutes;
+        if (!trackerStopOk || typeof am !== "number" || am < 1) {
+          const fromArm = minutesFromFocusArmSeconds(actualSec);
+          patch.actual_minutes =
+            fromArm ??
+            (await resolveActualMinutesOnComplete(
+              supabase,
+              user.id,
+              block.id,
+              planDate || todayDateStr(),
+              block.start_time,
+              completedAtMs,
+            ).catch(() => 1));
+        }
+      } catch {
+        const fromArm = minutesFromFocusArmSeconds(actualSec);
+        patch.actual_minutes = fromArm ?? 1;
       }
     }
     const { error } = await supabase.from("blocks").update(patch as never).eq("id", block.id);
@@ -564,16 +588,22 @@ export default function Focus() {
           </div>
         </div>
 
-        <div className="flex items-center gap-3 mt-12 w-full">
+        <div className="mt-10 grid w-full max-w-[320px] grid-cols-2 gap-2">
           <button
+            type="button"
             onClick={extendFiveMin}
-            className="h-12 px-3 rounded-[14px] text-sm font-medium pressable flex items-center gap-1.5 transition-colors backdrop-blur-sm app-card py-5 border-soft"
+            className="flex h-12 flex-col items-center justify-center gap-0.5 rounded-2xl border border-border/55 bg-card/85 text-[12px] font-semibold text-foreground shadow-sm pressable transition-colors hover:bg-card"
           >
-            <Plus className="h-3.5 w-3.5" /> 5 min
+            <Plus className="h-4 w-4 text-primary" strokeWidth={2.25} />
+            +5 min
           </button>
-          <button onClick={complete} className="flex-1 h-13 py-3 rounded-[14px] bg-primary text-primary-foreground font-medium pressable flex items-center justify-center gap-2 shadow-card"
-           >
-            Complete <Check className="h-4 w-4" strokeWidth={3} />
+          <button
+            type="button"
+            onClick={() => void complete()}
+            className="flex h-12 items-center justify-center gap-2 rounded-2xl bg-primary text-[14px] font-semibold text-primary-foreground shadow-card pressable"
+          >
+            <Check className="h-4 w-4 shrink-0" strokeWidth={2.75} />
+            Complete
           </button>
         </div>
         <button onClick={() => setConfirmSkipOpen(true)} className="mt-3 text-secondary-fg text-xs hover:text-foreground inline-flex items-center gap-1">
@@ -587,31 +617,63 @@ export default function Focus() {
             {toneCopy(tone, "ai_stuck_cta")} <Sparkles className="h-3 w-3" />
           </button>
         )}
-        {!trackingThisBlock && armed && categories.length > 0 && (
-          <Popover open={catPickerOpen} onOpenChange={setCatPickerOpen}>
+        {!trackingThisBlock && armed && (
+          <Popover open={catPickerOpen} onOpenChange={(o) => { setCatPickerOpen(o); if (!o) setNewFocusCatName(""); }}>
             <PopoverTrigger asChild>
               <button className="mt-3 inline-flex items-center gap-1.5 px-3 py-1.5 rounded-full border border-soft bg-background/60 backdrop-blur-sm text-[12px] text-secondary-fg hover:text-foreground pressable">
-                <Timer className="h-3.5 w-3.5" /> Track time…
+                <Timer className="h-3.5 w-3.5" /> {categories.length ? "Track time…" : "Add category to track"}
               </button>
             </PopoverTrigger>
-            <PopoverContent className="w-56 p-2" align="center">
-              <div className="text-[10px] uppercase tracking-wider text-secondary-fg px-2 py-1">Pick a category</div>
-              <div className="space-y-0.5">
-                {categories.map(c => (
+            <PopoverContent className="w-[min(20rem,calc(100vw-2rem))] p-3" align="center">
+              <div className="text-[10px] uppercase tracking-wider text-secondary-fg px-1 pb-2">Pick a category</div>
+              <div className="max-h-48 space-y-0.5 overflow-y-auto pr-0.5">
+                {categories.map((c) => (
                   <button
                     key={c.id}
+                    type="button"
                     onClick={() => {
                       startedHereRef.current = true;
-                      startTracking(c.id, { source: "focus", blockId: block.id, note: block.title });
+                      void startTracking(c.id, { source: "focus", blockId: block.id, note: block.title });
                       setCatPickerOpen(false);
                     }}
-                    className="w-full flex items-center gap-2 px-2 py-1.5 rounded-md text-sm hover:bg-muted text-foreground text-left pressable"
+                    className="flex w-full items-center gap-2 rounded-lg px-2 py-2 text-left text-sm text-foreground pressable hover:bg-muted"
                   >
-                    <span className="h-2.5 w-2.5 rounded-full" style={{ background: c.color }} />
+                    <span className="h-2.5 w-2.5 shrink-0 rounded-full" style={{ background: c.color }} />
                     <span className="flex-1 truncate">{c.name}</span>
                   </button>
                 ))}
+                {categories.length === 0 && (
+                  <p className="px-1 py-2 text-[12px] leading-snug text-secondary-fg">Create a category below, then time links to this task.</p>
+                )}
               </div>
+              <form
+                className="mt-3 flex flex-col gap-2 border-t border-border/40 pt-3"
+                onSubmit={async (e) => {
+                  e.preventDefault();
+                  const name = newFocusCatName.trim();
+                  if (!name) return;
+                  const c = await addCategory(name);
+                  if (!c) return;
+                  startedHereRef.current = true;
+                  await startTracking(c.id, { source: "focus", blockId: block.id, note: block.title });
+                  setNewFocusCatName("");
+                  setCatPickerOpen(false);
+                }}
+              >
+                <Input
+                  value={newFocusCatName}
+                  onChange={(e) => setNewFocusCatName(e.target.value)}
+                  placeholder="New category name"
+                  className="h-10 text-[13px]"
+                />
+                <button
+                  type="submit"
+                  disabled={!newFocusCatName.trim()}
+                  className="h-10 w-full rounded-xl bg-primary text-[13px] font-semibold text-primary-foreground pressable disabled:opacity-45"
+                >
+                  Add category and start
+                </button>
+              </form>
             </PopoverContent>
           </Popover>
         )}

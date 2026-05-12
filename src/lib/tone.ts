@@ -99,7 +99,7 @@ const COPY: Record<Tone, Record<string, string>> = {
     start_first: "Begin",
     start_next: "Continue",
     recap_cta: "Reflect on today",
-    track_label: "Witness this work",
+    track_label: "Track this work",
     replan_rest_cta: "Re-center the remainder of today",
     ai_help_cta: "Clarify the next right step",
     ai_assistant_title: "AI Guide",

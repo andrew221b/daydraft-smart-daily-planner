@@ -36,7 +36,7 @@ type Ctx = {
   active: TimeEntry | null;
   loading: boolean;
   start: (categoryId?: string, opts?: { source?: string; note?: string; blockId?: string }) => Promise<void>;
-  stop: () => Promise<void>;
+  stop: () => Promise<boolean>;
   switchCategory: (categoryId: string) => Promise<void>;
   addCategory: (name: string, color?: string) => Promise<TimeCategory | null>;
   deleteCategory: (id: string) => Promise<void>;
@@ -185,11 +185,11 @@ export function TimeTrackerProvider({ children }: { children: ReactNode }) {
   };
 
   const stop: Ctx["stop"] = async () => {
-    if (!active || !user) return;
+    if (!active || !user) return false;
     const current = active;
     const endedAt = new Date().toISOString();
     const { error } = await supabase.from("time_entries").update({ ended_at: endedAt }).eq("id", current.id);
-    if (error) { toast.error(error.message); return; }
+    if (error) { toast.error(error.message); return false; }
     const dur = Math.floor((Date.now() - new Date(current.started_at).getTime()) / 1000);
     if (current.block_id) {
       try {
@@ -224,6 +224,7 @@ export function TimeTrackerProvider({ children }: { children: ReactNode }) {
     setWeekTotalSec(t => t + dur);
     const m = Math.floor(dur / 60);
     toast.success(`Tracked ${m < 60 ? `${m}m` : `${Math.floor(m/60)}h ${m%60}m`}`);
+    return true;
   };
 
   // Sweep stale per-plan localStorage opt-in keys (from Today.tsx ClarifySheet)
@@ -249,7 +250,7 @@ export function TimeTrackerProvider({ children }: { children: ReactNode }) {
   const switchCategory: Ctx["switchCategory"] = async (categoryId) => {
     if (!active) { await start(categoryId); return; }
     if (active.category_id === categoryId) return;
-    await stop();
+    await stop(); // best-effort; start will no-op if still active
     await start(categoryId);
   };
 

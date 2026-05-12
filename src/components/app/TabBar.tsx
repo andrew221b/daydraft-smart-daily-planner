@@ -1,11 +1,11 @@
 import { useEffect, useRef } from "react";
 import { NavLink, useLocation } from "react-router-dom";
-import { Home, CalendarDays, Settings as SettingsIcon } from "lucide-react";
+import { CalendarDays, Settings as SettingsIcon, Timer } from "lucide-react";
 import { haptics } from "@/lib/haptics";
 import type { LucideIcon } from "lucide-react";
 
 const tabs = [
-  { to: "/home", icon: Home, label: "Tracker", tour: "tab-home" },
+  { to: "/home", icon: Timer, label: "Track", tour: "tab-home" },
   { to: "/today", icon: CalendarDays, label: "Plan", tour: "tab-today" },
   { to: "/settings", icon: SettingsIcon, label: "Settings", tour: "tab-settings" },
 ] as const;

@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useRef, useState } from "react";
-import { Play, Pause, Plus, Check, Trash2, ChevronLeft, ChevronRight, Download, ChevronDown, Lock, Pencil, X, Hourglass, Clock, SlidersHorizontal } from "lucide-react";
+import { Play, Pause, Plus, Check, Trash2, ChevronLeft, ChevronRight, Download, ChevronDown, Lock, Pencil, X, Hourglass, Clock, SlidersHorizontal, ListTodo } from "lucide-react";
 import { useTimeTracker, useTimeTrackerElapsed, fmtHMS, fmtHM, TimeCategory } from "@/hooks/useTimeTracker";
 import { Sheet, SheetContent, SheetHeader, SheetTitle, SheetDescription } from "@/components/ui/sheet";
 import { Input } from "@/components/ui/input";
@@ -81,15 +81,7 @@ function TrackerInner({ embedded = false, onClose }: { embedded?: boolean; onClo
   const [todayPlanBlocks, setTodayPlanBlocks] = useState<Block[]>([]);
   const [stopBusy, setStopBusy] = useState(false);
   const [categoryBusyId, setCategoryBusyId] = useState<string | null>(null);
-  /** Plan tab tracker: show all entries, only planner-linked (`block_id`), or manual/custom. */
-  const [entryScope, setEntryScope] = useState<"all" | "planner" | "custom">("all");
   const tabIndex = TABS.indexOf(tab);
-
-  const entriesInScope = useMemo(() => {
-    if (entryScope === "planner") return entries.filter((e) => e.block_id);
-    if (entryScope === "custom") return entries.filter((e) => !e.block_id);
-    return entries;
-  }, [entries, entryScope]);
 
   const activeCat = categories.find(c => c.id === active?.category_id);
   const catMap = useMemo(() => new Map(categories.map(c => [c.id, c])), [categories]);
@@ -220,7 +212,7 @@ function TrackerInner({ embedded = false, onClose }: { embedded?: boolean; onClo
     const dayStart = new Date(y, m - 1, d).getTime();
     const dayEnd = dayStart + DAY_MS;
     const byCat = new Map<string, number>();
-    const items: Array<{ id: string; cat: TimeCategory | undefined; start: number; end: number; dur: number }> = [];
+    const items: Array<{ id: string; cat: TimeCategory | undefined; start: number; end: number; dur: number; fromPlanner: boolean }> = [];
     let total = 0;
     entries.forEach(e => {
       const dur = clipDuration(e, dayStart, dayEnd, now);
@@ -229,7 +221,14 @@ function TrackerInner({ embedded = false, onClose }: { embedded?: boolean; onClo
       if (e.category_id) byCat.set(e.category_id, (byCat.get(e.category_id) || 0) + dur);
       const s = Math.max(new Date(e.started_at).getTime(), dayStart);
       const en = Math.min(e.ended_at ? new Date(e.ended_at).getTime() : now, dayEnd);
-      items.push({ id: e.id, cat: e.category_id ? catMap.get(e.category_id) : undefined, start: s, end: en, dur });
+      items.push({
+        id: e.id,
+        cat: e.category_id ? catMap.get(e.category_id) : undefined,
+        start: s,
+        end: en,
+        dur,
+        fromPlanner: !!e.block_id,
+      });
     });
     items.sort((a, b) => a.start - b.start);
     return { date: new Date(dayStart), total, byCat, items };
@@ -240,39 +239,22 @@ function TrackerInner({ embedded = false, onClose }: { embedded?: boolean; onClo
     const dayStart = startOfDay(new Date()).getTime();
     const dayEnd = dayStart + DAY_MS;
     const byCat = new Map<string, number>();
-    const src = tab === "today" ? entriesInScope : entries;
-    src.forEach(e => {
+    entries.forEach((e) => {
       const d = clipDuration(e, dayStart, dayEnd, now);
       if (d > 0 && e.category_id) byCat.set(e.category_id, (byCat.get(e.category_id) || 0) + d);
     });
     return Array.from(byCat.entries())
       .map(([id, sec]) => ({ cat: catMap.get(id), sec }))
-      .filter(x => x.cat)
+      .filter((x) => x.cat)
       .sort((a, b) => b.sec - a.sec);
-  }, [entries, entriesInScope, tab, catMap, now]);
-
-  // Today: build 24h timeline segments (clipped to today)
-  const todayTimeline = useMemo(() => {
-    const dayStart = startOfDay(new Date()).getTime();
-    const dayEnd = dayStart + DAY_MS;
-    const segs: Array<{ id: string; start: number; end: number; color: string; name: string }> = [];
-    const src = tab === "today" ? entriesInScope : entries;
-    src.forEach(e => {
-      const s = new Date(e.started_at).getTime();
-      const en = e.ended_at ? new Date(e.ended_at).getTime() : now;
-      const a = Math.max(s, dayStart);
-      const b = Math.min(en, dayEnd);
-      if (b <= a) return;
-      const cat = e.category_id ? catMap.get(e.category_id) : undefined;
-      segs.push({ id: e.id, start: a - dayStart, end: b - dayStart, color: cat?.color || "hsl(var(--muted-foreground))", name: cat?.name || "Untracked" });
-    });
-    return segs;
-  }, [entries, entriesInScope, tab, catMap, now]);
+  }, [entries, catMap, now]);
 
   const plannerVelocityHint = useMemo(() => {
     const cutoff = now - 7 * DAY_MS;
     const planner = entries.filter((e) => e.block_id && new Date(e.started_at).getTime() >= cutoff);
-    if (!planner.length) return "Planner pace: log time from Focus (linked to tasks) to see 7-day rhythm.";
+    if (!planner.length) {
+      return "Sessions started from Focus on a plan task show a plan badge in the list below.";
+    }
     let sec = 0;
     planner.forEach((e) => {
       sec += clipDuration(e, cutoff, now + DAY_MS, now);
@@ -298,7 +280,7 @@ function TrackerInner({ embedded = false, onClose }: { embedded?: boolean; onClo
 
   // Per-category stats for the active period (for inline drill-in)
   const periodCatStats = useMemo(() => {
-    const map = new Map<string, { sec: number; sessions: Array<{ id: string; start: number; end: number; note: string | null }>; perDay: Map<string, number> }>();
+    const map = new Map<string, { sec: number; sessions: Array<{ id: string; start: number; end: number; note: string | null; fromPlanner: boolean }>; perDay: Map<string, number> }>();
     entries.forEach(e => {
       if (!e.category_id) return;
       const s = new Date(e.started_at).getTime();
@@ -309,7 +291,7 @@ function TrackerInner({ embedded = false, onClose }: { embedded?: boolean; onClo
       const dur = (b - a) / 1000;
       const cur = map.get(e.category_id) || { sec: 0, sessions: [], perDay: new Map() };
       cur.sec += dur;
-      cur.sessions.push({ id: e.id, start: a, end: b, note: e.note });
+      cur.sessions.push({ id: e.id, start: a, end: b, note: e.note, fromPlanner: !!e.block_id });
       const dayKey = ymd(new Date(a));
       cur.perDay.set(dayKey, (cur.perDay.get(dayKey) || 0) + dur);
       map.set(e.category_id, cur);
@@ -504,7 +486,7 @@ function TrackerInner({ embedded = false, onClose }: { embedded?: boolean; onClo
               top-right of SheetContent and any button placed beside it gets
               accidentally tapped when the user reaches to dismiss. */}
           <div className="text-left">
-            <h2 className="type-title text-[24px] pr-8 tracking-tight">Timer</h2>
+            <h2 className="type-title text-[24px] pr-8 tracking-tight">Time tracker</h2>
             {!active && (
               <>
                 <p className="text-xs text-secondary-fg mt-0.5">
@@ -548,20 +530,6 @@ function TrackerInner({ embedded = false, onClose }: { embedded?: boolean; onClo
         {tab === "today" && (
           <>
             <div className="px-5 pt-4 space-y-2">
-              <div className="inline-flex w-full rounded-[12px] bg-muted/70 p-0.5">
-                {(["all", "planner", "custom"] as const).map((s) => (
-                  <button
-                    key={s}
-                    type="button"
-                    onClick={() => setEntryScope(s)}
-                    className={`flex-1 rounded-[10px] py-1.5 text-[11px] font-semibold capitalize pressable ${
-                      entryScope === s ? "bg-background shadow-sm text-foreground" : "text-secondary-fg"
-                    }`}
-                  >
-                    {s === "all" ? "All" : s === "planner" ? "Planner" : "Custom"}
-                  </button>
-                ))}
-              </div>
               <p className="text-[11px] leading-snug text-secondary-fg">{plannerVelocityHint}</p>
             </div>
             {/* Hero stopwatch — premium, centered */}
@@ -1158,10 +1126,21 @@ function DayDetail({ detail, catMap }: { detail: NonNullable<ReturnType<() => an
                   const endStr = new Date(it.end).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" });
                   return (
                     <div key={it.id} className="flex items-center gap-2 text-[12px]">
-                      <span className="h-2 w-2 rounded-full shrink-0" style={{ background: it.cat?.color || "hsl(var(--muted-foreground))" }} />
-                      <span className="font-mono tabular-nums text-secondary-fg w-[88px] shrink-0">{startStr}–{endStr}</span>
-                      <span className="truncate flex-1">{it.cat?.name || "Uncategorized"}</span>
-                      <span className="font-mono tabular-nums text-secondary-fg">{fmtHM(it.dur)}</span>
+                      <span className="h-2 w-2 shrink-0 rounded-full" style={{ background: it.cat?.color || "hsl(var(--muted-foreground))" }} />
+                      <span className="w-[88px] shrink-0 font-mono tabular-nums text-secondary-fg">{startStr}–{endStr}</span>
+                      <span className="flex min-w-0 flex-1 items-center gap-1.5 truncate">
+                        {it.fromPlanner ? (
+                          <span
+                            className="inline-flex shrink-0 items-center gap-0.5 rounded-md border border-primary/25 bg-primary/[0.08] px-1 py-0.5 text-[9px] font-semibold uppercase tracking-wide text-primary"
+                            title="From day plan"
+                          >
+                            <ListTodo className="h-2.5 w-2.5" aria-hidden />
+                            Plan
+                          </span>
+                        ) : null}
+                        <span className="truncate">{it.cat?.name || "Uncategorized"}</span>
+                      </span>
+                      <span className="shrink-0 font-mono tabular-nums text-secondary-fg">{fmtHM(it.dur)}</span>
                     </div>
                   );
                 })}
@@ -1216,7 +1195,7 @@ function CategoryDetail({
   period,
 }: {
   cat: TimeCategory;
-  stat: { sec: number; sessions: Array<{ id: string; start: number; end: number; note: string | null }>; perDay: Map<string, number> } | undefined;
+  stat: { sec: number; sessions: Array<{ id: string; start: number; end: number; note: string | null; fromPlanner?: boolean }>; perDay: Map<string, number> } | undefined;
   period: { start: number; end: number; label: string; days: number };
 }) {
   const sec = stat?.sec || 0;
@@ -1297,7 +1276,15 @@ function CategoryDetail({
               <div key={s.id} className="flex items-center gap-2 text-[12px]">
                 <span className="font-mono tabular-nums text-secondary-fg w-[54px] shrink-0">{dateStr}</span>
                 <span className="font-mono tabular-nums text-secondary-fg w-[88px] shrink-0">{startStr}–{endStr}</span>
-                <span className="truncate flex-1 text-secondary-fg">{s.note || "—"}</span>
+                <span className="truncate flex-1 text-secondary-fg inline-flex items-center gap-1.5 min-w-0">
+                  {s.fromPlanner ? (
+                    <span className="inline-flex shrink-0 items-center gap-0.5 rounded-md border border-primary/25 bg-primary/[0.08] px-1 py-0.5 text-[9px] font-semibold uppercase tracking-wide text-primary" title="From day plan">
+                      <ListTodo className="h-2.5 w-2.5" aria-hidden />
+                      Plan
+                    </span>
+                  ) : null}
+                  <span className="truncate">{s.note || "—"}</span>
+                </span>
                 <span className="font-mono tabular-nums text-foreground">{fmtHM((s.end - s.start) / 1000)}</span>
               </div>
             );
