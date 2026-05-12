@@ -27,16 +27,6 @@ const energies = [
   { key: "night" as const, label: "Night owl" },
 ];
 
-const TONES: Array<{ key: NonNullable<ReturnType<typeof useProfile>["profile"]>["ai_tone"]; label: string; sub: string }> = [
-  { key: "professional", label: "Professional", sub: "Clear, concise, practical" },
-  { key: "coach", label: "Coach", sub: "Supportive and structured" },
-  { key: "playful", label: "Playful", sub: "Light and friendly" },
-  { key: "motivational", label: "Motivational", sub: "Energetic and momentum-first" },
-  { key: "tough_love", label: "Tough love", sub: "Direct accountability" },
-  { key: "philosophical", label: "Philosophical", sub: "Reflective and thoughtful" },
-  { key: "custom", label: "Custom", sub: "Define your own voice" },
-];
-
 export default function Settings() {
   const { profile, update } = useProfile();
   const { signOut, user } = useAuth();
