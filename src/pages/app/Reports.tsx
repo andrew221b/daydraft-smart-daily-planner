@@ -63,11 +63,21 @@ export default function Reports() {
     enabled: !!user?.id,
     staleTime: 60_000,
     queryFn: async () => {
-      const { data } = await supabase
+      const { data, error } = await supabase
         .from("time_categories")
         .select("id,name,color,hourly_rate")
         .eq("user_id", user!.id);
-      return data ?? [];
+      if (!error) return data ?? [];
+
+      // Some deployments may not have the billing migration applied yet.
+      // Falling back keeps history/category names readable instead of showing
+      // every session as Uncategorized.
+      const { data: fallback, error: fallbackError } = await supabase
+        .from("time_categories")
+        .select("id,name,color")
+        .eq("user_id", user!.id);
+      if (fallbackError) throw fallbackError;
+      return (fallback ?? []).map((c: any) => ({ ...c, hourly_rate: null }));
     },
   });
 
@@ -92,11 +102,12 @@ export default function Reports() {
     enabled: !!user?.id && isPro,
     staleTime: 60_000,
     queryFn: async () => {
-      const { data } = await supabase
+      const { data, error } = await supabase
         .from("billing_payment_details")
         .select("display_name,bank_name,iban,crypto_network,crypto_wallet,payment_link,notes")
         .eq("user_id", user!.id)
         .maybeSingle();
+      if (error) return null;
       if (!data) return null;
       return {
         displayName: data.display_name,
@@ -370,53 +381,53 @@ export default function Reports() {
               </div>
               <ul className="space-y-2">
                 {byCategory.map((c) => (
-                  <li key={c.id} className="flex items-center gap-3">
-                    <input
-                      type="checkbox"
-                      checked={selectedCategoryIds.has(c.id)}
-                      onChange={() => toggleCategorySelected(c.id)}
-                      className="h-4 w-4 rounded border-border accent-primary"
-                      aria-label={`Select ${c.name} for export`}
-                    />
-                    <span
-                      className="h-2 w-2 rounded-full shrink-0"
-                      style={{ background: c.color }}
-                    />
-                    <span className="text-[13px] font-medium text-foreground/90 flex-1 truncate">
-                      {c.name}
-                    </span>
-                    <span className="text-[12px] tabular-nums text-secondary-fg/85">
-                      {fmtHM(c.sec)}
-                    </span>
-                    <span className="text-[11px] tabular-nums text-secondary-fg/65 w-10 text-right">
-                      {(c.pct * 100).toFixed(0)}%
-                    </span>
-                    {c.hourlyRate ? (
-                      <span className="hidden sm:inline text-[11px] tabular-nums text-secondary-fg/70 w-16 text-right">
-                        {fmtMoney(c.hourlyRate)}/h
-                      </span>
-                    ) : null}
-                    {c.earnings > 0 && (
-                      <span className="text-[11px] tabular-nums text-primary w-16 text-right">
-                        {fmtMoney(c.earnings)}
-                      </span>
-                    )}
-                    <button
-                      type="button"
-                      onClick={() => onExport("pdf", [c.id], c.name)}
-                      className="rounded-lg border border-border/40 px-2 py-1 text-[10px] font-semibold text-secondary-fg/80 pressable hover:text-foreground"
-                      aria-label={`Download PDF report for ${c.name}`}
-                    >
-                      PDF
-                    </button>
-                    <button
-                      type="button"
-                      onClick={() => onExport("csv", [c.id], c.name)}
-                      className="rounded-lg border border-border/40 px-2 py-1 text-[10px] font-semibold text-secondary-fg/80 pressable hover:text-foreground"
-                      aria-label={`Download CSV report for ${c.name}`}
-                    >
-                      CSV
-                    </button>
+                  <li key={c.id} className="rounded-2xl border border-border/35 bg-background/30 px-3 py-3">
+                    <div className="flex items-start gap-3">
+                      <input
+                        type="checkbox"
+                        checked={selectedCategoryIds.has(c.id)}
+                        onChange={() => toggleCategorySelected(c.id)}
+                        className="mt-0.5 h-4 w-4 rounded border-border accent-primary"
+                        aria-label={`Select ${c.name} for export`}
+                      />
+                      <span
+                        className="mt-1.5 h-2.5 w-2.5 rounded-full shrink-0"
+                        style={{ background: c.color }}
+                      />
+                      <div className="min-w-0 flex-1">
+                        <div className="flex items-baseline justify-between gap-3">
+                          <span className="text-[13px] font-semibold text-foreground/95 truncate">
+                            {c.name}
+                          </span>
+                          <span className="text-[12px] tabular-nums text-secondary-fg/85 shrink-0">
+                            {fmtHM(c.sec)}
+                          </span>
+                        </div>
+                        <div className="mt-1 flex flex-wrap items-center gap-x-3 gap-y-1 text-[11px] tabular-nums text-secondary-fg/70">
+                          <span>{(c.pct * 100).toFixed(0)}% of period</span>
+                          {c.hourlyRate ? <span>{fmtMoney(c.hourlyRate)}/h</span> : <span>No rate</span>}
+                          {c.earnings > 0 && <span className="font-semibold text-primary">{fmtMoney(c.earnings)} earned</span>}
+                        </div>
+                      </div>
+                    </div>
+                    <div className="mt-3 grid grid-cols-2 gap-2 pl-9">
+                      <button
+                        type="button"
+                        onClick={() => onExport("pdf", [c.id], c.name)}
+                        className="h-8 rounded-xl border border-border/40 text-[11px] font-semibold text-secondary-fg/85 pressable hover:text-foreground"
+                        aria-label={`Download PDF report for ${c.name}`}
+                      >
+                        PDF
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => onExport("csv", [c.id], c.name)}
+                        className="h-8 rounded-xl border border-border/40 text-[11px] font-semibold text-secondary-fg/85 pressable hover:text-foreground"
+                        aria-label={`Download CSV report for ${c.name}`}
+                      >
+                        CSV
+                      </button>
+                    </div>
                   </li>
                 ))}
               </ul>

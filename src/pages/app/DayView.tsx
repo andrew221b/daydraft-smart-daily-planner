@@ -8,7 +8,7 @@ import {
   Block, fmtTime, todayDateStr, parseDateStr, friendlyDateFor, isFutureDateStr, isUserTask, isOpenUserTask, isUserTaskDone, inferScheduleBlockType, packLinearSchedule,
   blockSlotEndHHMM,
 } from "@/lib/daydraft";
-import { ChevronLeft, Play, Plus, Coffee, CalendarDays, Trash2, Bell, BellOff, MoreHorizontal, Clock, MapPin, Copy, Sparkles } from "lucide-react";
+import { ChevronLeft, Play, Plus, Coffee, CalendarDays, Trash2, Bell, BellOff, MoreHorizontal, Clock, MapPin, Copy, Sparkles, ListPlus } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { DndContext, closestCenter, PointerSensor, TouchSensor, useSensor, useSensors, DragEndEvent, DragStartEvent } from "@dnd-kit/core";
 import { SortableContext, arrayMove, verticalListSortingStrategy } from "@dnd-kit/sortable";
@@ -44,6 +44,8 @@ import { useEntitlement } from "@/hooks/useEntitlement";
 import { UpgradeSheet } from "@/components/app/UpgradeSheet";
 import { setDndBodyScrollLock } from "@/lib/dndScrollLock";
 import { AskAiSheet } from "@/components/app/AskAiSheet";
+import { ClarifySheet, type ClarifiedTask } from "@/components/app/ClarifySheet";
+import { Textarea } from "@/components/ui/textarea";
 
 type ExBlock = Block & {
   ai_reasoning?: string | null;
@@ -76,6 +78,9 @@ export default function DayView() {
   const [replanning, setReplanning] = useState(false);
   const dayScrollRef = useRef<HTMLDivElement>(null);
   const [addOpen, setAddOpen] = useState(false);
+  const [bulkOpen, setBulkOpen] = useState(false);
+  const [clarifyOpen, setClarifyOpen] = useState(false);
+  const [bulkInput, setBulkInput] = useState("");
   const [newTitle, setNewTitle] = useState("");
   const [newKind, setNewKind] = useState<"task" | "break">("task");
   const [newDuration, setNewDuration] = useState(30);
@@ -200,7 +205,10 @@ export default function DayView() {
     blockOpLocksRef.current.add(`remove:${id}`);
     const snapshot = blocks;
     const removed = snapshot.find(b => b.id === id);
-    if (!removed) return;
+    if (!removed) {
+      blockOpLocksRef.current.delete(`remove:${id}`);
+      return;
+    }
     const next = packLinearSchedule(blocks.filter(x => x.id !== id));
     setBlocks(next);
     haptics.impact("light");
@@ -423,6 +431,91 @@ export default function DayView() {
     } catch (e: any) {
       setBlocks(snapshot);
       toast.error(e?.message || "Unable to add block");
+    } finally {
+      setPlanMutating(false);
+    }
+  };
+
+  const ensurePlanId = async () => {
+    if (!user) return null;
+    if (plan?.id) return plan.id;
+    const { data: created, error } = await supabase
+      .from("plans")
+      .insert({ user_id: user.id, date: viewDate, raw_input: bulkInput || "" } as any)
+      .select("id")
+      .single();
+    if (error || !created?.id) {
+      toast.error(error?.message || "Couldn't create plan");
+      return null;
+    }
+    return created.id as string;
+  };
+
+  const addClarifiedTasks = async (tasks: ClarifiedTask[]) => {
+    if (planMutating || !user) return;
+    const clean = tasks.filter((t) => t.title.trim());
+    if (!clean.length) {
+      toast.error("No tasks to add");
+      return;
+    }
+    setPlanMutating(true);
+    const snapshot = blocks;
+    try {
+      const planId = await ensurePlanId();
+      if (!planId) return;
+      const startPos = blocks.length;
+      const draftBlocks: ExBlock[] = clean.map((task, i) => {
+        const id = crypto.randomUUID();
+        const duration = Math.max(5, task.estimate_min || 30);
+        return {
+          id,
+          plan_id: planId,
+          user_id: user.id,
+          start_time: task.fixed_time || "09:00",
+          duration_min: duration,
+          estimated_minutes: duration,
+          actual_minutes: null,
+          title: task.title.trim(),
+          type: "deep_work",
+          kind: "task",
+          block_type: inferScheduleBlockType({ kind: "task", title: task.title }),
+          completed: false,
+          position: startPos + i,
+          ai_reasoning: task.notes ?? null,
+        };
+      });
+      const packed = packLinearSchedule([...blocks, ...draftBlocks]);
+      setBlocks(packed);
+      setBulkOpen(false);
+      setClarifyOpen(false);
+      setBulkInput("");
+      const toInsert = packed
+        .filter((b) => draftBlocks.some((d) => d.id === b.id))
+        .map((b) => ({
+          id: b.id,
+          plan_id: planId,
+          user_id: user.id,
+          start_time: b.start_time,
+          duration_min: b.duration_min,
+          title: b.title,
+          type: b.type,
+          kind: b.kind,
+          estimated_minutes: b.estimated_minutes ?? b.duration_min,
+          actual_minutes: null,
+          block_type: inferScheduleBlockType(b),
+          position: b.position,
+          slot_end_time: blockSlotEndHHMM(b),
+          ai_reasoning: b.ai_reasoning ?? null,
+        }));
+      const { error } = await supabase.from("blocks").insert(toInsert as any);
+      if (error) throw error;
+      await persistOrder(packed);
+      await invalidatePlanCaches();
+      await refetch();
+      toast.success(`Added ${clean.length} task${clean.length === 1 ? "" : "s"}`);
+    } catch (e: any) {
+      setBlocks(snapshot);
+      toast.error(e?.message || "Unable to add tasks");
     } finally {
       setPlanMutating(false);
     }
@@ -684,14 +777,23 @@ export default function DayView() {
               {isToday ? "Empty day" : friendlyDateFor(parseDateStr(viewDate))}
             </div>
             <p className="text-[12px] text-secondary-fg/80 mt-2 leading-relaxed">
-              Add tasks and breaks one by one. You're in charge.
+              Add tasks one by one, or paste a whole task dump and review it as a list.
             </p>
-            <Button
-              onClick={() => setAddOpen(true)}
-              className="mt-6 h-11 px-5 rounded-2xl bg-primary hover:bg-primary/92 text-primary-foreground text-[13px] font-medium pressable"
-            >
-              <Plus className="h-4 w-4 mr-1" /> Add first task
-            </Button>
+            <div className="mt-6 grid grid-cols-2 gap-2">
+              <Button
+                onClick={() => setAddOpen(true)}
+                className="h-11 rounded-2xl bg-primary hover:bg-primary/92 text-primary-foreground text-[13px] font-medium pressable"
+              >
+                <Plus className="h-4 w-4 mr-1" /> One task
+              </Button>
+              <Button
+                variant="outline"
+                onClick={() => setBulkOpen(true)}
+                className="h-11 rounded-2xl border-border/50 text-[13px] font-medium pressable"
+              >
+                <ListPlus className="h-4 w-4 mr-1" /> Paste tasks
+              </Button>
+            </div>
             <button
               type="button"
               onClick={() => { setAskAiContext(null); setAskAiOpen(true); }}
@@ -743,13 +845,22 @@ export default function DayView() {
 
             {/* Inline add — single soft button, no sheet trigger needed */}
             {!isFuture && (
-              <button
-                onClick={() => setAddOpen(true)}
-                disabled={planMutating}
-                className="mt-4 w-full inline-flex items-center justify-center gap-1.5 text-[12px] font-medium text-foreground/75 border border-border/40 rounded-2xl h-11 bg-transparent hover:bg-muted/35 pressable transition-colors"
-              >
-                <Plus className="h-3.5 w-3.5 opacity-70" /> Add task
-              </button>
+              <div className="mt-4 grid grid-cols-2 gap-2">
+                <button
+                  onClick={() => setAddOpen(true)}
+                  disabled={planMutating}
+                  className="inline-flex items-center justify-center gap-1.5 text-[12px] font-medium text-foreground/75 border border-border/40 rounded-2xl h-11 bg-transparent hover:bg-muted/35 pressable transition-colors disabled:opacity-50"
+                >
+                  <Plus className="h-3.5 w-3.5 opacity-70" /> Add task
+                </button>
+                <button
+                  onClick={() => setBulkOpen(true)}
+                  disabled={planMutating}
+                  className="inline-flex items-center justify-center gap-1.5 text-[12px] font-medium text-foreground/75 border border-border/40 rounded-2xl h-11 bg-transparent hover:bg-muted/35 pressable transition-colors disabled:opacity-50"
+                >
+                  <ListPlus className="h-3.5 w-3.5 opacity-70" /> Paste list
+                </button>
+              </div>
             )}
 
           </>
@@ -929,6 +1040,49 @@ export default function DayView() {
           </div>
         </SheetContent>
       </Sheet>
+
+      <Sheet open={bulkOpen} onOpenChange={setBulkOpen}>
+        <SheetContent side="bottom" className="rounded-t-[28px] border-border/45 bg-popover">
+          <SheetHeader className="text-left">
+            <SheetTitle className="flex items-center gap-2 text-[16px]">
+              <ListPlus className="h-4 w-4 text-primary" /> Paste task list
+            </SheetTitle>
+          </SheetHeader>
+          <div className="mt-4 space-y-3">
+            <p className="text-[12px] leading-relaxed text-secondary-fg">
+              Write one task per line, or paste a messy list. You'll review the parsed tasks before they become blocks.
+            </p>
+            <Textarea
+              autoFocus
+              value={bulkInput}
+              onChange={(e) => setBulkInput(e.target.value)}
+              placeholder={"Nike review 45m\nEmail client 20m\nPrepare invoice at 16:00"}
+              className="min-h-[150px] rounded-2xl border-soft bg-card text-[14px]"
+            />
+            <Button
+              onClick={() => {
+                if (!bulkInput.trim()) {
+                  toast.error("Paste at least one task");
+                  return;
+                }
+                setClarifyOpen(true);
+              }}
+              disabled={planMutating}
+              className="w-full h-11 rounded-2xl bg-primary hover:bg-primary/92 text-primary-foreground font-medium pressable"
+            >
+              Review list
+            </Button>
+          </div>
+        </SheetContent>
+      </Sheet>
+
+      <ClarifySheet
+        open={clarifyOpen}
+        onOpenChange={setClarifyOpen}
+        rawInput={bulkInput}
+        planDate={viewDate}
+        onConfirm={(tasks) => void addClarifiedTasks(tasks)}
+      />
 
       <AlertDialog open={confirmDeletePlan} onOpenChange={setConfirmDeletePlan}>
         <AlertDialogContent>
