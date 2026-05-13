@@ -812,13 +812,17 @@ export default function DayView() {
                   <span className="flex-1">{tappedBlock.location}</span>
                 </a>
               )}
-              {!calmMode && tappedBlock.ai_reasoning && (
-                <div className="px-3 py-3 rounded-lg surface-soft text-[13px] text-secondary-fg leading-relaxed">
-                  <div className="flex items-center gap-1.5 mb-1 text-foreground text-[12px] font-medium">
-                    <Info className="h-3.5 w-3.5 text-primary" /> Why
-                  </div>
-                  {tappedBlock.ai_reasoning}
-                </div>
+              {!calmMode && (
+                <ActionRow
+                  onClick={() => {
+                    const blk = tappedBlock;
+                    setTappedBlock(null);
+                    setAskAiContext(`Help me think about this task: "${blk!.title}" (${blk!.duration_min} min). Suggest a realistic estimate, breakdown into steps, or a smarter time of day. Don't propose a full plan — just ideas I can apply.`);
+                    setAskAiOpen(true);
+                  }}
+                  icon={<Sparkles className="h-4 w-4" />}
+                  label="Ask AI about this"
+                />
               )}
               {!tappedBlock.is_calendar_event && (
                 <ActionRow
@@ -839,13 +843,6 @@ export default function DayView() {
           <SheetHeader className="text-left mb-3">
             <SheetTitle className="text-[16px]">Plan options</SheetTitle>
           </SheetHeader>
-          {!isFuture && firstUnfinishedTask && (
-            <ActionRow
-              onClick={replanRest}
-              icon={<RefreshCw className={`h-4 w-4 ${replanning ? "animate-spin" : ""}`} />}
-              label={replanning ? "Re-planning…" : "Re-plan rest of day"}
-            />
-          )}
           {!isFuture && (
             <ActionRow
               onClick={rollOverUnfinishedToTomorrow}
