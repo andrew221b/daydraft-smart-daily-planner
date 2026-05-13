@@ -27,6 +27,7 @@ export const Shell = ({
       void import("@/pages/app/DayView");
       void import("@/pages/app/Focus");
       void import("@/pages/app/Home");
+      void import("@/pages/app/Tracker");
       void import("@/pages/app/Reports");
       void import("@/pages/app/Settings");
     };

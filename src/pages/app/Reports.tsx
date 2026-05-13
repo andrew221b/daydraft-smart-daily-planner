@@ -4,10 +4,12 @@ import { Shell } from "@/components/app/Shell";
 import { useAuth } from "@/hooks/useAuth";
 import { supabase } from "@/integrations/supabase/client";
 import { Button } from "@/components/ui/button";
-import { BarChart3, Download, FileText } from "lucide-react";
+import { BarChart3, ChevronDown, Download, FileText } from "lucide-react";
 import { Area, AreaChart, ResponsiveContainer, Tooltip, XAxis } from "recharts";
-import { downloadReportCsv, downloadReportPdf, type ReportPayload } from "@/lib/reportExport";
+import { downloadReportCsv, downloadReportPdf, type ReportPaymentDetails, type ReportPayload } from "@/lib/reportExport";
 import { toast } from "sonner";
+import { useEntitlement } from "@/hooks/useEntitlement";
+import { UpgradeSheet } from "@/components/app/UpgradeSheet";
 
 type Period = "day" | "week" | "month";
 
@@ -40,10 +42,20 @@ const fmtHM = (sec: number) => {
   if (!h) return `${mm}m`;
   return mm ? `${h}h ${mm}m` : `${h}h`;
 };
+const fmtMoney = (amount: number) =>
+  new Intl.NumberFormat(undefined, {
+    style: "currency",
+    currency: "USD",
+    maximumFractionDigits: Math.abs(amount) >= 100 ? 0 : 2,
+  }).format(amount);
 
 export default function Reports() {
   const { user } = useAuth();
+  const { isPro } = useEntitlement();
   const [period, setPeriod] = useState<Period>("week");
+  const [selectedCategoryIds, setSelectedCategoryIds] = useState<Set<string>>(() => new Set());
+  const [expandedCategoryIds, setExpandedCategoryIds] = useState<Set<string>>(() => new Set());
+  const [upgradeOpen, setUpgradeOpen] = useState(false);
   const range = useMemo(() => periodRange(period), [period]);
 
   const { data: cats = [] } = useQuery({
@@ -53,7 +65,7 @@ export default function Reports() {
     queryFn: async () => {
       const { data } = await supabase
         .from("time_categories")
-        .select("id,name,color")
+        .select("id,name,color,hourly_rate")
         .eq("user_id", user!.id);
       return data ?? [];
     },
@@ -75,12 +87,37 @@ export default function Reports() {
     },
   });
 
+  const { data: paymentDetails = null } = useQuery({
+    queryKey: ["billing-payment-details", user?.id],
+    enabled: !!user?.id && isPro,
+    staleTime: 60_000,
+    queryFn: async () => {
+      const { data } = await supabase
+        .from("billing_payment_details")
+        .select("display_name,bank_name,iban,crypto_network,crypto_wallet,payment_link,notes")
+        .eq("user_id", user!.id)
+        .maybeSingle();
+      if (!data) return null;
+      return {
+        displayName: data.display_name,
+        bankName: data.bank_name,
+        iban: data.iban,
+        cryptoNetwork: data.crypto_network,
+        cryptoWallet: data.crypto_wallet,
+        paymentLink: data.payment_link,
+        notes: data.notes,
+      } satisfies ReportPaymentDetails;
+    },
+  });
+
   const catMap = useMemo(() => new Map(cats.map((c: any) => [c.id, c])), [cats]);
 
-  const { totalSec, byCategory, perDay } = useMemo(() => {
+  const { totalSec, totalEarnings, byCategory, perDay } = useMemo(() => {
     const now = Date.now();
     let total = 0;
+    let earnedTotal = 0;
     const cMap = new Map<string, number>();
+    const eMap = new Map<string, number>();
     const dMap = new Map<string, number>();
     for (const e of entries as any[]) {
       const s = new Date(e.started_at).getTime();
@@ -89,7 +126,11 @@ export default function Reports() {
       if (sec <= 0) continue;
       total += sec;
       const cid = e.category_id || "uncategorized";
+      const cat: any = catMap.get(e.category_id);
+      const earned = ((cat?.hourly_rate || 0) * sec) / 3600;
+      earnedTotal += earned;
       cMap.set(cid, (cMap.get(cid) || 0) + sec);
+      eMap.set(cid, (eMap.get(cid) || 0) + earned);
       const d = new Date(s);
       const key = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
       dMap.set(key, (dMap.get(key) || 0) + sec);
@@ -101,7 +142,9 @@ export default function Reports() {
           id,
           name: c?.name || "Uncategorized",
           color: c?.color || "hsl(var(--muted-foreground))",
+          hourlyRate: c?.hourly_rate ?? null,
           sec,
+          earnings: eMap.get(id) || 0,
           pct: total > 0 ? sec / total : 0,
         };
       })
@@ -112,41 +155,131 @@ export default function Reports() {
         day: k.slice(5),
         hours: Number((sec / 3600).toFixed(2)),
       }));
-    return { totalSec: total, byCategory, perDay };
+    return { totalSec: total, totalEarnings: earnedTotal, byCategory, perDay };
   }, [entries, catMap]);
 
-  const buildPayload = (): ReportPayload => ({
-    periodLabel: range.periodLabel,
-    rangeLabel: range.label,
-    totalSeconds: totalSec,
-    categories: byCategory.map((c) => ({
-      name: c.name,
-      color: c.color,
-      seconds: c.sec,
-      pct: c.pct,
-    })),
-    entries: (entries as any[]).map((e) => {
+  const categoryGroups = useMemo(() => {
+    const now = Date.now();
+    const groups = new Map<string, {
+      id: string;
+      name: string;
+      color: string;
+      hourlyRate: number | null;
+      sec: number;
+      earnings: number;
+      entries: any[];
+    }>();
+
+    for (const e of entries as any[]) {
       const s = new Date(e.started_at);
       const en = e.ended_at ? new Date(e.ended_at) : new Date();
+      const sec = Math.max(0, ((e.ended_at ? en.getTime() : now) - s.getTime()) / 1000);
+      if (sec <= 0) continue;
+      const id = e.category_id || "uncategorized";
       const cat: any = catMap.get(e.category_id);
-      return {
-        date: s.toLocaleDateString(),
-        startedAt: s.toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" }),
-        endedAt: en.toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" }),
-        category: cat?.name || "Uncategorized",
-        durationMin: Math.max(0, Math.round((en.getTime() - s.getTime()) / 60000)),
-        note: e.note ?? null,
+      const rate = cat?.hourly_rate ?? null;
+      const earned = ((rate || 0) * sec) / 3600;
+      const group = groups.get(id) || {
+        id,
+        name: cat?.name || "Uncategorized",
+        color: cat?.color || "hsl(var(--muted-foreground))",
+        hourlyRate: rate,
+        sec: 0,
+        earnings: 0,
+        entries: [],
       };
-    }),
-  });
+      group.sec += sec;
+      group.earnings += earned;
+      group.entries.push(e);
+      groups.set(id, group);
+    }
 
-  const onExport = (kind: "pdf" | "csv") => {
-    if (!entries.length) {
+    return Array.from(groups.values()).sort((a, b) => b.sec - a.sec);
+  }, [entries, catMap]);
+
+  const activeCategoryIds = useMemo(() => byCategory.map((c) => c.id), [byCategory]);
+  const selectedActiveIds = useMemo(
+    () => activeCategoryIds.filter((id) => selectedCategoryIds.has(id)),
+    [activeCategoryIds, selectedCategoryIds],
+  );
+
+  const toggleCategorySelected = (id: string) => {
+    setSelectedCategoryIds((prev) => {
+      const next = new Set(prev);
+      if (next.has(id)) next.delete(id);
+      else next.add(id);
+      return next;
+    });
+  };
+
+  const toggleCategoryExpanded = (id: string) => {
+    setExpandedCategoryIds((prev) => {
+      const next = new Set(prev);
+      if (next.has(id)) next.delete(id);
+      else next.add(id);
+      return next;
+    });
+  };
+
+  const selectAllCategories = () => setSelectedCategoryIds(new Set(activeCategoryIds));
+  const clearSelectedCategories = () => setSelectedCategoryIds(new Set());
+
+  const buildPayload = (categoryIds?: string[], scopeLabel = "All categories"): ReportPayload => {
+    const idSet = categoryIds?.length ? new Set(categoryIds) : null;
+    const filteredEntries = (entries as any[]).filter((e) => {
+      if (!idSet) return true;
+      return idSet.has(e.category_id || "uncategorized");
+    });
+    const filteredCategories = idSet ? byCategory.filter((c) => idSet.has(c.id)) : byCategory;
+    const filteredTotal = filteredCategories.reduce((sum, c) => sum + c.sec, 0);
+    const filteredEarnings = filteredCategories.reduce((sum, c) => sum + c.earnings, 0);
+
+    return {
+      periodLabel: range.periodLabel,
+      rangeLabel: range.label,
+      scopeLabel,
+      totalSeconds: filteredTotal,
+      totalEarnings: filteredEarnings,
+      paymentDetails: isPro ? paymentDetails : null,
+      categories: filteredCategories.map((c) => ({
+        name: c.name,
+        color: c.color,
+        seconds: c.sec,
+        hourlyRate: c.hourlyRate,
+        earnings: c.earnings,
+        pct: filteredTotal > 0 ? c.sec / filteredTotal : 0,
+      })),
+      entries: filteredEntries.map((e) => {
+        const s = new Date(e.started_at);
+        const en = e.ended_at ? new Date(e.ended_at) : new Date();
+        const cat: any = catMap.get(e.category_id);
+        const durationMin = Math.max(0, Math.round((en.getTime() - s.getTime()) / 60000));
+        const hourlyRate = cat?.hourly_rate ?? null;
+        return {
+          date: s.toLocaleDateString(),
+          startedAt: s.toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" }),
+          endedAt: en.toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" }),
+          category: cat?.name || "Uncategorized",
+          durationMin,
+          hourlyRate,
+          earnings: ((hourlyRate || 0) * durationMin) / 60,
+          note: e.note ?? null,
+        };
+      }),
+    };
+  };
+
+  const onExport = (kind: "pdf" | "csv", categoryIds?: string[], scopeLabel?: string) => {
+    if (!isPro) {
+      setUpgradeOpen(true);
+      return;
+    }
+    const payload = buildPayload(categoryIds, scopeLabel || "All categories");
+    if (!payload.entries.length) {
       toast("Nothing to export for this period");
       return;
     }
     try {
-      const payload = buildPayload();
       if (kind === "pdf") downloadReportPdf(payload);
       else downloadReportCsv(payload);
     } catch (e: any) {
@@ -190,18 +323,41 @@ export default function Reports() {
             <p className="text-[11px] font-semibold uppercase tracking-[0.16em] text-secondary-fg/70">
               Total tracked
             </p>
-            <p className="mt-1.5 font-display text-[40px] font-semibold tabular-nums leading-none">
-              {fmtHM(totalSec)}
-            </p>
+            <div className="mt-1.5 flex items-end justify-between gap-3">
+              <p className="font-display text-[40px] font-semibold tabular-nums leading-none">
+                {fmtHM(totalSec)}
+              </p>
+              {totalEarnings > 0 && (
+                <div className="text-right">
+                  <p className="text-[10px] font-semibold uppercase tracking-[0.16em] text-secondary-fg/70">Estimated pay</p>
+                  <p className="font-display text-[22px] font-semibold tabular-nums text-primary">{fmtMoney(totalEarnings)}</p>
+                </div>
+              )}
+            </div>
             <p className="mt-2 text-[12px] text-secondary-fg/80">{range.label}</p>
           </section>
 
           {/* Category breakdown */}
           {byCategory.length > 0 ? (
             <section className="rounded-2xl border border-border/40 bg-card/30 p-4">
-              <p className="text-[11px] font-semibold uppercase tracking-[0.16em] text-secondary-fg/70 mb-3">
-                By category
-              </p>
+              <div className="mb-3 flex items-start justify-between gap-3">
+                <div>
+                  <p className="text-[11px] font-semibold uppercase tracking-[0.16em] text-secondary-fg/70">
+                    By category
+                  </p>
+                  <p className="mt-1 text-[11px] text-secondary-fg/70">
+                    Select categories to export only that slice of tracker history.
+                  </p>
+                </div>
+                <div className="flex shrink-0 items-center gap-2 text-[11px] font-semibold">
+                  <button type="button" onClick={selectAllCategories} className="text-primary pressable">
+                    All
+                  </button>
+                  <button type="button" onClick={clearSelectedCategories} className="text-secondary-fg/80 pressable">
+                    Clear
+                  </button>
+                </div>
+              </div>
               {/* Stacked bar */}
               <div className="h-2 w-full rounded-full overflow-hidden flex bg-muted/40 mb-3">
                 {byCategory.map((c) => (
@@ -215,6 +371,13 @@ export default function Reports() {
               <ul className="space-y-2">
                 {byCategory.map((c) => (
                   <li key={c.id} className="flex items-center gap-3">
+                    <input
+                      type="checkbox"
+                      checked={selectedCategoryIds.has(c.id)}
+                      onChange={() => toggleCategorySelected(c.id)}
+                      className="h-4 w-4 rounded border-border accent-primary"
+                      aria-label={`Select ${c.name} for export`}
+                    />
                     <span
                       className="h-2 w-2 rounded-full shrink-0"
                       style={{ background: c.color }}
@@ -228,6 +391,32 @@ export default function Reports() {
                     <span className="text-[11px] tabular-nums text-secondary-fg/65 w-10 text-right">
                       {(c.pct * 100).toFixed(0)}%
                     </span>
+                    {c.hourlyRate ? (
+                      <span className="hidden sm:inline text-[11px] tabular-nums text-secondary-fg/70 w-16 text-right">
+                        {fmtMoney(c.hourlyRate)}/h
+                      </span>
+                    ) : null}
+                    {c.earnings > 0 && (
+                      <span className="text-[11px] tabular-nums text-primary w-16 text-right">
+                        {fmtMoney(c.earnings)}
+                      </span>
+                    )}
+                    <button
+                      type="button"
+                      onClick={() => onExport("pdf", [c.id], c.name)}
+                      className="rounded-lg border border-border/40 px-2 py-1 text-[10px] font-semibold text-secondary-fg/80 pressable hover:text-foreground"
+                      aria-label={`Download PDF report for ${c.name}`}
+                    >
+                      PDF
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => onExport("csv", [c.id], c.name)}
+                      className="rounded-lg border border-border/40 px-2 py-1 text-[10px] font-semibold text-secondary-fg/80 pressable hover:text-foreground"
+                      aria-label={`Download CSV report for ${c.name}`}
+                    >
+                      CSV
+                    </button>
                   </li>
                 ))}
               </ul>
@@ -285,62 +474,140 @@ export default function Reports() {
             </section>
           )}
 
-          {/* Recent entries */}
-          {entries.length > 0 && (
+          {/* Tracker history by category */}
+          {categoryGroups.length > 0 && (
             <section>
-              <p className="text-[11px] font-semibold uppercase tracking-[0.16em] text-secondary-fg/70 mb-2">
-                Recent sessions
-              </p>
-              <ul className="rounded-2xl border border-border/40 bg-card/20 divide-y divide-border/30 overflow-hidden">
-                {(entries as any[]).slice(0, 20).map((e) => {
-                  const s = new Date(e.started_at);
-                  const en = e.ended_at ? new Date(e.ended_at) : new Date();
-                  const sec = Math.max(0, (en.getTime() - s.getTime()) / 1000);
-                  const c: any = catMap.get(e.category_id);
+              <div className="mb-2 flex items-end justify-between gap-3">
+                <div>
+                  <p className="text-[11px] font-semibold uppercase tracking-[0.16em] text-secondary-fg/70">
+                    Tracker history
+                  </p>
+                  <p className="mt-1 text-[11px] text-secondary-fg/70">
+                    Collapsed by category so long reports stay readable.
+                  </p>
+                </div>
+                <button
+                  type="button"
+                  onClick={() => {
+                    if (expandedCategoryIds.size === categoryGroups.length) setExpandedCategoryIds(new Set());
+                    else setExpandedCategoryIds(new Set(categoryGroups.map((g) => g.id)));
+                  }}
+                  className="shrink-0 text-[11px] font-semibold text-primary pressable"
+                >
+                  {expandedCategoryIds.size === categoryGroups.length ? "Collapse all" : "Expand all"}
+                </button>
+              </div>
+              <div className="space-y-2">
+                {categoryGroups.map((group) => {
+                  const isOpen = expandedCategoryIds.has(group.id);
                   return (
-                    <li key={e.id} className="flex items-center gap-3 px-4 py-2.5">
-                      <span
-                        className="h-2 w-2 rounded-full shrink-0"
-                        style={{ background: c?.color || "hsl(var(--muted-foreground))" }}
-                      />
-                      <div className="min-w-0 flex-1">
-                        <p className="text-[13px] font-medium text-foreground/90 truncate">
-                          {c?.name || "Uncategorized"}
-                        </p>
-                        <p className="text-[11px] text-secondary-fg/70 tabular-nums">
-                          {s.toLocaleDateString(undefined, { month: "short", day: "numeric" })} ·{" "}
-                          {s.toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })}
-                        </p>
-                      </div>
-                      <span className="text-[12px] tabular-nums text-secondary-fg/85">
-                        {fmtHM(sec)}
-                      </span>
-                    </li>
+                    <div key={group.id} className="overflow-hidden rounded-2xl border border-border/40 bg-card/20">
+                      <button
+                        type="button"
+                        onClick={() => toggleCategoryExpanded(group.id)}
+                        className="flex w-full items-center gap-3 px-4 py-3 text-left pressable"
+                        aria-expanded={isOpen}
+                      >
+                        <span className="h-2.5 w-2.5 shrink-0 rounded-full" style={{ background: group.color }} />
+                        <span className="min-w-0 flex-1">
+                          <span className="block truncate text-[13px] font-semibold text-foreground/95">{group.name}</span>
+                          <span className="text-[11px] text-secondary-fg/70">
+                            {group.entries.length} session{group.entries.length === 1 ? "" : "s"}
+                            {group.hourlyRate ? ` · ${fmtMoney(group.hourlyRate)}/h` : ""}
+                          </span>
+                        </span>
+                        <span className="text-right">
+                          <span className="block font-mono text-[12px] tabular-nums text-secondary-fg/85">{fmtHM(group.sec)}</span>
+                          {group.earnings > 0 && <span className="block font-mono text-[10px] tabular-nums text-primary">{fmtMoney(group.earnings)}</span>}
+                        </span>
+                        <ChevronDown className={`h-4 w-4 shrink-0 text-secondary-fg transition-transform ${isOpen ? "rotate-180" : ""}`} />
+                      </button>
+                      {isOpen && (
+                        <ul className="divide-y divide-border/30 border-t border-border/30">
+                          {group.entries.map((e) => {
+                            const s = new Date(e.started_at);
+                            const en = e.ended_at ? new Date(e.ended_at) : new Date();
+                            const sec = Math.max(0, (en.getTime() - s.getTime()) / 1000);
+                            const earned = ((group.hourlyRate || 0) * sec) / 3600;
+                            return (
+                              <li key={e.id} className="flex items-center gap-3 px-4 py-2.5">
+                                <div className="min-w-0 flex-1">
+                                  <p className="text-[11px] text-secondary-fg/75 tabular-nums">
+                                    {s.toLocaleDateString(undefined, { month: "short", day: "numeric" })} ·{" "}
+                                    {s.toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })} -{" "}
+                                    {en.toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })}
+                                  </p>
+                                  {e.note && <p className="mt-0.5 truncate text-[12px] text-foreground/80">{e.note}</p>}
+                                </div>
+                                <span className="text-right">
+                                  <span className="block text-[12px] tabular-nums text-secondary-fg/85">{fmtHM(sec)}</span>
+                                  {earned > 0 && <span className="block text-[10px] tabular-nums text-primary">{fmtMoney(earned)}</span>}
+                                </span>
+                              </li>
+                            );
+                          })}
+                        </ul>
+                      )}
+                    </div>
                   );
                 })}
-              </ul>
+              </div>
             </section>
           )}
 
           {/* Export */}
-          <section className="grid grid-cols-2 gap-2 pt-2">
+          <section className="space-y-2 pt-2">
+            <div className="rounded-2xl border border-border/40 bg-card/25 px-4 py-3">
+              <div className="text-[11px] font-semibold uppercase tracking-[0.16em] text-secondary-fg/70">
+                Export scope
+              </div>
+              <div className="mt-1 text-[13px] text-foreground/90">
+                {selectedActiveIds.length > 0
+                  ? `${selectedActiveIds.length} selected categor${selectedActiveIds.length === 1 ? "y" : "ies"}`
+                  : "All categories"}
+              </div>
+              {!isPro && (
+                <p className="mt-1 text-[11px] text-secondary-fg/70">
+                  Exporting billing reports and payment details is included with Pro.
+                </p>
+              )}
+            </div>
+            <div className="grid grid-cols-2 gap-2">
             <Button
               variant="outline"
               onClick={() => onExport("pdf")}
               className="h-11 rounded-2xl border-border/50 text-[13px] font-medium"
             >
-              <FileText className="h-4 w-4 mr-1.5" /> PDF
+              <FileText className="h-4 w-4 mr-1.5" /> {isPro ? "All PDF" : "Pro PDF"}
             </Button>
             <Button
               variant="outline"
               onClick={() => onExport("csv")}
               className="h-11 rounded-2xl border-border/50 text-[13px] font-medium"
             >
-              <Download className="h-4 w-4 mr-1.5" /> CSV
+              <Download className="h-4 w-4 mr-1.5" /> {isPro ? "All CSV" : "Pro CSV"}
             </Button>
+            <Button
+              variant="outline"
+              disabled={selectedActiveIds.length === 0}
+              onClick={() => onExport("pdf", selectedActiveIds, `${selectedActiveIds.length} selected categories`)}
+              className="h-11 rounded-2xl border-border/50 text-[13px] font-medium disabled:opacity-40"
+            >
+              <FileText className="h-4 w-4 mr-1.5" /> Selected PDF
+            </Button>
+            <Button
+              variant="outline"
+              disabled={selectedActiveIds.length === 0}
+              onClick={() => onExport("csv", selectedActiveIds, `${selectedActiveIds.length} selected categories`)}
+              className="h-11 rounded-2xl border-border/50 text-[13px] font-medium disabled:opacity-40"
+            >
+              <Download className="h-4 w-4 mr-1.5" /> Selected CSV
+            </Button>
+            </div>
           </section>
         </div>
       </div>
+      <UpgradeSheet open={upgradeOpen} onOpenChange={setUpgradeOpen} reason="feature" />
     </Shell>
   );
 }

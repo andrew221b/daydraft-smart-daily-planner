@@ -43,6 +43,18 @@ const hhmmToMin = (hhmm: string) => {
   const [h, m] = String(hhmm || "").split(":").map(Number);
   return (Number.isFinite(h) ? h : 0) * 60 + (Number.isFinite(m) ? m : 0);
 };
+const fmtMoney = (amount: number) =>
+  new Intl.NumberFormat(undefined, {
+    style: "currency",
+    currency: "USD",
+    maximumFractionDigits: Math.abs(amount) >= 100 ? 0 : 2,
+  }).format(amount);
+const parseRateInput = (value: string) => {
+  const cleaned = value.replace(",", ".").trim();
+  if (!cleaned) return null;
+  const parsed = Number(cleaned);
+  return Number.isFinite(parsed) && parsed >= 0 ? parsed : null;
+};
 
 function clipDuration(e: Entry, dayStart: number, dayEnd: number, now: number) {
   const s = new Date(e.started_at).getTime();
@@ -60,13 +72,14 @@ function clipDuration(e: Entry, dayStart: number, dayEnd: number, now: number) {
  */
 function TrackerInner({ embedded = false, onClose }: { embedded?: boolean; onClose?: () => void }) {
   const { user } = useAuth();
-  const { active, categories, start, stop, switchCategory, deleteCategory, renameCategory, addCategory, addManualEntry, todayTotalSec } = useTimeTracker();
+  const { active, categories, start, stop, switchCategory, deleteCategory, renameCategory, updateCategoryRate, addCategory, addManualEntry, todayTotalSec } = useTimeTracker();
   const elapsedSec = useTimeTrackerElapsed();
   const { isPro } = useEntitlement();
   const [upgradeOpen, setUpgradeOpen] = useState(false);
   const [newName, setNewName] = useState("");
   const [editingCat, setEditingCat] = useState<string | null>(null);
   const [editingName, setEditingName] = useState("");
+  const [editingRate, setEditingRate] = useState("");
   const [tab, setTab] = useState<Tab>("today");
   const [entries, setEntries] = useState<Entry[]>([]);
   const [monthCursor, setMonthCursor] = useState(() => { const d = new Date(); d.setDate(1); d.setHours(0,0,0,0); return d; });
@@ -81,6 +94,8 @@ function TrackerInner({ embedded = false, onClose }: { embedded?: boolean; onClo
   const [todayPlanBlocks, setTodayPlanBlocks] = useState<Block[]>([]);
   const [stopBusy, setStopBusy] = useState(false);
   const [categoryBusyId, setCategoryBusyId] = useState<string | null>(null);
+  const addCategoryFormRef = useRef<HTMLFormElement | null>(null);
+  const addCategoryInputRef = useRef<HTMLInputElement | null>(null);
   const tabIndex = TABS.indexOf(tab);
 
   const activeCat = categories.find(c => c.id === active?.category_id);
@@ -168,7 +183,9 @@ function TrackerInner({ embedded = false, onClose }: { embedded?: boolean; onClo
   }, [entries, now]);
 
   const weekTotal = weekDays.reduce((a, d) => a + d.total, 0);
-  const weekMaxSec = Math.max(1, ...weekDays.map(d => d.total));
+  const weekPeakSec = Math.max(0, ...weekDays.map(d => d.total));
+  const weekMaxSec = Math.max(1, weekPeakSec);
+  const weekActiveDays = weekDays.filter((d) => d.total > 0).length;
   const weekRangeLabel = useMemo(() => {
     const a = weekDays[0]!.date;
     const b = weekDays[6]!.date;
@@ -203,7 +220,9 @@ function TrackerInner({ embedded = false, onClose }: { embedded?: boolean; onClo
   }, [entries, monthCursor, now]);
 
   const monthTotal = monthCells.reduce((a, c) => a + (c?.total || 0), 0);
-  const monthMaxSec = Math.max(1, ...monthCells.map(c => c?.total || 0));
+  const monthPeakSec = Math.max(0, ...monthCells.map(c => c?.total || 0));
+  const monthMaxSec = Math.max(1, monthPeakSec);
+  const monthActiveDays = monthCells.reduce((sum, c) => sum + ((c?.total || 0) > 0 ? 1 : 0), 0);
 
   // Selected day breakdown (used by week + month)
   const dayDetail = useMemo(() => {
@@ -248,20 +267,6 @@ function TrackerInner({ embedded = false, onClose }: { embedded?: boolean; onClo
       .filter((x) => x.cat)
       .sort((a, b) => b.sec - a.sec);
   }, [entries, catMap, now]);
-
-  const plannerVelocityHint = useMemo(() => {
-    const cutoff = now - 7 * DAY_MS;
-    const planner = entries.filter((e) => e.block_id && new Date(e.started_at).getTime() >= cutoff);
-    if (!planner.length) {
-      return "Sessions started from Focus on a plan task show a plan badge in the list below.";
-    }
-    let sec = 0;
-    planner.forEach((e) => {
-      sec += clipDuration(e, cutoff, now + DAY_MS, now);
-    });
-    const avg = sec / planner.length;
-    return `Planner (7d): ${planner.length} sessions · ~${fmtHM(avg)} avg per logged block`;
-  }, [entries, now]);
 
   // Period boundaries based on active tab (used for PDF + category drill-in)
   const period = useMemo(() => {
@@ -345,6 +350,14 @@ function TrackerInner({ embedded = false, onClose }: { embedded?: boolean; onClo
     } finally {
       setStopBusy(false);
     }
+  };
+
+  const focusAddCategory = () => {
+    setTab("today");
+    window.requestAnimationFrame(() => {
+      addCategoryFormRef.current?.scrollIntoView({ behavior: "smooth", block: "center" });
+      addCategoryInputRef.current?.focus();
+    });
   };
 
   // ----- PDF export -----
@@ -529,8 +542,43 @@ function TrackerInner({ embedded = false, onClose }: { embedded?: boolean; onClo
         {/* PLAN TAB — categories + start/stop + today summary */}
         {tab === "today" && (
           <>
-            <div className="px-5 pt-4 space-y-2">
-              <p className="text-[11px] leading-snug text-secondary-fg">{plannerVelocityHint}</p>
+            <div className="px-5 pt-4">
+              <div className="grid grid-cols-3 gap-2">
+                <button
+                  type="button"
+                  onClick={focusAddCategory}
+                  className="rounded-[14px] border border-soft surface-soft px-3 py-2.5 text-left pressable hover:border-primary/30"
+                >
+                  <span className="flex items-center gap-1.5 text-[11px] font-semibold text-foreground">
+                    <Plus className="h-3.5 w-3.5" />
+                    Category
+                  </span>
+                  <span className="mt-1 block text-[10px] text-secondary-fg">{categories.length} total</span>
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setTab("week")}
+                  className="rounded-[14px] border border-soft surface-soft px-3 py-2.5 text-left pressable hover:border-primary/30"
+                >
+                  <span className="flex items-center gap-1.5 text-[11px] font-semibold text-foreground">
+                    <Clock className="h-3.5 w-3.5" />
+                    Week
+                  </span>
+                  <span className="mt-1 block text-[10px] text-secondary-fg">{fmtHM(weekTotal)}</span>
+                </button>
+                <button
+                  type="button"
+                  onClick={exportPDF}
+                  disabled={exporting || headerTotalSec === 0}
+                  className="rounded-[14px] border border-soft surface-soft px-3 py-2.5 text-left pressable hover:border-primary/30 disabled:opacity-40 disabled:pointer-events-none"
+                >
+                  <span className="flex items-center gap-1.5 text-[11px] font-semibold text-foreground">
+                    {isPro ? <Download className="h-3.5 w-3.5" /> : <Lock className="h-3.5 w-3.5" />}
+                    Export
+                  </span>
+                  <span className="mt-1 block text-[10px] text-secondary-fg">{isPro ? headerLabel : "Pro PDF"}</span>
+                </button>
+              </div>
             </div>
             {/* Hero stopwatch — premium, centered */}
             <div className="px-5 pt-5">
@@ -630,6 +678,8 @@ function TrackerInner({ embedded = false, onClose }: { embedded?: boolean; onClo
                 const isOpen = selectedCat === c.id;
                 const stat = periodCatStats.get(c.id);
                 const periodSec = stat?.sec || 0;
+                const rate = Number(c.hourly_rate || 0);
+                const earned = rate > 0 ? (periodSec / 3600) * rate : 0;
                 return (
                   <SwipeRow key={c.id} disabled={c.is_default || isActive || editingCat === c.id} onDelete={() => setConfirmDeleteCat(c.id)}>
                   <div className={`rounded-[16px] border transition-all duration-300 shadow-card tracker-category-luxe ${isActive ? "border-accent surface-accent ring-2 ring-primary/12 ring-offset-2 ring-offset-background" : "border-soft surface-card"} overflow-hidden backdrop-blur-sm`}>
@@ -638,28 +688,43 @@ function TrackerInner({ embedded = false, onClose }: { embedded?: boolean; onClo
                         <form
                           onSubmit={async (e) => {
                             e.preventDefault();
-                            await renameCategory(c.id, editingName);
+                            const rateValue = parseRateInput(editingRate);
+                            if (editingName.trim() && editingName.trim() !== c.name) {
+                              await renameCategory(c.id, editingName);
+                            }
+                            if ((rateValue ?? null) !== (c.hourly_rate ?? null)) {
+                              await updateCategoryRate(c.id, rateValue);
+                            }
                             setEditingCat(null);
                           }}
-                          className="flex-1 flex items-center gap-2 min-w-0"
+                          className="flex-1 space-y-2 min-w-0"
                         >
-                          <span className="h-3 w-3 rounded-full shrink-0" style={{ background: c.color }} />
-                          <Input
-                            autoFocus
-                            value={editingName}
-                            onChange={(e) => setEditingName(e.target.value)}
-                            onBlur={async () => {
-                              if (editingName.trim() && editingName.trim() !== c.name) {
-                                await renameCategory(c.id, editingName);
-                              }
-                              setEditingCat(null);
-                            }}
-                            onKeyDown={(e) => { if (e.key === "Escape") setEditingCat(null); }}
-                            className="flex-1 h-8 bg-transparent border-0 px-0 text-[15px] font-medium focus-visible:ring-0 shadow-none"
-                          />
-                          <button type="submit" className="p-1.5 text-primary pressable" aria-label="Save">
-                            <Check className="h-4 w-4" />
-                          </button>
+                          <div className="flex items-center gap-2">
+                            <span className="h-3 w-3 rounded-full shrink-0" style={{ background: c.color }} />
+                            <Input
+                              autoFocus
+                              value={editingName}
+                              onChange={(e) => setEditingName(e.target.value)}
+                              onKeyDown={(e) => { if (e.key === "Escape") setEditingCat(null); }}
+                              className="flex-1 h-8 bg-transparent border-0 px-0 text-[15px] font-medium focus-visible:ring-0 shadow-none"
+                            />
+                          </div>
+                          <div className="flex items-center gap-2 rounded-xl border border-soft bg-background/35 px-2 py-1.5">
+                            <span className="text-[11px] font-semibold text-secondary-fg shrink-0">Rate / h</span>
+                            <Input
+                              inputMode="decimal"
+                              value={editingRate}
+                              onChange={(e) => setEditingRate(e.target.value)}
+                              placeholder="0"
+                              className="h-7 flex-1 bg-transparent border-0 px-0 text-right text-[13px] font-mono tabular-nums focus-visible:ring-0 shadow-none"
+                            />
+                            <button type="submit" className="p-1.5 text-primary pressable" aria-label="Save category">
+                              <Check className="h-4 w-4" />
+                            </button>
+                            <button type="button" onClick={() => setEditingCat(null)} className="p-1.5 text-secondary-fg pressable" aria-label="Cancel">
+                              <X className="h-4 w-4" />
+                            </button>
+                          </div>
                         </form>
                       ) : (
                         <LongPressButton
@@ -667,7 +732,7 @@ function TrackerInner({ embedded = false, onClose }: { embedded?: boolean; onClo
                             if (simpleMode) return;
                             setSelectedCat(isOpen ? null : c.id);
                           }}
-                          onLongPress={() => { setEditingName(c.name); setEditingCat(c.id); }}
+                          onLongPress={() => { setEditingName(c.name); setEditingRate(c.hourly_rate == null ? "" : String(c.hourly_rate)); setEditingCat(c.id); }}
                           className="flex-1 flex items-center gap-2 min-w-0 text-left pressable"
                           ariaLabel={`${c.name} details — long press to rename`}
                         >
@@ -680,8 +745,18 @@ function TrackerInner({ embedded = false, onClose }: { embedded?: boolean; onClo
                             )}
                             <span className="relative z-[1] block h-3 w-3 rounded-full ring-1 ring-background" style={{ background: c.color }} />
                           </span>
-                          <span className="flex-1 text-[15px] font-medium truncate">{c.name}</span>
-                          <span className="font-mono tabular-nums text-[11px] text-secondary-fg shrink-0">{fmtHM(periodSec)}</span>
+                          <span className="flex-1 min-w-0">
+                            <span className="block text-[15px] font-medium truncate">{c.name}</span>
+                            {rate > 0 && (
+                              <span className="block text-[10px] font-mono tabular-nums text-secondary-fg">
+                                {fmtMoney(rate)}/h
+                              </span>
+                            )}
+                          </span>
+                          <span className="shrink-0 text-right">
+                            <span className="block font-mono tabular-nums text-[11px] text-secondary-fg">{fmtHM(periodSec)}</span>
+                            {earned > 0 && <span className="block font-mono tabular-nums text-[10px] text-primary">{fmtMoney(earned)}</span>}
+                          </span>
                           {!simpleMode && <ChevronDown className={`h-3.5 w-3.5 text-secondary-fg shrink-0 transition-transform ${isOpen ? "rotate-180" : ""}`} />}
                         </LongPressButton>
                       )}
@@ -761,6 +836,7 @@ function TrackerInner({ embedded = false, onClose }: { embedded?: boolean; onClo
 
               {!simpleMode && (
               <form
+                ref={addCategoryFormRef}
                 onSubmit={async (e) => {
                   e.preventDefault();
                   if (!newName.trim()) return;
@@ -771,6 +847,7 @@ function TrackerInner({ embedded = false, onClose }: { embedded?: boolean; onClo
               >
                 <Plus className="h-4 w-4 text-secondary-fg shrink-0" />
                 <Input
+                  ref={addCategoryInputRef}
                   value={newName}
                   onChange={e => setNewName(e.target.value)}
                   placeholder="Add category (e.g. Client A)"
@@ -796,13 +873,28 @@ function TrackerInner({ embedded = false, onClose }: { embedded?: boolean; onClo
                   <h3 className="text-[15px] font-display font-semibold text-foreground leading-tight">Last 7 days</h3>
                   <p className="text-[12px] text-secondary-fg mt-1.5 leading-snug">{weekRangeLabel}</p>
                   <p className="text-[11px] text-faint mt-1.5 leading-snug">
-                    Seven full days ending today. Tallest bar = busiest day in this window.
+                    Each bar is one day of tracked time. The number above it is exact; height is relative to the busiest day.
                   </p>
                 </div>
                 <div className="text-right shrink-0 space-y-0.5">
                   <div className="text-[10px] font-semibold uppercase tracking-wide text-secondary-fg">Total</div>
                   <div className="font-display text-xl font-semibold tabular-nums leading-none">{fmtHM(weekTotal)}</div>
                   <div className="text-[10px] text-secondary-fg tabular-nums">~{fmtHM(weekAvgSec)} / day avg</div>
+                </div>
+              </div>
+
+              <div className="grid grid-cols-3 gap-2">
+                <div className="rounded-lg border border-soft/80 bg-background/35 px-2.5 py-2">
+                  <div className="text-[9px] font-semibold uppercase tracking-wide text-secondary-fg">Best day</div>
+                  <div className="mt-0.5 font-mono text-[12px] font-semibold tabular-nums text-foreground">{weekPeakSec > 0 ? fmtHM(weekPeakSec) : "0m"}</div>
+                </div>
+                <div className="rounded-lg border border-soft/80 bg-background/35 px-2.5 py-2">
+                  <div className="text-[9px] font-semibold uppercase tracking-wide text-secondary-fg">Active days</div>
+                  <div className="mt-0.5 font-mono text-[12px] font-semibold tabular-nums text-foreground">{weekActiveDays}/7</div>
+                </div>
+                <div className="rounded-lg border border-soft/80 bg-background/35 px-2.5 py-2">
+                  <div className="text-[9px] font-semibold uppercase tracking-wide text-secondary-fg">Scale</div>
+                  <div className="mt-0.5 font-mono text-[12px] font-semibold tabular-nums text-foreground">0 → {weekPeakSec > 0 ? fmtHM(weekPeakSec) : "0m"}</div>
                 </div>
               </div>
 
@@ -892,7 +984,7 @@ function TrackerInner({ embedded = false, onClose }: { embedded?: boolean; onClo
                 <div className="flex-1 text-center min-w-0 px-1">
                   <div className="text-[16px] font-display font-semibold leading-tight">{monthLabel}</div>
                   <p className="text-[12px] text-secondary-fg mt-1 leading-snug">
-                    Tracked time per day. Darker = more than other days this month (not an absolute hour scale).
+                    Each square is one day. Time is printed inside; darker color means closer to this month's best day.
                   </p>
                   {!isViewingCurrentMonth && (
                     <button
@@ -929,9 +1021,16 @@ function TrackerInner({ embedded = false, onClose }: { embedded?: boolean; onClo
                   <div className="text-[10px] font-semibold uppercase tracking-wide text-secondary-fg">Month total</div>
                   <div className="font-display text-lg font-semibold tabular-nums">{fmtHM(monthTotal)}</div>
                 </div>
-                <p className="text-[11px] text-secondary-fg text-right leading-snug max-w-[11rem]">
-                  Tap a square for that day&apos;s breakdown. Outline = today.
-                </p>
+                <div className="flex items-center gap-2 text-right">
+                  <div>
+                    <div className="text-[9px] font-semibold uppercase tracking-wide text-secondary-fg">Best day</div>
+                    <div className="font-mono text-[12px] font-semibold tabular-nums text-foreground">{monthPeakSec > 0 ? fmtHM(monthPeakSec) : "0m"}</div>
+                  </div>
+                  <div>
+                    <div className="text-[9px] font-semibold uppercase tracking-wide text-secondary-fg">Active</div>
+                    <div className="font-mono text-[12px] font-semibold tabular-nums text-foreground">{monthActiveDays}d</div>
+                  </div>
+                </div>
               </div>
 
               <div className="grid grid-cols-7 gap-x-0.5 gap-y-1">
@@ -977,18 +1076,17 @@ function TrackerInner({ embedded = false, onClose }: { embedded?: boolean; onClo
 
               <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-2 pt-2 border-t border-soft text-[11px]">
                 <div className="flex items-center gap-2 flex-wrap">
-                  <span className="text-secondary-fg shrink-0">Relative intensity</span>
+                  <span className="text-secondary-fg shrink-0">Color scale</span>
                   <div className="flex items-center gap-1">
-                    <span className="text-faint">0</span>
+                    <span className="text-faint">0m</span>
                     {[0.2, 0.45, 0.7, 1].map((o, idx) => (
                       <span key={idx} className="h-3 w-3 rounded-sm border border-border/50" style={{ backgroundColor: `hsl(var(--primary) / ${o})` }} />
                     ))}
-                    <span className="text-faint">max</span>
+                    <span className="text-faint">{monthPeakSec > 0 ? fmtHM(monthPeakSec) : "0m"}</span>
                   </div>
                 </div>
                 <span className="text-secondary-fg sm:text-right">
-                  <span className="hidden sm:inline">This view = </span>
-                  calendar month only (not a rolling window).
+                  Tap a square for that day&apos;s sessions. Outline = today.
                 </span>
               </div>
             </div>

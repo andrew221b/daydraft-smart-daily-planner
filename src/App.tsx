@@ -18,6 +18,7 @@ import Privacy from "./pages/legal/Privacy";
 import Terms from "./pages/legal/Terms";
 
 const Home = lazy(() => import("./pages/app/Home"));
+const Tracker = lazy(() => import("./pages/app/Tracker"));
 const DayView = lazy(() => import("./pages/app/DayView"));
 const Focus = lazy(() => import("./pages/app/Focus"));
 const Reports = lazy(() => import("./pages/app/Reports"));
@@ -92,7 +93,7 @@ const App = () => (
             <Route path="/today/planning" element={<Navigate to="/today/plan" replace />} />
             <Route path="/today/plan" element={<RequireAuth><SuspenseRoute><DayView /></SuspenseRoute></RequireAuth>} />
             <Route path="/focus/:blockId" element={<RequireAuth><SuspenseRoute><Focus /></SuspenseRoute></RequireAuth>} />
-            <Route path="/tracker" element={<RequireAuth><Navigate to="/home?tracker=1" replace /></RequireAuth>} />
+            <Route path="/tracker" element={<RequireAuth><SuspenseRoute><Tracker /></SuspenseRoute></RequireAuth>} />
             <Route path="/recap" element={<Navigate to="/reports" replace />} />
             <Route path="/recap/week" element={<Navigate to="/reports" replace />} />
             <Route path="/history" element={<Navigate to="/reports" replace />} />

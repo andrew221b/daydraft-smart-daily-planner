@@ -6,6 +6,7 @@ import {
   Compass,
   Clock,
   FileDown,
+  Wallet,
 } from "lucide-react";
 
 /** Real product capabilities gated behind Pro — single source for paywall + discovery UI. */
@@ -15,7 +16,8 @@ export type ProFeatureId =
   | "debrief"
   | "drift"
   | "timer_reschedule"
-  | "pdf_export";
+  | "pdf_export"
+  | "billing_reports";
 
 export type ProCatalogItem = {
   id: ProFeatureId;
@@ -70,6 +72,13 @@ export const PRO_FEATURE_CATALOG: ProCatalogItem[] = [
     headline: "PDF time reports",
     tagline: "Export week or month from the tracker for expenses, clients, or reviews.",
     sheetLine: "Tracker PDF export",
+  },
+  {
+    id: "billing_reports",
+    Icon: Wallet,
+    headline: "Billing-ready reports",
+    tagline: "Include hourly rates, earned totals, selected categories, and payment instructions.",
+    sheetLine: "Billing reports with payment details",
   },
 ];
 

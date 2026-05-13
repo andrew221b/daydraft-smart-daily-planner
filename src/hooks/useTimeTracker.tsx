@@ -3,7 +3,7 @@ import { supabase } from "@/integrations/supabase/client";
 import { useAuth } from "./useAuth";
 import { toast } from "sonner";
 
-export type TimeCategory = { id: string; name: string; color: string; is_default: boolean; created_at?: string };
+export type TimeCategory = { id: string; name: string; color: string; is_default: boolean; hourly_rate?: number | null; created_at?: string };
 
 /** Collapse duplicate category names (same user) — keeps default, else oldest. DB migration should still remove dupes. */
 function dedupeCategoriesStable(rows: TimeCategory[]): TimeCategory[] {
@@ -41,6 +41,7 @@ type Ctx = {
   addCategory: (name: string, color?: string) => Promise<TimeCategory | null>;
   deleteCategory: (id: string) => Promise<void>;
   renameCategory: (id: string, name: string) => Promise<void>;
+  updateCategoryRate: (id: string, hourlyRate: number | null) => Promise<void>;
   addManualEntry: (categoryId: string, durationSec: number, opts?: { startedAt?: Date; note?: string }) => Promise<void>;
   deleteEntry: (id: string) => Promise<void>;
   todayTotalSec: number;
@@ -161,9 +162,8 @@ export function TimeTrackerProvider({ children }: { children: ReactNode }) {
     return () => window.removeEventListener("beforeunload", handler);
   }, [active?.id]);
 
-  const start: Ctx["start"] = async (categoryId, opts) => {
+  const startSession = async (categoryId?: string, opts?: { source?: string; note?: string; blockId?: string }) => {
     if (!user) return;
-    if (active) return; // already running
     const cat = categoryId || categories.find(c => c.is_default)?.id || categories[0]?.id;
     if (!cat) { toast.error("Add a category first"); return; }
     const { data, error } = await supabase.from("time_entries").insert({
@@ -182,6 +182,11 @@ export function TimeTrackerProvider({ children }: { children: ReactNode }) {
         localStorage.setItem(`dd_last_plan_progress_${key}`, new Date().toISOString());
       } catch {/* ignore */}
     }
+  };
+
+  const start: Ctx["start"] = async (categoryId, opts) => {
+    if (active) return; // already running
+    await startSession(categoryId, opts);
   };
 
   const stop: Ctx["stop"] = async () => {
@@ -250,8 +255,9 @@ export function TimeTrackerProvider({ children }: { children: ReactNode }) {
   const switchCategory: Ctx["switchCategory"] = async (categoryId) => {
     if (!active) { await start(categoryId); return; }
     if (active.category_id === categoryId) return;
-    await stop(); // best-effort; start will no-op if still active
-    await start(categoryId);
+    const stopped = await stop();
+    if (!stopped) return;
+    await startSession(categoryId);
   };
 
   const addCategory: Ctx["addCategory"] = async (name, color) => {
@@ -297,6 +303,13 @@ export function TimeTrackerProvider({ children }: { children: ReactNode }) {
     setCategories(cs => cs.map(c => c.id === id ? { ...c, name: trimmed } : c));
   };
 
+  const updateCategoryRate: Ctx["updateCategoryRate"] = async (id, hourlyRate) => {
+    const normalized = hourlyRate === null ? null : Math.max(0, Math.round(hourlyRate * 100) / 100);
+    const { error } = await supabase.from("time_categories").update({ hourly_rate: normalized }).eq("id", id);
+    if (error) { toast.error(error.message); return; }
+    setCategories(cs => cs.map(c => c.id === id ? { ...c, hourly_rate: normalized } : c));
+  };
+
   const addManualEntry: Ctx["addManualEntry"] = async (categoryId, durationSec, opts) => {
     if (!user) return;
     const end = opts?.startedAt ? new Date(opts.startedAt.getTime() + durationSec * 1000) : new Date();
@@ -333,7 +346,7 @@ export function TimeTrackerProvider({ children }: { children: ReactNode }) {
 
   const value: Ctx = useMemo(() => ({
     categories, active, loading,
-    start, stop, switchCategory, addCategory, deleteCategory, renameCategory,
+    start, stop, switchCategory, addCategory, deleteCategory, renameCategory, updateCategoryRate,
     addManualEntry, deleteEntry,
     todayTotalSec, weekTotalSec, refresh,
   }), [categories, active, loading, todayTotalSec, weekTotalSec, refresh]);

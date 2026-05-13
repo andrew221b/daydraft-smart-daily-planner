@@ -7,7 +7,7 @@ import { Button } from "@/components/ui/button";
 import { useEffect, useRef, useState } from "react";
 import { peakWindow } from "@/lib/daydraft";
 import { ThemeToggle } from "@/components/app/ThemeToggle";
-import { Fingerprint, Sparkles, Bell, Calendar, FileText, Shield, Trash2, HelpCircle, ChevronDown } from "lucide-react";
+import { Fingerprint, Sparkles, Bell, Calendar, FileText, Shield, Trash2, HelpCircle, ChevronDown, Wallet } from "lucide-react";
 import { Textarea } from "@/components/ui/textarea";
 import { Link, useNavigate, useLocation } from "react-router-dom";
 import { clearStoredPasskey, enrollPasskey, getStoredPasskey, passkeySupported } from "@/lib/passkeys";
@@ -20,12 +20,38 @@ import { ProFeatureHighlights } from "@/components/app/ProFeatureHighlights";
 import { enablePush, disablePush, pushSupported } from "@/lib/push";
 import { useTour, TOUR_TODAY } from "@/components/app/Tour";
 import { VisualMode, useVisualMode } from "@/lib/visualMode";
+import { supabase } from "@/integrations/supabase/client";
 
 const energies = [
   { key: "morning" as const, label: "Morning person" },
   { key: "midday" as const, label: "Midday flow" },
   { key: "night" as const, label: "Night owl" },
 ];
+
+type PaymentDetailsDraft = {
+  display_name: string;
+  bank_name: string;
+  iban: string;
+  crypto_network: string;
+  crypto_wallet: string;
+  payment_link: string;
+  notes: string;
+};
+
+const emptyPaymentDetails: PaymentDetailsDraft = {
+  display_name: "",
+  bank_name: "",
+  iban: "",
+  crypto_network: "",
+  crypto_wallet: "",
+  payment_link: "",
+  notes: "",
+};
+
+const blankToNull = (value: string) => {
+  const trimmed = value.trim();
+  return trimmed ? trimmed : null;
+};
 
 export default function Settings() {
   const { profile, update } = useProfile();
@@ -42,10 +68,38 @@ export default function Settings() {
   const [advancedOpen, setAdvancedOpen] = useState(false);
   const [visualMode, setVisualMode] = useVisualMode();
   const [planningRulesDraft, setPlanningRulesDraft] = useState("");
+  const [paymentDetails, setPaymentDetails] = useState<PaymentDetailsDraft>(emptyPaymentDetails);
+  const [paymentDetailsSaving, setPaymentDetailsSaving] = useState(false);
   const planningRulesSaveTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
   const planningRulesDirty = useRef(false);
   const planningRulesDraftRef = useRef("");
   useEffect(() => { if (profile) setName(profile.display_name || ""); }, [profile?.id]);
+
+  useEffect(() => {
+    if (!user?.id || !isPro) {
+      setPaymentDetails(emptyPaymentDetails);
+      return;
+    }
+    let cancelled = false;
+    (async () => {
+      const { data } = await supabase
+        .from("billing_payment_details")
+        .select("display_name,bank_name,iban,crypto_network,crypto_wallet,payment_link,notes")
+        .eq("user_id", user.id)
+        .maybeSingle();
+      if (cancelled) return;
+      setPaymentDetails({
+        display_name: data?.display_name || "",
+        bank_name: data?.bank_name || "",
+        iban: data?.iban || "",
+        crypto_network: data?.crypto_network || "",
+        crypto_wallet: data?.crypto_wallet || "",
+        payment_link: data?.payment_link || "",
+        notes: data?.notes || "",
+      });
+    })();
+    return () => { cancelled = true; };
+  }, [user?.id, isPro]);
 
   useEffect(() => {
     if (!profile || planningRulesDirty.current) return;
@@ -130,6 +184,36 @@ export default function Settings() {
     }
   };
 
+  const savePaymentDetails = async () => {
+    if (!user?.id) return;
+    if (!isPro) {
+      setUpgradeOpen(true);
+      return;
+    }
+    setPaymentDetailsSaving(true);
+    try {
+      const { error } = await supabase.from("billing_payment_details").upsert({
+        user_id: user.id,
+        display_name: blankToNull(paymentDetails.display_name),
+        bank_name: blankToNull(paymentDetails.bank_name),
+        iban: blankToNull(paymentDetails.iban),
+        crypto_network: blankToNull(paymentDetails.crypto_network),
+        crypto_wallet: blankToNull(paymentDetails.crypto_wallet),
+        payment_link: blankToNull(paymentDetails.payment_link),
+        notes: blankToNull(paymentDetails.notes),
+      });
+      if (error) throw error;
+      toast.success("Payment details saved");
+    } catch (e: any) {
+      toast.error(e?.message || "Unable to save payment details");
+    } finally {
+      setPaymentDetailsSaving(false);
+    }
+  };
+
+  const updatePaymentField = (field: keyof PaymentDetailsDraft, value: string) =>
+    setPaymentDetails((current) => ({ ...current, [field]: value }));
+
   return (
     <Shell>
       <div className="px-6 pt-12">
@@ -161,6 +245,114 @@ export default function Settings() {
               </div>
             </Section>
           )}
+
+          <Section title="Billing reports">
+            <div className="rounded-[14px] border border-soft surface-card backdrop-blur-sm overflow-hidden">
+              <div className="flex items-start gap-3 px-4 py-3 border-b border-border/50">
+                <Wallet className="mt-0.5 h-4 w-4 text-secondary-fg shrink-0" />
+                <div className="min-w-0 flex-1">
+                  <div className="text-[14px] text-foreground">Payment instructions</div>
+                  <p className="mt-1 text-[11px] leading-relaxed text-secondary-fg">
+                    Added to client-ready Pro exports. Use payment links for card payments; do not store raw card numbers here.
+                  </p>
+                </div>
+                {!isPro && <span className="text-[11px] font-semibold text-primary">Pro</span>}
+              </div>
+
+              {!isPro ? (
+                <div className="px-4 py-4">
+                  <p className="text-[12px] leading-relaxed text-secondary-fg">
+                    Pro unlocks payment instructions in billing exports, so reports can include IBAN, crypto wallet, or a checkout link for clients.
+                  </p>
+                  <Button
+                    onClick={() => setUpgradeOpen(true)}
+                    className="mt-3 h-10 w-full rounded-xl bg-primary text-[13px] font-semibold text-primary-foreground"
+                  >
+                    Unlock billing exports
+                  </Button>
+                </div>
+              ) : (
+                <div className="divide-y divide-border/50">
+                  <div className="px-3 py-2.5">
+                    <div className="text-[11px] text-secondary-fg mb-1">Payee name</div>
+                    <Input
+                      value={paymentDetails.display_name}
+                      onChange={(e) => updatePaymentField("display_name", e.target.value)}
+                      placeholder={profile?.display_name || "Your name or company"}
+                      className="h-9 bg-transparent border-0 px-0 focus-visible:ring-0 text-[14px]"
+                    />
+                  </div>
+                  <div className="grid grid-cols-1 gap-0 sm:grid-cols-2 sm:divide-x sm:divide-border/50">
+                    <div className="px-3 py-2.5">
+                      <div className="text-[11px] text-secondary-fg mb-1">Bank name</div>
+                      <Input
+                        value={paymentDetails.bank_name}
+                        onChange={(e) => updatePaymentField("bank_name", e.target.value)}
+                        placeholder="Bank / Wise / Revolut"
+                        className="h-9 bg-transparent border-0 px-0 focus-visible:ring-0 text-[14px]"
+                      />
+                    </div>
+                    <div className="px-3 py-2.5">
+                      <div className="text-[11px] text-secondary-fg mb-1">IBAN</div>
+                      <Input
+                        value={paymentDetails.iban}
+                        onChange={(e) => updatePaymentField("iban", e.target.value)}
+                        placeholder="IBAN or account reference"
+                        className="h-9 bg-transparent border-0 px-0 focus-visible:ring-0 text-[14px]"
+                      />
+                    </div>
+                  </div>
+                  <div className="grid grid-cols-1 gap-0 sm:grid-cols-2 sm:divide-x sm:divide-border/50">
+                    <div className="px-3 py-2.5">
+                      <div className="text-[11px] text-secondary-fg mb-1">Crypto network</div>
+                      <Input
+                        value={paymentDetails.crypto_network}
+                        onChange={(e) => updatePaymentField("crypto_network", e.target.value)}
+                        placeholder="USDT TRC20, ETH, BTC..."
+                        className="h-9 bg-transparent border-0 px-0 focus-visible:ring-0 text-[14px]"
+                      />
+                    </div>
+                    <div className="px-3 py-2.5">
+                      <div className="text-[11px] text-secondary-fg mb-1">Crypto wallet</div>
+                      <Input
+                        value={paymentDetails.crypto_wallet}
+                        onChange={(e) => updatePaymentField("crypto_wallet", e.target.value)}
+                        placeholder="Wallet address"
+                        className="h-9 bg-transparent border-0 px-0 focus-visible:ring-0 text-[14px]"
+                      />
+                    </div>
+                  </div>
+                  <div className="px-3 py-2.5">
+                    <div className="text-[11px] text-secondary-fg mb-1">Payment link</div>
+                    <Input
+                      value={paymentDetails.payment_link}
+                      onChange={(e) => updatePaymentField("payment_link", e.target.value)}
+                      placeholder="Stripe, PayPal, Wise, invoice checkout URL"
+                      className="h-9 bg-transparent border-0 px-0 focus-visible:ring-0 text-[14px]"
+                    />
+                  </div>
+                  <div className="px-3 py-2.5">
+                    <div className="text-[11px] text-secondary-fg mb-1">Notes for client</div>
+                    <Textarea
+                      value={paymentDetails.notes}
+                      onChange={(e) => updatePaymentField("notes", e.target.value)}
+                      placeholder="Payment terms, memo, preferred method..."
+                      className="min-h-[72px] bg-transparent border-0 px-0 focus-visible:ring-0 text-[13px] shadow-none"
+                    />
+                  </div>
+                  <div className="px-3 py-3">
+                    <Button
+                      onClick={savePaymentDetails}
+                      disabled={paymentDetailsSaving}
+                      className="h-10 w-full rounded-xl bg-primary text-[13px] font-semibold text-primary-foreground disabled:opacity-60"
+                    >
+                      {paymentDetailsSaving ? "Saving..." : "Save payment details"}
+                    </Button>
+                  </div>
+                </div>
+              )}
+            </div>
+          </Section>
 
           {/* 2. Profile — name + appearance grouped */}
           <Section title="You">

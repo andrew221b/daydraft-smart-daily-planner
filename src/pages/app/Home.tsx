@@ -30,7 +30,7 @@ export default function Home() {
 
   useEffect(() => {
     if (location.hash === "#tracker" || searchParams.get("tracker") === "1") {
-      nav("/history", { replace: true });
+      nav("/tracker", { replace: true });
     }
   }, [location.hash, searchParams, nav]);
 
