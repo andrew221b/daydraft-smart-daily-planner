@@ -599,6 +599,14 @@ export default function DayView() {
             )}
           </div>
           <div className="flex items-center shrink-0 gap-0.5">
+            <button
+              type="button"
+              onClick={() => { setAskAiContext(null); setAskAiOpen(true); }}
+              className="h-10 w-10 rounded-full flex items-center justify-center text-secondary-fg/90 hover:text-primary hover:bg-muted/40 pressable transition-colors"
+              aria-label="Ask AI"
+            >
+              <Sparkles className="h-4 w-4" />
+            </button>
             {!calmMode && !planMissing && blocks.length > 0 && (
               <button
                 type="button"
