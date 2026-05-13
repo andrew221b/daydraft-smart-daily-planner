@@ -1,12 +1,13 @@
 import { useEffect, useRef } from "react";
 import { NavLink, useLocation } from "react-router-dom";
-import { CalendarDays, Settings as SettingsIcon, Timer } from "lucide-react";
+import { BarChart3, CalendarDays, Settings as SettingsIcon, Timer } from "lucide-react";
 import { haptics } from "@/lib/haptics";
 import type { LucideIcon } from "lucide-react";
 
 const tabs = [
   { to: "/home", icon: Timer, label: "Track", tour: "tab-home" },
   { to: "/today", icon: CalendarDays, label: "Plan", tour: "tab-today" },
+  { to: "/reports", icon: BarChart3, label: "Reports", tour: "tab-reports" },
   { to: "/settings", icon: SettingsIcon, label: "Settings", tour: "tab-settings" },
 ] as const;
 
@@ -18,15 +19,19 @@ const activeTabIndex = (pathname: string) => {
     pathname === "/" ||
     pathname.startsWith("/home") ||
     pathname.startsWith("/tracker") ||
-    pathname.startsWith("/focus") ||
-    pathname.startsWith("/history") ||
-    pathname.startsWith("/stats") ||
-    pathname.startsWith("/recap")
+    pathname.startsWith("/focus")
   ) {
     return 0;
   }
   if (pathname.startsWith("/today")) return 1;
-  if (pathname.startsWith("/settings")) return 2;
+  if (
+    pathname.startsWith("/reports") ||
+    pathname.startsWith("/history") ||
+    pathname.startsWith("/stats") ||
+    pathname.startsWith("/recap")
+  )
+    return 2;
+  if (pathname.startsWith("/settings")) return 3;
   return 0;
 };
 
