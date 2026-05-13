@@ -18,13 +18,9 @@ import Privacy from "./pages/legal/Privacy";
 import Terms from "./pages/legal/Terms";
 
 const Home = lazy(() => import("./pages/app/Home"));
-const Today = lazy(() => import("./pages/app/Today"));
-const Planning = lazy(() => import("./pages/app/Planning"));
 const DayView = lazy(() => import("./pages/app/DayView"));
 const Focus = lazy(() => import("./pages/app/Focus"));
-const Recap = lazy(() => import("./pages/app/Recap"));
-const RecapWeek = lazy(() => import("./pages/app/RecapWeek"));
-const History = lazy(() => import("./pages/app/History"));
+const Reports = lazy(() => import("./pages/app/Reports"));
 const Settings = lazy(() => import("./pages/app/Settings"));
 const Onboarding = lazy(() => import("./pages/app/Onboarding"));
 const Auth = lazy(() => import("./pages/app/Auth"));
@@ -92,15 +88,16 @@ const App = () => (
             <Route path="/reset-password" element={<ResetPassword />} />
             <Route path="/onboarding" element={<RequireAuth><SuspenseRoute><Onboarding /></SuspenseRoute></RequireAuth>} />
             <Route path="/home" element={<RequireAuth><SuspenseRoute><Home /></SuspenseRoute></RequireAuth>} />
-            <Route path="/today" element={<RequireAuth><SuspenseRoute><Today /></SuspenseRoute></RequireAuth>} />
-            <Route path="/today/planning" element={<RequireAuth><SuspenseRoute><Planning /></SuspenseRoute></RequireAuth>} />
+            <Route path="/today" element={<RequireAuth><SuspenseRoute><DayView /></SuspenseRoute></RequireAuth>} />
+            <Route path="/today/planning" element={<Navigate to="/today/plan" replace />} />
             <Route path="/today/plan" element={<RequireAuth><SuspenseRoute><DayView /></SuspenseRoute></RequireAuth>} />
             <Route path="/focus/:blockId" element={<RequireAuth><SuspenseRoute><Focus /></SuspenseRoute></RequireAuth>} />
             <Route path="/tracker" element={<RequireAuth><Navigate to="/home?tracker=1" replace /></RequireAuth>} />
-            <Route path="/recap" element={<RequireAuth><SuspenseRoute><Recap /></SuspenseRoute></RequireAuth>} />
-            <Route path="/recap/week" element={<RequireAuth><SuspenseRoute><RecapWeek /></SuspenseRoute></RequireAuth>} />
-            <Route path="/history" element={<RequireAuth><SuspenseRoute><History /></SuspenseRoute></RequireAuth>} />
-            <Route path="/stats" element={<Navigate to="/history" replace />} />
+            <Route path="/recap" element={<Navigate to="/reports" replace />} />
+            <Route path="/recap/week" element={<Navigate to="/reports" replace />} />
+            <Route path="/history" element={<Navigate to="/reports" replace />} />
+            <Route path="/stats" element={<Navigate to="/reports" replace />} />
+            <Route path="/reports" element={<RequireAuth><SuspenseRoute><Reports /></SuspenseRoute></RequireAuth>} />
             <Route path="/settings" element={<RequireAuth><SuspenseRoute><Settings /></SuspenseRoute></RequireAuth>} />
             <Route path="/privacy" element={<Privacy />} />
             <Route path="/terms" element={<Terms />} />

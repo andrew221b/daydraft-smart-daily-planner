@@ -8,7 +8,7 @@ import {
   Block, fmtTime, todayDateStr, parseDateStr, friendlyDateFor, isFutureDateStr, isUserTask, isOpenUserTask, isUserTaskDone, inferScheduleBlockType, packLinearSchedule,
   blockSlotEndHHMM,
 } from "@/lib/daydraft";
-import { ChevronLeft, Sparkles, Play, RefreshCw, Plus, Coffee, CalendarDays, Trash2, Bell, BellOff, MoreHorizontal, Clock, Info, MapPin, Copy } from "lucide-react";
+import { ChevronLeft, Play, Plus, Coffee, CalendarDays, Trash2, Bell, BellOff, MoreHorizontal, Clock, MapPin, Copy, Sparkles } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { DndContext, closestCenter, PointerSensor, TouchSensor, useSensor, useSensors, DragEndEvent, DragStartEvent } from "@dnd-kit/core";
 import { SortableContext, arrayMove, verticalListSortingStrategy } from "@dnd-kit/sortable";
@@ -42,8 +42,8 @@ import { resolveActualMinutesOnComplete, wallMinutesFromSlotStart } from "@/lib/
 import { useCalmMode } from "@/lib/calmMode";
 import { useEntitlement } from "@/hooks/useEntitlement";
 import { UpgradeSheet } from "@/components/app/UpgradeSheet";
-import { trackAiEvent } from "@/lib/aiRuntime";
 import { setDndBodyScrollLock } from "@/lib/dndScrollLock";
+import { AskAiSheet } from "@/components/app/AskAiSheet";
 
 type ExBlock = Block & {
   ai_reasoning?: string | null;
@@ -97,6 +97,8 @@ export default function DayView() {
   const [startTimeDraft, setStartTimeDraft] = useState<string>("09:00");
   const [upgradeOpen, setUpgradeOpen] = useState(false);
   const [planMutating, setPlanMutating] = useState(false);
+  const [askAiOpen, setAskAiOpen] = useState(false);
+  const [askAiContext, setAskAiContext] = useState<string | null>(null);
   const blockOpLocksRef = useRef(new Set<string>());
   const [calmMode] = useCalmMode();
   const { isPro } = useEntitlement();
@@ -353,8 +355,21 @@ export default function DayView() {
 
   const addInlineBlock = async () => {
     if (planMutating) return;
-    if (!plan || !user) return;
+    if (!user) return;
     if (!newTitle.trim() && newKind === "task") { toast.error("Add a title"); return; }
+    let planId = plan?.id;
+    if (!planId) {
+      const { data: created, error: planErr } = await supabase
+        .from("plans")
+        .insert({ user_id: user.id, date: viewDate, raw_input: "" } as any)
+        .select("id")
+        .single();
+      if (planErr || !created?.id) {
+        toast.error(planErr?.message || "Couldn't create plan");
+        return;
+      }
+      planId = created.id;
+    }
     const insertAt = blocks.length;
     const newId = crypto.randomUUID();
     const last = blocks[blocks.length - 1];
@@ -364,7 +379,7 @@ export default function DayView() {
     })() : 9 * 60;
     const item: ExBlock = {
       id: newId,
-      plan_id: plan.id,
+      plan_id: planId!,
       user_id: user.id,
       start_time: `${String(Math.floor(startMin / 60)).padStart(2, "0")}:${String(startMin % 60).padStart(2, "0")}`,
       duration_min: newDuration,
@@ -388,7 +403,7 @@ export default function DayView() {
       const placed = next.find((b) => b.id === newId)!;
       const { error: insertErr } = await supabase.from("blocks").insert({
         id: newId,
-        plan_id: plan.id,
+        plan_id: planId!,
         user_id: user.id,
         start_time: placed.start_time,
         duration_min: placed.duration_min,
@@ -404,6 +419,7 @@ export default function DayView() {
       if (insertErr) throw insertErr;
       await persistOrder(next);
       await invalidatePlanCaches();
+      await refetch();
     } catch (e: any) {
       setBlocks(snapshot);
       toast.error(e?.message || "Unable to add block");
@@ -597,6 +613,14 @@ export default function DayView() {
             )}
           </div>
           <div className="flex items-center shrink-0 gap-0.5">
+            <button
+              type="button"
+              onClick={() => { setAskAiContext(null); setAskAiOpen(true); }}
+              className="h-10 w-10 rounded-full flex items-center justify-center text-secondary-fg/90 hover:text-primary hover:bg-muted/40 pressable transition-colors"
+              aria-label="Ask AI"
+            >
+              <Sparkles className="h-4 w-4" />
+            </button>
             {!calmMode && !planMissing && blocks.length > 0 && (
               <button
                 type="button"
@@ -654,22 +678,27 @@ export default function DayView() {
         className="min-h-0 flex-1 overflow-y-auto overscroll-y-contain px-6 pb-[calc(96px+env(safe-area-inset-bottom))] [-webkit-overflow-scrolling:touch] pt-8"
       >
         {planMissing && (
-          <div className="rounded-[22px] border border-dashed border-border/50 bg-muted/[0.1] px-6 py-8 text-center">
-            <CalendarDays className="h-6 w-6 mx-auto text-secondary-fg/70 mb-3 opacity-80" />
+          <div className="rounded-[22px] border border-dashed border-border/50 bg-muted/[0.06] px-6 py-10 text-center">
+            <CalendarDays className="h-7 w-7 mx-auto text-secondary-fg/70 mb-3 opacity-80" />
             <div className="text-[15px] font-medium text-foreground/95 tracking-tight">
-              {isFuture ? `No plan for ${friendlyDateFor(parseDateStr(viewDate))} yet`
-                : isToday ? "No plan for today yet"
-                : `No plan for ${friendlyDateFor(parseDateStr(viewDate))}`}
+              {isToday ? "Empty day" : friendlyDateFor(parseDateStr(viewDate))}
             </div>
             <p className="text-[12px] text-secondary-fg/80 mt-2 leading-relaxed">
-              {isToday || isFuture ? "Head back to the planner to shape this day." : "This day was never planned."}
+              Add tasks and breaks one by one. You're in charge.
             </p>
             <Button
-              onClick={() => nav(isToday ? "/today" : `/today?date=${viewDate}`)}
+              onClick={() => setAddOpen(true)}
               className="mt-6 h-11 px-5 rounded-2xl bg-primary hover:bg-primary/92 text-primary-foreground text-[13px] font-medium pressable"
             >
-              Open planner
+              <Plus className="h-4 w-4 mr-1" /> Add first task
             </Button>
+            <button
+              type="button"
+              onClick={() => { setAskAiContext(null); setAskAiOpen(true); }}
+              className="mt-3 text-[12px] text-primary/90 font-medium hover:underline pressable"
+            >
+              Or ask AI for ideas
+            </button>
           </div>
         )}
 
@@ -745,9 +774,9 @@ export default function DayView() {
           className="fixed left-1/2 -translate-x-1/2 w-full max-w-[440px] px-6 z-30"
           style={{ bottom: "calc(84px + env(safe-area-inset-bottom))" }}
         >
-          <Button onClick={() => nav(isToday ? "/recap" : `/recap?date=${viewDate}`)} className="w-full h-12 rounded-2xl bg-success text-success-foreground hover:bg-success/90 text-[15px] font-medium pressable">
-            {toneCopy(getTone(profile as any), "recap_cta")} →
-          </Button>
+          <div className="w-full h-12 rounded-2xl bg-success/15 text-success border border-success/30 flex items-center justify-center text-[14px] font-medium">
+            All done for today ✓
+          </div>
         </div>
       )}
 
@@ -810,13 +839,17 @@ export default function DayView() {
                   <span className="flex-1">{tappedBlock.location}</span>
                 </a>
               )}
-              {!calmMode && tappedBlock.ai_reasoning && (
-                <div className="px-3 py-3 rounded-lg surface-soft text-[13px] text-secondary-fg leading-relaxed">
-                  <div className="flex items-center gap-1.5 mb-1 text-foreground text-[12px] font-medium">
-                    <Info className="h-3.5 w-3.5 text-primary" /> Why
-                  </div>
-                  {tappedBlock.ai_reasoning}
-                </div>
+              {!calmMode && (
+                <ActionRow
+                  onClick={() => {
+                    const blk = tappedBlock;
+                    setTappedBlock(null);
+                    setAskAiContext(`Help me think about this task: "${blk!.title}" (${blk!.duration_min} min). Suggest a realistic estimate, breakdown into steps, or a smarter time of day. Don't propose a full plan — just ideas I can apply.`);
+                    setAskAiOpen(true);
+                  }}
+                  icon={<Sparkles className="h-4 w-4" />}
+                  label="Ask AI about this"
+                />
               )}
               {!tappedBlock.is_calendar_event && (
                 <ActionRow
@@ -837,13 +870,6 @@ export default function DayView() {
           <SheetHeader className="text-left mb-3">
             <SheetTitle className="text-[16px]">Plan options</SheetTitle>
           </SheetHeader>
-          {!isFuture && firstUnfinishedTask && (
-            <ActionRow
-              onClick={replanRest}
-              icon={<RefreshCw className={`h-4 w-4 ${replanning ? "animate-spin" : ""}`} />}
-              label={replanning ? "Re-planning…" : "Re-plan rest of day"}
-            />
-          )}
           {!isFuture && (
             <ActionRow
               onClick={rollOverUnfinishedToTomorrow}
@@ -1033,6 +1059,7 @@ export default function DayView() {
         </SheetContent>
       </Sheet>
       <UpgradeSheet open={upgradeOpen} onOpenChange={setUpgradeOpen} reason="feature" />
+      <AskAiSheet open={askAiOpen} onOpenChange={setAskAiOpen} initialPrompt={askAiContext} />
 
       <DurationPicker
         open={!!durationEditId}
@@ -1051,9 +1078,6 @@ export default function DayView() {
           setBlocks(next);
           setPlanMutating(true);
           try {
-            if ((snapshot[idx] as ExBlock)?.ai_reasoning) {
-              trackAiEvent("plan_manual_edit_after_ai", { field: "duration_min", block_id: id });
-            }
             const updatedBlock = next.find((x) => x.id === id)!;
             const { error } = await supabase.from("blocks").update({
               duration_min: v,
@@ -1120,9 +1144,6 @@ export default function DayView() {
                 haptics.notify("success");
                 setPlanMutating(true);
                 try {
-                  if ((snapshot[idx] as ExBlock)?.ai_reasoning) {
-                    trackAiEvent("plan_manual_edit_after_ai", { field: "start_time", block_id: id });
-                  }
                   await persistOrder(packed);
                   await invalidatePlanCaches();
                 } catch (e: any) {
