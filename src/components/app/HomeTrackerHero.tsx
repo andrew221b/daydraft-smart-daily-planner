@@ -13,13 +13,15 @@ export function HomeTrackerHero({ onOpenDetails }: { onOpenDetails: () => void }
   const elapsedSec = useTimeTrackerElapsed();
   const activeCat = categories.find((c) => c.id === active?.category_id);
   const [pickerOpen, setPickerOpen] = useState(false);
+  const [selectedCategoryId, setSelectedCategoryId] = useState<string | null>(null);
   const [categoryQuery, setCategoryQuery] = useState("");
   const [newCategoryName, setNewCategoryName] = useState("");
   const [addingCategory, setAddingCategory] = useState(false);
   const [focusNewCategory, setFocusNewCategory] = useState(false);
   const newCategoryInputRef = useRef<HTMLInputElement | null>(null);
 
-  const accent = activeCat?.color || "hsl(var(--primary))";
+  const selectedCat = categories.find((c) => c.id === selectedCategoryId) || null;
+  const accent = activeCat?.color || selectedCat?.color || "hsl(var(--primary))";
   const topCats = categories.slice(0, 4);
   const moreCats = categories.slice(4);
   const filteredCategories = useMemo(() => {
@@ -33,6 +35,15 @@ export function HomeTrackerHero({ onOpenDetails }: { onOpenDetails: () => void }
     const id = window.setTimeout(() => newCategoryInputRef.current?.focus(), 120);
     return () => window.clearTimeout(id);
   }, [pickerOpen, focusNewCategory]);
+
+  useEffect(() => {
+    if (active?.category_id) {
+      setSelectedCategoryId(active.category_id);
+      return;
+    }
+    if (selectedCategoryId && categories.some((c) => c.id === selectedCategoryId)) return;
+    setSelectedCategoryId(categories[0]?.id ?? null);
+  }, [active?.category_id, categories, selectedCategoryId]);
 
   const openCategoryPicker = (opts?: { focusAdd?: boolean }) => {
     setPickerOpen(true);
@@ -49,7 +60,7 @@ export function HomeTrackerHero({ onOpenDetails }: { onOpenDetails: () => void }
       await switchCategory(id);
       return;
     }
-    await start(id);
+    setSelectedCategoryId(id);
   };
 
   const handleAddCategory = async (event: FormEvent<HTMLFormElement>) => {
@@ -60,6 +71,7 @@ export function HomeTrackerHero({ onOpenDetails }: { onOpenDetails: () => void }
     try {
       const cat = await addCategory(name);
       if (cat) {
+        setSelectedCategoryId(cat.id);
         setNewCategoryName("");
         setCategoryQuery("");
       }
@@ -147,8 +159,8 @@ export function HomeTrackerHero({ onOpenDetails }: { onOpenDetails: () => void }
                     openCategoryPicker({ focusAdd: true });
                     return;
                   }
-                  if (categories.length === 1) {
-                    void start(categories[0].id);
+                  if (selectedCat) {
+                    void start(selectedCat.id);
                     return;
                   }
                   openCategoryPicker();
@@ -169,8 +181,12 @@ export function HomeTrackerHero({ onOpenDetails }: { onOpenDetails: () => void }
               <button
                 key={c.id}
                 type="button"
-                onClick={() => start(c.id)}
-                className="shrink-0 inline-flex items-center gap-1.5 rounded-full border border-border/40 bg-background/50 py-1.5 pl-2 pr-3 text-[12px] font-medium text-foreground/90 hover:bg-background/80 transition-colors pressable"
+                onClick={() => setSelectedCategoryId(c.id)}
+                className={`shrink-0 inline-flex items-center gap-1.5 rounded-full border py-1.5 pl-2 pr-3 text-[12px] font-medium transition-colors pressable ${
+                  selectedCategoryId === c.id
+                    ? "border-primary/60 bg-primary/15 text-foreground ring-1 ring-primary/20"
+                    : "border-border/40 bg-background/50 text-foreground/90 hover:bg-background/80"
+                }`}
               >
                 <span className="h-1.5 w-1.5 rounded-full" style={{ background: c.color }} />
                 <span className="max-w-[8rem] truncate">{c.name}</span>
@@ -218,10 +234,10 @@ export function HomeTrackerHero({ onOpenDetails }: { onOpenDetails: () => void }
           <div className="flex max-h-[84vh] flex-col">
             <div className="px-5 pt-7 pb-4 border-b border-border/35">
               <h3 className="font-display text-[20px] font-semibold tracking-tight">
-                {active ? "Switch category" : "Start tracking"}
+                {active ? "Switch category" : "Choose category"}
               </h3>
               <p className="text-[13px] text-secondary-fg/80 mt-1">
-                {active ? "Pick a category and the current session will continue there." : "Pick what you're working on."}
+                {active ? "Pick a category and the current session will continue there." : "Pick a category, then press Start tracking."}
               </p>
               {categories.length > 6 && (
                 <label className="mt-4 flex items-center gap-2 rounded-2xl border border-border/45 bg-card/55 px-3 py-2.5">
@@ -241,6 +257,7 @@ export function HomeTrackerHero({ onOpenDetails }: { onOpenDetails: () => void }
                 <div className="grid grid-cols-1 gap-2.5">
                   {filteredCategories.map((c) => {
                     const isCurrent = active?.category_id === c.id;
+                    const isSelected = !active && selectedCategoryId === c.id;
                     return (
                       <button
                         key={c.id}
@@ -248,13 +265,14 @@ export function HomeTrackerHero({ onOpenDetails }: { onOpenDetails: () => void }
                         onClick={() => chooseCategory(c.id)}
                         disabled={isCurrent}
                         className={`flex items-center gap-3 rounded-2xl border border-border/45 bg-card/60 px-3.5 py-3.5 text-left pressable transition-colors ${
-                          isCurrent ? "opacity-70" : "hover:bg-card/90"
+                          isCurrent ? "opacity-70" : isSelected ? "ring-1 ring-primary/25 bg-primary/10" : "hover:bg-card/90"
                         }`}
                         style={{ borderColor: `${c.color}55` }}
                       >
                         <span className="h-2.5 w-2.5 rounded-full shrink-0" style={{ background: c.color }} />
                         <span className="min-w-0 flex-1 truncate text-[14px] font-semibold text-foreground/95">{c.name}</span>
                         {isCurrent && <span className="text-[11px] font-semibold text-primary">Current</span>}
+                        {isSelected && <span className="text-[11px] font-semibold text-primary">Selected</span>}
                       </button>
                     );
                   })}

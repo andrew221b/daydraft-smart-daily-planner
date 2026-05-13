@@ -31,6 +31,26 @@ type Entry = {
   block_id?: string | null;
 };
 
+type PaymentDetailsDraft = {
+  display_name: string;
+  bank_name: string;
+  iban: string;
+  crypto_network: string;
+  crypto_wallet: string;
+  payment_link: string;
+  notes: string;
+};
+
+const emptyPaymentDetails: PaymentDetailsDraft = {
+  display_name: "",
+  bank_name: "",
+  iban: "",
+  crypto_network: "",
+  crypto_wallet: "",
+  payment_link: "",
+  notes: "",
+};
+
 type Tab = "today" | "week" | "month";
 const TABS: Tab[] = ["today", "week", "month"];
 
@@ -54,6 +74,10 @@ const parseRateInput = (value: string) => {
   if (!cleaned) return null;
   const parsed = Number(cleaned);
   return Number.isFinite(parsed) && parsed >= 0 ? parsed : null;
+};
+const blankToNull = (value: string) => {
+  const trimmed = value.trim();
+  return trimmed ? trimmed : null;
 };
 
 function clipDuration(e: Entry, dayStart: number, dayEnd: number, now: number) {
@@ -94,6 +118,8 @@ function TrackerInner({ embedded = false, onClose }: { embedded?: boolean; onClo
   const [todayPlanBlocks, setTodayPlanBlocks] = useState<Block[]>([]);
   const [stopBusy, setStopBusy] = useState(false);
   const [categoryBusyId, setCategoryBusyId] = useState<string | null>(null);
+  const [paymentDetails, setPaymentDetails] = useState<PaymentDetailsDraft>(emptyPaymentDetails);
+  const [paymentDetailsSaving, setPaymentDetailsSaving] = useState(false);
   const addCategoryFormRef = useRef<HTMLFormElement | null>(null);
   const addCategoryInputRef = useRef<HTMLInputElement | null>(null);
   const tabIndex = TABS.indexOf(tab);
@@ -116,6 +142,32 @@ function TrackerInner({ embedded = false, onClose }: { embedded?: boolean; onClo
       .order("started_at", { ascending: false })
       .then(({ data }) => setEntries((data || []) as Entry[]));
   }, [user?.id, active?.id, todayTotalSec]);
+
+  useEffect(() => {
+    if (!user?.id || !isPro) {
+      setPaymentDetails(emptyPaymentDetails);
+      return;
+    }
+    let cancelled = false;
+    (async () => {
+      const { data } = await supabase
+        .from("billing_payment_details")
+        .select("display_name,bank_name,iban,crypto_network,crypto_wallet,payment_link,notes")
+        .eq("user_id", user.id)
+        .maybeSingle();
+      if (cancelled) return;
+      setPaymentDetails({
+        display_name: data?.display_name || "",
+        bank_name: data?.bank_name || "",
+        iban: data?.iban || "",
+        crypto_network: data?.crypto_network || "",
+        crypto_wallet: data?.crypto_wallet || "",
+        payment_link: data?.payment_link || "",
+        notes: data?.notes || "",
+      });
+    })();
+    return () => { cancelled = true; };
+  }, [user?.id, isPro]);
 
   useEffect(() => {
     if (!user) return;
@@ -358,6 +410,33 @@ function TrackerInner({ embedded = false, onClose }: { embedded?: boolean; onClo
       addCategoryFormRef.current?.scrollIntoView({ behavior: "smooth", block: "center" });
       addCategoryInputRef.current?.focus();
     });
+  };
+
+  const updatePaymentField = (field: keyof PaymentDetailsDraft, value: string) =>
+    setPaymentDetails((current) => ({ ...current, [field]: value }));
+
+  const savePaymentDetails = async () => {
+    if (!user?.id || !isPro) return true;
+    setPaymentDetailsSaving(true);
+    try {
+      const { error } = await supabase.from("billing_payment_details").upsert({
+        user_id: user.id,
+        display_name: blankToNull(paymentDetails.display_name),
+        bank_name: blankToNull(paymentDetails.bank_name),
+        iban: blankToNull(paymentDetails.iban),
+        crypto_network: blankToNull(paymentDetails.crypto_network),
+        crypto_wallet: blankToNull(paymentDetails.crypto_wallet),
+        payment_link: blankToNull(paymentDetails.payment_link),
+        notes: blankToNull(paymentDetails.notes),
+      });
+      if (error) throw error;
+      return true;
+    } catch (e: any) {
+      toast.error(e?.message || "Unable to save payment details");
+      return false;
+    } finally {
+      setPaymentDetailsSaving(false);
+    }
   };
 
   // ----- PDF export -----
@@ -695,6 +774,8 @@ function TrackerInner({ embedded = false, onClose }: { embedded?: boolean; onClo
                             if ((rateValue ?? null) !== (c.hourly_rate ?? null)) {
                               await updateCategoryRate(c.id, rateValue);
                             }
+                            const savedPaymentDetails = await savePaymentDetails();
+                            if (!savedPaymentDetails) return;
                             setEditingCat(null);
                           }}
                           className="flex-1 space-y-2 min-w-0"
@@ -718,11 +799,82 @@ function TrackerInner({ embedded = false, onClose }: { embedded?: boolean; onClo
                               placeholder="0"
                               className="h-7 flex-1 bg-transparent border-0 px-0 text-right text-[13px] font-mono tabular-nums focus-visible:ring-0 shadow-none"
                             />
-                            <button type="submit" className="p-1.5 text-primary pressable" aria-label="Save category">
-                              <Check className="h-4 w-4" />
+                          </div>
+                          <div className="rounded-xl border border-soft bg-background/25 px-2.5 py-2">
+                            <div className="mb-1.5 flex items-center justify-between gap-2">
+                              <span className="text-[11px] font-semibold text-secondary-fg">Payment details for reports</span>
+                              {!isPro && <span className="text-[10px] font-semibold text-primary">Pro</span>}
+                            </div>
+                            {!isPro ? (
+                              <button
+                                type="button"
+                                onClick={() => setUpgradeOpen(true)}
+                                className="h-8 w-full rounded-lg border border-border/50 text-[11px] font-semibold text-primary pressable"
+                              >
+                                Unlock payment details
+                              </button>
+                            ) : (
+                              <div className="grid grid-cols-1 gap-2">
+                                <Input
+                                  value={paymentDetails.display_name}
+                                  onChange={(e) => updatePaymentField("display_name", e.target.value)}
+                                  placeholder="Payee name or company"
+                                  className="h-8 bg-transparent border-0 px-0 text-[12px] focus-visible:ring-0 shadow-none"
+                                />
+                                <div className="grid grid-cols-2 gap-2">
+                                  <Input
+                                    value={paymentDetails.bank_name}
+                                    onChange={(e) => updatePaymentField("bank_name", e.target.value)}
+                                    placeholder="Bank / Wise"
+                                    className="h-8 bg-transparent border-0 px-0 text-[12px] focus-visible:ring-0 shadow-none"
+                                  />
+                                  <Input
+                                    value={paymentDetails.iban}
+                                    onChange={(e) => updatePaymentField("iban", e.target.value)}
+                                    placeholder="IBAN"
+                                    className="h-8 bg-transparent border-0 px-0 text-[12px] focus-visible:ring-0 shadow-none"
+                                  />
+                                </div>
+                                <div className="grid grid-cols-2 gap-2">
+                                  <Input
+                                    value={paymentDetails.crypto_network}
+                                    onChange={(e) => updatePaymentField("crypto_network", e.target.value)}
+                                    placeholder="Crypto network"
+                                    className="h-8 bg-transparent border-0 px-0 text-[12px] focus-visible:ring-0 shadow-none"
+                                  />
+                                  <Input
+                                    value={paymentDetails.crypto_wallet}
+                                    onChange={(e) => updatePaymentField("crypto_wallet", e.target.value)}
+                                    placeholder="Wallet address"
+                                    className="h-8 bg-transparent border-0 px-0 text-[12px] focus-visible:ring-0 shadow-none"
+                                  />
+                                </div>
+                                <Input
+                                  value={paymentDetails.payment_link}
+                                  onChange={(e) => updatePaymentField("payment_link", e.target.value)}
+                                  placeholder="Payment link: Stripe, PayPal, Wise..."
+                                  className="h-8 bg-transparent border-0 px-0 text-[12px] focus-visible:ring-0 shadow-none"
+                                />
+                                <Input
+                                  value={paymentDetails.notes}
+                                  onChange={(e) => updatePaymentField("notes", e.target.value)}
+                                  placeholder="Notes for client: terms, memo, preferred method..."
+                                  className="h-8 bg-transparent border-0 px-0 text-[12px] focus-visible:ring-0 shadow-none"
+                                />
+                              </div>
+                            )}
+                          </div>
+                          <div className="flex items-center gap-2">
+                            <button
+                              type="submit"
+                              disabled={paymentDetailsSaving}
+                              className="flex-1 h-9 rounded-xl bg-primary text-[12px] font-semibold text-primary-foreground pressable disabled:opacity-60"
+                              aria-label="Save category and billing details"
+                            >
+                              {paymentDetailsSaving ? "Saving..." : "Save"}
                             </button>
-                            <button type="button" onClick={() => setEditingCat(null)} className="p-1.5 text-secondary-fg pressable" aria-label="Cancel">
-                              <X className="h-4 w-4" />
+                            <button type="button" onClick={() => setEditingCat(null)} className="h-9 w-9 rounded-xl border border-border/40 text-secondary-fg pressable" aria-label="Cancel">
+                              <X className="mx-auto h-4 w-4" />
                             </button>
                           </div>
                         </form>
@@ -760,12 +912,26 @@ function TrackerInner({ embedded = false, onClose }: { embedded?: boolean; onClo
                           {!simpleMode && <ChevronDown className={`h-3.5 w-3.5 text-secondary-fg shrink-0 transition-transform ${isOpen ? "rotate-180" : ""}`} />}
                         </LongPressButton>
                       )}
-                      {editingCat === c.id ? null : isActive ? (
-                          <button disabled={stopBusy} onClick={handleStop} className="inline-flex items-center gap-1 px-3 py-1.5 rounded-lg bg-primary text-primary-foreground text-xs font-medium pressable disabled:opacity-50 disabled:pointer-events-none">
-                          <Pause className="h-3 w-3" fill="currentColor" /> Stop
-                        </button>
-                      ) : (
+                      {editingCat === c.id ? null : (
                         <>
+                          <button
+                            onClick={() => {
+                              setEditingName(c.name);
+                              setEditingRate(c.hourly_rate == null ? "" : String(c.hourly_rate));
+                              setEditingCat(c.id);
+                            }}
+                            className="p-1.5 text-secondary-fg hover:text-foreground pressable"
+                            aria-label={`Edit ${c.name} rate`}
+                            title="Edit rate"
+                          >
+                            <Pencil className="h-3.5 w-3.5" />
+                          </button>
+                          {isActive ? (
+                            <button disabled={stopBusy} onClick={handleStop} className="inline-flex items-center gap-1 px-3 py-1.5 rounded-lg bg-primary text-primary-foreground text-xs font-medium pressable disabled:opacity-50 disabled:pointer-events-none">
+                              <Pause className="h-3 w-3" fill="currentColor" /> Stop
+                            </button>
+                          ) : (
+                            <>
                           {!simpleMode && (
                             <button
                               onClick={() => setManualForCat(manualForCat === c.id ? null : c.id)}
@@ -802,6 +968,8 @@ function TrackerInner({ embedded = false, onClose }: { embedded?: boolean; onClo
                             >
                               <Play className="h-3 w-3" fill="currentColor" /> Start
                             </button>
+                          )}
+                            </>
                           )}
                         </>
                       )}

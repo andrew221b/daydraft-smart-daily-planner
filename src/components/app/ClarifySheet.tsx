@@ -48,6 +48,8 @@ interface Props {
   onConfirm: (tasks: ClarifiedTask[], planningContext?: string) => void;
   /** Date the plan is for, YYYY-MM-DD. Used to compute remaining hours. */
   planDate?: string;
+  /** Only clean/split the user's input. Do not add estimate/link/split suggestions. */
+  organizeOnly?: boolean;
 }
 
 // naive parse: extract "30m"/"1h", explicit clock phrases + urgency hints
@@ -89,7 +91,7 @@ function localSplit(input: string): string[] {
     .filter(Boolean);
 }
 
-export function ClarifySheet({ open, onOpenChange, rawInput, onConfirm, planDate }: Props) {
+export function ClarifySheet({ open, onOpenChange, rawInput, onConfirm, planDate, organizeOnly = false }: Props) {
   const initial = useMemo(
     () => localSplit(rawInput).map(parseLine),
     [rawInput],
@@ -148,7 +150,7 @@ export function ClarifySheet({ open, onOpenChange, rawInput, onConfirm, planDate
       try {
         const splitP = invokeWithTimeout("split-tasks", { raw_input: rawInput }, 9000);
         const suggestP =
-          fallback.length > 0
+          !organizeOnly && fallback.length > 0
             ? invokeWithTimeout("suggest-estimates", { tasks: fallback.map((r) => r.title) }, 9000)
             : Promise.resolve({ data: null as any, error: null as any });
 
@@ -180,7 +182,7 @@ export function ClarifySheet({ open, onOpenChange, rawInput, onConfirm, planDate
           setTasks(mergeEstimatesIntoRows(rows, parallelEstimates));
         } else {
           setTasks(rows);
-          if (rows.length > 0) {
+          if (!organizeOnly && rows.length > 0) {
             try {
               const { data, error } = await invokeWithTimeout(
                 "suggest-estimates",
@@ -201,6 +203,7 @@ export function ClarifySheet({ open, onOpenChange, rawInput, onConfirm, planDate
         console.error("planning preflight failed", e);
         if (!cancelled && fallback.length > 0) {
           setTasks(fallback);
+          if (organizeOnly) return;
           try {
             const { data, error } = await invokeWithTimeout(
               "suggest-estimates",
@@ -226,7 +229,7 @@ export function ClarifySheet({ open, onOpenChange, rawInput, onConfirm, planDate
     return () => {
       cancelled = true;
     };
-  }, [open, rawInput]);
+  }, [open, rawInput, organizeOnly]);
 
   const update = (i: number, patch: Partial<Row>) =>
     setTasks(t => t.map((x, idx) => (idx === i ? { ...x, ...patch } : x)));
@@ -321,6 +324,7 @@ export function ClarifySheet({ open, onOpenChange, rawInput, onConfirm, planDate
         notes: task.notes,
         track_time: task.track_time,
       };
+      if (organizeOnly) return [cleaned];
       const suggested = task.ai_split_into || [];
       const shouldSplit = task.estimate_min > 90 || !!task.ai_should_split;
       if (!shouldSplit) return [cleaned];
@@ -355,7 +359,7 @@ export function ClarifySheet({ open, onOpenChange, rawInput, onConfirm, planDate
               {(loadingAI || splitting) && <Loader2 className="h-4 w-4 animate-spin text-primary" />}
             </SheetTitle>
             <SheetDescription className="text-[12.5px] leading-[1.5] text-secondary-fg">
-              {splitting ? "AI is splitting your tasks…" : "Drag to reorder · top = highest priority"} ·{" "}
+              {splitting ? "Organizing your plan…" : "Review, edit, then build your blocks"} ·{" "}
               <span className={overCapacity ? "text-destructive font-medium" : "text-primary font-medium"}>
                 {hours > 0 ? `${hours}h ` : ""}{mins}m total
               </span>
@@ -390,7 +394,7 @@ export function ClarifySheet({ open, onOpenChange, rawInput, onConfirm, planDate
               aria-expanded={contextOpen}
             >
               <span className="flex items-center gap-1.5">
-                <Sparkles className="h-3 w-3" /> For the AI {planningContext.trim() ? "· added" : "(optional)"}
+                {!organizeOnly && <Sparkles className="h-3 w-3" />} Constraints {planningContext.trim() ? "· added" : "(optional)"}
               </span>
               {contextOpen ? <ChevronUp className="h-3.5 w-3.5" /> : <ChevronDown className="h-3.5 w-3.5" />}
             </button>
@@ -399,7 +403,7 @@ export function ClarifySheet({ open, onOpenChange, rawInput, onConfirm, planDate
                 id="planning-context-ai"
                 value={planningContext}
                 onChange={(e) => setPlanningContext(e.target.value)}
-                placeholder="Deadlines, constraints, low energy, whatever changes the shape of the day."
+                placeholder="Deadlines, fixed times, constraints, low energy..."
                 rows={2}
                 className="mt-1 mb-2 resize-none rounded-xl border-soft bg-muted/30 text-[13px] leading-relaxed"
               />
@@ -443,9 +447,7 @@ export function ClarifySheet({ open, onOpenChange, rawInput, onConfirm, planDate
             {hasPastFixed ? (
               "Fix past times to continue"
             ) : (
-              <>
-                Build plan <Sparkles className="ml-1 h-4 w-4" />
-              </>
+              organizeOnly ? "Build blocks" : <>Build blocks <Sparkles className="ml-1 h-4 w-4" /></>
             )}
           </Button>
         </div>

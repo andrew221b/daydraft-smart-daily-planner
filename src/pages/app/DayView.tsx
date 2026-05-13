@@ -706,14 +706,6 @@ export default function DayView() {
             )}
           </div>
           <div className="flex items-center shrink-0 gap-0.5">
-            <button
-              type="button"
-              onClick={() => { setAskAiContext(null); setAskAiOpen(true); }}
-              className="h-10 w-10 rounded-full flex items-center justify-center text-secondary-fg/90 hover:text-primary hover:bg-muted/40 pressable transition-colors"
-              aria-label="Ask AI"
-            >
-              <Sparkles className="h-4 w-4" />
-            </button>
             {!calmMode && !planMissing && blocks.length > 0 && (
               <button
                 type="button"
@@ -724,14 +716,15 @@ export default function DayView() {
                 <Copy className="h-4 w-4" />
               </button>
             )}
-            <button
-              onClick={() => setMoreOpen(true)}
-              disabled={planMissing}
-              className="h-10 w-10 rounded-full flex items-center justify-center text-secondary-fg/90 hover:text-foreground hover:bg-muted/40 pressable disabled:opacity-30 transition-colors"
-              aria-label="More"
-            >
-              <MoreHorizontal className="h-5 w-5" />
-            </button>
+            {!planMissing && (
+              <button
+                onClick={() => setMoreOpen(true)}
+                className="h-10 w-10 rounded-full flex items-center justify-center text-secondary-fg/90 hover:text-foreground hover:bg-muted/40 pressable transition-colors"
+                aria-label="More"
+              >
+                <MoreHorizontal className="h-5 w-5" />
+              </button>
+            )}
           </div>
         </div>
       </div>
@@ -777,30 +770,16 @@ export default function DayView() {
               {isToday ? "Empty day" : friendlyDateFor(parseDateStr(viewDate))}
             </div>
             <p className="text-[12px] text-secondary-fg/80 mt-2 leading-relaxed">
-              Add tasks one by one, or paste a whole task dump and review it as a list.
+              Write your plan however it comes out. We'll clean it up into separate blocks for review.
             </p>
-            <div className="mt-6 grid grid-cols-2 gap-2">
+            <div className="mt-6">
               <Button
-                onClick={() => setAddOpen(true)}
-                className="h-11 rounded-2xl bg-primary hover:bg-primary/92 text-primary-foreground text-[13px] font-medium pressable"
-              >
-                <Plus className="h-4 w-4 mr-1" /> One task
-              </Button>
-              <Button
-                variant="outline"
                 onClick={() => setBulkOpen(true)}
-                className="h-11 rounded-2xl border-border/50 text-[13px] font-medium pressable"
+                className="h-11 w-full rounded-2xl bg-primary hover:bg-primary/92 text-primary-foreground text-[13px] font-medium pressable"
               >
-                <ListPlus className="h-4 w-4 mr-1" /> Paste tasks
+                <ListPlus className="h-4 w-4 mr-1" /> Write plan
               </Button>
             </div>
-            <button
-              type="button"
-              onClick={() => { setAskAiContext(null); setAskAiOpen(true); }}
-              className="mt-3 text-[12px] text-primary/90 font-medium hover:underline pressable"
-            >
-              Or ask AI for ideas
-            </button>
           </div>
         )}
 
@@ -1045,24 +1024,24 @@ export default function DayView() {
         <SheetContent side="bottom" className="rounded-t-[28px] border-border/45 bg-popover">
           <SheetHeader className="text-left">
             <SheetTitle className="flex items-center gap-2 text-[16px]">
-              <ListPlus className="h-4 w-4 text-primary" /> Paste task list
+              <ListPlus className="h-4 w-4 text-primary" /> Write your plan
             </SheetTitle>
           </SheetHeader>
           <div className="mt-4 space-y-3">
             <p className="text-[12px] leading-relaxed text-secondary-fg">
-              Write one task per line, or paste a messy list. You'll review the parsed tasks before they become blocks.
+              Type it naturally: messy notes, bullets, times, or a task dump. We'll only clean and organize what you wrote.
             </p>
             <Textarea
               autoFocus
               value={bulkInput}
               onChange={(e) => setBulkInput(e.target.value)}
-              placeholder={"Nike review 45m\nEmail client 20m\nPrepare invoice at 16:00"}
+              placeholder={"finish Nike review 45m\ncall Alex after lunch\ninvoice client at 16:00\nquick cleanup"}
               className="min-h-[150px] rounded-2xl border-soft bg-card text-[14px]"
             />
             <Button
               onClick={() => {
                 if (!bulkInput.trim()) {
-                  toast.error("Paste at least one task");
+                  toast.error("Write at least one task");
                   return;
                 }
                 setClarifyOpen(true);
@@ -1070,7 +1049,7 @@ export default function DayView() {
               disabled={planMutating}
               className="w-full h-11 rounded-2xl bg-primary hover:bg-primary/92 text-primary-foreground font-medium pressable"
             >
-              Review list
+              Organize plan
             </Button>
           </div>
         </SheetContent>
@@ -1081,6 +1060,7 @@ export default function DayView() {
         onOpenChange={setClarifyOpen}
         rawInput={bulkInput}
         planDate={viewDate}
+        organizeOnly
         onConfirm={(tasks) => void addClarifiedTasks(tasks)}
       />
 

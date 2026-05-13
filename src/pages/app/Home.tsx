@@ -7,15 +7,14 @@ import { PullToRefresh } from "@/components/app/PullToRefresh";
 import { useAuth } from "@/hooks/useAuth";
 import { useProfile } from "@/hooks/useProfile";
 import { useTour, TOUR_TODAY } from "@/components/app/Tour";
-import { todayDateStr, type Block, isUserTaskDone, isOpenUserTask } from "@/lib/daydraft";
+import { todayDateStr, type Block } from "@/lib/daydraft";
 import { fetchPlanDashboard, planDashboardQueryKey } from "@/lib/planQueries";
 import { supabase } from "@/integrations/supabase/client";
 import { applyAutoMissedBlocks } from "@/lib/blockResolution";
 import { greetingFor, getTone } from "@/lib/tone";
-import { CalendarDays, Sparkles, ChevronRight } from "lucide-react";
 import { fmtHM, useTimeTracker } from "@/hooks/useTimeTracker";
 
-/** Tracker is the hero. Plan is a small companion strip below. */
+/** Tracker is the hero. */
 export default function Home() {
   const { user } = useAuth();
   const { profile } = useProfile();
@@ -48,11 +47,6 @@ export default function Home() {
     staleTime: 30_000,
   });
   const blocks = planData?.planBlocks ?? [];
-  const hasPlan = planData?.hasPlanForDate ?? false;
-
-  const tasks = blocks.filter((b) => (b as Block).kind === "task" && !(b as Block).is_calendar_event);
-  const done = tasks.filter((b) => isUserTaskDone(b as Block)).length;
-  const allTasksDone = tasks.length > 0 && tasks.every((b) => !isOpenUserTask(b as Block));
 
   useEffect(() => {
     if (!user?.id) return;
@@ -139,13 +133,6 @@ export default function Home() {
             <div className="mt-3 rounded-2xl border border-border/30 bg-card/30 px-4 py-3">
               <div className="flex items-center justify-between mb-2">
                 <span className="text-[10px] font-semibold uppercase tracking-[0.18em] text-secondary-fg/70">Today</span>
-                <button
-                  type="button"
-                  onClick={() => nav("/history")}
-                  className="text-[11px] font-medium text-secondary-fg/80 hover:text-foreground pressable"
-                >
-                  Details →
-                </button>
               </div>
               <ul className="space-y-1.5">
                 {breakdown.map((row) => (
@@ -161,55 +148,6 @@ export default function Home() {
               </ul>
             </div>
           )}
-
-          {/* Subtle plan companion */}
-          <div className="mt-3">
-            {hasPlan ? (
-              <button
-                type="button"
-                data-tour="home-plan-cta"
-                onClick={() => nav("/today/plan")}
-                className="group w-full flex items-center justify-between gap-3 rounded-2xl border border-border/30 bg-muted/[0.05] px-4 py-2.5 hover:bg-muted/[0.12] transition-colors pressable"
-              >
-                <div className="flex items-center gap-3 min-w-0">
-                  <div className="flex h-8 w-8 shrink-0 items-center justify-center rounded-lg bg-primary/[0.1] text-primary">
-                    <CalendarDays className="h-4 w-4" />
-                  </div>
-                  <div className="min-w-0 text-left">
-                    <p className="text-[13px] font-medium text-foreground/90 leading-tight">
-                      {allTasksDone ? "Day complete" : "Today’s plan"}
-                    </p>
-                    <p className="text-[11px] text-secondary-fg/75 leading-tight mt-0.5 tabular-nums">
-                      {done}/{tasks.length} tasks
-                    </p>
-                  </div>
-                </div>
-                <ChevronRight className="h-4 w-4 text-secondary-fg/60 group-hover:text-foreground transition-colors" />
-              </button>
-            ) : (
-              <button
-                type="button"
-                data-tour="home-plan-cta"
-                onClick={() => nav("/today")}
-                className="group w-full flex items-center justify-between gap-3 rounded-2xl border border-dashed border-border/40 bg-transparent px-4 py-2.5 hover:border-border/70 hover:bg-muted/[0.06] transition-colors pressable"
-              >
-                <div className="flex items-center gap-3 min-w-0">
-                  <div className="flex h-8 w-8 shrink-0 items-center justify-center rounded-lg bg-foreground/[0.05] text-foreground/70">
-                    <Sparkles className="h-4 w-4" />
-                  </div>
-                  <div className="min-w-0 text-left">
-                    <p className="text-[13px] font-medium text-foreground/90 leading-tight">
-                      Plan the day
-                    </p>
-                    <p className="text-[11px] text-secondary-fg/75 leading-tight mt-0.5">
-                      Optional companion
-                    </p>
-                  </div>
-                </div>
-                <ChevronRight className="h-4 w-4 text-secondary-fg/55 group-hover:text-foreground transition-colors" />
-              </button>
-            )}
-          </div>
         </div>
       </PullToRefresh>
     </Shell>

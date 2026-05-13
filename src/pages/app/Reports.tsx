@@ -53,7 +53,6 @@ export default function Reports() {
   const { user } = useAuth();
   const { isPro } = useEntitlement();
   const [period, setPeriod] = useState<Period>("week");
-  const [selectedCategoryIds, setSelectedCategoryIds] = useState<Set<string>>(() => new Set());
   const [expandedCategoryIds, setExpandedCategoryIds] = useState<Set<string>>(() => new Set());
   const [upgradeOpen, setUpgradeOpen] = useState(false);
   const range = useMemo(() => periodRange(period), [period]);
@@ -208,21 +207,6 @@ export default function Reports() {
     return Array.from(groups.values()).sort((a, b) => b.sec - a.sec);
   }, [entries, catMap]);
 
-  const activeCategoryIds = useMemo(() => byCategory.map((c) => c.id), [byCategory]);
-  const selectedActiveIds = useMemo(
-    () => activeCategoryIds.filter((id) => selectedCategoryIds.has(id)),
-    [activeCategoryIds, selectedCategoryIds],
-  );
-
-  const toggleCategorySelected = (id: string) => {
-    setSelectedCategoryIds((prev) => {
-      const next = new Set(prev);
-      if (next.has(id)) next.delete(id);
-      else next.add(id);
-      return next;
-    });
-  };
-
   const toggleCategoryExpanded = (id: string) => {
     setExpandedCategoryIds((prev) => {
       const next = new Set(prev);
@@ -231,9 +215,6 @@ export default function Reports() {
       return next;
     });
   };
-
-  const selectAllCategories = () => setSelectedCategoryIds(new Set(activeCategoryIds));
-  const clearSelectedCategories = () => setSelectedCategoryIds(new Set());
 
   const buildPayload = (categoryIds?: string[], scopeLabel = "All categories"): ReportPayload => {
     const idSet = categoryIds?.length ? new Set(categoryIds) : null;
@@ -357,17 +338,19 @@ export default function Reports() {
                     By category
                   </p>
                   <p className="mt-1 text-[11px] text-secondary-fg/70">
-                    Select categories to export only that slice of tracker history.
+                    Expand a category to see its tracker history for this period.
                   </p>
                 </div>
-                <div className="flex shrink-0 items-center gap-2 text-[11px] font-semibold">
-                  <button type="button" onClick={selectAllCategories} className="text-primary pressable">
-                    All
-                  </button>
-                  <button type="button" onClick={clearSelectedCategories} className="text-secondary-fg/80 pressable">
-                    Clear
-                  </button>
-                </div>
+                <button
+                  type="button"
+                  onClick={() => {
+                    if (expandedCategoryIds.size === categoryGroups.length) setExpandedCategoryIds(new Set());
+                    else setExpandedCategoryIds(new Set(categoryGroups.map((g) => g.id)));
+                  }}
+                  className="shrink-0 text-[11px] font-semibold text-primary pressable"
+                >
+                  {expandedCategoryIds.size === categoryGroups.length ? "Collapse all" : "Expand all"}
+                </button>
               </div>
               {/* Stacked bar */}
               <div className="h-2 w-full rounded-full overflow-hidden flex bg-muted/40 mb-3">
@@ -380,56 +363,88 @@ export default function Reports() {
                 ))}
               </div>
               <ul className="space-y-2">
-                {byCategory.map((c) => (
-                  <li key={c.id} className="rounded-2xl border border-border/35 bg-background/30 px-3 py-3">
-                    <div className="flex items-start gap-3">
-                      <input
-                        type="checkbox"
-                        checked={selectedCategoryIds.has(c.id)}
-                        onChange={() => toggleCategorySelected(c.id)}
-                        className="mt-0.5 h-4 w-4 rounded border-border accent-primary"
-                        aria-label={`Select ${c.name} for export`}
-                      />
+                {categoryGroups.map((group) => {
+                  const isOpen = expandedCategoryIds.has(group.id);
+                  const pct = totalSec > 0 ? group.sec / totalSec : 0;
+                  return (
+                  <li key={group.id} className="overflow-hidden rounded-2xl border border-border/35 bg-background/30">
+                    <button
+                      type="button"
+                      onClick={() => toggleCategoryExpanded(group.id)}
+                      className="flex w-full items-start gap-3 px-3 py-3 text-left pressable"
+                      aria-expanded={isOpen}
+                    >
                       <span
                         className="mt-1.5 h-2.5 w-2.5 rounded-full shrink-0"
-                        style={{ background: c.color }}
+                        style={{ background: group.color }}
                       />
                       <div className="min-w-0 flex-1">
                         <div className="flex items-baseline justify-between gap-3">
                           <span className="text-[13px] font-semibold text-foreground/95 truncate">
-                            {c.name}
+                            {group.name}
                           </span>
                           <span className="text-[12px] tabular-nums text-secondary-fg/85 shrink-0">
-                            {fmtHM(c.sec)}
+                            {fmtHM(group.sec)}
                           </span>
                         </div>
                         <div className="mt-1 flex flex-wrap items-center gap-x-3 gap-y-1 text-[11px] tabular-nums text-secondary-fg/70">
-                          <span>{(c.pct * 100).toFixed(0)}% of period</span>
-                          {c.hourlyRate ? <span>{fmtMoney(c.hourlyRate)}/h</span> : <span>No rate</span>}
-                          {c.earnings > 0 && <span className="font-semibold text-primary">{fmtMoney(c.earnings)} earned</span>}
+                          <span>{(pct * 100).toFixed(0)}% of period</span>
+                          <span>{group.entries.length} session{group.entries.length === 1 ? "" : "s"}</span>
+                          {group.hourlyRate ? <span>{fmtMoney(group.hourlyRate)}/h</span> : <span>No rate</span>}
+                          {group.earnings > 0 && <span className="font-semibold text-primary">{fmtMoney(group.earnings)} earned</span>}
                         </div>
                       </div>
-                    </div>
-                    <div className="mt-3 grid grid-cols-2 gap-2 pl-9">
-                      <button
-                        type="button"
-                        onClick={() => onExport("pdf", [c.id], c.name)}
-                        className="h-8 rounded-xl border border-border/40 text-[11px] font-semibold text-secondary-fg/85 pressable hover:text-foreground"
-                        aria-label={`Download PDF report for ${c.name}`}
-                      >
-                        PDF
-                      </button>
-                      <button
-                        type="button"
-                        onClick={() => onExport("csv", [c.id], c.name)}
-                        className="h-8 rounded-xl border border-border/40 text-[11px] font-semibold text-secondary-fg/85 pressable hover:text-foreground"
-                        aria-label={`Download CSV report for ${c.name}`}
-                      >
-                        CSV
-                      </button>
-                    </div>
+                      <ChevronDown className={`mt-0.5 h-4 w-4 shrink-0 text-secondary-fg transition-transform ${isOpen ? "rotate-180" : ""}`} />
+                    </button>
+                    {isOpen && (
+                      <div className="border-t border-border/30">
+                        <ul className="divide-y divide-border/30">
+                          {group.entries.map((e) => {
+                            const s = new Date(e.started_at);
+                            const en = e.ended_at ? new Date(e.ended_at) : new Date();
+                            const sec = Math.max(0, (en.getTime() - s.getTime()) / 1000);
+                            const earned = ((group.hourlyRate || 0) * sec) / 3600;
+                            return (
+                              <li key={e.id} className="flex items-center gap-3 px-4 py-2.5">
+                                <div className="min-w-0 flex-1">
+                                  <p className="text-[11px] text-secondary-fg/75 tabular-nums">
+                                    {s.toLocaleDateString(undefined, { month: "short", day: "numeric" })} ·{" "}
+                                    {s.toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })} -{" "}
+                                    {en.toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })}
+                                  </p>
+                                  {e.note && <p className="mt-0.5 truncate text-[12px] text-foreground/80">{e.note}</p>}
+                                </div>
+                                <span className="text-right">
+                                  <span className="block text-[12px] tabular-nums text-secondary-fg/85">{fmtHM(sec)}</span>
+                                  {earned > 0 && <span className="block text-[10px] tabular-nums text-primary">{fmtMoney(earned)}</span>}
+                                </span>
+                              </li>
+                            );
+                          })}
+                        </ul>
+                        <div className="grid grid-cols-2 gap-2 px-4 py-3">
+                          <button
+                            type="button"
+                            onClick={() => onExport("pdf", [group.id], group.name)}
+                            className="h-8 rounded-xl border border-border/40 text-[11px] font-semibold text-secondary-fg/85 pressable hover:text-foreground"
+                            aria-label={`Download PDF report for ${group.name}`}
+                          >
+                            PDF
+                          </button>
+                          <button
+                            type="button"
+                            onClick={() => onExport("csv", [group.id], group.name)}
+                            className="h-8 rounded-xl border border-border/40 text-[11px] font-semibold text-secondary-fg/85 pressable hover:text-foreground"
+                            aria-label={`Download CSV report for ${group.name}`}
+                          >
+                            CSV
+                          </button>
+                        </div>
+                      </div>
+                    )}
                   </li>
-                ))}
+                  );
+                })}
               </ul>
             </section>
           ) : (
@@ -485,87 +500,6 @@ export default function Reports() {
             </section>
           )}
 
-          {/* Tracker history by category */}
-          {categoryGroups.length > 0 && (
-            <section>
-              <div className="mb-2 flex items-end justify-between gap-3">
-                <div>
-                  <p className="text-[11px] font-semibold uppercase tracking-[0.16em] text-secondary-fg/70">
-                    Tracker history
-                  </p>
-                  <p className="mt-1 text-[11px] text-secondary-fg/70">
-                    Collapsed by category so long reports stay readable.
-                  </p>
-                </div>
-                <button
-                  type="button"
-                  onClick={() => {
-                    if (expandedCategoryIds.size === categoryGroups.length) setExpandedCategoryIds(new Set());
-                    else setExpandedCategoryIds(new Set(categoryGroups.map((g) => g.id)));
-                  }}
-                  className="shrink-0 text-[11px] font-semibold text-primary pressable"
-                >
-                  {expandedCategoryIds.size === categoryGroups.length ? "Collapse all" : "Expand all"}
-                </button>
-              </div>
-              <div className="space-y-2">
-                {categoryGroups.map((group) => {
-                  const isOpen = expandedCategoryIds.has(group.id);
-                  return (
-                    <div key={group.id} className="overflow-hidden rounded-2xl border border-border/40 bg-card/20">
-                      <button
-                        type="button"
-                        onClick={() => toggleCategoryExpanded(group.id)}
-                        className="flex w-full items-center gap-3 px-4 py-3 text-left pressable"
-                        aria-expanded={isOpen}
-                      >
-                        <span className="h-2.5 w-2.5 shrink-0 rounded-full" style={{ background: group.color }} />
-                        <span className="min-w-0 flex-1">
-                          <span className="block truncate text-[13px] font-semibold text-foreground/95">{group.name}</span>
-                          <span className="text-[11px] text-secondary-fg/70">
-                            {group.entries.length} session{group.entries.length === 1 ? "" : "s"}
-                            {group.hourlyRate ? ` · ${fmtMoney(group.hourlyRate)}/h` : ""}
-                          </span>
-                        </span>
-                        <span className="text-right">
-                          <span className="block font-mono text-[12px] tabular-nums text-secondary-fg/85">{fmtHM(group.sec)}</span>
-                          {group.earnings > 0 && <span className="block font-mono text-[10px] tabular-nums text-primary">{fmtMoney(group.earnings)}</span>}
-                        </span>
-                        <ChevronDown className={`h-4 w-4 shrink-0 text-secondary-fg transition-transform ${isOpen ? "rotate-180" : ""}`} />
-                      </button>
-                      {isOpen && (
-                        <ul className="divide-y divide-border/30 border-t border-border/30">
-                          {group.entries.map((e) => {
-                            const s = new Date(e.started_at);
-                            const en = e.ended_at ? new Date(e.ended_at) : new Date();
-                            const sec = Math.max(0, (en.getTime() - s.getTime()) / 1000);
-                            const earned = ((group.hourlyRate || 0) * sec) / 3600;
-                            return (
-                              <li key={e.id} className="flex items-center gap-3 px-4 py-2.5">
-                                <div className="min-w-0 flex-1">
-                                  <p className="text-[11px] text-secondary-fg/75 tabular-nums">
-                                    {s.toLocaleDateString(undefined, { month: "short", day: "numeric" })} ·{" "}
-                                    {s.toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })} -{" "}
-                                    {en.toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })}
-                                  </p>
-                                  {e.note && <p className="mt-0.5 truncate text-[12px] text-foreground/80">{e.note}</p>}
-                                </div>
-                                <span className="text-right">
-                                  <span className="block text-[12px] tabular-nums text-secondary-fg/85">{fmtHM(sec)}</span>
-                                  {earned > 0 && <span className="block text-[10px] tabular-nums text-primary">{fmtMoney(earned)}</span>}
-                                </span>
-                              </li>
-                            );
-                          })}
-                        </ul>
-                      )}
-                    </div>
-                  );
-                })}
-              </div>
-            </section>
-          )}
-
           {/* Export */}
           <section className="space-y-2 pt-2">
             <div className="rounded-2xl border border-border/40 bg-card/25 px-4 py-3">
@@ -573,9 +507,7 @@ export default function Reports() {
                 Export scope
               </div>
               <div className="mt-1 text-[13px] text-foreground/90">
-                {selectedActiveIds.length > 0
-                  ? `${selectedActiveIds.length} selected categor${selectedActiveIds.length === 1 ? "y" : "ies"}`
-                  : "All categories"}
+                All categories
               </div>
               {!isPro && (
                 <p className="mt-1 text-[11px] text-secondary-fg/70">
@@ -597,22 +529,6 @@ export default function Reports() {
               className="h-11 rounded-2xl border-border/50 text-[13px] font-medium"
             >
               <Download className="h-4 w-4 mr-1.5" /> {isPro ? "All CSV" : "Pro CSV"}
-            </Button>
-            <Button
-              variant="outline"
-              disabled={selectedActiveIds.length === 0}
-              onClick={() => onExport("pdf", selectedActiveIds, `${selectedActiveIds.length} selected categories`)}
-              className="h-11 rounded-2xl border-border/50 text-[13px] font-medium disabled:opacity-40"
-            >
-              <FileText className="h-4 w-4 mr-1.5" /> Selected PDF
-            </Button>
-            <Button
-              variant="outline"
-              disabled={selectedActiveIds.length === 0}
-              onClick={() => onExport("csv", selectedActiveIds, `${selectedActiveIds.length} selected categories`)}
-              className="h-11 rounded-2xl border-border/50 text-[13px] font-medium disabled:opacity-40"
-            >
-              <Download className="h-4 w-4 mr-1.5" /> Selected CSV
             </Button>
             </div>
           </section>
