@@ -419,6 +419,7 @@ export default function DayView() {
       if (insertErr) throw insertErr;
       await persistOrder(next);
       await invalidatePlanCaches();
+      await refetch();
     } catch (e: any) {
       setBlocks(snapshot);
       toast.error(e?.message || "Unable to add block");
@@ -677,22 +678,27 @@ export default function DayView() {
         className="min-h-0 flex-1 overflow-y-auto overscroll-y-contain px-6 pb-[calc(96px+env(safe-area-inset-bottom))] [-webkit-overflow-scrolling:touch] pt-8"
       >
         {planMissing && (
-          <div className="rounded-[22px] border border-dashed border-border/50 bg-muted/[0.1] px-6 py-8 text-center">
-            <CalendarDays className="h-6 w-6 mx-auto text-secondary-fg/70 mb-3 opacity-80" />
+          <div className="rounded-[22px] border border-dashed border-border/50 bg-muted/[0.06] px-6 py-10 text-center">
+            <CalendarDays className="h-7 w-7 mx-auto text-secondary-fg/70 mb-3 opacity-80" />
             <div className="text-[15px] font-medium text-foreground/95 tracking-tight">
-              {isFuture ? `No plan for ${friendlyDateFor(parseDateStr(viewDate))} yet`
-                : isToday ? "No plan for today yet"
-                : `No plan for ${friendlyDateFor(parseDateStr(viewDate))}`}
+              {isToday ? "Empty day" : friendlyDateFor(parseDateStr(viewDate))}
             </div>
             <p className="text-[12px] text-secondary-fg/80 mt-2 leading-relaxed">
-              {isToday || isFuture ? "Head back to the planner to shape this day." : "This day was never planned."}
+              Add tasks and breaks one by one. You're in charge.
             </p>
             <Button
-              onClick={() => nav(isToday ? "/today" : `/today?date=${viewDate}`)}
+              onClick={() => setAddOpen(true)}
               className="mt-6 h-11 px-5 rounded-2xl bg-primary hover:bg-primary/92 text-primary-foreground text-[13px] font-medium pressable"
             >
-              Open planner
+              <Plus className="h-4 w-4 mr-1" /> Add first task
             </Button>
+            <button
+              type="button"
+              onClick={() => { setAskAiContext(null); setAskAiOpen(true); }}
+              className="mt-3 text-[12px] text-primary/90 font-medium hover:underline pressable"
+            >
+              Or ask AI for ideas
+            </button>
           </div>
         )}
 
@@ -768,9 +774,9 @@ export default function DayView() {
           className="fixed left-1/2 -translate-x-1/2 w-full max-w-[440px] px-6 z-30"
           style={{ bottom: "calc(84px + env(safe-area-inset-bottom))" }}
         >
-          <Button onClick={() => nav(isToday ? "/recap" : `/recap?date=${viewDate}`)} className="w-full h-12 rounded-2xl bg-success text-success-foreground hover:bg-success/90 text-[15px] font-medium pressable">
-            {toneCopy(getTone(profile as any), "recap_cta")} →
-          </Button>
+          <div className="w-full h-12 rounded-2xl bg-success/15 text-success border border-success/30 flex items-center justify-center text-[14px] font-medium">
+            All done for today ✓
+          </div>
         </div>
       )}
 
