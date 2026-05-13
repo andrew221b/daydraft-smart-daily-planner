@@ -8,7 +8,7 @@ import {
   Block, fmtTime, todayDateStr, parseDateStr, friendlyDateFor, isFutureDateStr, isUserTask, isOpenUserTask, isUserTaskDone, inferScheduleBlockType, packLinearSchedule,
   blockSlotEndHHMM,
 } from "@/lib/daydraft";
-import { ChevronLeft, Sparkles, Play, RefreshCw, Plus, Coffee, CalendarDays, Trash2, Bell, BellOff, MoreHorizontal, Clock, Info, MapPin, Copy } from "lucide-react";
+import { ChevronLeft, Play, Plus, Coffee, CalendarDays, Trash2, Bell, BellOff, MoreHorizontal, Clock, MapPin, Copy, Sparkles } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { DndContext, closestCenter, PointerSensor, TouchSensor, useSensor, useSensors, DragEndEvent, DragStartEvent } from "@dnd-kit/core";
 import { SortableContext, arrayMove, verticalListSortingStrategy } from "@dnd-kit/sortable";
@@ -42,8 +42,8 @@ import { resolveActualMinutesOnComplete, wallMinutesFromSlotStart } from "@/lib/
 import { useCalmMode } from "@/lib/calmMode";
 import { useEntitlement } from "@/hooks/useEntitlement";
 import { UpgradeSheet } from "@/components/app/UpgradeSheet";
-import { trackAiEvent } from "@/lib/aiRuntime";
 import { setDndBodyScrollLock } from "@/lib/dndScrollLock";
+import { AskAiSheet } from "@/components/app/AskAiSheet";
 
 type ExBlock = Block & {
   ai_reasoning?: string | null;
@@ -97,6 +97,8 @@ export default function DayView() {
   const [startTimeDraft, setStartTimeDraft] = useState<string>("09:00");
   const [upgradeOpen, setUpgradeOpen] = useState(false);
   const [planMutating, setPlanMutating] = useState(false);
+  const [askAiOpen, setAskAiOpen] = useState(false);
+  const [askAiContext, setAskAiContext] = useState<string | null>(null);
   const blockOpLocksRef = useRef(new Set<string>());
   const [calmMode] = useCalmMode();
   const { isPro } = useEntitlement();
