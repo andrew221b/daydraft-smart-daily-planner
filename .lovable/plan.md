@@ -1,70 +1,91 @@
+# Переделка: ручной планер + AI-помощник + новая вкладка Reports
 
-## Что меняем
+## 1. ИИ больше не строит план
 
-### 1. Навигация и «где мой план»
-- На странице просмотра плана (DayView, RecapWeek, History детали) — добавить явную кнопку «Назад» в шапке (стрелка слева + заголовок).
-- В календаре истории/планировщика — визуально помечать дни, для которых уже есть план: точка-индикатор под датой (цвет primary). Уже запланированные будущие дни — такая же точка.
-- На карточке выбора даты в Today — показывать «План готов» бейджем, если на дату уже есть blocks.
+**Удаляю автогенерацию:**
+- Кнопка "Design my day" / "Generate plan" — убрана везде (Today, Planning, Home).
+- `ClarifySheet` (превью + утверждение AI-плана) — удалён.
+- `PlanDriftNudge` (AI «перестроить день») — удалён.
+- `Planning.tsx` страница (raw input → AI) — удалена, маршрут `/today/planning` редиректит на `/today`.
+- Edge function `generate-plan` — оставляю файл (для обратной совместимости с историей), но клиент её больше не вызывает. Убираю все импорты.
+- Recap / RecapWeek / TodayInsight / yesterday-debrief / plan-drift / suggest-estimates — снимаю с UI (страницы остаются недоступны через навигацию). Маршруты `/recap*` редиректят на `/reports`.
 
-### 2. Трекер времени = главный экран
-- Поменять стартовый роут с `/today` на `/tracker`.
-- В TabBar поставить «Трекер» первым пунктом, иконка и подпись слева.
-- Today/Plan становятся вторичными, но остаются доступны.
+**Что остаётся от AI (помощник, не строитель):**
+- **AskAI чат-кнопка** в углу страницы Plan — открывает Sheet с чатом. Использует Lovable AI (`google/gemini-2.5-flash`). Может: посоветовать порядок, оценить время задачи, разбить большую задачу на шаги, предложить перерывы. Никогда не вставляет блоки сама — отвечает текстом, юзер копирует/решает.
+- **Inline-помощь на блоке**: при тэпе на «…» в карточке блока — пункт «Ask AI about this» (оценить длительность / разбить на подзадачи, ответ показывается в том же sheet, юзер сам применяет).
+- Новый edge function `ai-assist` принимает `{ mode: 'chat' | 'estimate' | 'split', messages?, block? }` и стримит/возвращает текст. Замена для всех старых AI-функций в UI.
 
-### 3. AI-парсинг времени из свалки задач
-- В `generate-plan` edge-функции усилить промпт: если в строке задачи встречается явное время («в 15:00», «к 9 утра», «3pm», «после обеда»), AI обязан использовать его как `start_time` и не сдвигать.
-- Поддержка параллельных событий: если две задачи имеют пересекающееся время, помечать вторую как `parallel: true` и в плане показывать их рядом, а не последовательно. Добавить визуальный индикатор «параллельно с …» на карточке блока.
+## 2. Plan теперь полностью ручной
 
-### 4. Задачи без таймера, только окно времени
-- Новый режим блока `kind: "reminder"` — у него есть `start_time` и `duration_min`, но нет таймера/Focus-режима. За 2 минуты до конца — push-уведомление «время заканчивается».
-- В композере задач добавить переключатель «Напоминание / Фокус-задача».
-- Расчёт «время заканчивается» — на клиенте через существующий `blockReminders.ts`, но для Capacitor — через локальные нотификации (если установлено), фолбэк на Web Notifications.
+Страница `/today/plan` (DayView) становится главным «планером»:
+- При открытии — если плана на сегодня нет, создаём пустой `plan` row (без AI).
+- Список блоков (как сейчас) + крупная кнопка **«+ Add block»**: bottom sheet с полями Time, Duration, Title, Category, Type (task / break / meeting). Сохраняет напрямую в `blocks`.
+- Drag & drop сортировка остаётся (`SortableBlock`).
+- Тэп на время в карточке — меняет start_time (как сейчас).
+- Свайп — удалить / completed.
+- Удалить упоминания "AI rebuilt", reasoning плашки, ai_reasoning поле в UI (поле в БД остаётся, просто не показываем).
+- `Today.tsx` (overview без блоков) сводится к одному короткому summary и редиректит на `/today/plan`. Маршрут `/today` показывает сразу DayView.
 
-### 5. Чистка Pro
-- Убрать `ProBadge` из шапки Today.
-- Убрать `ProCard` из топа Settings — оставить только маленькую ссылку «Upgrade» внизу секции «More».
-- Убрать `Rescue my day` (PlanDriftNudge) полностью — компонент и его вызовы.
-- Убрать «One thing mode» из каталога Pro — это был отдельный focus-фуллскрин, который дублирует обычный Focus. Удалить ссылки/баннеры.
+## 3. Навигация — 4 таба
 
-### 6. AI-персонализация
-- В Settings → AI tone уже есть тон. Добавить второе поле: «Что AI должен учитывать про тебя» (free-text, до 500 символов) — пишется в `profile.ai_context_custom`.
-- Это поле подмешивается в системный промпт всех AI-функций (generate-plan, generate-insight, task-assistant).
+`TabBar.tsx`:
+```
+Track (Timer)  |  Plan (CalendarDays)  |  Reports (BarChart3)  |  Settings (Settings)
+```
+- Track = `/home` (HomeTrackerHero без plan-companion и без today-categories — переезжают в Reports/Plan).
+- Plan = `/today` → редирект на `/today/plan` (DayView).
+- Reports = `/reports` (новая страница).
+- Settings = `/settings`.
 
-### 7. Минимализм и меньше скролла
-- Today: схлопнуть верхний герой-блок до одной строки (приветствие + дата), убрать TodayInsight по умолчанию (открывается тапом).
-- Settings: схлопнуть «Connections» в один аккордеон, оставить открытыми только «You» и «AI tone».
-- Убрать `BeginnerTip`, `ContextStrip` с Today если уже не первый запуск.
+`activeTabIndex` обновляется. Удаляю History tab references (route остаётся как редирект на `/reports`).
 
-### 8. Параллельные задачи (визуал)
-- В `SortableBlock` если у блока `parallel_with: <id>` — рендерить полупрозрачную метку «↔ одновременно с: …» под заголовком, и не считать его время в общую сумму дня дважды.
+## 4. Reports — новая страница
 
-## Технические детали
+Чисто, минимализм, без перегруза. Вертикальная структура:
 
-**Файлы которые правим:**
-- `src/App.tsx` — RootRedirect → `/tracker`
-- `src/components/app/TabBar.tsx` — порядок табов
-- `src/components/app/PageHeader.tsx` — кнопка «Назад»
-- `src/pages/app/DayView.tsx`, `RecapWeek.tsx`, `History.tsx` — шапка с back
-- `src/pages/app/Today.tsx` — убрать Pro-бейдж, инсайт, tip; добавить «План готов» бейдж
-- `src/pages/app/Settings.tsx` — убрать ProCard сверху, добавить custom AI context, схлопнуть секции
-- `src/components/app/PlanDriftNudge.tsx` — удалить + все импорты
-- `src/lib/proFeatures.ts` — убрать `one_thing`
-- `src/components/app/UpgradeSheet.tsx` — обновить буллеты
-- `supabase/functions/generate-plan/index.ts` — усилить промпт по времени и параллельности
-- `supabase/functions/generate-insight/index.ts`, `task-assistant/index.ts` — подмешивать `ai_context_custom`
+1. **Period switcher** (segmented): Day · Week · Month. Над всем.
+2. **Total time** — крупная цифра (например, «4h 32m tracked this week») + сравнение с предыдущим периодом маленькой строчкой.
+3. **By category** — горизонтальный stacked bar (полная ширина) + список под ним: цветной dot, название, время, процент. Никаких pie-чартов и легенд — только bar + список.
+4. **Trend** (только для Week/Month) — простой line/area chart (recharts) часов в день за период.
+5. **History** — последние 20 записей трекера (время, категория, длительность). Кнопка "Show all" → открывает Sheet с полным списком + правка/удаление (переиспользую логику из старого `History.tsx`).
+6. **Export** внизу: две кнопки — **Download PDF** и **Download CSV** для текущего выбранного периода.
+   - CSV: jsPDF не нужен, генерим строкой и скачиваем blob.
+   - PDF: `jspdf` + `jspdf-autotable` (уже популярные). Структура: заголовок (период), total, таблица by-category, таблица записей.
 
-**Миграция БД:**
-- `profiles.ai_context_custom TEXT NULL`
-- `blocks.parallel_with UUID NULL` (id блока с которым идёт параллельно)
-- `blocks.kind` уже есть — добавим значение `'reminder'` (это просто строка, без enum).
+Все цифры берутся из `time_entries` напрямую (через TanStack Query). Категории — из `time_categories`. Никаких новых таблиц.
 
-**Без изменений:**
-- Сам трекер времени (TrackerView) уже работает — только меняем приоритет в навигации.
-- Auth, RLS, Supabase клиент.
+## 5. Удаляемые/устаревающие компоненты
 
-## Что НЕ делаю в этой итерации
-- Не переписываю целиком дизайн-систему.
-- Не трогаю IAP/Apple биллинг.
-- «Pro-режим вообще убрать» — не делаю, ты сам говорил что планируешь монетизацию; просто прячу шум.
+- `src/components/app/ClarifySheet.tsx`
+- `src/components/app/PlanDriftNudge.tsx`
+- `src/components/app/PreflightSheet.tsx` (часть AI-флоу)
+- `src/components/app/SpilloverChips.tsx` (AI-rebuild)
+- `src/components/app/TodayInsight.tsx`
+- `src/components/app/NextUpCard.tsx` (если только AI)
+- `src/pages/app/Planning.tsx`
+- `src/pages/app/Recap.tsx`, `RecapWeek.tsx`
+- `src/pages/app/History.tsx` (логика переезжает в Reports)
+- Удаляю `useEntitlement` Pro-checks для AI features (AI чат тоже бесплатный — лёгкий, не агрессивный).
 
-Подтверди — и я делаю всё одним заходом.
+## 6. БД — без изменений схемы
+
+Существующие таблицы `plans`, `blocks`, `time_entries`, `time_categories` полностью покрывают новый флоу. Никаких миграций.
+
+## 7. Технические детали
+
+- Новый edge function `ai-assist` — заменяет 5+ старых AI-функций. Один вход, три режима. Использует `LOVABLE_API_KEY`.
+- React Router: добавить `/reports`, обновить редиректы для `/recap`, `/recap/week`, `/history`, `/today/planning`.
+- Tabs: 4 в `TabBar.tsx`, индикатор шириной = (100% - 3*gap) / 4.
+- `Home.tsx` упрощается: только HomeTrackerHero + минимальный Today summary (часы трекинга сегодня по категориям, как сейчас, но без plan-companion).
+- TS типы: убираю поля связанные с AI из intermediate types в lib/daydraft, оставляю в БД-типах.
+
+## Что попадёт в коммит (файлы)
+
+**Новое:** `src/pages/app/Reports.tsx`, `src/components/app/AskAiSheet.tsx`, `src/components/app/AddBlockSheet.tsx`, `supabase/functions/ai-assist/index.ts`, `src/lib/reportExport.ts`.
+
+**Изменено:** `App.tsx`, `TabBar.tsx`, `Home.tsx`, `Today.tsx`, `DayView.tsx`, `SortableBlock.tsx`, `Settings.tsx`, `Shell.tsx`.
+
+**Удалено:** `Planning.tsx`, `Recap.tsx`, `RecapWeek.tsx`, `History.tsx`, `ClarifySheet.tsx`, `PlanDriftNudge.tsx`, `TodayInsight.tsx`, `PreflightSheet.tsx`, `SpilloverChips.tsx`, `NextUpCard.tsx`.
+
+## Объём
+~15 файлов изменить, ~10 удалить, ~5 создать, 1 новая edge-функция. Большой рефакторинг, но без миграций и без потери данных.
