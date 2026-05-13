@@ -1050,9 +1050,6 @@ export default function DayView() {
           setBlocks(next);
           setPlanMutating(true);
           try {
-            if ((snapshot[idx] as ExBlock)?.ai_reasoning) {
-              trackAiEvent("plan_manual_edit_after_ai", { field: "duration_min", block_id: id });
-            }
             const updatedBlock = next.find((x) => x.id === id)!;
             const { error } = await supabase.from("blocks").update({
               duration_min: v,
@@ -1119,9 +1116,6 @@ export default function DayView() {
                 haptics.notify("success");
                 setPlanMutating(true);
                 try {
-                  if ((snapshot[idx] as ExBlock)?.ai_reasoning) {
-                    trackAiEvent("plan_manual_edit_after_ai", { field: "start_time", block_id: id });
-                  }
                   await persistOrder(packed);
                   await invalidatePlanCaches();
                 } catch (e: any) {
