@@ -24,14 +24,11 @@ export const Shell = ({
   // Warm lazy route chunks after first paint — same module paths as App.tsx lazy().
   useEffect(() => {
     const prefetchNeighbors = () => {
-      void import("@/pages/app/Planning");
       void import("@/pages/app/DayView");
       void import("@/pages/app/Focus");
       void import("@/pages/app/Home");
-      void import("@/pages/app/History");
+      void import("@/pages/app/Reports");
       void import("@/pages/app/Settings");
-      void import("@/pages/app/Recap");
-      void import("@/pages/app/RecapWeek");
     };
     let idleHandle: ReturnType<typeof requestIdleCallback> | undefined;
     let t: ReturnType<typeof setTimeout> | undefined;
