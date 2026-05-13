@@ -355,8 +355,21 @@ export default function DayView() {
 
   const addInlineBlock = async () => {
     if (planMutating) return;
-    if (!plan || !user) return;
+    if (!user) return;
     if (!newTitle.trim() && newKind === "task") { toast.error("Add a title"); return; }
+    let planId = plan?.id;
+    if (!planId) {
+      const { data: created, error: planErr } = await supabase
+        .from("plans")
+        .insert({ user_id: user.id, date: viewDate, raw_input: "" } as any)
+        .select("id")
+        .single();
+      if (planErr || !created?.id) {
+        toast.error(planErr?.message || "Couldn't create plan");
+        return;
+      }
+      planId = created.id;
+    }
     const insertAt = blocks.length;
     const newId = crypto.randomUUID();
     const last = blocks[blocks.length - 1];
@@ -366,7 +379,7 @@ export default function DayView() {
     })() : 9 * 60;
     const item: ExBlock = {
       id: newId,
-      plan_id: plan.id,
+      plan_id: planId!,
       user_id: user.id,
       start_time: `${String(Math.floor(startMin / 60)).padStart(2, "0")}:${String(startMin % 60).padStart(2, "0")}`,
       duration_min: newDuration,
@@ -390,7 +403,7 @@ export default function DayView() {
       const placed = next.find((b) => b.id === newId)!;
       const { error: insertErr } = await supabase.from("blocks").insert({
         id: newId,
-        plan_id: plan.id,
+        plan_id: planId!,
         user_id: user.id,
         start_time: placed.start_time,
         duration_min: placed.duration_min,
