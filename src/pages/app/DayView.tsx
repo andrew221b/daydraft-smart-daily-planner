@@ -1028,45 +1028,94 @@ export default function DayView() {
         <SheetContent side="bottom" className="rounded-t-[28px] border-border/45 bg-popover">
           <SheetHeader className="text-left">
             <SheetTitle className="flex items-center gap-2 text-[16px]">
-              <ListPlus className="h-4 w-4 text-primary" /> Write your plan
+              <ListPlus className="h-4 w-4 text-primary" /> {bulkStep === "input" ? "Paste your tasks" : "Review tasks"}
             </SheetTitle>
           </SheetHeader>
-          <div className="mt-4 space-y-3">
-            <p className="text-[12px] leading-relaxed text-secondary-fg">
-              Type it naturally: messy notes, bullets, times, or a task dump. We'll only clean and organize what you wrote.
-            </p>
-            <Textarea
-              autoFocus
-              value={bulkInput}
-              onChange={(e) => setBulkInput(e.target.value)}
-              placeholder={"finish Nike review 45m\ncall Alex after lunch\ninvoice client at 16:00\nquick cleanup"}
-              className="min-h-[150px] rounded-2xl border-soft bg-card text-[14px]"
-            />
-            <Button
-              onClick={() => {
-                if (!bulkInput.trim()) {
-                  toast.error("Write at least one task");
-                  return;
-                }
-                setClarifyOpen(true);
-              }}
-              disabled={planMutating}
-              className="w-full h-11 rounded-2xl bg-primary hover:bg-primary/92 text-primary-foreground font-medium pressable"
-            >
-              Organize plan
-            </Button>
-          </div>
+          {bulkStep === "input" ? (
+            <div className="mt-4 space-y-3">
+              <p className="text-[12px] leading-relaxed text-secondary-fg">
+                One task per line. We'll just split your list — no AI scheduling, no auto-times. You decide everything.
+              </p>
+              <Textarea
+                autoFocus
+                value={bulkInput}
+                onChange={(e) => setBulkInput(e.target.value)}
+                placeholder={"Finish Nike review\nCall Alex\nInvoice client\nQuick cleanup"}
+                className="min-h-[150px] rounded-2xl border-soft bg-card text-[14px]"
+              />
+              <Button
+                onClick={() => {
+                  const lines = bulkInput
+                    .split(/\r?\n/)
+                    .map((s) => s.replace(/^[-•*\d.)\s]+/, "").trim())
+                    .filter(Boolean);
+                  if (!lines.length) { toast.error("Write at least one task"); return; }
+                  setBulkRows(lines.map((title) => ({ title, duration: 30 })));
+                  setBulkStep("review");
+                }}
+                disabled={planMutating}
+                className="w-full h-11 rounded-2xl bg-primary hover:bg-primary/92 text-primary-foreground font-medium pressable"
+              >
+                Continue
+              </Button>
+            </div>
+          ) : (
+            <div className="mt-4 space-y-3">
+              <p className="text-[11px] text-secondary-fg leading-relaxed">
+                Edit titles or duration. Tasks are added in this order, back-to-back from {viewDate === todayDateStr() ? "now" : "9:00"}.
+              </p>
+              <div className="space-y-2 max-h-[50vh] overflow-y-auto pr-1">
+                {bulkRows.map((row, i) => (
+                  <div key={i} className="flex items-center gap-2 rounded-xl border border-soft bg-card px-2.5 py-2">
+                    <input
+                      value={row.title}
+                      onChange={(e) => setBulkRows((rs) => rs.map((r, idx) => idx === i ? { ...r, title: e.target.value } : r))}
+                      className="flex-1 h-9 px-1 bg-transparent border-0 text-[13.5px] focus:outline-none"
+                    />
+                    <select
+                      value={row.duration}
+                      onChange={(e) => setBulkRows((rs) => rs.map((r, idx) => idx === i ? { ...r, duration: Number(e.target.value) } : r))}
+                      className="h-8 px-2 rounded-lg bg-muted/40 border border-soft text-[12px] tabular-nums"
+                    >
+                      {[15, 30, 45, 60, 90, 120].map((m) => (
+                        <option key={m} value={m}>{m < 60 ? `${m}m` : `${m / 60}h${m % 60 ? ` ${m % 60}m` : ""}`}</option>
+                      ))}
+                    </select>
+                    <button
+                      type="button"
+                      onClick={() => setBulkRows((rs) => rs.filter((_, idx) => idx !== i))}
+                      className="h-8 w-8 grid place-items-center text-secondary-fg hover:text-destructive pressable"
+                      aria-label="Remove"
+                    >
+                      <Trash2 className="h-3.5 w-3.5" />
+                    </button>
+                  </div>
+                ))}
+                {bulkRows.length === 0 && (
+                  <p className="text-center text-[12px] text-secondary-fg py-4">No tasks left.</p>
+                )}
+              </div>
+              <div className="flex items-center gap-2 pt-1">
+                <Button
+                  variant="outline"
+                  onClick={() => setBulkStep("input")}
+                  disabled={planMutating}
+                  className="h-11 rounded-2xl border-soft text-[13px]"
+                >
+                  Back
+                </Button>
+                <Button
+                  onClick={() => void addBulkRows(bulkRows)}
+                  disabled={planMutating || bulkRows.length === 0}
+                  className="flex-1 h-11 rounded-2xl bg-primary hover:bg-primary/92 text-primary-foreground font-medium pressable"
+                >
+                  Add {bulkRows.length} {bulkRows.length === 1 ? "task" : "tasks"}
+                </Button>
+              </div>
+            </div>
+          )}
         </SheetContent>
       </Sheet>
-
-      <ClarifySheet
-        open={clarifyOpen}
-        onOpenChange={setClarifyOpen}
-        rawInput={bulkInput}
-        planDate={viewDate}
-        organizeOnly
-        onConfirm={(tasks) => void addClarifiedTasks(tasks)}
-      />
 
       <AlertDialog open={confirmDeletePlan} onOpenChange={setConfirmDeletePlan}>
         <AlertDialogContent>
