@@ -904,6 +904,20 @@ function TrackerInner({ embedded = false, onClose }: { embedded?: boolean; onClo
                                 {fmtMoney(rate)}/h
                               </span>
                             )}
+                            {rate === 0 && (
+                              <button
+                                type="button"
+                                onClick={(e) => {
+                                  e.stopPropagation();
+                                  setEditingName(c.name);
+                                  setEditingRate("");
+                                  setEditingCat(c.id);
+                                }}
+                                className="block text-[10px] font-medium text-primary/85 hover:text-primary pressable mt-0.5"
+                              >
+                                + Set hourly rate
+                              </button>
+                            )}
                           </span>
                           <span className="shrink-0 text-right">
                             <span className="block font-mono tabular-nums text-[11px] text-secondary-fg">{fmtHM(periodSec)}</span>
