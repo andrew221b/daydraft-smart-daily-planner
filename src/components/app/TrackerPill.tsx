@@ -150,7 +150,7 @@ function TrackerInner({ embedded = false, onClose }: { embedded?: boolean; onClo
     }
     let cancelled = false;
     (async () => {
-      const { data } = await supabase
+      const { data } = await (supabase as any)
         .from("billing_payment_details")
         .select("display_name,bank_name,iban,crypto_network,crypto_wallet,payment_link,notes")
         .eq("user_id", user.id)
@@ -419,7 +419,7 @@ function TrackerInner({ embedded = false, onClose }: { embedded?: boolean; onClo
     if (!user?.id || !isPro) return true;
     setPaymentDetailsSaving(true);
     try {
-      const { error } = await supabase.from("billing_payment_details").upsert({
+      const { error } = await (supabase as any).from("billing_payment_details").upsert({
         user_id: user.id,
         display_name: blankToNull(paymentDetails.display_name),
         bank_name: blankToNull(paymentDetails.bank_name),
