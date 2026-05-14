@@ -150,7 +150,7 @@ function TrackerInner({ embedded = false, onClose }: { embedded?: boolean; onClo
     }
     let cancelled = false;
     (async () => {
-      const { data } = await supabase
+      const { data } = await (supabase as any)
         .from("billing_payment_details")
         .select("display_name,bank_name,iban,crypto_network,crypto_wallet,payment_link,notes")
         .eq("user_id", user.id)
@@ -419,7 +419,7 @@ function TrackerInner({ embedded = false, onClose }: { embedded?: boolean; onClo
     if (!user?.id || !isPro) return true;
     setPaymentDetailsSaving(true);
     try {
-      const { error } = await supabase.from("billing_payment_details").upsert({
+      const { error } = await (supabase as any).from("billing_payment_details").upsert({
         user_id: user.id,
         display_name: blankToNull(paymentDetails.display_name),
         bank_name: blankToNull(paymentDetails.bank_name),
@@ -903,6 +903,20 @@ function TrackerInner({ embedded = false, onClose }: { embedded?: boolean; onClo
                               <span className="block text-[10px] font-mono tabular-nums text-secondary-fg">
                                 {fmtMoney(rate)}/h
                               </span>
+                            )}
+                            {rate === 0 && (
+                              <button
+                                type="button"
+                                onClick={(e) => {
+                                  e.stopPropagation();
+                                  setEditingName(c.name);
+                                  setEditingRate("");
+                                  setEditingCat(c.id);
+                                }}
+                                className="block text-[10px] font-medium text-primary/85 hover:text-primary pressable mt-0.5"
+                              >
+                                + Set hourly rate
+                              </button>
                             )}
                           </span>
                           <span className="shrink-0 text-right">

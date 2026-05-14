@@ -4,11 +4,9 @@ import { useAuth } from "@/hooks/useAuth";
 import { Switch } from "@/components/ui/switch";
 import { Input } from "@/components/ui/input";
 import { Button } from "@/components/ui/button";
-import { useEffect, useRef, useState } from "react";
-import { peakWindow } from "@/lib/daydraft";
+import { useEffect, useState } from "react";
 import { ThemeToggle } from "@/components/app/ThemeToggle";
-import { Fingerprint, Sparkles, Bell, Calendar, FileText, Shield, Trash2, HelpCircle, ChevronDown } from "lucide-react";
-import { Textarea } from "@/components/ui/textarea";
+import { Fingerprint, Sparkles, Bell, Calendar, FileText, Shield, Trash2, HelpCircle } from "lucide-react";
 import { Link, useNavigate, useLocation } from "react-router-dom";
 import { clearStoredPasskey, enrollPasskey, getStoredPasskey, passkeySupported } from "@/lib/passkeys";
 import { toast } from "sonner";
@@ -20,12 +18,6 @@ import { ProFeatureHighlights } from "@/components/app/ProFeatureHighlights";
 import { enablePush, disablePush, pushSupported } from "@/lib/push";
 import { useTour, TOUR_TODAY } from "@/components/app/Tour";
 import { VisualMode, useVisualMode } from "@/lib/visualMode";
-
-const energies = [
-  { key: "morning" as const, label: "Morning person" },
-  { key: "midday" as const, label: "Midday flow" },
-  { key: "night" as const, label: "Night owl" },
-];
 
 export default function Settings() {
   const { profile, update } = useProfile();
@@ -39,24 +31,8 @@ export default function Settings() {
   const [upgradeOpen, setUpgradeOpen] = useState(false);
   const [proSheetOpen, setProSheetOpen] = useState(false);
   const [calConnecting, setCalConnecting] = useState(false);
-  const [advancedOpen, setAdvancedOpen] = useState(false);
   const [visualMode, setVisualMode] = useVisualMode();
-  const [planningRulesDraft, setPlanningRulesDraft] = useState("");
-  const planningRulesSaveTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
-  const planningRulesDirty = useRef(false);
-  const planningRulesDraftRef = useRef("");
   useEffect(() => { if (profile) setName(profile.display_name || ""); }, [profile?.id]);
-
-  useEffect(() => {
-    if (!profile || planningRulesDirty.current) return;
-    const v = ((profile as any)?.ai_planning_rules as string | null | undefined) ?? "";
-    setPlanningRulesDraft(v);
-    planningRulesDraftRef.current = v;
-  }, [profile?.id, (profile as any)?.ai_planning_rules]);
-
-  useEffect(() => {
-    planningRulesDraftRef.current = planningRulesDraft;
-  }, [planningRulesDraft]);
 
   useEffect(() => {
     const hash = location.hash;
@@ -202,32 +178,6 @@ export default function Settings() {
             </div>
           </Section>
 
-          {/* 3. AI personalization — minimal: just rules the AI must follow */}
-          <Section title="AI rules">
-            <p className="text-[12px] text-secondary-fg mb-2 leading-relaxed">
-              Short notes the AI must respect when planning (blackout windows, block length, family time, etc.).
-            </p>
-            <div>
-              <Textarea
-                value={planningRulesDraft}
-                onChange={(e) => {
-                  const v = e.target.value;
-                  planningRulesDirty.current = true;
-                  planningRulesDraftRef.current = v;
-                  setPlanningRulesDraft(v);
-                  if (planningRulesSaveTimer.current) clearTimeout(planningRulesSaveTimer.current);
-                  planningRulesSaveTimer.current = setTimeout(async () => {
-                    planningRulesSaveTimer.current = null;
-                    await update({ ai_planning_rules: planningRulesDraftRef.current } as any);
-                    planningRulesDirty.current = false;
-                  }, 500);
-                }}
-                placeholder="e.g. never schedule deep work before 10:00 · 45m blocks · kitchen break 12:30–13:00"
-                className="min-h-[88px] surface-card border-soft rounded-xl text-[13px]"
-              />
-            </div>
-          </Section>
-
           {/* 4. Notifications + Calendar — connected channels */}
           <Section title="Connections">
             <div className="rounded-[14px] border border-soft surface-card backdrop-blur-sm divide-y divide-border/50 overflow-hidden">
@@ -257,56 +207,6 @@ export default function Settings() {
                 </span>
               </button>
             </div>
-          </Section>
-
-          {/* 5. Advanced — collapsed by default */}
-          <Section title="Advanced">
-            <button
-              onClick={() => setAdvancedOpen(o => !o)}
-              className="w-full flex items-center justify-between px-4 py-3 rounded-[16px] border border-soft surface-card backdrop-blur-sm pressable hover:bg-surface-elevated/80"
-            >
-              <span className="text-[14px]">Active hours & energy</span>
-              <ChevronDown className={`h-4 w-4 text-secondary-fg transition-transform ${advancedOpen ? "rotate-180" : ""}`} />
-            </button>
-            {advancedOpen && (
-              <div className="mt-2 space-y-2">
-                <div className="app-card px-3 py-5 space-y-2.5">
-                  <div className="text-[11px] text-secondary-fg">Active hours — when AI may schedule tasks.</div>
-                  <div className="flex items-center gap-3">
-                    <label className="flex-1">
-                      <div className="text-[10px] text-secondary-fg mb-1">From</div>
-                      <input
-                        type="time"
-                        value={profile?.active_hours_start || "09:00"}
-                        onChange={(e) => update({ active_hours_start: e.target.value } as any)}
-                        className="w-full h-9 px-3 rounded-lg bg-background border border-soft text-[13px] tabular-nums"
-                      />
-                    </label>
-                    <label className="flex-1">
-                      <div className="text-[10px] text-secondary-fg mb-1">To</div>
-                      <input
-                        type="time"
-                        value={profile?.active_hours_end || "22:00"}
-                        onChange={(e) => update({ active_hours_end: e.target.value } as any)}
-                        className="w-full h-9 px-3 rounded-lg bg-background border border-soft text-[13px] tabular-nums"
-                      />
-                    </label>
-                  </div>
-                </div>
-                <div className="rounded-[18px] border border-soft surface-card backdrop-blur-sm divide-y divide-border/50 overflow-hidden">
-                  {energies.map(e => {
-                    const active = profile?.energy_preference === e.key;
-                    return (
-                      <button key={e.key} onClick={() => update({ energy_preference: e.key })}
-                        className={`w-full flex items-center justify-between px-4 py-3 pressable transition-colors ${active ? "surface-accent" : "hover:bg-surface-elevated"}`}>
-                        <span className="text-[13px]">{e.label}</span>
-                        <span className="text-[11px] text-secondary-fg tabular-nums">{peakWindow(e.key)}</span>
-                      </button>
-                    );
-                  })}
-                </div>
-              </div>
-            )}
           </Section>
 
           {/* 6. Help + legal — quiet, terminal items */}

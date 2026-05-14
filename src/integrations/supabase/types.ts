@@ -133,45 +133,6 @@ export type Database = {
           },
         ]
       }
-      billing_payment_details: {
-        Row: {
-          bank_name: string | null
-          created_at: string
-          crypto_network: string | null
-          crypto_wallet: string | null
-          display_name: string | null
-          iban: string | null
-          notes: string | null
-          payment_link: string | null
-          updated_at: string
-          user_id: string
-        }
-        Insert: {
-          bank_name?: string | null
-          created_at?: string
-          crypto_network?: string | null
-          crypto_wallet?: string | null
-          display_name?: string | null
-          iban?: string | null
-          notes?: string | null
-          payment_link?: string | null
-          updated_at?: string
-          user_id: string
-        }
-        Update: {
-          bank_name?: string | null
-          created_at?: string
-          crypto_network?: string | null
-          crypto_wallet?: string | null
-          display_name?: string | null
-          iban?: string | null
-          notes?: string | null
-          payment_link?: string | null
-          updated_at?: string
-          user_id?: string
-        }
-        Relationships: []
-      }
       calendar_tokens: {
         Row: {
           access_token: string | null
@@ -440,7 +401,6 @@ export type Database = {
         Row: {
           color: string
           created_at: string
-          hourly_rate: number | null
           id: string
           is_default: boolean
           name: string
@@ -449,7 +409,6 @@ export type Database = {
         Insert: {
           color?: string
           created_at?: string
-          hourly_rate?: number | null
           id?: string
           is_default?: boolean
           name: string
@@ -458,7 +417,6 @@ export type Database = {
         Update: {
           color?: string
           created_at?: string
-          hourly_rate?: number | null
           id?: string
           is_default?: boolean
           name?: string

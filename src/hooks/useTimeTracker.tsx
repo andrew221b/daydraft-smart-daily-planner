@@ -305,7 +305,7 @@ export function TimeTrackerProvider({ children }: { children: ReactNode }) {
 
   const updateCategoryRate: Ctx["updateCategoryRate"] = async (id, hourlyRate) => {
     const normalized = hourlyRate === null ? null : Math.max(0, Math.round(hourlyRate * 100) / 100);
-    const { error } = await supabase.from("time_categories").update({ hourly_rate: normalized }).eq("id", id);
+    const { error } = await supabase.from("time_categories").update({ hourly_rate: normalized } as any).eq("id", id);
     if (error) { toast.error(error.message); return; }
     setCategories(cs => cs.map(c => c.id === id ? { ...c, hourly_rate: normalized } : c));
   };
