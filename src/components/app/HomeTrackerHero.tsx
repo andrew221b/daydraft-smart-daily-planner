@@ -1,15 +1,71 @@
 import { useEffect, useMemo, useRef, useState, type CSSProperties, type FormEvent } from "react";
-import { Check, Play, Square, Plus, Search, ChevronDown } from "lucide-react";
+import { useQuery } from "@tanstack/react-query";
+import { Check, Play, Square, Plus, Search, ChevronDown, Wallet } from "lucide-react";
 import { useTimeTracker, useTimeTrackerElapsed, fmtHMS, fmtHM } from "@/hooks/useTimeTracker";
-import { Sheet, SheetContent } from "@/components/ui/sheet";
+import { Sheet, SheetContent, SheetHeader, SheetTitle } from "@/components/ui/sheet";
+import { Input } from "@/components/ui/input";
+import { Button } from "@/components/ui/button";
+import { Switch } from "@/components/ui/switch";
+import { Textarea } from "@/components/ui/textarea";
+import { supabase } from "@/integrations/supabase/client";
+import { useAuth } from "@/hooks/useAuth";
+import { useEntitlement } from "@/hooks/useEntitlement";
+import { UpgradeSheet } from "@/components/app/UpgradeSheet";
+import { todayDateStr } from "@/lib/daydraft";
+import { toast } from "sonner";
 
 /**
  * HomeTrackerHero — the bold, primary surface of the app.
  * Tracker-first design: a luminous halo around the running timer,
  * a single hero CTA when idle, and quick category chips below.
  */
+type PaymentDetailsDraft = {
+  display_name: string;
+  bank_name: string;
+  iban: string;
+  crypto_network: string;
+  crypto_wallet: string;
+  payment_link: string;
+  notes: string;
+};
+
+const emptyPaymentDetails: PaymentDetailsDraft = {
+  display_name: "",
+  bank_name: "",
+  iban: "",
+  crypto_network: "",
+  crypto_wallet: "",
+  payment_link: "",
+  notes: "",
+};
+
+const blankToNull = (value: string) => {
+  const t = value.trim();
+  return t ? t : null;
+};
+
+function clipEntrySec(startedAt: string, endedAt: string | null, rangeStart: number, rangeEnd: number, now: number) {
+  const s = new Date(startedAt).getTime();
+  const en = endedAt ? new Date(endedAt).getTime() : now;
+  const a = Math.max(s, rangeStart);
+  const b = Math.min(en, rangeEnd);
+  return Math.max(0, (b - a) / 1000);
+}
+
 export function HomeTrackerHero({ onOpenDetails }: { onOpenDetails: () => void }) {
-  const { active, categories, start, stop, switchCategory, addCategory, todayTotalSec } = useTimeTracker();
+  const { user } = useAuth();
+  const { isPro } = useEntitlement();
+  const {
+    active,
+    categories,
+    start,
+    stop,
+    switchCategory,
+    addCategory,
+    todayTotalSec,
+    updateCategoryRate,
+    updateCategoryDailyCap,
+  } = useTimeTracker();
   const elapsedSec = useTimeTrackerElapsed();
   const activeCat = categories.find((c) => c.id === active?.category_id);
   const [pickerOpen, setPickerOpen] = useState(false);
@@ -19,6 +75,14 @@ export function HomeTrackerHero({ onOpenDetails }: { onOpenDetails: () => void }
   const [addingCategory, setAddingCategory] = useState(false);
   const [focusNewCategory, setFocusNewCategory] = useState(false);
   const newCategoryInputRef = useRef<HTMLInputElement | null>(null);
+  const [draftRate, setDraftRate] = useState("");
+  const [draftCapHours, setDraftCapHours] = useState("");
+  const [draftNotify, setDraftNotify] = useState(false);
+  const [billingOpen, setBillingOpen] = useState(false);
+  const [paymentDetails, setPaymentDetails] = useState<PaymentDetailsDraft>(emptyPaymentDetails);
+  const [paymentSaving, setPaymentSaving] = useState(false);
+  const [categorySaving, setCategorySaving] = useState(false);
+  const [upgradeOpen, setUpgradeOpen] = useState(false);
 
   const selectedCat = categories.find((c) => c.id === selectedCategoryId) || null;
   const accent = activeCat?.color || selectedCat?.color || "hsl(var(--primary))";
@@ -44,6 +108,162 @@ export function HomeTrackerHero({ onOpenDetails }: { onOpenDetails: () => void }
     if (selectedCategoryId && categories.some((c) => c.id === selectedCategoryId)) return;
     setSelectedCategoryId(categories[0]?.id ?? null);
   }, [active?.category_id, categories, selectedCategoryId]);
+
+  useEffect(() => {
+    if (!selectedCat) return;
+    setDraftRate(selectedCat.hourly_rate == null ? "" : String(selectedCat.hourly_rate));
+    const capMin = selectedCat.daily_cap_minutes;
+    setDraftCapHours(capMin && capMin > 0 ? String(Math.round((capMin / 60) * 10) / 10) : "");
+    setDraftNotify(!!selectedCat.cap_notify_enabled);
+  }, [
+    selectedCat?.id,
+    selectedCat?.hourly_rate,
+    selectedCat?.daily_cap_minutes,
+    selectedCat?.cap_notify_enabled,
+  ]);
+
+  const todayKey = todayDateStr();
+  const { data: categoryTodaySec = 0 } = useQuery({
+    queryKey: ["home-cat-today-sec", user?.id, selectedCategoryId, todayKey],
+    enabled: !!user?.id && !!selectedCategoryId,
+    staleTime: 15_000,
+    refetchInterval: active?.category_id === selectedCategoryId ? 5000 : 25_000,
+    queryFn: async () => {
+      const start = new Date();
+      start.setHours(0, 0, 0, 0);
+      const rangeStart = start.getTime();
+      const rangeEnd = rangeStart + 86_400_000;
+      const now = Date.now();
+      const { data, error } = await supabase
+        .from("time_entries")
+        .select("started_at,ended_at")
+        .eq("user_id", user!.id)
+        .eq("category_id", selectedCategoryId!)
+        .gte("started_at", new Date(rangeStart).toISOString());
+      if (error) throw error;
+      let sum = 0;
+      for (const e of data || []) {
+        sum += clipEntrySec(e.started_at, e.ended_at, rangeStart, rangeEnd, now);
+      }
+      return sum;
+    },
+  });
+
+  const capSec = useMemo(() => {
+    const m = selectedCat?.daily_cap_minutes;
+    if (!m || m <= 0) return 0;
+    return m * 60;
+  }, [selectedCat?.daily_cap_minutes]);
+
+  useEffect(() => {
+    if (!selectedCat || !selectedCat.cap_notify_enabled || capSec <= 0) return;
+    if (categoryTodaySec < capSec) return;
+    const key = `dd_cap_hit_${todayKey}_${selectedCat.id}`;
+    try {
+      if (sessionStorage.getItem(key)) return;
+      sessionStorage.setItem(key, "1");
+    } catch {
+      return;
+    }
+    toast.warning(`${selectedCat.name}: daily limit reached`, {
+      description: `Tracked about ${fmtHM(categoryTodaySec)} today (cap ${fmtHM(capSec)}).`,
+    });
+    if (typeof Notification !== "undefined" && Notification.permission === "granted") {
+      try {
+        new Notification("Daydraft", {
+          body: `${selectedCat.name}: you hit today’s tracking cap (${fmtHM(capSec)}).`,
+        });
+      } catch {
+        /* ignore */
+      }
+    }
+  }, [selectedCat, capSec, categoryTodaySec, todayKey]);
+
+  useEffect(() => {
+    if (!billingOpen || !user?.id || !isPro) return;
+    let cancelled = false;
+    (async () => {
+      const { data } = await (supabase as any)
+        .from("billing_payment_details")
+        .select("display_name,bank_name,iban,crypto_network,crypto_wallet,payment_link,notes")
+        .eq("user_id", user.id)
+        .maybeSingle();
+      if (cancelled) return;
+      setPaymentDetails({
+        display_name: data?.display_name || "",
+        bank_name: data?.bank_name || "",
+        iban: data?.iban || "",
+        crypto_network: data?.crypto_network || "",
+        crypto_wallet: data?.crypto_wallet || "",
+        payment_link: data?.payment_link || "",
+        notes: data?.notes || "",
+      });
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [billingOpen, user?.id, isPro]);
+
+  const saveCategoryBilling = async () => {
+    if (!selectedCat) return;
+    const cleaned = draftRate.replace(",", ".").trim();
+    const rateNum = cleaned === "" ? null : Number(cleaned);
+    const rateNorm =
+      rateNum === null || !Number.isFinite(rateNum) || rateNum < 0 ? null : Math.round(rateNum * 100) / 100;
+    const capH = draftCapHours.replace(",", ".").trim();
+    const capHoursNum = capH === "" ? null : Number(capH);
+    const capMin =
+      capHoursNum === null || !Number.isFinite(capHoursNum) || capHoursNum <= 0
+        ? null
+        : Math.max(1, Math.min(1440, Math.round(capHoursNum * 60)));
+    if (draftNotify && capMin === null) {
+      toast.error("Set a daily cap (hours) to enable alerts.");
+      return;
+    }
+    if (draftNotify && typeof Notification !== "undefined" && Notification.permission === "default") {
+      await Notification.requestPermission();
+    }
+    setCategorySaving(true);
+    try {
+      await Promise.all([
+        updateCategoryRate(selectedCat.id, rateNorm),
+        updateCategoryDailyCap(selectedCat.id, capMin, draftNotify && capMin !== null),
+      ]);
+      toast.success("Saved for this category");
+    } catch (e: any) {
+      toast.error(e?.message || "Save failed");
+    } finally {
+      setCategorySaving(false);
+    }
+  };
+
+  const savePaymentDetails = async () => {
+    if (!user?.id) return;
+    if (!isPro) {
+      setUpgradeOpen(true);
+      return;
+    }
+    setPaymentSaving(true);
+    try {
+      const { error } = await (supabase as any).from("billing_payment_details").upsert({
+        user_id: user.id,
+        display_name: blankToNull(paymentDetails.display_name),
+        bank_name: blankToNull(paymentDetails.bank_name),
+        iban: blankToNull(paymentDetails.iban),
+        crypto_network: blankToNull(paymentDetails.crypto_network),
+        crypto_wallet: blankToNull(paymentDetails.crypto_wallet),
+        payment_link: blankToNull(paymentDetails.payment_link),
+        notes: blankToNull(paymentDetails.notes),
+      });
+      if (error) throw error;
+      toast.success("Payment details saved");
+      setBillingOpen(false);
+    } catch (e: any) {
+      toast.error(e?.message || "Could not save");
+    } finally {
+      setPaymentSaving(false);
+    }
+  };
 
   const openCategoryPicker = (opts?: { focusAdd?: boolean }) => {
     setPickerOpen(true);
@@ -221,6 +441,90 @@ export function HomeTrackerHero({ onOpenDetails }: { onOpenDetails: () => void }
             to add your first category.
           </p>
         )}
+
+        {/* Billing + cap for the selected category — uses space under the chips */}
+        {!active && selectedCat && (
+          <div className="mt-4 rounded-2xl border border-border/40 bg-background/35 px-3.5 py-3 text-left">
+            <p className="text-[10px] font-semibold uppercase tracking-[0.14em] text-secondary-fg/70">
+              Category · {selectedCat.name}
+            </p>
+            <div className="mt-2.5 grid grid-cols-2 gap-2">
+              <label className="space-y-1">
+                <span className="text-[10px] text-secondary-fg/80">Rate / h (USD)</span>
+                <Input
+                  inputMode="decimal"
+                  value={draftRate}
+                  onChange={(e) => setDraftRate(e.target.value)}
+                  placeholder="—"
+                  className="h-9 rounded-xl border-border/45 bg-card/50 text-[13px]"
+                />
+              </label>
+              <label className="space-y-1">
+                <span className="text-[10px] text-secondary-fg/80">Max hours / day</span>
+                <Input
+                  inputMode="decimal"
+                  value={draftCapHours}
+                  onChange={(e) => setDraftCapHours(e.target.value)}
+                  placeholder="e.g. 8"
+                  className="h-9 rounded-xl border-border/45 bg-card/50 text-[13px]"
+                />
+              </label>
+            </div>
+            {capSec > 0 && (
+              <div className="mt-2">
+                <div className="flex justify-between text-[10px] tabular-nums text-secondary-fg/80 mb-1">
+                  <span>Today in this category</span>
+                  <span>
+                    {fmtHM(categoryTodaySec)} / {fmtHM(capSec)}
+                  </span>
+                </div>
+                <div className="h-1.5 rounded-full bg-muted/50 overflow-hidden">
+                  <div
+                    className="h-full rounded-full bg-primary/80 transition-all"
+                    style={{ width: `${Math.min(100, (categoryTodaySec / capSec) * 100)}%` }}
+                  />
+                </div>
+              </div>
+            )}
+            <div className="mt-2.5 flex items-center justify-between gap-2">
+              <div className="min-w-0">
+                <p className="text-[12px] font-medium text-foreground/90">Alert at daily cap</p>
+                <p className="text-[10px] text-secondary-fg/75 leading-snug">
+                  One reminder per day when time in this category reaches the max.
+                </p>
+              </div>
+              <Switch checked={draftNotify} onCheckedChange={(v) => setDraftNotify(!!v)} />
+            </div>
+            <div className="mt-3 flex flex-col gap-2">
+              <Button
+                type="button"
+                size="sm"
+                disabled={categorySaving}
+                onClick={() => void saveCategoryBilling()}
+                className="h-9 w-full rounded-xl text-[12px] font-semibold"
+              >
+                {categorySaving ? "Saving…" : "Save rate & cap"}
+              </Button>
+              <button
+                type="button"
+                onClick={() => {
+                  if (!isPro) {
+                    setUpgradeOpen(true);
+                    return;
+                  }
+                  setBillingOpen(true);
+                }}
+                className="inline-flex w-full items-center justify-center gap-2 rounded-xl border border-border/45 bg-card/40 py-2 text-[12px] font-semibold text-secondary-fg/90 pressable hover:text-foreground"
+              >
+                <Wallet className="h-3.5 w-3.5" />
+                Payment details (reports)
+              </button>
+            </div>
+            <p className="mt-2 text-[10px] leading-relaxed text-secondary-fg/65">
+              Payment instructions are shared across all categories in exports. Full tracker charts live under Track.
+            </p>
+          </div>
+        )}
       </div>
 
       <Sheet
@@ -310,6 +614,75 @@ export function HomeTrackerHero({ onOpenDetails }: { onOpenDetails: () => void }
           </div>
         </SheetContent>
       </Sheet>
+
+      <Sheet open={billingOpen} onOpenChange={setBillingOpen}>
+        <SheetContent side="bottom" className="rounded-t-[28px] border-border/45 bg-popover max-h-[88vh] overflow-y-auto">
+          <SheetHeader className="text-left">
+            <SheetTitle className="text-[17px]">Payment details</SheetTitle>
+          </SheetHeader>
+          <p className="text-[12px] text-secondary-fg mt-1 mb-3">
+            Shown on Pro PDF/CSV exports. Use a payment link for cards — never raw card numbers.
+          </p>
+          <div className="space-y-3 pb-4">
+            <Input
+              value={paymentDetails.display_name}
+              onChange={(e) => setPaymentDetails((p) => ({ ...p, display_name: e.target.value }))}
+              placeholder="Payee name"
+              className="rounded-xl"
+            />
+            <div className="grid grid-cols-2 gap-2">
+              <Input
+                value={paymentDetails.bank_name}
+                onChange={(e) => setPaymentDetails((p) => ({ ...p, bank_name: e.target.value }))}
+                placeholder="Bank"
+                className="rounded-xl"
+              />
+              <Input
+                value={paymentDetails.iban}
+                onChange={(e) => setPaymentDetails((p) => ({ ...p, iban: e.target.value }))}
+                placeholder="IBAN"
+                className="rounded-xl"
+              />
+            </div>
+            <div className="grid grid-cols-2 gap-2">
+              <Input
+                value={paymentDetails.crypto_network}
+                onChange={(e) => setPaymentDetails((p) => ({ ...p, crypto_network: e.target.value }))}
+                placeholder="Crypto network"
+                className="rounded-xl"
+              />
+              <Input
+                value={paymentDetails.crypto_wallet}
+                onChange={(e) => setPaymentDetails((p) => ({ ...p, crypto_wallet: e.target.value }))}
+                placeholder="Wallet"
+                className="rounded-xl"
+              />
+            </div>
+            <Input
+              value={paymentDetails.payment_link}
+              onChange={(e) => setPaymentDetails((p) => ({ ...p, payment_link: e.target.value }))}
+              placeholder="Payment link (Stripe, Wise…)"
+              className="rounded-xl"
+            />
+            <Textarea
+              value={paymentDetails.notes}
+              onChange={(e) => setPaymentDetails((p) => ({ ...p, notes: e.target.value }))}
+              placeholder="Notes for client"
+              className="min-h-[72px] rounded-xl"
+            />
+            <Button
+              type="button"
+              disabled={paymentSaving}
+              onClick={() => void savePaymentDetails()}
+              className="w-full h-11 rounded-xl"
+            >
+              {paymentSaving ? "Saving…" : "Save payment details"}
+            </Button>
+          </div>
+        </SheetContent>
+      </Sheet>
+
+      <UpgradeSheet open={upgradeOpen} onOpenChange={setUpgradeOpen} reason="feature" />
     </section>
   );
 }

@@ -399,24 +399,33 @@ export type Database = {
       }
       time_categories: {
         Row: {
+          cap_notify_enabled: boolean
           color: string
           created_at: string
+          daily_cap_minutes: number | null
+          hourly_rate: number | null
           id: string
           is_default: boolean
           name: string
           user_id: string
         }
         Insert: {
+          cap_notify_enabled?: boolean
           color?: string
           created_at?: string
+          daily_cap_minutes?: number | null
+          hourly_rate?: number | null
           id?: string
           is_default?: boolean
           name: string
           user_id: string
         }
         Update: {
+          cap_notify_enabled?: boolean
           color?: string
           created_at?: string
+          daily_cap_minutes?: number | null
+          hourly_rate?: number | null
           id?: string
           is_default?: boolean
           name?: string
