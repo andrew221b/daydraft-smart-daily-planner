@@ -101,7 +101,7 @@ export default function Reports() {
     enabled: !!user?.id && isPro,
     staleTime: 60_000,
     queryFn: async () => {
-      const { data, error } = await supabase
+      const { data, error } = await (supabase as any)
         .from("billing_payment_details")
         .select("display_name,bank_name,iban,crypto_network,crypto_wallet,payment_link,notes")
         .eq("user_id", user!.id)
