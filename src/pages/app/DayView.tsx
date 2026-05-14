@@ -44,7 +44,6 @@ import { useEntitlement } from "@/hooks/useEntitlement";
 import { UpgradeSheet } from "@/components/app/UpgradeSheet";
 import { setDndBodyScrollLock } from "@/lib/dndScrollLock";
 import { AskAiSheet } from "@/components/app/AskAiSheet";
-import { ClarifySheet, type ClarifiedTask } from "@/components/app/ClarifySheet";
 import { Textarea } from "@/components/ui/textarea";
 
 type ExBlock = Block & {
@@ -79,8 +78,9 @@ export default function DayView() {
   const dayScrollRef = useRef<HTMLDivElement>(null);
   const [addOpen, setAddOpen] = useState(false);
   const [bulkOpen, setBulkOpen] = useState(false);
-  const [clarifyOpen, setClarifyOpen] = useState(false);
   const [bulkInput, setBulkInput] = useState("");
+  const [bulkRows, setBulkRows] = useState<{ title: string; duration: number }[]>([]);
+  const [bulkStep, setBulkStep] = useState<"input" | "review">("input");
   const [newTitle, setNewTitle] = useState("");
   const [newKind, setNewKind] = useState<"task" | "break">("task");
   const [newDuration, setNewDuration] = useState(30);
@@ -451,9 +451,9 @@ export default function DayView() {
     return created.id as string;
   };
 
-  const addClarifiedTasks = async (tasks: ClarifiedTask[]) => {
+  const addBulkRows = async (rows: { title: string; duration: number }[]) => {
     if (planMutating || !user) return;
-    const clean = tasks.filter((t) => t.title.trim());
+    const clean = rows.filter((t) => t.title.trim());
     if (!clean.length) {
       toast.error("No tasks to add");
       return;
@@ -464,14 +464,19 @@ export default function DayView() {
       const planId = await ensurePlanId();
       if (!planId) return;
       const startPos = blocks.length;
+      // Start packing from current time (today) or 09:00 (future days).
+      const todayStr = todayDateStr();
+      const startHHMM = viewDate === todayStr
+        ? `${String(new Date().getHours()).padStart(2, "0")}:${String(new Date().getMinutes()).padStart(2, "0")}`
+        : "09:00";
       const draftBlocks: ExBlock[] = clean.map((task, i) => {
         const id = crypto.randomUUID();
-        const duration = Math.max(5, task.estimate_min || 30);
+        const duration = Math.max(5, task.duration || 30);
         return {
           id,
           plan_id: planId,
           user_id: user.id,
-          start_time: task.fixed_time || "09:00",
+          start_time: startHHMM,
           duration_min: duration,
           estimated_minutes: duration,
           actual_minutes: null,
@@ -481,14 +486,14 @@ export default function DayView() {
           block_type: inferScheduleBlockType({ kind: "task", title: task.title }),
           completed: false,
           position: startPos + i,
-          ai_reasoning: task.notes ?? null,
         };
       });
       const packed = packLinearSchedule([...blocks, ...draftBlocks]);
       setBlocks(packed);
       setBulkOpen(false);
-      setClarifyOpen(false);
       setBulkInput("");
+      setBulkRows([]);
+      setBulkStep("input");
       const toInsert = packed
         .filter((b) => draftBlocks.some((d) => d.id === b.id))
         .map((b) => ({
@@ -505,7 +510,6 @@ export default function DayView() {
           block_type: inferScheduleBlockType(b),
           position: b.position,
           slot_end_time: blockSlotEndHHMM(b),
-          ai_reasoning: b.ai_reasoning ?? null,
         }));
       const { error } = await supabase.from("blocks").insert(toInsert as any);
       if (error) throw error;
