@@ -1,4 +1,14 @@
-import { createContext, useContext, useEffect, useMemo, useRef, useState, ReactNode, useCallback } from "react";
+import {
+  createContext,
+  useCallback,
+  useContext,
+  useEffect,
+  useMemo,
+  useRef,
+  useState,
+  type ReactNode,
+} from "react";
+import { billingDraftToCategoryUpdate } from "@/lib/categoryBilling";
 import { supabase } from "@/integrations/supabase/client";
 import { useAuth } from "./useAuth";
 import { toast } from "sonner";
@@ -13,6 +23,13 @@ export type TimeCategory = {
   daily_cap_minutes?: number | null;
   /** When true, app may notify when today’s total reaches the cap */
   cap_notify_enabled?: boolean | null;
+  billing_display_name?: string | null;
+  billing_bank_name?: string | null;
+  billing_iban?: string | null;
+  billing_crypto_network?: string | null;
+  billing_crypto_wallet?: string | null;
+  billing_payment_link?: string | null;
+  billing_notes?: string | null;
   created_at?: string;
 };
 
@@ -54,6 +71,18 @@ type Ctx = {
   renameCategory: (id: string, name: string) => Promise<void>;
   updateCategoryRate: (id: string, hourlyRate: number | null) => Promise<void>;
   updateCategoryDailyCap: (id: string, dailyCapMinutes: number | null, capNotifyEnabled: boolean) => Promise<void>;
+  updateCategoryBilling: (
+    id: string,
+    draft: {
+      display_name: string;
+      bank_name: string;
+      iban: string;
+      crypto_network: string;
+      crypto_wallet: string;
+      payment_link: string;
+      notes: string;
+    },
+  ) => Promise<void>;
   addManualEntry: (categoryId: string, durationSec: number, opts?: { startedAt?: Date; note?: string }) => Promise<void>;
   deleteEntry: (id: string) => Promise<void>;
   todayTotalSec: number;
@@ -342,6 +371,16 @@ export function TimeTrackerProvider({ children }: { children: ReactNode }) {
     );
   };
 
+  const updateCategoryBilling: Ctx["updateCategoryBilling"] = async (id, draft) => {
+    const row = billingDraftToCategoryUpdate(draft);
+    const { error } = await supabase.from("time_categories").update(row as any).eq("id", id);
+    if (error) {
+      toast.error(error.message);
+      return;
+    }
+    setCategories((cs) => cs.map((c) => (c.id === id ? { ...c, ...row } : c)));
+  };
+
   const addManualEntry: Ctx["addManualEntry"] = async (categoryId, durationSec, opts) => {
     if (!user) return;
     const end = opts?.startedAt ? new Date(opts.startedAt.getTime() + durationSec * 1000) : new Date();
@@ -378,7 +417,7 @@ export function TimeTrackerProvider({ children }: { children: ReactNode }) {
 
   const value: Ctx = useMemo(() => ({
     categories, active, loading,
-    start, stop, switchCategory, addCategory, deleteCategory, renameCategory, updateCategoryRate, updateCategoryDailyCap,
+    start, stop, switchCategory, addCategory, deleteCategory, renameCategory, updateCategoryRate, updateCategoryDailyCap, updateCategoryBilling,
     addManualEntry, deleteEntry,
     todayTotalSec, weekTotalSec, refresh,
   }), [categories, active, loading, todayTotalSec, weekTotalSec, refresh]);

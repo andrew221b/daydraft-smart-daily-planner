@@ -6,7 +6,8 @@ import { supabase } from "@/integrations/supabase/client";
 import { Button } from "@/components/ui/button";
 import { BarChart3, ChevronDown, Download, FileText } from "lucide-react";
 import { Area, AreaChart, ResponsiveContainer, Tooltip, XAxis } from "recharts";
-import { downloadReportCsv, downloadReportPdf, type ReportPaymentDetails, type ReportPayload } from "@/lib/reportExport";
+import { downloadReportCsv, downloadReportPdf, type ReportPaymentDetails, type ReportPayload, type ReportPaymentSection } from "@/lib/reportExport";
+import { mergeCategoryPayment, paymentDetailsHasContent, type CategoryBillingRow } from "@/lib/categoryBilling";
 import { toast } from "sonner";
 import { useEntitlement } from "@/hooks/useEntitlement";
 import { UpgradeSheet } from "@/components/app/UpgradeSheet";
@@ -42,6 +43,21 @@ const fmtHM = (sec: number) => {
   if (!h) return `${mm}m`;
   return mm ? `${h}h ${mm}m` : `${h}h`;
 };
+const REPORT_CATEGORY_SELECT =
+  "id,name,color,hourly_rate,billing_display_name,billing_bank_name,billing_iban,billing_crypto_network,billing_crypto_wallet,billing_payment_link,billing_notes";
+
+function paymentFingerprint(d: ReportPaymentDetails): string {
+  return [
+    d.displayName ?? "",
+    d.bankName ?? "",
+    d.iban ?? "",
+    d.cryptoNetwork ?? "",
+    d.cryptoWallet ?? "",
+    d.paymentLink ?? "",
+    d.notes ?? "",
+  ].join("\u0001");
+}
+
 const fmtMoney = (amount: number) =>
   new Intl.NumberFormat(undefined, {
     style: "currency",
@@ -64,7 +80,7 @@ export default function Reports() {
     queryFn: async () => {
       const { data, error } = await supabase
         .from("time_categories")
-        .select("id,name,color,hourly_rate")
+        .select(REPORT_CATEGORY_SELECT)
         .eq("user_id", user!.id);
       if (!error) return data ?? [];
 
@@ -226,13 +242,39 @@ export default function Reports() {
     const filteredTotal = filteredCategories.reduce((sum, c) => sum + c.sec, 0);
     const filteredEarnings = filteredCategories.reduce((sum, c) => sum + c.earnings, 0);
 
+    const globalPayment = isPro ? paymentDetails : null;
+    const paymentBuckets = new Map<string, { details: ReportPaymentDetails; names: string[] }>();
+    for (const c of filteredCategories) {
+      const row = c.id === "uncategorized" ? undefined : (catMap.get(c.id) as CategoryBillingRow | undefined);
+      const merged = mergeCategoryPayment(row, globalPayment);
+      if (!paymentDetailsHasContent(merged)) continue;
+      const key = paymentFingerprint(merged!);
+      const cur = paymentBuckets.get(key);
+      if (cur) {
+        if (!cur.names.includes(c.name)) cur.names.push(c.name);
+      } else {
+        paymentBuckets.set(key, { details: merged!, names: [c.name] });
+      }
+    }
+    const paymentSections: ReportPaymentSection[] = Array.from(paymentBuckets.values()).map(({ details, names }) => ({
+      title: names.length === 1 ? `Payment — ${names[0]}` : `Payment — ${names.join(", ")}`,
+      details,
+    }));
+
+    const paymentBlock =
+      paymentSections.length === 0
+        ? { paymentDetails: null as ReportPaymentDetails | null, paymentSections: null as ReportPaymentSection[] | null }
+        : paymentSections.length === 1
+          ? { paymentDetails: paymentSections[0].details, paymentSections: null as ReportPaymentSection[] | null }
+          : { paymentDetails: null as ReportPaymentDetails | null, paymentSections: paymentSections };
+
     return {
       periodLabel: range.periodLabel,
       rangeLabel: range.label,
       scopeLabel,
       totalSeconds: filteredTotal,
       totalEarnings: filteredEarnings,
-      paymentDetails: isPro ? paymentDetails : null,
+      ...paymentBlock,
       categories: filteredCategories.map((c) => ({
         name: c.name,
         color: c.color,

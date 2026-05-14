@@ -1,5 +1,6 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import { Play, Pause, Plus, Check, Trash2, ChevronLeft, ChevronRight, Download, ChevronDown, Lock, Pencil, X, Hourglass, Clock, SlidersHorizontal, ListTodo } from "lucide-react";
+import { categoryBillingToDraft } from "@/lib/categoryBilling";
 import { useTimeTracker, useTimeTrackerElapsed, fmtHMS, fmtHM, TimeCategory } from "@/hooks/useTimeTracker";
 import { Sheet, SheetContent, SheetHeader, SheetTitle, SheetDescription } from "@/components/ui/sheet";
 import { Input } from "@/components/ui/input";
@@ -75,10 +76,6 @@ const parseRateInput = (value: string) => {
   const parsed = Number(cleaned);
   return Number.isFinite(parsed) && parsed >= 0 ? parsed : null;
 };
-const blankToNull = (value: string) => {
-  const trimmed = value.trim();
-  return trimmed ? trimmed : null;
-};
 
 function clipDuration(e: Entry, dayStart: number, dayEnd: number, now: number) {
   const s = new Date(e.started_at).getTime();
@@ -96,7 +93,7 @@ function clipDuration(e: Entry, dayStart: number, dayEnd: number, now: number) {
  */
 function TrackerInner({ embedded = false, onClose }: { embedded?: boolean; onClose?: () => void }) {
   const { user } = useAuth();
-  const { active, categories, start, stop, switchCategory, deleteCategory, renameCategory, updateCategoryRate, addCategory, addManualEntry, todayTotalSec } = useTimeTracker();
+  const { active, categories, start, stop, switchCategory, deleteCategory, renameCategory, updateCategoryRate, updateCategoryBilling, addCategory, addManualEntry, todayTotalSec } = useTimeTracker();
   const elapsedSec = useTimeTrackerElapsed();
   const { isPro } = useEntitlement();
   const [upgradeOpen, setUpgradeOpen] = useState(false);
@@ -144,30 +141,14 @@ function TrackerInner({ embedded = false, onClose }: { embedded?: boolean; onClo
   }, [user?.id, active?.id, todayTotalSec]);
 
   useEffect(() => {
-    if (!user?.id || !isPro) {
+    if (!editingCat) {
       setPaymentDetails(emptyPaymentDetails);
       return;
     }
-    let cancelled = false;
-    (async () => {
-      const { data } = await (supabase as any)
-        .from("billing_payment_details")
-        .select("display_name,bank_name,iban,crypto_network,crypto_wallet,payment_link,notes")
-        .eq("user_id", user.id)
-        .maybeSingle();
-      if (cancelled) return;
-      setPaymentDetails({
-        display_name: data?.display_name || "",
-        bank_name: data?.bank_name || "",
-        iban: data?.iban || "",
-        crypto_network: data?.crypto_network || "",
-        crypto_wallet: data?.crypto_wallet || "",
-        payment_link: data?.payment_link || "",
-        notes: data?.notes || "",
-      });
-    })();
-    return () => { cancelled = true; };
-  }, [user?.id, isPro]);
+    const cat = categories.find((c) => c.id === editingCat);
+    if (!cat) return;
+    setPaymentDetails(categoryBillingToDraft(cat));
+  }, [editingCat, categories]);
 
   useEffect(() => {
     if (!user) return;
@@ -416,20 +397,14 @@ function TrackerInner({ embedded = false, onClose }: { embedded?: boolean; onClo
     setPaymentDetails((current) => ({ ...current, [field]: value }));
 
   const savePaymentDetails = async () => {
-    if (!user?.id || !isPro) return true;
+    if (!editingCat) return true;
+    if (!isPro) {
+      setUpgradeOpen(true);
+      return false;
+    }
     setPaymentDetailsSaving(true);
     try {
-      const { error } = await (supabase as any).from("billing_payment_details").upsert({
-        user_id: user.id,
-        display_name: blankToNull(paymentDetails.display_name),
-        bank_name: blankToNull(paymentDetails.bank_name),
-        iban: blankToNull(paymentDetails.iban),
-        crypto_network: blankToNull(paymentDetails.crypto_network),
-        crypto_wallet: blankToNull(paymentDetails.crypto_wallet),
-        payment_link: blankToNull(paymentDetails.payment_link),
-        notes: blankToNull(paymentDetails.notes),
-      });
-      if (error) throw error;
+      await updateCategoryBilling(editingCat, paymentDetails);
       return true;
     } catch (e: any) {
       toast.error(e?.message || "Unable to save payment details");
@@ -802,7 +777,7 @@ function TrackerInner({ embedded = false, onClose }: { embedded?: boolean; onClo
                           </div>
                           <div className="rounded-xl border border-soft bg-background/25 px-2.5 py-2">
                             <div className="mb-1.5 flex items-center justify-between gap-2">
-                              <span className="text-[11px] font-semibold text-secondary-fg">Payment details for reports</span>
+                              <span className="text-[11px] font-semibold text-secondary-fg">Payment for this category</span>
                               {!isPro && <span className="text-[10px] font-semibold text-primary">Pro</span>}
                             </div>
                             {!isPro ? (

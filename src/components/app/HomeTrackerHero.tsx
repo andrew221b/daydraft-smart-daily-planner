@@ -12,6 +12,7 @@ import { useAuth } from "@/hooks/useAuth";
 import { useEntitlement } from "@/hooks/useEntitlement";
 import { UpgradeSheet } from "@/components/app/UpgradeSheet";
 import { todayDateStr } from "@/lib/daydraft";
+import { categoryBillingToDraft } from "@/lib/categoryBilling";
 import { toast } from "sonner";
 
 /**
@@ -39,11 +40,6 @@ const emptyPaymentDetails: PaymentDetailsDraft = {
   notes: "",
 };
 
-const blankToNull = (value: string) => {
-  const t = value.trim();
-  return t ? t : null;
-};
-
 function clipEntrySec(startedAt: string, endedAt: string | null, rangeStart: number, rangeEnd: number, now: number) {
   const s = new Date(startedAt).getTime();
   const en = endedAt ? new Date(endedAt).getTime() : now;
@@ -65,6 +61,7 @@ export function HomeTrackerHero({ onOpenDetails }: { onOpenDetails: () => void }
     todayTotalSec,
     updateCategoryRate,
     updateCategoryDailyCap,
+    updateCategoryBilling,
   } = useTimeTracker();
   const elapsedSec = useTimeTrackerElapsed();
   const activeCat = categories.find((c) => c.id === active?.category_id);
@@ -115,12 +112,7 @@ export function HomeTrackerHero({ onOpenDetails }: { onOpenDetails: () => void }
     const capMin = selectedCat.daily_cap_minutes;
     setDraftCapHours(capMin && capMin > 0 ? String(Math.round((capMin / 60) * 10) / 10) : "");
     setDraftNotify(!!selectedCat.cap_notify_enabled);
-  }, [
-    selectedCat?.id,
-    selectedCat?.hourly_rate,
-    selectedCat?.daily_cap_minutes,
-    selectedCat?.cap_notify_enabled,
-  ]);
+  }, [selectedCat]);
 
   const todayKey = todayDateStr();
   const { data: categoryTodaySec = 0 } = useQuery({
@@ -180,29 +172,9 @@ export function HomeTrackerHero({ onOpenDetails }: { onOpenDetails: () => void }
   }, [selectedCat, capSec, categoryTodaySec, todayKey]);
 
   useEffect(() => {
-    if (!billingOpen || !user?.id || !isPro) return;
-    let cancelled = false;
-    (async () => {
-      const { data } = await (supabase as any)
-        .from("billing_payment_details")
-        .select("display_name,bank_name,iban,crypto_network,crypto_wallet,payment_link,notes")
-        .eq("user_id", user.id)
-        .maybeSingle();
-      if (cancelled) return;
-      setPaymentDetails({
-        display_name: data?.display_name || "",
-        bank_name: data?.bank_name || "",
-        iban: data?.iban || "",
-        crypto_network: data?.crypto_network || "",
-        crypto_wallet: data?.crypto_wallet || "",
-        payment_link: data?.payment_link || "",
-        notes: data?.notes || "",
-      });
-    })();
-    return () => {
-      cancelled = true;
-    };
-  }, [billingOpen, user?.id, isPro]);
+    if (!billingOpen || !selectedCat) return;
+    setPaymentDetails(categoryBillingToDraft(selectedCat));
+  }, [billingOpen, selectedCat]);
 
   const saveCategoryBilling = async () => {
     if (!selectedCat) return;
@@ -230,36 +202,26 @@ export function HomeTrackerHero({ onOpenDetails }: { onOpenDetails: () => void }
         updateCategoryDailyCap(selectedCat.id, capMin, draftNotify && capMin !== null),
       ]);
       toast.success("Saved for this category");
-    } catch (e: any) {
-      toast.error(e?.message || "Save failed");
+    } catch (e: unknown) {
+      toast.error(e instanceof Error ? e.message : "Save failed");
     } finally {
       setCategorySaving(false);
     }
   };
 
   const savePaymentDetails = async () => {
-    if (!user?.id) return;
+    if (!selectedCat) return;
     if (!isPro) {
       setUpgradeOpen(true);
       return;
     }
     setPaymentSaving(true);
     try {
-      const { error } = await (supabase as any).from("billing_payment_details").upsert({
-        user_id: user.id,
-        display_name: blankToNull(paymentDetails.display_name),
-        bank_name: blankToNull(paymentDetails.bank_name),
-        iban: blankToNull(paymentDetails.iban),
-        crypto_network: blankToNull(paymentDetails.crypto_network),
-        crypto_wallet: blankToNull(paymentDetails.crypto_wallet),
-        payment_link: blankToNull(paymentDetails.payment_link),
-        notes: blankToNull(paymentDetails.notes),
-      });
-      if (error) throw error;
-      toast.success("Payment details saved");
+      await updateCategoryBilling(selectedCat.id, paymentDetails);
+      toast.success("Payment details saved for this category");
       setBillingOpen(false);
-    } catch (e: any) {
-      toast.error(e?.message || "Could not save");
+    } catch (e: unknown) {
+      toast.error(e instanceof Error ? e.message : "Could not save");
     } finally {
       setPaymentSaving(false);
     }
@@ -517,11 +479,11 @@ export function HomeTrackerHero({ onOpenDetails }: { onOpenDetails: () => void }
                 className="inline-flex w-full items-center justify-center gap-2 rounded-xl border border-border/45 bg-card/40 py-2 text-[12px] font-semibold text-secondary-fg/90 pressable hover:text-foreground"
               >
                 <Wallet className="h-3.5 w-3.5" />
-                Payment details (reports)
+                Payment for this category
               </button>
             </div>
             <p className="mt-2 text-[10px] leading-relaxed text-secondary-fg/65">
-              Payment instructions are shared across all categories in exports. Full tracker charts live under Track.
+              Optional per-category payment lines override your global defaults in Pro exports. Full tracker charts live under Track.
             </p>
           </div>
         )}
@@ -618,10 +580,12 @@ export function HomeTrackerHero({ onOpenDetails }: { onOpenDetails: () => void }
       <Sheet open={billingOpen} onOpenChange={setBillingOpen}>
         <SheetContent side="bottom" className="rounded-t-[28px] border-border/45 bg-popover max-h-[88vh] overflow-y-auto">
           <SheetHeader className="text-left">
-            <SheetTitle className="text-[17px]">Payment details</SheetTitle>
+            <SheetTitle className="text-[17px]">
+              Payment · {selectedCat?.name ?? "Category"}
+            </SheetTitle>
           </SheetHeader>
           <p className="text-[12px] text-secondary-fg mt-1 mb-3">
-            Shown on Pro PDF/CSV exports. Use a payment link for cards — never raw card numbers.
+            Saved on this category. Pro exports merge these fields with your global payment profile where you leave blanks. Use a payment link for cards — never raw card numbers.
           </p>
           <div className="space-y-3 pb-4">
             <Input

@@ -31,13 +31,21 @@ export type ReportPaymentDetails = {
   notes?: string | null;
 };
 
+export type ReportPaymentSection = {
+  title: string;
+  details: ReportPaymentDetails;
+};
+
 export type ReportPayload = {
   periodLabel: string;
   rangeLabel: string;
   scopeLabel?: string;
   totalSeconds: number;
   totalEarnings?: number;
+  /** Legacy single block (merged profile + category for single-category exports). */
   paymentDetails?: ReportPaymentDetails | null;
+  /** Multiple payment blocks (e.g. multi-category export with different overrides). */
+  paymentSections?: ReportPaymentSection[] | null;
   categories: ReportCategoryRow[];
   entries: ReportEntryRow[];
 };
@@ -78,7 +86,7 @@ const filenameBase = (report: ReportPayload) => {
   return `time-report-${report.periodLabel.toLowerCase()}${scope}-${new Date().toISOString().slice(0, 10)}`;
 };
 
-const paymentDetailRows = (details?: ReportPaymentDetails | null) => {
+export const paymentDetailRows = (details?: ReportPaymentDetails | null) => {
   if (!details) return [];
   return [
     ["Payee", details.displayName],
@@ -97,10 +105,16 @@ export function downloadReportCsv(report: ReportPayload) {
   if (report.scopeLabel) lines.push(`Categories,"${report.scopeLabel.replace(/"/g, '""')}"`);
   lines.push(`Total tracked,${fmtH(report.totalSeconds)}`);
   lines.push(`Total earned,${fmtMoney(report.totalEarnings || 0)}`);
-  const paymentRows = paymentDetailRows(report.paymentDetails);
-  if (paymentRows.length) {
+  const sections = report.paymentSections?.length
+    ? report.paymentSections
+    : report.paymentDetails
+      ? [{ title: "Payment details", details: report.paymentDetails }]
+      : [];
+  for (const sec of sections) {
+    const paymentRows = paymentDetailRows(sec.details);
+    if (!paymentRows.length) continue;
     lines.push("");
-    lines.push("Payment details");
+    lines.push(sec.title.replace(/"/g, '""'));
     for (const [label, value] of paymentRows) {
       lines.push(`"${label.replace(/"/g, '""')}","${value.replace(/"/g, '""')}"`);
     }
@@ -132,7 +146,11 @@ export function downloadReportCsv(report: ReportPayload) {
 
 export function downloadReportPdf(report: ReportPayload) {
   const doc = new jsPDF({ unit: "pt", format: "a4" });
-  const paymentRows = paymentDetailRows(report.paymentDetails);
+  const sections = report.paymentSections?.length
+    ? report.paymentSections
+    : report.paymentDetails
+      ? [{ title: "Payment details", details: report.paymentDetails }]
+      : [];
   doc.setFont("helvetica", "bold");
   doc.setFontSize(20);
   doc.text("Time report", 40, 60);
@@ -161,10 +179,12 @@ export function downloadReportPdf(report: ReportPayload) {
   }
 
   let startY = 170;
-  if (paymentRows.length) {
+  for (const sec of sections) {
+    const paymentRows = paymentDetailRows(sec.details);
+    if (!paymentRows.length) continue;
     autoTable(doc, {
       startY,
-      head: [["Payment details", ""]],
+      head: [[sec.title, ""]],
       body: paymentRows,
       styles: { font: "helvetica", fontSize: 9, cellPadding: 5 },
       headStyles: { fillColor: [245, 245, 245], textColor: 30 },
@@ -181,8 +201,10 @@ export function downloadReportPdf(report: ReportPayload) {
     headStyles: { fillColor: [30, 30, 30], textColor: 255 },
     theme: "grid",
   });
+  startY = ((doc as any).lastAutoTable?.finalY || startY) + 18;
 
   autoTable(doc, {
+    startY,
     head: [["Date", "Started", "Ended", "Category", "Min", "Earned", "Note"]],
     body: report.entries.map((e) => [
       e.date,
