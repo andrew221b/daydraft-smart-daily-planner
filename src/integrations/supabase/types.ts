@@ -399,54 +399,24 @@ export type Database = {
       }
       time_categories: {
         Row: {
-          billing_bank_name: string | null
-          billing_crypto_network: string | null
-          billing_crypto_wallet: string | null
-          billing_display_name: string | null
-          billing_iban: string | null
-          billing_notes: string | null
-          billing_payment_link: string | null
-          cap_notify_enabled: boolean
           color: string
           created_at: string
-          daily_cap_minutes: number | null
-          hourly_rate: number | null
           id: string
           is_default: boolean
           name: string
           user_id: string
         }
         Insert: {
-          billing_bank_name?: string | null
-          billing_crypto_network?: string | null
-          billing_crypto_wallet?: string | null
-          billing_display_name?: string | null
-          billing_iban?: string | null
-          billing_notes?: string | null
-          billing_payment_link?: string | null
-          cap_notify_enabled?: boolean
           color?: string
           created_at?: string
-          daily_cap_minutes?: number | null
-          hourly_rate?: number | null
           id?: string
           is_default?: boolean
           name: string
           user_id: string
         }
         Update: {
-          billing_bank_name?: string | null
-          billing_crypto_network?: string | null
-          billing_crypto_wallet?: string | null
-          billing_display_name?: string | null
-          billing_iban?: string | null
-          billing_notes?: string | null
-          billing_payment_link?: string | null
-          cap_notify_enabled?: boolean
           color?: string
           created_at?: string
-          daily_cap_minutes?: number | null
-          hourly_rate?: number | null
           id?: string
           is_default?: boolean
           name?: string
