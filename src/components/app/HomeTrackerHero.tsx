@@ -1,17 +1,12 @@
 import { useEffect, useMemo, useRef, useState, type CSSProperties, type FormEvent } from "react";
-import { useQuery } from "@tanstack/react-query";
 import { Check, Play, Square, Plus, Search, ChevronDown, Wallet } from "lucide-react";
 import { useTimeTracker, useTimeTrackerElapsed, fmtHMS, fmtHM } from "@/hooks/useTimeTracker";
 import { Sheet, SheetContent, SheetHeader, SheetTitle } from "@/components/ui/sheet";
 import { Input } from "@/components/ui/input";
 import { Button } from "@/components/ui/button";
-import { Switch } from "@/components/ui/switch";
 import { Textarea } from "@/components/ui/textarea";
-import { supabase } from "@/integrations/supabase/client";
-import { useAuth } from "@/hooks/useAuth";
 import { useEntitlement } from "@/hooks/useEntitlement";
 import { UpgradeSheet } from "@/components/app/UpgradeSheet";
-import { todayDateStr } from "@/lib/daydraft";
 import { categoryBillingToDraft } from "@/lib/categoryBilling";
 import { toast } from "sonner";
 
@@ -21,6 +16,8 @@ import { toast } from "sonner";
  * a single hero CTA when idle, and quick category chips below.
  */
 type PaymentDetailsDraft = {
+  currency: string;
+  payment_method: string;
   display_name: string;
   bank_name: string;
   iban: string;
@@ -31,6 +28,8 @@ type PaymentDetailsDraft = {
 };
 
 const emptyPaymentDetails: PaymentDetailsDraft = {
+  currency: "USD",
+  payment_method: "",
   display_name: "",
   bank_name: "",
   iban: "",
@@ -40,16 +39,7 @@ const emptyPaymentDetails: PaymentDetailsDraft = {
   notes: "",
 };
 
-function clipEntrySec(startedAt: string, endedAt: string | null, rangeStart: number, rangeEnd: number, now: number) {
-  const s = new Date(startedAt).getTime();
-  const en = endedAt ? new Date(endedAt).getTime() : now;
-  const a = Math.max(s, rangeStart);
-  const b = Math.min(en, rangeEnd);
-  return Math.max(0, (b - a) / 1000);
-}
-
 export function HomeTrackerHero({ onOpenDetails }: { onOpenDetails: () => void }) {
-  const { user } = useAuth();
   const { isPro } = useEntitlement();
   const {
     active,
@@ -60,7 +50,6 @@ export function HomeTrackerHero({ onOpenDetails }: { onOpenDetails: () => void }
     addCategory,
     todayTotalSec,
     updateCategoryRate,
-    updateCategoryDailyCap,
     updateCategoryBilling,
   } = useTimeTracker();
   const elapsedSec = useTimeTrackerElapsed();
@@ -73,8 +62,8 @@ export function HomeTrackerHero({ onOpenDetails }: { onOpenDetails: () => void }
   const [focusNewCategory, setFocusNewCategory] = useState(false);
   const newCategoryInputRef = useRef<HTMLInputElement | null>(null);
   const [draftRate, setDraftRate] = useState("");
-  const [draftCapHours, setDraftCapHours] = useState("");
-  const [draftNotify, setDraftNotify] = useState(false);
+  const [draftCurrency, setDraftCurrency] = useState("USD");
+  const [draftPaymentMethod, setDraftPaymentMethod] = useState("");
   const [billingOpen, setBillingOpen] = useState(false);
   const [paymentDetails, setPaymentDetails] = useState<PaymentDetailsDraft>(emptyPaymentDetails);
   const [paymentSaving, setPaymentSaving] = useState(false);
