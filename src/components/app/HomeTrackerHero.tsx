@@ -1,17 +1,12 @@
 import { useEffect, useMemo, useRef, useState, type CSSProperties, type FormEvent } from "react";
-import { useQuery } from "@tanstack/react-query";
 import { Check, Play, Square, Plus, Search, ChevronDown, Wallet } from "lucide-react";
 import { useTimeTracker, useTimeTrackerElapsed, fmtHMS, fmtHM } from "@/hooks/useTimeTracker";
 import { Sheet, SheetContent, SheetHeader, SheetTitle } from "@/components/ui/sheet";
 import { Input } from "@/components/ui/input";
 import { Button } from "@/components/ui/button";
-import { Switch } from "@/components/ui/switch";
 import { Textarea } from "@/components/ui/textarea";
-import { supabase } from "@/integrations/supabase/client";
-import { useAuth } from "@/hooks/useAuth";
 import { useEntitlement } from "@/hooks/useEntitlement";
 import { UpgradeSheet } from "@/components/app/UpgradeSheet";
-import { todayDateStr } from "@/lib/daydraft";
 import { categoryBillingToDraft } from "@/lib/categoryBilling";
 import { toast } from "sonner";
 
@@ -21,6 +16,8 @@ import { toast } from "sonner";
  * a single hero CTA when idle, and quick category chips below.
  */
 type PaymentDetailsDraft = {
+  currency: string;
+  payment_method: string;
   display_name: string;
   bank_name: string;
   iban: string;
@@ -31,6 +28,8 @@ type PaymentDetailsDraft = {
 };
 
 const emptyPaymentDetails: PaymentDetailsDraft = {
+  currency: "USD",
+  payment_method: "",
   display_name: "",
   bank_name: "",
   iban: "",
@@ -40,16 +39,7 @@ const emptyPaymentDetails: PaymentDetailsDraft = {
   notes: "",
 };
 
-function clipEntrySec(startedAt: string, endedAt: string | null, rangeStart: number, rangeEnd: number, now: number) {
-  const s = new Date(startedAt).getTime();
-  const en = endedAt ? new Date(endedAt).getTime() : now;
-  const a = Math.max(s, rangeStart);
-  const b = Math.min(en, rangeEnd);
-  return Math.max(0, (b - a) / 1000);
-}
-
 export function HomeTrackerHero({ onOpenDetails }: { onOpenDetails: () => void }) {
-  const { user } = useAuth();
   const { isPro } = useEntitlement();
   const {
     active,
@@ -60,7 +50,6 @@ export function HomeTrackerHero({ onOpenDetails }: { onOpenDetails: () => void }
     addCategory,
     todayTotalSec,
     updateCategoryRate,
-    updateCategoryDailyCap,
     updateCategoryBilling,
   } = useTimeTracker();
   const elapsedSec = useTimeTrackerElapsed();
@@ -73,8 +62,8 @@ export function HomeTrackerHero({ onOpenDetails }: { onOpenDetails: () => void }
   const [focusNewCategory, setFocusNewCategory] = useState(false);
   const newCategoryInputRef = useRef<HTMLInputElement | null>(null);
   const [draftRate, setDraftRate] = useState("");
-  const [draftCapHours, setDraftCapHours] = useState("");
-  const [draftNotify, setDraftNotify] = useState(false);
+  const [draftCurrency, setDraftCurrency] = useState("USD");
+  const [draftPaymentMethod, setDraftPaymentMethod] = useState("");
   const [billingOpen, setBillingOpen] = useState(false);
   const [paymentDetails, setPaymentDetails] = useState<PaymentDetailsDraft>(emptyPaymentDetails);
   const [paymentSaving, setPaymentSaving] = useState(false);
@@ -109,67 +98,9 @@ export function HomeTrackerHero({ onOpenDetails }: { onOpenDetails: () => void }
   useEffect(() => {
     if (!selectedCat) return;
     setDraftRate(selectedCat.hourly_rate == null ? "" : String(selectedCat.hourly_rate));
-    const capMin = selectedCat.daily_cap_minutes;
-    setDraftCapHours(capMin && capMin > 0 ? String(Math.round((capMin / 60) * 10) / 10) : "");
-    setDraftNotify(!!selectedCat.cap_notify_enabled);
+    setDraftCurrency(String(selectedCat.currency || "USD"));
+    setDraftPaymentMethod(String(selectedCat.payment_method || ""));
   }, [selectedCat]);
-
-  const todayKey = todayDateStr();
-  const { data: categoryTodaySec = 0 } = useQuery({
-    queryKey: ["home-cat-today-sec", user?.id, selectedCategoryId, todayKey],
-    enabled: !!user?.id && !!selectedCategoryId,
-    staleTime: 15_000,
-    refetchInterval: active?.category_id === selectedCategoryId ? 5000 : 25_000,
-    queryFn: async () => {
-      const start = new Date();
-      start.setHours(0, 0, 0, 0);
-      const rangeStart = start.getTime();
-      const rangeEnd = rangeStart + 86_400_000;
-      const now = Date.now();
-      const { data, error } = await supabase
-        .from("time_entries")
-        .select("started_at,ended_at")
-        .eq("user_id", user!.id)
-        .eq("category_id", selectedCategoryId!)
-        .gte("started_at", new Date(rangeStart).toISOString());
-      if (error) throw error;
-      let sum = 0;
-      for (const e of data || []) {
-        sum += clipEntrySec(e.started_at, e.ended_at, rangeStart, rangeEnd, now);
-      }
-      return sum;
-    },
-  });
-
-  const capSec = useMemo(() => {
-    const m = selectedCat?.daily_cap_minutes;
-    if (!m || m <= 0) return 0;
-    return m * 60;
-  }, [selectedCat?.daily_cap_minutes]);
-
-  useEffect(() => {
-    if (!selectedCat || !selectedCat.cap_notify_enabled || capSec <= 0) return;
-    if (categoryTodaySec < capSec) return;
-    const key = `dd_cap_hit_${todayKey}_${selectedCat.id}`;
-    try {
-      if (sessionStorage.getItem(key)) return;
-      sessionStorage.setItem(key, "1");
-    } catch {
-      return;
-    }
-    toast.warning(`${selectedCat.name}: daily limit reached`, {
-      description: `Tracked about ${fmtHM(categoryTodaySec)} today (cap ${fmtHM(capSec)}).`,
-    });
-    if (typeof Notification !== "undefined" && Notification.permission === "granted") {
-      try {
-        new Notification("Daydraft", {
-          body: `${selectedCat.name}: you hit today’s tracking cap (${fmtHM(capSec)}).`,
-        });
-      } catch {
-        /* ignore */
-      }
-    }
-  }, [selectedCat, capSec, categoryTodaySec, todayKey]);
 
   useEffect(() => {
     if (!billingOpen || !selectedCat) return;
@@ -182,24 +113,15 @@ export function HomeTrackerHero({ onOpenDetails }: { onOpenDetails: () => void }
     const rateNum = cleaned === "" ? null : Number(cleaned);
     const rateNorm =
       rateNum === null || !Number.isFinite(rateNum) || rateNum < 0 ? null : Math.round(rateNum * 100) / 100;
-    const capH = draftCapHours.replace(",", ".").trim();
-    const capHoursNum = capH === "" ? null : Number(capH);
-    const capMin =
-      capHoursNum === null || !Number.isFinite(capHoursNum) || capHoursNum <= 0
-        ? null
-        : Math.max(1, Math.min(1440, Math.round(capHoursNum * 60)));
-    if (draftNotify && capMin === null) {
-      toast.error("Set a daily cap (hours) to enable alerts.");
-      return;
-    }
-    if (draftNotify && typeof Notification !== "undefined" && Notification.permission === "default") {
-      await Notification.requestPermission();
-    }
     setCategorySaving(true);
     try {
       await Promise.all([
         updateCategoryRate(selectedCat.id, rateNorm),
-        updateCategoryDailyCap(selectedCat.id, capMin, draftNotify && capMin !== null),
+        updateCategoryBilling(selectedCat.id, {
+          ...categoryBillingToDraft(selectedCat),
+          currency: draftCurrency,
+          payment_method: draftPaymentMethod,
+        }),
       ]);
       toast.success("Saved for this category");
     } catch (e: unknown) {

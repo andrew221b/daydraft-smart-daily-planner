@@ -2,6 +2,8 @@ import type { ReportPaymentDetails } from "@/lib/reportExport";
 
 /** Raw category row from Supabase (snake_case billing fields). */
 export type CategoryBillingRow = {
+  currency?: string | null;
+  payment_method?: string | null;
   billing_display_name?: string | null;
   billing_bank_name?: string | null;
   billing_iban?: string | null;
@@ -14,6 +16,8 @@ export type CategoryBillingRow = {
 export function categoryRowToPaymentDetails(row: CategoryBillingRow | null | undefined): ReportPaymentDetails | null {
   if (!row) return null;
   const d: ReportPaymentDetails = {
+    currency: row.currency ?? null,
+    paymentMethod: row.payment_method ?? null,
     displayName: row.billing_display_name ?? null,
     bankName: row.billing_bank_name ?? null,
     iban: row.billing_iban ?? null,
@@ -29,6 +33,8 @@ export function paymentDetailsHasContent(d: ReportPaymentDetails | null | undefi
   if (!d) return false;
   return !!(
     d.displayName?.trim() ||
+    d.currency?.trim() ||
+    d.paymentMethod?.trim() ||
     d.bankName?.trim() ||
     d.iban?.trim() ||
     d.cryptoNetwork?.trim() ||
@@ -40,6 +46,8 @@ export function paymentDetailsHasContent(d: ReportPaymentDetails | null | undefi
 
 /** Category-specific fields override global defaults for export. */
 export function billingDraftToCategoryUpdate(draft: {
+  currency?: string;
+  payment_method?: string;
   display_name: string;
   bank_name: string;
   iban: string;
@@ -53,6 +61,8 @@ export function billingDraftToCategoryUpdate(draft: {
     return t ? t : null;
   };
   return {
+    currency: (draft.currency || "USD").trim().toUpperCase() || "USD",
+    payment_method: b(draft.payment_method || ""),
     billing_display_name: b(draft.display_name),
     billing_bank_name: b(draft.bank_name),
     billing_iban: b(draft.iban),
@@ -64,6 +74,8 @@ export function billingDraftToCategoryUpdate(draft: {
 }
 
 export function categoryBillingToDraft(row: CategoryBillingRow & Record<string, unknown>): {
+  currency: string;
+  payment_method: string;
   display_name: string;
   bank_name: string;
   iban: string;
@@ -73,6 +85,8 @@ export function categoryBillingToDraft(row: CategoryBillingRow & Record<string, 
   notes: string;
 } {
   return {
+    currency: String(row.currency ?? "USD"),
+    payment_method: String(row.payment_method ?? ""),
     display_name: String(row.billing_display_name ?? ""),
     bank_name: String(row.billing_bank_name ?? ""),
     iban: String(row.billing_iban ?? ""),
@@ -93,6 +107,8 @@ export function mergeCategoryPayment(
   if (!c) return g;
   if (!g) return c;
   return {
+    currency: c.currency?.trim() || g.currency || null,
+    paymentMethod: c.paymentMethod?.trim() || g.paymentMethod || null,
     displayName: c.displayName?.trim() || g.displayName || null,
     bankName: c.bankName?.trim() || g.bankName || null,
     iban: c.iban?.trim() || g.iban || null,

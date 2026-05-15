@@ -409,11 +409,13 @@ export type Database = {
           cap_notify_enabled: boolean
           color: string
           created_at: string
+          currency: string
           daily_cap_minutes: number | null
           hourly_rate: number | null
           id: string
           is_default: boolean
           name: string
+          payment_method: string | null
           user_id: string
         }
         Insert: {
@@ -427,11 +429,13 @@ export type Database = {
           cap_notify_enabled?: boolean
           color?: string
           created_at?: string
+          currency?: string
           daily_cap_minutes?: number | null
           hourly_rate?: number | null
           id?: string
           is_default?: boolean
           name: string
+          payment_method?: string | null
           user_id: string
         }
         Update: {
@@ -445,11 +449,13 @@ export type Database = {
           cap_notify_enabled?: boolean
           color?: string
           created_at?: string
+          currency?: string
           daily_cap_minutes?: number | null
           hourly_rate?: number | null
           id?: string
           is_default?: boolean
           name?: string
+          payment_method?: string | null
           user_id?: string
         }
         Relationships: []

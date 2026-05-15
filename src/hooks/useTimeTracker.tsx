@@ -19,10 +19,8 @@ export type TimeCategory = {
   color: string;
   is_default: boolean;
   hourly_rate?: number | null;
-  /** Max minutes tracked today for this category; null = no cap */
-  daily_cap_minutes?: number | null;
-  /** When true, app may notify when today’s total reaches the cap */
-  cap_notify_enabled?: boolean | null;
+  currency?: string | null;
+  payment_method?: string | null;
   billing_display_name?: string | null;
   billing_bank_name?: string | null;
   billing_iban?: string | null;
@@ -70,10 +68,11 @@ type Ctx = {
   deleteCategory: (id: string) => Promise<void>;
   renameCategory: (id: string, name: string) => Promise<void>;
   updateCategoryRate: (id: string, hourlyRate: number | null) => Promise<void>;
-  updateCategoryDailyCap: (id: string, dailyCapMinutes: number | null, capNotifyEnabled: boolean) => Promise<void>;
   updateCategoryBilling: (
     id: string,
     draft: {
+      currency?: string;
+      payment_method?: string;
       display_name: string;
       bank_name: string;
       iban: string;
@@ -351,26 +350,6 @@ export function TimeTrackerProvider({ children }: { children: ReactNode }) {
     setCategories(cs => cs.map(c => c.id === id ? { ...c, hourly_rate: normalized } : c));
   };
 
-  const updateCategoryDailyCap: Ctx["updateCategoryDailyCap"] = async (id, dailyCapMinutes, capNotifyEnabled) => {
-    const cap =
-      dailyCapMinutes === null || dailyCapMinutes === undefined
-        ? null
-        : Math.max(1, Math.min(1440, Math.round(dailyCapMinutes)));
-    const { error } = await supabase
-      .from("time_categories")
-      .update({ daily_cap_minutes: cap, cap_notify_enabled: capNotifyEnabled } as any)
-      .eq("id", id);
-    if (error) {
-      toast.error(error.message);
-      return;
-    }
-    setCategories((cs) =>
-      cs.map((c) =>
-        c.id === id ? { ...c, daily_cap_minutes: cap, cap_notify_enabled: capNotifyEnabled } : c,
-      ),
-    );
-  };
-
   const updateCategoryBilling: Ctx["updateCategoryBilling"] = async (id, draft) => {
     const row = billingDraftToCategoryUpdate(draft);
     const { error } = await supabase.from("time_categories").update(row as any).eq("id", id);
@@ -417,7 +396,7 @@ export function TimeTrackerProvider({ children }: { children: ReactNode }) {
 
   const value: Ctx = useMemo(() => ({
     categories, active, loading,
-    start, stop, switchCategory, addCategory, deleteCategory, renameCategory, updateCategoryRate, updateCategoryDailyCap, updateCategoryBilling,
+    start, stop, switchCategory, addCategory, deleteCategory, renameCategory, updateCategoryRate, updateCategoryBilling,
     addManualEntry, deleteEntry,
     todayTotalSec, weekTotalSec, refresh,
   }), [categories, active, loading, todayTotalSec, weekTotalSec, refresh]);
