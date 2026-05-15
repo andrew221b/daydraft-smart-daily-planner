@@ -22,6 +22,8 @@ export type ReportEntryRow = {
 };
 
 export type ReportPaymentDetails = {
+  currency?: string | null;
+  paymentMethod?: string | null;
   displayName?: string | null;
   bankName?: string | null;
   iban?: string | null;
@@ -89,6 +91,8 @@ const filenameBase = (report: ReportPayload) => {
 export const paymentDetailRows = (details?: ReportPaymentDetails | null) => {
   if (!details) return [];
   return [
+    ["Currency", details.currency],
+    ["Payment method", details.paymentMethod],
     ["Payee", details.displayName],
     ["Bank", details.bankName],
     ["IBAN", details.iban],
