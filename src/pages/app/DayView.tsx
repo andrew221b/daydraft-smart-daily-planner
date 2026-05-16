@@ -61,6 +61,30 @@ type ExBlock = Block & {
   resolved_at?: string | null;
 };
 
+const taskSeparatorPattern =
+  /\r?\n+|;|•|(?:^|\s)[-*]\s+|(?:^|\s)\d+[.)]\s+|\s(?:и еще|ещ[её]|потом|затем|после этого|также|and then|then|also)\s/gi;
+
+const cleanupBulkTaskTitle = (value: string) =>
+  value
+    .replace(/^[,.;:\-–—•*\d.)\s]+/, "")
+    .replace(/[,.;:\-–—\s]+$/, "")
+    .trim();
+
+const parseBulkTasks = (input: string): string[] => {
+  const primary = input
+    .split(taskSeparatorPattern)
+    .map(cleanupBulkTaskTitle)
+    .filter(Boolean);
+
+  const expanded = primary.flatMap((part) => {
+    const commaParts = part.split(/,\s+/).map(cleanupBulkTaskTitle).filter(Boolean);
+    if (commaParts.length >= 3) return commaParts;
+    return [part];
+  });
+
+  return Array.from(new Set(expanded)).slice(0, 40);
+};
+
 export default function DayView() {
   const { user } = useAuth();
   const { profile } = useProfile();
