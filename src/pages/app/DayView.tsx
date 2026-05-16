@@ -62,7 +62,7 @@ type ExBlock = Block & {
 };
 
 const taskSeparatorPattern =
-  /\r?\n+|;|•|(?:^|\s)[-*]\s+|(?:^|\s)\d+[.)]\s+|\s(?:и еще|ещ[её]|потом|затем|после этого|также|and then|then|also)\s/gi;
+  /\r?\n+|;|•|(?:^|\s)[-*]\s+|(?:^|\s)\d+[.)]\s+|\s(?:и еще|ещ[её]|потом|затем|после этого|также|and then|then|also)\s|\s(?:и|and)\s+(?=(?:убрать|добавить|сделать|исправить|проверить|написать|купить|позвонить|отправить|создать|обновить|починить|переделать|настроить|выбрать|подготовить|закончить|разобрать|clean|fix|add|remove|write|call|send|create|update|finish|prepare)\b)/gi;
 
 const cleanupBulkTaskTitle = (value: string) =>
   value
