@@ -199,6 +199,7 @@ export default function Reports() {
       id: string;
       name: string;
       color: string;
+      currency: string;
       hourlyRate: number | null;
       sec: number;
       earnings: number;
@@ -299,12 +300,14 @@ export default function Reports() {
         const cat: any = catMap.get(e.category_id);
         const durationMin = Math.max(0, Math.round((en.getTime() - s.getTime()) / 60000));
         const hourlyRate = cat?.hourly_rate ?? null;
+        const currency = cat?.currency || "USD";
         return {
           date: s.toLocaleDateString(),
           startedAt: s.toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" }),
           endedAt: en.toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" }),
           category: cat?.name || "Uncategorized",
           durationMin,
+          currency,
           hourlyRate,
           earnings: ((hourlyRate || 0) * durationMin) / 60,
           note: e.note ?? null,
