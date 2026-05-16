@@ -377,7 +377,7 @@ export default function Reports() {
               {totalEarnings > 0 && (
                 <div className="text-right">
                   <p className="text-[10px] font-semibold uppercase tracking-[0.16em] text-secondary-fg/70">Estimated pay</p>
-                  <p className="font-display text-[22px] font-semibold tabular-nums text-primary">{fmtMoney(totalEarnings)}</p>
+                  <p className="font-display text-[22px] font-semibold tabular-nums text-primary">{fmtMoney(totalEarnings, byCategory[0]?.currency || "USD")}</p>
                 </div>
               )}
             </div>
@@ -445,8 +445,8 @@ export default function Reports() {
                         <div className="mt-1 flex flex-wrap items-center gap-x-3 gap-y-1 text-[11px] tabular-nums text-secondary-fg/70">
                           <span>{(pct * 100).toFixed(0)}% of period</span>
                           <span>{group.entries.length} session{group.entries.length === 1 ? "" : "s"}</span>
-                          {group.hourlyRate ? <span>{fmtMoney(group.hourlyRate)}/h</span> : <span>No rate</span>}
-                          {group.earnings > 0 && <span className="font-semibold text-primary">{fmtMoney(group.earnings)} earned</span>}
+                          {group.hourlyRate ? <span>{fmtMoney(group.hourlyRate, group.currency)}/h</span> : <span>No rate</span>}
+                          {group.earnings > 0 && <span className="font-semibold text-primary">{fmtMoney(group.earnings, group.currency)} earned</span>}
                         </div>
                       </div>
                       <ChevronDown className={`mt-0.5 h-4 w-4 shrink-0 text-secondary-fg transition-transform ${isOpen ? "rotate-180" : ""}`} />
@@ -471,7 +471,7 @@ export default function Reports() {
                                 </div>
                                 <span className="text-right">
                                   <span className="block text-[12px] tabular-nums text-secondary-fg/85">{fmtHM(sec)}</span>
-                                  {earned > 0 && <span className="block text-[10px] tabular-nums text-primary">{fmtMoney(earned)}</span>}
+                                  {earned > 0 && <span className="block text-[10px] tabular-nums text-primary">{fmtMoney(earned, group.currency)}</span>}
                                 </span>
                               </li>
                             );
