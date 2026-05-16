@@ -135,6 +135,10 @@ export default function DayView() {
   const [calmMode] = useCalmMode();
   const { isPro } = useEntitlement();
 
+  useEffect(() => {
+    if (searchParams.get("composer") === "1") setBulkOpen(true);
+  }, [searchParams]);
+
   const tomorrowDate = (() => {
     const d = parseDateStr(viewDate);
     d.setDate(d.getDate() + 1);
