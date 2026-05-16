@@ -70,6 +70,9 @@ const cleanupBulkTaskTitle = (value: string) =>
     .replace(/[,.;:\-–—\s]+$/, "")
     .trim();
 
+const taskStarterPattern =
+  /^(убрать|добавить|сделать|исправить|проверить|написать|купить|позвонить|отправить|создать|обновить|починить|переделать|настроить|выбрать|подготовить|закончить|разобрать|clean|fix|add|remove|write|call|send|create|update|finish|prepare)\b/i;
+
 const parseBulkTasks = (input: string): string[] => {
   const primary = input
     .split(taskSeparatorPattern)
@@ -78,11 +81,11 @@ const parseBulkTasks = (input: string): string[] => {
 
   const expanded = primary.flatMap((part) => {
     const commaParts = part.split(/,\s+/).map(cleanupBulkTaskTitle).filter(Boolean);
-    if (commaParts.length >= 3) return commaParts;
+    if (commaParts.length >= 2 && commaParts.filter((p) => taskStarterPattern.test(p)).length >= 2) return commaParts;
     return [part];
   });
 
-  return Array.from(new Set(expanded)).slice(0, 40);
+  return expanded.slice(0, 40);
 };
 
 export default function DayView() {
