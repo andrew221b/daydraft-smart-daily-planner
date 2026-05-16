@@ -44,10 +44,12 @@ const fmtHM = (sec: number) => {
   return mm ? `${h}h ${mm}m` : `${h}h`;
 };
 const REPORT_CATEGORY_SELECT =
-  "id,name,color,hourly_rate,billing_display_name,billing_bank_name,billing_iban,billing_crypto_network,billing_crypto_wallet,billing_payment_link,billing_notes";
+  "id,name,color,hourly_rate,currency,payment_method,billing_display_name,billing_bank_name,billing_iban,billing_crypto_network,billing_crypto_wallet,billing_payment_link,billing_notes";
 
 function paymentFingerprint(d: ReportPaymentDetails): string {
   return [
+    d.currency ?? "",
+    d.paymentMethod ?? "",
     d.displayName ?? "",
     d.bankName ?? "",
     d.iban ?? "",
@@ -58,12 +60,18 @@ function paymentFingerprint(d: ReportPaymentDetails): string {
   ].join("\u0001");
 }
 
-const fmtMoney = (amount: number) =>
-  new Intl.NumberFormat(undefined, {
-    style: "currency",
-    currency: "USD",
-    maximumFractionDigits: Math.abs(amount) >= 100 ? 0 : 2,
-  }).format(amount);
+const fmtMoney = (amount: number, currency = "USD") => {
+  const code = String(currency || "USD").trim().toUpperCase();
+  try {
+    return new Intl.NumberFormat(undefined, {
+      style: "currency",
+      currency: code,
+      maximumFractionDigits: Math.abs(amount) >= 100 ? 0 : 2,
+    }).format(amount);
+  } catch {
+    return `${Math.abs(amount) >= 100 ? amount.toFixed(0) : amount.toFixed(2)} ${code}`;
+  }
+};
 
 export default function Reports() {
   const { user } = useAuth();
@@ -168,6 +176,7 @@ export default function Reports() {
           id,
           name: c?.name || "Uncategorized",
           color: c?.color || "hsl(var(--muted-foreground))",
+          currency: c?.currency || "USD",
           hourlyRate: c?.hourly_rate ?? null,
           sec,
           earnings: eMap.get(id) || 0,
@@ -190,6 +199,7 @@ export default function Reports() {
       id: string;
       name: string;
       color: string;
+      currency: string;
       hourlyRate: number | null;
       sec: number;
       earnings: number;
@@ -209,6 +219,7 @@ export default function Reports() {
         id,
         name: cat?.name || "Uncategorized",
         color: cat?.color || "hsl(var(--muted-foreground))",
+        currency: cat?.currency || "USD",
         hourlyRate: rate,
         sec: 0,
         earnings: 0,
@@ -279,6 +290,7 @@ export default function Reports() {
         name: c.name,
         color: c.color,
         seconds: c.sec,
+        currency: c.currency,
         hourlyRate: c.hourlyRate,
         earnings: c.earnings,
         pct: filteredTotal > 0 ? c.sec / filteredTotal : 0,
@@ -289,12 +301,14 @@ export default function Reports() {
         const cat: any = catMap.get(e.category_id);
         const durationMin = Math.max(0, Math.round((en.getTime() - s.getTime()) / 60000));
         const hourlyRate = cat?.hourly_rate ?? null;
+        const currency = cat?.currency || "USD";
         return {
           date: s.toLocaleDateString(),
           startedAt: s.toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" }),
           endedAt: en.toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" }),
           category: cat?.name || "Uncategorized",
           durationMin,
+          currency,
           hourlyRate,
           earnings: ((hourlyRate || 0) * durationMin) / 60,
           note: e.note ?? null,
@@ -364,7 +378,7 @@ export default function Reports() {
               {totalEarnings > 0 && (
                 <div className="text-right">
                   <p className="text-[10px] font-semibold uppercase tracking-[0.16em] text-secondary-fg/70">Estimated pay</p>
-                  <p className="font-display text-[22px] font-semibold tabular-nums text-primary">{fmtMoney(totalEarnings)}</p>
+                  <p className="font-display text-[22px] font-semibold tabular-nums text-primary">{fmtMoney(totalEarnings, byCategory[0]?.currency || "USD")}</p>
                 </div>
               )}
             </div>
@@ -432,8 +446,8 @@ export default function Reports() {
                         <div className="mt-1 flex flex-wrap items-center gap-x-3 gap-y-1 text-[11px] tabular-nums text-secondary-fg/70">
                           <span>{(pct * 100).toFixed(0)}% of period</span>
                           <span>{group.entries.length} session{group.entries.length === 1 ? "" : "s"}</span>
-                          {group.hourlyRate ? <span>{fmtMoney(group.hourlyRate)}/h</span> : <span>No rate</span>}
-                          {group.earnings > 0 && <span className="font-semibold text-primary">{fmtMoney(group.earnings)} earned</span>}
+                          {group.hourlyRate ? <span>{fmtMoney(group.hourlyRate, group.currency)}/h</span> : <span>No rate</span>}
+                          {group.earnings > 0 && <span className="font-semibold text-primary">{fmtMoney(group.earnings, group.currency)} earned</span>}
                         </div>
                       </div>
                       <ChevronDown className={`mt-0.5 h-4 w-4 shrink-0 text-secondary-fg transition-transform ${isOpen ? "rotate-180" : ""}`} />
@@ -458,7 +472,7 @@ export default function Reports() {
                                 </div>
                                 <span className="text-right">
                                   <span className="block text-[12px] tabular-nums text-secondary-fg/85">{fmtHM(sec)}</span>
-                                  {earned > 0 && <span className="block text-[10px] tabular-nums text-primary">{fmtMoney(earned)}</span>}
+                                  {earned > 0 && <span className="block text-[10px] tabular-nums text-primary">{fmtMoney(earned, group.currency)}</span>}
                                 </span>
                               </li>
                             );

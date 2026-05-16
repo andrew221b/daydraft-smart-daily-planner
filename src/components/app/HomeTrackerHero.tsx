@@ -39,6 +39,13 @@ const emptyPaymentDetails: PaymentDetailsDraft = {
   notes: "",
 };
 
+const currencyOptions = [
+  "USD", "EUR", "GBP", "CHF", "CAD", "AUD", "NZD", "JPY", "PLN", "UAH", "AED", "SEK", "NOK", "DKK", "CZK", "GEL", "TRY", "SGD", "HKD", "MXN", "BRL", "INR", "CNY", "KZT",
+  "USDT", "USDC", "DAI", "EURC", "BTC", "ETH", "SOL", "BNB", "TON", "TRX", "MATIC", "LTC", "XRP", "ADA", "DOGE",
+];
+
+const paymentMethodOptions = ["", "Bank transfer", "IBAN", "Wise", "PayPal", "Stripe link", "USDT", "USDC", "Crypto wallet", "Other"];
+
 export function HomeTrackerHero({ onOpenDetails }: { onOpenDetails: () => void }) {
   const { isPro } = useEntitlement();
   const {
@@ -332,9 +339,9 @@ export function HomeTrackerHero({ onOpenDetails }: { onOpenDetails: () => void }
             <p className="text-[10px] font-semibold uppercase tracking-[0.14em] text-secondary-fg/70">
               Category · {selectedCat.name}
             </p>
-            <div className="mt-2.5">
-              <label className="space-y-1 block">
-                <span className="text-[10px] text-secondary-fg/80">Rate / h (USD)</span>
+            <div className="mt-2.5 grid grid-cols-[1fr_104px] gap-2">
+              <label className="space-y-1 block min-w-0">
+                <span className="text-[10px] text-secondary-fg/80">Rate / h</span>
                 <Input
                   inputMode="decimal"
                   value={draftRate}
@@ -343,7 +350,27 @@ export function HomeTrackerHero({ onOpenDetails }: { onOpenDetails: () => void }
                   className="h-9 rounded-xl border-border/45 bg-card/50 text-[13px]"
                 />
               </label>
+              <label className="space-y-1 block min-w-0">
+                <span className="text-[10px] text-secondary-fg/80">Currency</span>
+                <select
+                  value={draftCurrency}
+                  onChange={(e) => setDraftCurrency(e.target.value)}
+                  className="h-9 w-full rounded-xl border border-border/45 bg-card/50 px-2 text-[12px] text-foreground outline-none focus:border-primary/50"
+                >
+                  {currencyOptions.map((code) => <option key={code} value={code}>{code}</option>)}
+                </select>
+              </label>
             </div>
+            <label className="mt-2 block space-y-1">
+              <span className="text-[10px] text-secondary-fg/80">Payment method</span>
+              <select
+                value={draftPaymentMethod}
+                onChange={(e) => setDraftPaymentMethod(e.target.value)}
+                className="h-9 w-full rounded-xl border border-border/45 bg-card/50 px-2 text-[12px] text-foreground outline-none focus:border-primary/50"
+              >
+                {paymentMethodOptions.map((method) => <option key={method || "blank"} value={method}>{method || "Not set"}</option>)}
+              </select>
+            </label>
             <div className="mt-3 flex flex-col gap-2">
               <Button
                 type="button"
@@ -352,7 +379,7 @@ export function HomeTrackerHero({ onOpenDetails }: { onOpenDetails: () => void }
                 onClick={() => void saveCategoryBilling()}
                 className="h-9 w-full rounded-xl text-[12px] font-semibold"
               >
-                {categorySaving ? "Saving…" : "Save rate"}
+                {categorySaving ? "Saving…" : "Save billing"}
               </Button>
               <button
                 type="button"
@@ -475,6 +502,28 @@ export function HomeTrackerHero({ onOpenDetails }: { onOpenDetails: () => void }
             Saved on this category. Pro exports merge these fields with your global payment profile where you leave blanks. Use a payment link for cards — never raw card numbers.
           </p>
           <div className="space-y-3 pb-4">
+            <div className="grid grid-cols-2 gap-2">
+              <label className="block space-y-1">
+                <span className="text-[10px] text-secondary-fg/80">Currency</span>
+                <select
+                  value={paymentDetails.currency}
+                  onChange={(e) => setPaymentDetails((p) => ({ ...p, currency: e.target.value }))}
+                  className="h-10 w-full rounded-xl border border-border/45 bg-card px-2 text-[12px] text-foreground outline-none focus:border-primary/50"
+                >
+                  {currencyOptions.map((code) => <option key={code} value={code}>{code}</option>)}
+                </select>
+              </label>
+              <label className="block space-y-1">
+                <span className="text-[10px] text-secondary-fg/80">Method</span>
+                <select
+                  value={paymentDetails.payment_method}
+                  onChange={(e) => setPaymentDetails((p) => ({ ...p, payment_method: e.target.value }))}
+                  className="h-10 w-full rounded-xl border border-border/45 bg-card px-2 text-[12px] text-foreground outline-none focus:border-primary/50"
+                >
+                  {paymentMethodOptions.map((method) => <option key={method || "blank"} value={method}>{method || "Not set"}</option>)}
+                </select>
+              </label>
+            </div>
             <Input
               value={paymentDetails.display_name}
               onChange={(e) => setPaymentDetails((p) => ({ ...p, display_name: e.target.value }))}

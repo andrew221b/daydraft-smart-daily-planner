@@ -61,6 +61,33 @@ type ExBlock = Block & {
   resolved_at?: string | null;
 };
 
+const taskSeparatorPattern =
+  /\r?\n+|;|•|(?:^|\s)[-*]\s+|(?:^|\s)\d+[.)]\s+|\s(?:и еще|ещ[её]|потом|затем|после этого|также|and then|then|also)\s|\s(?:и|and)\s+(?=(?:убрать|добавить|сделать|исправить|проверить|написать|купить|позвонить|отправить|создать|обновить|починить|переделать|настроить|выбрать|подготовить|закончить|разобрать|clean|fix|add|remove|write|call|send|create|update|finish|prepare)(?=$|[\s,.;:!?]))/gi;
+
+const cleanupBulkTaskTitle = (value: string) =>
+  value
+    .replace(/^[,.;:\-–—•*\d.)\s]+/, "")
+    .replace(/[,.;:\-–—\s]+$/, "")
+    .trim();
+
+const taskStarterPattern =
+  /^(убрать|добавить|сделать|исправить|проверить|написать|купить|позвонить|отправить|создать|обновить|починить|переделать|настроить|выбрать|подготовить|закончить|разобрать|clean|fix|add|remove|write|call|send|create|update|finish|prepare)(?=$|[\s,.;:!?])/i;
+
+const parseBulkTasks = (input: string): string[] => {
+  const primary = input
+    .split(taskSeparatorPattern)
+    .map(cleanupBulkTaskTitle)
+    .filter(Boolean);
+
+  const expanded = primary.flatMap((part) => {
+    const commaParts = part.split(/,\s+/).map(cleanupBulkTaskTitle).filter(Boolean);
+    if (commaParts.length >= 2 && commaParts.filter((p) => taskStarterPattern.test(p)).length >= 2) return commaParts;
+    return [part];
+  });
+
+  return expanded.slice(0, 40);
+};
+
 export default function DayView() {
   const { user } = useAuth();
   const { profile } = useProfile();
@@ -107,6 +134,10 @@ export default function DayView() {
   const blockOpLocksRef = useRef(new Set<string>());
   const [calmMode] = useCalmMode();
   const { isPro } = useEntitlement();
+
+  useEffect(() => {
+    if (searchParams.get("composer") === "1") setBulkOpen(true);
+  }, [searchParams]);
 
   const tomorrowDate = (() => {
     const d = parseDateStr(viewDate);
@@ -449,6 +480,16 @@ export default function DayView() {
       return null;
     }
     return created.id as string;
+  };
+
+  const prepareBulkRows = async () => {
+    const titles = parseBulkTasks(bulkInput);
+    if (!titles.length) {
+      toast.error("Write at least one task");
+      return;
+    }
+    setBulkRows(titles.map((title) => ({ title, duration: 30 })));
+    setBulkStep("review");
   };
 
   const addBulkRows = async (rows: { title: string; duration: number }[]) => {
@@ -1034,7 +1075,7 @@ export default function DayView() {
           {bulkStep === "input" ? (
             <div className="mt-4 space-y-3">
               <p className="text-[12px] leading-relaxed text-secondary-fg">
-                One task per line. We'll just split your list — no AI scheduling, no auto-times. You decide everything.
+                Paste a messy list. It will only become editable tasks — no AI schedule, no automatic planning.
               </p>
               <Textarea
                 autoFocus
@@ -1044,15 +1085,7 @@ export default function DayView() {
                 className="min-h-[150px] rounded-2xl border-soft bg-card text-[14px]"
               />
               <Button
-                onClick={() => {
-                  const lines = bulkInput
-                    .split(/\r?\n/)
-                    .map((s) => s.replace(/^[-•*\d.)\s]+/, "").trim())
-                    .filter(Boolean);
-                  if (!lines.length) { toast.error("Write at least one task"); return; }
-                  setBulkRows(lines.map((title) => ({ title, duration: 30 })));
-                  setBulkStep("review");
-                }}
+                onClick={() => void prepareBulkRows()}
                 disabled={planMutating}
                 className="w-full h-11 rounded-2xl bg-primary hover:bg-primary/92 text-primary-foreground font-medium pressable"
               >
@@ -1062,7 +1095,7 @@ export default function DayView() {
           ) : (
             <div className="mt-4 space-y-3">
               <p className="text-[11px] text-secondary-fg leading-relaxed">
-                Edit titles or duration. Tasks are added in this order, back-to-back from {viewDate === todayDateStr() ? "now" : "9:00"}.
+                Edit titles or duration. Tasks stay in this order; no AI changes them.
               </p>
               <div className="space-y-2 max-h-[50vh] overflow-y-auto pr-1">
                 {bulkRows.map((row, i) => (
