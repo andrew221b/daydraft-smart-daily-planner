@@ -6,6 +6,7 @@ export type ReportCategoryRow = {
   color: string;
   seconds: number;
   pct: number;
+  currency?: string | null;
   hourlyRate?: number | null;
   earnings?: number;
 };
@@ -16,6 +17,7 @@ export type ReportEntryRow = {
   endedAt: string;
   category: string;
   durationMin: number;
+  currency?: string | null;
   hourlyRate?: number | null;
   earnings?: number;
   note: string | null;
@@ -58,12 +60,18 @@ const fmtH = (sec: number) => {
   const mm = m % 60;
   return h ? `${h}h ${mm}m` : `${mm}m`;
 };
-const fmtMoney = (amount: number) =>
-  new Intl.NumberFormat(undefined, {
-    style: "currency",
-    currency: "USD",
-    maximumFractionDigits: Math.abs(amount) >= 100 ? 0 : 2,
-  }).format(amount);
+const fmtMoney = (amount: number, currency = "USD") => {
+  const code = String(currency || "USD").trim().toUpperCase();
+  try {
+    return new Intl.NumberFormat(undefined, {
+      style: "currency",
+      currency: code,
+      maximumFractionDigits: Math.abs(amount) >= 100 ? 0 : 2,
+    }).format(amount);
+  } catch {
+    return `${Math.abs(amount) >= 100 ? amount.toFixed(0) : amount.toFixed(2)} ${code}`;
+  }
+};
 
 function triggerDownload(blob: Blob, filename: string) {
   const url = URL.createObjectURL(blob);
