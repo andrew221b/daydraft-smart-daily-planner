@@ -40,8 +40,8 @@ const emptyPaymentDetails: PaymentDetailsDraft = {
 };
 
 const currencyOptions = [
-  "USD", "EUR", "GBP", "CHF", "CAD", "AUD", "JPY", "PLN", "UAH", "AED",
-  "USDT", "USDC", "BTC", "ETH", "SOL", "BNB",
+  "USD", "EUR", "GBP", "CHF", "CAD", "AUD", "NZD", "JPY", "PLN", "UAH", "AED", "SEK", "NOK", "DKK", "CZK", "GEL", "TRY", "SGD", "HKD", "MXN", "BRL", "INR", "CNY", "KZT",
+  "USDT", "USDC", "DAI", "EURC", "BTC", "ETH", "SOL", "BNB", "TON", "TRX", "MATIC", "LTC", "XRP", "ADA", "DOGE",
 ];
 
 const paymentMethodOptions = ["", "Bank transfer", "IBAN", "Wise", "PayPal", "Stripe link", "USDT", "USDC", "Crypto wallet", "Other"];
