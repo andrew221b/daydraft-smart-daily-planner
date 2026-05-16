@@ -1058,7 +1058,7 @@ export default function DayView() {
           {bulkStep === "input" ? (
             <div className="mt-4 space-y-3">
               <p className="text-[12px] leading-relaxed text-secondary-fg">
-                One task per line. We'll just split your list — no AI scheduling, no auto-times. You decide everything.
+                Paste a messy list. It will only become editable tasks — no AI schedule, no automatic planning.
               </p>
               <Textarea
                 autoFocus
@@ -1069,10 +1069,7 @@ export default function DayView() {
               />
               <Button
                 onClick={() => {
-                  const lines = bulkInput
-                    .split(/\r?\n/)
-                    .map((s) => s.replace(/^[-•*\d.)\s]+/, "").trim())
-                    .filter(Boolean);
+                  const lines = parseBulkTasks(bulkInput);
                   if (!lines.length) { toast.error("Write at least one task"); return; }
                   setBulkRows(lines.map((title) => ({ title, duration: 30 })));
                   setBulkStep("review");
@@ -1086,7 +1083,7 @@ export default function DayView() {
           ) : (
             <div className="mt-4 space-y-3">
               <p className="text-[11px] text-secondary-fg leading-relaxed">
-                Edit titles or duration. Tasks are added in this order, back-to-back from {viewDate === todayDateStr() ? "now" : "9:00"}.
+                Edit titles or duration. Tasks stay in this order; no AI changes them.
               </p>
               <div className="space-y-2 max-h-[50vh] overflow-y-auto pr-1">
                 {bulkRows.map((row, i) => (
