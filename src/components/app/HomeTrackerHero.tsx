@@ -332,8 +332,8 @@ export function HomeTrackerHero({ onOpenDetails }: { onOpenDetails: () => void }
             <p className="text-[10px] font-semibold uppercase tracking-[0.14em] text-secondary-fg/70">
               Category · {selectedCat.name}
             </p>
-            <div className="mt-2.5 grid grid-cols-2 gap-2">
-              <label className="space-y-1">
+            <div className="mt-2.5">
+              <label className="space-y-1 block">
                 <span className="text-[10px] text-secondary-fg/80">Rate / h (USD)</span>
                 <Input
                   inputMode="decimal"
@@ -343,41 +343,6 @@ export function HomeTrackerHero({ onOpenDetails }: { onOpenDetails: () => void }
                   className="h-9 rounded-xl border-border/45 bg-card/50 text-[13px]"
                 />
               </label>
-              <label className="space-y-1">
-                <span className="text-[10px] text-secondary-fg/80">Max hours / day</span>
-                <Input
-                  inputMode="decimal"
-                  value={draftCapHours}
-                  onChange={(e) => setDraftCapHours(e.target.value)}
-                  placeholder="e.g. 8"
-                  className="h-9 rounded-xl border-border/45 bg-card/50 text-[13px]"
-                />
-              </label>
-            </div>
-            {capSec > 0 && (
-              <div className="mt-2">
-                <div className="flex justify-between text-[10px] tabular-nums text-secondary-fg/80 mb-1">
-                  <span>Today in this category</span>
-                  <span>
-                    {fmtHM(categoryTodaySec)} / {fmtHM(capSec)}
-                  </span>
-                </div>
-                <div className="h-1.5 rounded-full bg-muted/50 overflow-hidden">
-                  <div
-                    className="h-full rounded-full bg-primary/80 transition-all"
-                    style={{ width: `${Math.min(100, (categoryTodaySec / capSec) * 100)}%` }}
-                  />
-                </div>
-              </div>
-            )}
-            <div className="mt-2.5 flex items-center justify-between gap-2">
-              <div className="min-w-0">
-                <p className="text-[12px] font-medium text-foreground/90">Alert at daily cap</p>
-                <p className="text-[10px] text-secondary-fg/75 leading-snug">
-                  One reminder per day when time in this category reaches the max.
-                </p>
-              </div>
-              <Switch checked={draftNotify} onCheckedChange={(v) => setDraftNotify(!!v)} />
             </div>
             <div className="mt-3 flex flex-col gap-2">
               <Button
@@ -387,7 +352,7 @@ export function HomeTrackerHero({ onOpenDetails }: { onOpenDetails: () => void }
                 onClick={() => void saveCategoryBilling()}
                 className="h-9 w-full rounded-xl text-[12px] font-semibold"
               >
-                {categorySaving ? "Saving…" : "Save rate & cap"}
+                {categorySaving ? "Saving…" : "Save rate"}
               </Button>
               <button
                 type="button"
