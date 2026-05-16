@@ -502,6 +502,28 @@ export function HomeTrackerHero({ onOpenDetails }: { onOpenDetails: () => void }
             Saved on this category. Pro exports merge these fields with your global payment profile where you leave blanks. Use a payment link for cards — never raw card numbers.
           </p>
           <div className="space-y-3 pb-4">
+            <div className="grid grid-cols-2 gap-2">
+              <label className="block space-y-1">
+                <span className="text-[10px] text-secondary-fg/80">Currency</span>
+                <select
+                  value={paymentDetails.currency}
+                  onChange={(e) => setPaymentDetails((p) => ({ ...p, currency: e.target.value }))}
+                  className="h-10 w-full rounded-xl border border-border/45 bg-card px-2 text-[12px] text-foreground outline-none focus:border-primary/50"
+                >
+                  {currencyOptions.map((code) => <option key={code} value={code}>{code}</option>)}
+                </select>
+              </label>
+              <label className="block space-y-1">
+                <span className="text-[10px] text-secondary-fg/80">Method</span>
+                <select
+                  value={paymentDetails.payment_method}
+                  onChange={(e) => setPaymentDetails((p) => ({ ...p, payment_method: e.target.value }))}
+                  className="h-10 w-full rounded-xl border border-border/45 bg-card px-2 text-[12px] text-foreground outline-none focus:border-primary/50"
+                >
+                  {paymentMethodOptions.map((method) => <option key={method || "blank"} value={method}>{method || "Not set"}</option>)}
+                </select>
+              </label>
+            </div>
             <Input
               value={paymentDetails.display_name}
               onChange={(e) => setPaymentDetails((p) => ({ ...p, display_name: e.target.value }))}
