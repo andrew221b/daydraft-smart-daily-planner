@@ -1104,16 +1104,11 @@ export default function DayView() {
                 className="min-h-[150px] rounded-2xl border-soft bg-card text-[14px]"
               />
               <Button
-                onClick={() => {
-                  const lines = parseBulkTasks(bulkInput);
-                  if (!lines.length) { toast.error("Write at least one task"); return; }
-                  setBulkRows(lines.map((title) => ({ title, duration: 30 })));
-                  setBulkStep("review");
-                }}
-                disabled={planMutating}
+                onClick={() => void prepareBulkRows()}
+                disabled={planMutating || bulkParsing}
                 className="w-full h-11 rounded-2xl bg-primary hover:bg-primary/92 text-primary-foreground font-medium pressable"
               >
-                Continue
+                {bulkParsing ? "Cleaning…" : "Continue"}
               </Button>
             </div>
           ) : (
