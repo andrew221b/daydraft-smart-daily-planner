@@ -44,10 +44,12 @@ const fmtHM = (sec: number) => {
   return mm ? `${h}h ${mm}m` : `${h}h`;
 };
 const REPORT_CATEGORY_SELECT =
-  "id,name,color,hourly_rate,billing_display_name,billing_bank_name,billing_iban,billing_crypto_network,billing_crypto_wallet,billing_payment_link,billing_notes";
+  "id,name,color,hourly_rate,currency,payment_method,billing_display_name,billing_bank_name,billing_iban,billing_crypto_network,billing_crypto_wallet,billing_payment_link,billing_notes";
 
 function paymentFingerprint(d: ReportPaymentDetails): string {
   return [
+    d.currency ?? "",
+    d.paymentMethod ?? "",
     d.displayName ?? "",
     d.bankName ?? "",
     d.iban ?? "",
@@ -58,12 +60,18 @@ function paymentFingerprint(d: ReportPaymentDetails): string {
   ].join("\u0001");
 }
 
-const fmtMoney = (amount: number) =>
-  new Intl.NumberFormat(undefined, {
-    style: "currency",
-    currency: "USD",
-    maximumFractionDigits: Math.abs(amount) >= 100 ? 0 : 2,
-  }).format(amount);
+const fmtMoney = (amount: number, currency = "USD") => {
+  const code = String(currency || "USD").trim().toUpperCase();
+  try {
+    return new Intl.NumberFormat(undefined, {
+      style: "currency",
+      currency: code,
+      maximumFractionDigits: Math.abs(amount) >= 100 ? 0 : 2,
+    }).format(amount);
+  } catch {
+    return `${Math.abs(amount) >= 100 ? amount.toFixed(0) : amount.toFixed(2)} ${code}`;
+  }
+};
 
 export default function Reports() {
   const { user } = useAuth();
