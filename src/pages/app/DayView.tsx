@@ -1086,10 +1086,10 @@ export default function DayView() {
               />
               <Button
                 onClick={() => void prepareBulkRows()}
-                disabled={planMutating || bulkParsing}
+                disabled={planMutating}
                 className="w-full h-11 rounded-2xl bg-primary hover:bg-primary/92 text-primary-foreground font-medium pressable"
               >
-                {bulkParsing ? "Cleaning…" : "Continue"}
+                Continue
               </Button>
             </div>
           ) : (
