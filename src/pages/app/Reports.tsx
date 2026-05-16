@@ -290,6 +290,7 @@ export default function Reports() {
         name: c.name,
         color: c.color,
         seconds: c.sec,
+        currency: c.currency,
         hourlyRate: c.hourlyRate,
         earnings: c.earnings,
         pct: filteredTotal > 0 ? c.sec / filteredTotal : 0,
