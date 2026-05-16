@@ -108,6 +108,7 @@ export default function DayView() {
   const [bulkInput, setBulkInput] = useState("");
   const [bulkRows, setBulkRows] = useState<{ title: string; duration: number }[]>([]);
   const [bulkStep, setBulkStep] = useState<"input" | "review">("input");
+  const [bulkParsing, setBulkParsing] = useState(false);
   const [newTitle, setNewTitle] = useState("");
   const [newKind, setNewKind] = useState<"task" | "break">("task");
   const [newDuration, setNewDuration] = useState(30);
@@ -480,6 +481,34 @@ export default function DayView() {
       return null;
     }
     return created.id as string;
+  };
+
+  const prepareBulkRows = async () => {
+    const fallback = parseBulkTasks(bulkInput);
+    if (!fallback.length) {
+      toast.error("Write at least one task");
+      return;
+    }
+    setBulkParsing(true);
+    try {
+      let titles = fallback;
+      if (bulkInput.trim().length > 30) {
+        const { data, error } = await supabase.functions.invoke("split-tasks", {
+          body: { raw_input: bulkInput },
+        });
+        const aiTitles = Array.isArray(data?.tasks)
+          ? data.tasks.map((s: unknown) => cleanupBulkTaskTitle(String(s))).filter(Boolean)
+          : [];
+        if (!error && aiTitles.length > fallback.length) titles = aiTitles;
+      }
+      setBulkRows(titles.slice(0, 40).map((title) => ({ title, duration: 30 })));
+      setBulkStep("review");
+    } catch {
+      setBulkRows(fallback.map((title) => ({ title, duration: 30 })));
+      setBulkStep("review");
+    } finally {
+      setBulkParsing(false);
+    }
   };
 
   const addBulkRows = async (rows: { title: string; duration: number }[]) => {
