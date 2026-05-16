@@ -116,7 +116,7 @@ export function downloadReportCsv(report: ReportPayload) {
   lines.push(`Time report,${report.periodLabel},${report.rangeLabel}`);
   if (report.scopeLabel) lines.push(`Categories,"${report.scopeLabel.replace(/"/g, '""')}"`);
   lines.push(`Total tracked,${fmtH(report.totalSeconds)}`);
-  lines.push(`Total earned,${fmtMoney(report.totalEarnings || 0)}`);
+  lines.push(`Total earned,${fmtMoney(report.totalEarnings || 0, report.categories[0]?.currency || report.paymentDetails?.currency || "USD")}`);
   const sections = report.paymentSections?.length
     ? report.paymentSections
     : report.paymentDetails
@@ -134,7 +134,7 @@ export function downloadReportCsv(report: ReportPayload) {
   lines.push("");
   lines.push("Category,Time,Percent,Rate / hour,Earned");
   for (const c of report.categories) {
-    lines.push(`"${c.name.replace(/"/g, '""')}",${fmtH(c.seconds)},${(c.pct * 100).toFixed(1)}%,${c.hourlyRate ?? ""},${fmtMoney(c.earnings || 0)}`);
+    lines.push(`"${c.name.replace(/"/g, '""')}",${fmtH(c.seconds)},${(c.pct * 100).toFixed(1)}%,${c.hourlyRate ?? ""},${fmtMoney(c.earnings || 0, c.currency || "USD")}`);
   }
   lines.push("");
   lines.push("Date,Started,Ended,Category,Duration (min),Rate / hour,Earned,Note");
@@ -147,7 +147,7 @@ export function downloadReportCsv(report: ReportPayload) {
         `"${e.category.replace(/"/g, '""')}"`,
         e.durationMin.toString(),
         e.hourlyRate ?? "",
-        fmtMoney(e.earnings || 0),
+        fmtMoney(e.earnings || 0, e.currency || "USD"),
         `"${(e.note ?? "").replace(/"/g, '""')}"`,
       ].join(","),
     );
@@ -183,7 +183,7 @@ export function downloadReportPdf(report: ReportPayload) {
     doc.setTextColor(20);
     doc.setFont("helvetica", "bold");
     doc.setFontSize(16);
-    doc.text(fmtMoney(report.totalEarnings), 220, 124);
+    doc.text(fmtMoney(report.totalEarnings, report.categories[0]?.currency || report.paymentDetails?.currency || "USD"), 220, 124);
     doc.setFont("helvetica", "normal");
     doc.setFontSize(10);
     doc.setTextColor(120);
@@ -208,7 +208,7 @@ export function downloadReportPdf(report: ReportPayload) {
   autoTable(doc, {
     startY,
     head: [["Category", "Time", "%", "Rate / h", "Earned"]],
-    body: report.categories.map((c) => [c.name, fmtH(c.seconds), `${(c.pct * 100).toFixed(1)}%`, c.hourlyRate ? fmtMoney(c.hourlyRate) : "—", fmtMoney(c.earnings || 0)]),
+    body: report.categories.map((c) => [c.name, fmtH(c.seconds), `${(c.pct * 100).toFixed(1)}%`, c.hourlyRate ? fmtMoney(c.hourlyRate, c.currency || "USD") : "—", fmtMoney(c.earnings || 0, c.currency || "USD")]),
     styles: { font: "helvetica", fontSize: 10, cellPadding: 6 },
     headStyles: { fillColor: [30, 30, 30], textColor: 255 },
     theme: "grid",
@@ -224,7 +224,7 @@ export function downloadReportPdf(report: ReportPayload) {
       e.endedAt,
       e.category,
       e.durationMin.toString(),
-      fmtMoney(e.earnings || 0),
+      fmtMoney(e.earnings || 0, e.currency || "USD"),
       e.note ?? "",
     ]),
     styles: { font: "helvetica", fontSize: 9, cellPadding: 5 },
