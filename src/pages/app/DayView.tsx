@@ -82,6 +82,7 @@ export default function DayView() {
   const [bulkInput, setBulkInput] = useState("");
   const [bulkRows, setBulkRows] = useState<{ title: string; duration: number }[]>([]);
   const [bulkStep, setBulkStep] = useState<"input" | "review">("input");
+  const [bulkDurationEditIndex, setBulkDurationEditIndex] = useState<number | null>(null);
   const [newTitle, setNewTitle] = useState("");
   const [newKind, setNewKind] = useState<"task" | "break">("task");
   const [newDuration, setNewDuration] = useState(30);
