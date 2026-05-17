@@ -1130,15 +1130,13 @@ export default function DayView() {
                       onChange={(e) => setBulkRows((rs) => rs.map((r, idx) => idx === i ? { ...r, title: e.target.value } : r))}
                       className="flex-1 h-9 px-1 bg-transparent border-0 text-[13.5px] focus:outline-none"
                     />
-                    <select
-                      value={row.duration}
-                      onChange={(e) => setBulkRows((rs) => rs.map((r, idx) => idx === i ? { ...r, duration: Number(e.target.value) } : r))}
-                      className="h-8 px-2 rounded-lg bg-muted/40 border border-soft text-[12px] tabular-nums"
+                    <button
+                      type="button"
+                      onClick={() => setBulkDurationEditIndex(i)}
+                      className="h-8 min-w-[58px] px-2 rounded-lg bg-muted/40 border border-soft text-[12px] font-semibold tabular-nums pressable hover:border-primary/40"
                     >
-                      {[15, 30, 45, 60, 90, 120].map((m) => (
-                        <option key={m} value={m}>{m < 60 ? `${m}m` : `${m / 60}h${m % 60 ? ` ${m % 60}m` : ""}`}</option>
-                      ))}
-                    </select>
+                      {row.duration < 60 ? `${row.duration}m` : `${Math.floor(row.duration / 60)}h${row.duration % 60 ? ` ${row.duration % 60}m` : ""}`}
+                    </button>
                     <button
                       type="button"
                       onClick={() => setBulkRows((rs) => rs.filter((_, idx) => idx !== i))}
