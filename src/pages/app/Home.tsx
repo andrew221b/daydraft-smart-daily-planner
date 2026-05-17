@@ -7,7 +7,7 @@ import { PullToRefresh } from "@/components/app/PullToRefresh";
 import { useAuth } from "@/hooks/useAuth";
 import { useProfile } from "@/hooks/useProfile";
 import { useTour, TOUR_TODAY } from "@/components/app/Tour";
-import { todayDateStr, type Block } from "@/lib/daydraft";
+import { todayDateStr, isUserTask, isOpenUserTask, isUserTaskDone, type Block } from "@/lib/daydraft";
 import { fetchPlanDashboard, planDashboardQueryKey } from "@/lib/planQueries";
 import { supabase } from "@/integrations/supabase/client";
 import { applyAutoMissedBlocks } from "@/lib/blockResolution";
@@ -90,6 +90,10 @@ export default function Home() {
     },
   });
 
+  const userTasks = useMemo(() => blocks.filter(isUserTask), [blocks]);
+  const doneTasks = useMemo(() => userTasks.filter((b) => isUserTaskDone(b)).length, [userTasks]);
+  const nextTask = useMemo(() => blocks.find((b) => isUserTask(b) && isOpenUserTask(b)), [blocks]);
+
   const breakdown = useMemo(() => {
     if (!todayEntries?.length) return [];
     const dayStart = new Date(); dayStart.setHours(0,0,0,0);
@@ -128,11 +132,45 @@ export default function Home() {
           {/* THE HERO — tracker */}
           <HomeTrackerHero onOpenDetails={() => nav("/history")} />
 
+          {/* Today's plan progress */}
+          {userTasks.length > 0 && (
+            <div
+              className="mt-3 app-card px-4 py-3.5 cursor-pointer pressable"
+              onClick={() => nav("/today")}
+              role="button"
+              tabIndex={0}
+              onKeyDown={(e) => e.key === "Enter" && nav("/today")}
+              aria-label="Open today's plan"
+            >
+              <div className="flex items-center justify-between mb-2.5">
+                <span className="eyebrow">Today's plan</span>
+                <span className="text-[12px] tabular-nums text-secondary-fg/80">
+                  {doneTasks}/{userTasks.length} done
+                </span>
+              </div>
+              <div className="h-1.5 rounded-full bg-muted/60 overflow-hidden">
+                <div
+                  className="h-full rounded-full bg-primary/85 transition-all duration-500"
+                  style={{ width: `${(doneTasks / userTasks.length) * 100}%` }}
+                />
+              </div>
+              {nextTask && doneTasks < userTasks.length && (
+                <div className="mt-2.5 flex items-center gap-2">
+                  <span className="text-[10px] text-secondary-fg/70 shrink-0">Next</span>
+                  <span className="text-[13px] font-medium text-foreground/90 truncate">{nextTask.title}</span>
+                </div>
+              )}
+              {doneTasks === userTasks.length && (
+                <div className="mt-2 text-[12px] font-medium text-success">All done today ✓</div>
+              )}
+            </div>
+          )}
+
           {/* Today categories breakdown — minimal, only if data */}
           {breakdown.length > 0 && (
-            <div className="mt-3 rounded-2xl border border-border/30 bg-card/30 px-4 py-3">
+            <div className="mt-3 app-card px-4 py-3">
               <div className="flex items-center justify-between mb-2">
-                <span className="text-[10px] font-semibold uppercase tracking-[0.18em] text-secondary-fg/70">Today</span>
+                <span className="eyebrow">Time tracked</span>
               </div>
               <ul className="space-y-1.5">
                 {breakdown.map((row) => (

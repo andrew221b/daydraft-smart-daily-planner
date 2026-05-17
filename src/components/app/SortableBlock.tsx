@@ -1,6 +1,6 @@
 import { useSortable } from "@dnd-kit/sortable";
 import { CSS } from "@dnd-kit/utilities";
-import { Block, fmtTime, inferScheduleBlockType, blockSlotEndHHMM, isOpenUserTask, isUserTaskDone } from "@/lib/daydraft";
+import { Block, fmtTime, inferScheduleBlockType, isOpenUserTask, isUserTaskDone } from "@/lib/daydraft";
 import { Check, Calendar, Sparkles, Layers, GripVertical } from "lucide-react";
 
 export const SortableBlock = ({
@@ -149,12 +149,6 @@ export const SortableBlock = ({
                 <span className="text-faint mx-1">·</span>
               </span>
             )}
-            {isOpenUserTask(block) && !isCal && (block.kind === "task" || block.kind === "lunch") && (
-              <>
-                <span className="text-faint">until {fmtTime(blockSlotEndHHMM(block))}</span>
-                <span className="text-faint mx-1">·</span>
-              </>
-            )}
             {isUserTaskDone(block) && block.completed_at && (
               <span className="text-faint">
                 Done {new Date(block.completed_at).toLocaleTimeString(undefined, { hour: "numeric", minute: "2-digit" }).replace(/\s/g, "")}
@@ -166,18 +160,11 @@ export const SortableBlock = ({
                 <span className="font-medium text-foreground">{fmtMin(actualMin)}</span>
                 <span className="text-faint"> actual</span>
                 {estimatedMin !== actualMin && (
-                  <span className="text-faint"> · {fmtMin(estimatedMin)} planned</span>
+                  <span className="text-faint"> · {fmtMin(estimatedMin)} est</span>
                 )}
               </>
             ) : (
-              <>
-                {dur}{" "}
-                {block.kind === "task" && (block.resolution === "skipped" || block.resolution === "missed")
-                  ? "planned"
-                  : isUserTaskDone(block) || (block.completed && block.kind !== "task")
-                    ? "planned"
-                    : "scheduled"}
-              </>
+              <span className="text-faint">{dur}</span>
             )}
           </div>
           {isUserTaskDone(block) && actualMin != null && estimatedMin > 0 && (

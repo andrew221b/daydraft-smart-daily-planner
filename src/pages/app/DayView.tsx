@@ -78,8 +78,9 @@ export default function DayView() {
   const [now, setNow] = useState(new Date());
   const [replanning, setReplanning] = useState(false);
   const dayScrollRef = useRef<HTMLDivElement>(null);
-  const [addOpen, setAddOpen] = useState(false);
-  const [bulkOpen, setBulkOpen] = useState(false);
+  const [composerOpen, setComposerOpen] = useState(false);
+  const [composerMode, setComposerMode] = useState<"single" | "bulk">("single");
+  const openComposer = (mode: "single" | "bulk") => { setComposerMode(mode); setComposerOpen(true); };
   const [bulkInput, setBulkInput] = useState("");
   const [bulkRows, setBulkRows] = useState<{ title: string; duration: number }[]>([]);
   const [bulkStep, setBulkStep] = useState<"input" | "review">("input");
@@ -112,7 +113,7 @@ export default function DayView() {
   const { isPro } = useEntitlement();
 
   useEffect(() => {
-    if (searchParams.get("composer") === "1") setBulkOpen(true);
+    if (searchParams.get("composer") === "1") openComposer("bulk");
   }, [searchParams]);
 
   const tomorrowDate = (() => {
@@ -410,7 +411,7 @@ export default function DayView() {
     const snapshot = blocks;
     const next = packLinearSchedule([...snapshot, item]);
     setBlocks(next);
-    setAddOpen(false);
+    setComposerOpen(false);
     setNewTitle(""); setNewDuration(30); setNewKind("task");
     haptics.notify("success");
     setPlanMutating(true);
@@ -507,7 +508,7 @@ export default function DayView() {
       });
       const packed = packLinearSchedule([...blocks, ...draftBlocks]);
       setBlocks(packed);
-      setBulkOpen(false);
+      setComposerOpen(false);
       setBulkInput("");
       setBulkRows([]);
       setBulkStep("input");
@@ -700,7 +701,7 @@ export default function DayView() {
       >
       <div className="flex min-h-0 flex-1 flex-col">
       <div className="shrink-0 px-6 pt-12 pb-2">
-        <div className="rounded-[22px] border border-border/45 bg-background/30 backdrop-blur-[2px] px-3 py-3.5 flex items-center justify-between gap-2">
+        <div className="app-card px-3 py-3.5 flex items-center justify-between gap-2">
           <button
             type="button"
             onClick={() => nav(isToday ? "/home" : `/today?date=${viewDate}`)}
@@ -760,7 +761,7 @@ export default function DayView() {
       {/* Progress — soft container */}
       {!calmMode && !planMissing && totalTasks > 0 && (
         <div className="mt-5 shrink-0 px-6">
-          <div className="rounded-[22px] border border-border/45 bg-background/25 backdrop-blur-[2px] px-4 py-3.5">
+          <div className="app-card px-4 py-3.5">
             <div className="flex items-baseline justify-between gap-2">
               <div className="text-[13px] text-foreground/95 tabular-nums">
                 <span className="font-medium">{doneTasks}</span>
@@ -795,7 +796,7 @@ export default function DayView() {
             </p>
             <div className="mt-6 grid grid-cols-2 gap-2">
               <Button
-                onClick={() => setBulkOpen(true)}
+                onClick={() => openComposer("bulk")}
                 className="h-11 rounded-2xl bg-primary hover:bg-primary/92 text-primary-foreground text-[13px] font-medium pressable"
               >
                 <ListPlus className="h-4 w-4 mr-1" /> Write plan
@@ -863,14 +864,14 @@ export default function DayView() {
             {!isFuture && (
               <div className="mt-4 grid grid-cols-3 gap-2">
                 <button
-                  onClick={() => setAddOpen(true)}
+                  onClick={() => openComposer("single")}
                   disabled={planMutating}
                   className="inline-flex items-center justify-center gap-1.5 text-[12px] font-medium text-foreground/75 border border-border/40 rounded-2xl h-11 bg-transparent hover:bg-muted/35 pressable transition-colors disabled:opacity-50"
                 >
                   <Plus className="h-3.5 w-3.5 opacity-70" /> Add task
                 </button>
                 <button
-                  onClick={() => setBulkOpen(true)}
+                  onClick={() => openComposer("bulk")}
                   disabled={planMutating}
                   className="inline-flex items-center justify-center gap-1.5 text-[12px] font-medium text-foreground/75 border border-border/40 rounded-2xl h-11 bg-transparent hover:bg-muted/35 pressable transition-colors disabled:opacity-50"
                 >
@@ -1023,153 +1024,143 @@ export default function DayView() {
         </SheetContent>
       </Sheet>
 
-      {/* Add task sheet */}
-      <Sheet open={addOpen} onOpenChange={setAddOpen}>
-        <SheetContent side="bottom" className="rounded-t-[28px] border-border/45 bg-popover">
-          <SheetHeader className="text-left">
+      {/* Unified task composer */}
+      <Sheet
+        open={composerOpen}
+        onOpenChange={(v) => {
+          if (!v) { setBulkStep("input"); setBulkInput(""); setBulkRows([]); setNewTitle(""); setNewKind("task"); setNewDuration(30); }
+          setComposerOpen(v);
+        }}
+      >
+        <SheetContent side="bottom" className="rounded-t-[28px] border-border/45 bg-popover max-h-[92vh] flex flex-col">
+          <SheetHeader className="text-left shrink-0">
             <SheetTitle className="flex items-center gap-2 text-[16px]">
-              <Plus className="h-4 w-4 text-primary" /> Add to day
+              {composerMode === "single"
+                ? <><Plus className="h-4 w-4 text-primary" /> Add to day</>
+                : bulkStep === "review"
+                  ? <><ListPlus className="h-4 w-4 text-primary" /> Review tasks</>
+                  : <><ListPlus className="h-4 w-4 text-primary" /> Paste your tasks</>
+              }
             </SheetTitle>
           </SheetHeader>
-          <div className="mt-4 space-y-3">
-            <div className="flex gap-2">
-              <button
-                onClick={() => setNewKind("task")}
-                className={`flex-1 h-10 rounded-lg border text-[13px] font-medium pressable transition-colors ${newKind === "task" ? "surface-accent border-accent text-primary" : "bg-card border-soft text-secondary-fg"}`}
-              >Task</button>
-              <button
-                onClick={() => { setNewKind("break"); if (!newTitle) setNewTitle("Break"); }}
-                className={`flex-1 h-10 rounded-lg border text-[13px] font-medium pressable inline-flex items-center justify-center gap-1.5 transition-colors ${newKind === "break" ? "surface-accent border-accent text-primary" : "bg-card border-soft text-secondary-fg"}`}
-              ><Coffee className="h-3.5 w-3.5" /> Break</button>
-            </div>
-            <input
-              autoFocus
-              value={newTitle}
-              onChange={e => setNewTitle(e.target.value)}
-              placeholder={newKind === "break" ? "Break name (optional)" : "What's the task?"}
-              className="w-full h-11 px-3 rounded-lg bg-card border border-soft text-[14px] text-foreground placeholder:text-faint focus:outline-none focus:border-primary/50 focus:ring-2 focus:ring-primary/15"
-            />
-            <div className="rounded-2xl border border-soft bg-card px-3.5 py-3">
-              <div className="flex items-center justify-between gap-3">
-                <span className="text-[12px] text-secondary-fg">Duration</span>
-                <button
-                  type="button"
-                  onClick={() => setNewDurationOpen(true)}
-                  className="h-8 px-3 rounded-xl border border-soft bg-muted/30 text-[13px] font-semibold tabular-nums pressable hover:border-primary/40"
-                >
-                  {newDuration < 60 ? `${newDuration}m` : `${Math.floor(newDuration/60)}h${newDuration%60 ? ` ${newDuration%60}m` : ""}`}
-                </button>
-              </div>
-              <Slider
-                value={[newDuration]}
-                min={5}
-                max={180}
-                step={5}
-                onValueChange={(v) => setNewDuration(v[0] ?? 30)}
-                className="mt-3"
-              />
-              <div className="mt-3 grid grid-cols-4 gap-1.5">
-                {[15, 30, 60, 90].map((m) => (
-                  <button
-                    key={m}
-                    type="button"
-                    onClick={() => setNewDuration(m)}
-                    className={`h-8 rounded-lg border text-[11px] font-medium tabular-nums pressable ${newDuration === m ? "surface-accent border-accent text-primary" : "bg-background border-soft text-secondary-fg"}`}
-                  >
-                    {m < 60 ? `${m}m` : `${m / 60}h`}
-                  </button>
-                ))}
-              </div>
-            </div>
-            <Button
-              onClick={addInlineBlock}
-              disabled={planMutating}
-              className="w-full h-11 rounded-lg bg-primary hover:bg-primary/92 text-primary-foreground font-medium pressable"
-            >Add</Button>
-          </div>
-        </SheetContent>
-      </Sheet>
 
-      <Sheet open={bulkOpen} onOpenChange={setBulkOpen}>
-        <SheetContent side="bottom" className="rounded-t-[28px] border-border/45 bg-popover">
-          <SheetHeader className="text-left">
-            <SheetTitle className="flex items-center gap-2 text-[16px]">
-              <ListPlus className="h-4 w-4 text-primary" /> {bulkStep === "input" ? "Paste your tasks" : "Review tasks"}
-            </SheetTitle>
-          </SheetHeader>
-          {bulkStep === "input" ? (
-            <div className="mt-4 space-y-3">
-              <p className="text-[12px] leading-relaxed text-secondary-fg">
-                Paste a messy list. Missing commas and odd symbols are okay — it becomes editable tasks only.
-              </p>
-              <Textarea
-                autoFocus
-                value={bulkInput}
-                onChange={(e) => setBulkInput(e.target.value)}
-                placeholder={"поправить моб верстку скачать PDF отправить клиенту\nCall Alex / invoice client"}
-                className="min-h-[150px] rounded-2xl border-soft bg-card text-[14px]"
-              />
-              <Button
-                onClick={() => void prepareBulkRows()}
-                disabled={planMutating}
-                className="w-full h-11 rounded-2xl bg-primary hover:bg-primary/92 text-primary-foreground font-medium pressable"
-              >
-                Continue
-              </Button>
-            </div>
-          ) : (
-            <div className="mt-4 space-y-3">
-              <p className="text-[11px] text-secondary-fg leading-relaxed">
-                Edit titles and time. Tasks stay in this order; nothing is scheduled by AI.
-              </p>
-              <div className="space-y-2 max-h-[50vh] overflow-y-auto pr-1">
-                {bulkRows.map((row, i) => (
-                  <div key={i} className="flex items-center gap-2 rounded-xl border border-soft bg-card px-2.5 py-2">
-                    <input
-                      value={row.title}
-                      onChange={(e) => setBulkRows((rs) => rs.map((r, idx) => idx === i ? { ...r, title: e.target.value } : r))}
-                      className="flex-1 h-9 px-1 bg-transparent border-0 text-[13.5px] focus:outline-none"
-                    />
-                    <button
-                      type="button"
-                      onClick={() => setBulkDurationEditIndex(i)}
-                      className="h-8 min-w-[58px] px-2 rounded-lg bg-muted/40 border border-soft text-[12px] font-semibold tabular-nums pressable hover:border-primary/40"
-                    >
-                      {row.duration < 60 ? `${row.duration}m` : `${Math.floor(row.duration / 60)}h${row.duration % 60 ? ` ${row.duration % 60}m` : ""}`}
-                    </button>
-                    <button
-                      type="button"
-                      onClick={() => setBulkRows((rs) => rs.filter((_, idx) => idx !== i))}
-                      className="h-8 w-8 grid place-items-center text-secondary-fg hover:text-destructive pressable"
-                      aria-label="Remove"
-                    >
-                      <Trash2 className="h-3.5 w-3.5" />
-                    </button>
-                  </div>
-                ))}
-                {bulkRows.length === 0 && (
-                  <p className="text-center text-[12px] text-secondary-fg py-4">No tasks left.</p>
-                )}
-              </div>
-              <div className="flex items-center gap-2 pt-1">
-                <Button
-                  variant="outline"
-                  onClick={() => setBulkStep("input")}
-                  disabled={planMutating}
-                  className="h-11 rounded-2xl border-soft text-[13px]"
-                >
-                  Back
-                </Button>
-                <Button
-                  onClick={() => void addBulkRows(bulkRows)}
-                  disabled={planMutating || bulkRows.length === 0}
-                  className="flex-1 h-11 rounded-2xl bg-primary hover:bg-primary/92 text-primary-foreground font-medium pressable"
-                >
-                  Add {bulkRows.length} {bulkRows.length === 1 ? "task" : "tasks"}
-                </Button>
-              </div>
+          {/* Mode toggle — only visible on input step */}
+          {bulkStep === "input" && (
+            <div className="mt-4 flex gap-2 shrink-0">
+              <button
+                onClick={() => setComposerMode("single")}
+                className={`flex-1 h-9 rounded-xl text-[13px] font-medium pressable transition-colors border ${composerMode === "single" ? "surface-accent border-accent text-primary" : "bg-card border-soft text-secondary-fg"}`}
+              >Single task</button>
+              <button
+                onClick={() => setComposerMode("bulk")}
+                className={`flex-1 h-9 rounded-xl text-[13px] font-medium pressable transition-colors border ${composerMode === "bulk" ? "surface-accent border-accent text-primary" : "bg-card border-soft text-secondary-fg"}`}
+              >Paste list</button>
             </div>
           )}
+
+          <div className="mt-4 flex-1 overflow-y-auto">
+            {composerMode === "single" ? (
+              <div className="space-y-3 pb-4">
+                <div className="flex gap-2">
+                  <button
+                    onClick={() => setNewKind("task")}
+                    className={`flex-1 h-10 rounded-lg border text-[13px] font-medium pressable transition-colors ${newKind === "task" ? "surface-accent border-accent text-primary" : "bg-card border-soft text-secondary-fg"}`}
+                  >Task</button>
+                  <button
+                    onClick={() => { setNewKind("break"); if (!newTitle) setNewTitle("Break"); }}
+                    className={`flex-1 h-10 rounded-lg border text-[13px] font-medium pressable inline-flex items-center justify-center gap-1.5 transition-colors ${newKind === "break" ? "surface-accent border-accent text-primary" : "bg-card border-soft text-secondary-fg"}`}
+                  ><Coffee className="h-3.5 w-3.5" /> Break</button>
+                </div>
+                <input
+                  autoFocus
+                  value={newTitle}
+                  onChange={e => setNewTitle(e.target.value)}
+                  onKeyDown={(e) => { if (e.key === "Enter" && (newTitle.trim() || newKind === "break")) void addInlineBlock(); }}
+                  placeholder={newKind === "break" ? "Break name (optional)" : "What's the task?"}
+                  className="w-full h-11 px-3 rounded-lg bg-card border border-soft text-[14px] text-foreground placeholder:text-faint focus:outline-none focus:border-primary/50 focus:ring-2 focus:ring-primary/15"
+                />
+                <div className="rounded-2xl border border-soft bg-card px-3.5 py-3">
+                  <div className="flex items-center justify-between gap-3">
+                    <span className="text-[12px] text-secondary-fg">Duration</span>
+                    <button
+                      type="button"
+                      onClick={() => setNewDurationOpen(true)}
+                      className="h-8 px-3 rounded-xl border border-soft bg-muted/30 text-[13px] font-semibold tabular-nums pressable hover:border-primary/40"
+                    >
+                      {newDuration < 60 ? `${newDuration}m` : `${Math.floor(newDuration/60)}h${newDuration%60 ? ` ${newDuration%60}m` : ""}`}
+                    </button>
+                  </div>
+                  <Slider value={[newDuration]} min={5} max={180} step={5} onValueChange={(v) => setNewDuration(v[0] ?? 30)} className="mt-3" />
+                  <div className="mt-3 grid grid-cols-4 gap-1.5">
+                    {[15, 30, 60, 90].map((m) => (
+                      <button key={m} type="button" onClick={() => setNewDuration(m)}
+                        className={`h-8 rounded-lg border text-[11px] font-medium tabular-nums pressable ${newDuration === m ? "surface-accent border-accent text-primary" : "bg-background border-soft text-secondary-fg"}`}
+                      >{m < 60 ? `${m}m` : `${m / 60}h`}</button>
+                    ))}
+                  </div>
+                </div>
+                <Button onClick={addInlineBlock} disabled={planMutating} className="w-full h-11 rounded-lg bg-primary hover:bg-primary/92 text-primary-foreground font-medium pressable">
+                  Add
+                </Button>
+              </div>
+            ) : bulkStep === "input" ? (
+              <div className="space-y-3 pb-4">
+                <p className="text-[12px] leading-relaxed text-secondary-fg">
+                  Paste a messy list — commas, bullets, mixed languages. We'll split it into editable tasks.
+                </p>
+                <Textarea
+                  autoFocus
+                  value={bulkInput}
+                  onChange={(e) => setBulkInput(e.target.value)}
+                  placeholder={"поправить моб верстку скачать PDF отправить клиенту\nCall Alex / invoice client"}
+                  className="min-h-[150px] rounded-2xl border-soft bg-card text-[14px]"
+                />
+                <Button onClick={() => void prepareBulkRows()} disabled={planMutating} className="w-full h-11 rounded-2xl bg-primary hover:bg-primary/92 text-primary-foreground font-medium pressable">
+                  Continue
+                </Button>
+              </div>
+            ) : (
+              <div className="space-y-3 pb-4">
+                <p className="text-[11px] text-secondary-fg leading-relaxed">
+                  Edit titles and durations. Tasks stay in this order.
+                </p>
+                <div className="space-y-2 max-h-[45vh] overflow-y-auto pr-1">
+                  {bulkRows.map((row, i) => (
+                    <div key={i} className="flex items-center gap-2 rounded-xl border border-soft bg-card px-2.5 py-2">
+                      <input
+                        value={row.title}
+                        onChange={(e) => setBulkRows((rs) => rs.map((r, idx) => idx === i ? { ...r, title: e.target.value } : r))}
+                        className="flex-1 h-9 px-1 bg-transparent border-0 text-[13.5px] focus:outline-none"
+                      />
+                      <button type="button" onClick={() => setBulkDurationEditIndex(i)}
+                        className="h-8 min-w-[58px] px-2 rounded-lg bg-muted/40 border border-soft text-[12px] font-semibold tabular-nums pressable hover:border-primary/40"
+                      >
+                        {row.duration < 60 ? `${row.duration}m` : `${Math.floor(row.duration / 60)}h${row.duration % 60 ? ` ${row.duration % 60}m` : ""}`}
+                      </button>
+                      <button type="button" onClick={() => setBulkRows((rs) => rs.filter((_, idx) => idx !== i))}
+                        className="h-8 w-8 grid place-items-center text-secondary-fg hover:text-destructive pressable" aria-label="Remove"
+                      >
+                        <Trash2 className="h-3.5 w-3.5" />
+                      </button>
+                    </div>
+                  ))}
+                  {bulkRows.length === 0 && (
+                    <p className="text-center text-[12px] text-secondary-fg py-4">No tasks left.</p>
+                  )}
+                </div>
+                <div className="flex items-center gap-2">
+                  <Button variant="outline" onClick={() => setBulkStep("input")} disabled={planMutating} className="h-11 rounded-2xl border-soft text-[13px]">
+                    Back
+                  </Button>
+                  <Button onClick={() => void addBulkRows(bulkRows)} disabled={planMutating || bulkRows.length === 0}
+                    className="flex-1 h-11 rounded-2xl bg-primary hover:bg-primary/92 text-primary-foreground font-medium pressable"
+                  >
+                    Add {bulkRows.length} {bulkRows.length === 1 ? "task" : "tasks"}
+                  </Button>
+                </div>
+              </div>
+            )}
+          </div>
         </SheetContent>
       </Sheet>
 

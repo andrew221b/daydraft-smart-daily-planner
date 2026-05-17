@@ -33,6 +33,7 @@ type Entry = {
 };
 
 type PaymentDetailsDraft = {
+  currency: string;
   display_name: string;
   bank_name: string;
   iban: string;
@@ -43,6 +44,7 @@ type PaymentDetailsDraft = {
 };
 
 const emptyPaymentDetails: PaymentDetailsDraft = {
+  currency: "USD",
   display_name: "",
   bank_name: "",
   iban: "",
@@ -64,12 +66,18 @@ const hhmmToMin = (hhmm: string) => {
   const [h, m] = String(hhmm || "").split(":").map(Number);
   return (Number.isFinite(h) ? h : 0) * 60 + (Number.isFinite(m) ? m : 0);
 };
-const fmtMoney = (amount: number) =>
-  new Intl.NumberFormat(undefined, {
-    style: "currency",
-    currency: "USD",
-    maximumFractionDigits: Math.abs(amount) >= 100 ? 0 : 2,
-  }).format(amount);
+const fmtMoney = (amount: number, currency = "USD") => {
+  const safeCurrency = currency?.trim().toUpperCase() || "USD";
+  try {
+    return new Intl.NumberFormat(undefined, {
+      style: "currency",
+      currency: safeCurrency,
+      maximumFractionDigits: Math.abs(amount) >= 100 ? 0 : 2,
+    }).format(amount);
+  } catch {
+    return `${safeCurrency} ${amount.toFixed(2)}`;
+  }
+};
 const parseRateInput = (value: string) => {
   const cleaned = value.replace(",", ".").trim();
   if (!cleaned) return null;
@@ -774,6 +782,13 @@ function TrackerInner({ embedded = false, onClose }: { embedded?: boolean; onClo
                               placeholder="0"
                               className="h-7 flex-1 bg-transparent border-0 px-0 text-right text-[13px] font-mono tabular-nums focus-visible:ring-0 shadow-none"
                             />
+                            <Input
+                              value={paymentDetails.currency}
+                              onChange={(e) => updatePaymentField("currency", e.target.value.toUpperCase().slice(0, 3))}
+                              placeholder="USD"
+                              className="h-7 w-14 bg-transparent border-l border-soft rounded-none px-2 text-center text-[11px] font-semibold font-mono focus-visible:ring-0 shadow-none"
+                              maxLength={3}
+                            />
                           </div>
                           <div className="rounded-xl border border-soft bg-background/25 px-2.5 py-2">
                             <div className="mb-1.5 flex items-center justify-between gap-2">
@@ -876,7 +891,7 @@ function TrackerInner({ embedded = false, onClose }: { embedded?: boolean; onClo
                             <span className="block text-[15px] font-medium truncate">{c.name}</span>
                             {rate > 0 && (
                               <span className="block text-[10px] font-mono tabular-nums text-secondary-fg">
-                                {fmtMoney(rate)}/h
+                                {fmtMoney(rate, c.currency ?? undefined)}/h
                               </span>
                             )}
                             {rate === 0 && (
@@ -896,7 +911,7 @@ function TrackerInner({ embedded = false, onClose }: { embedded?: boolean; onClo
                           </span>
                           <span className="shrink-0 text-right">
                             <span className="block font-mono tabular-nums text-[11px] text-secondary-fg">{fmtHM(periodSec)}</span>
-                            {earned > 0 && <span className="block font-mono tabular-nums text-[10px] text-primary">{fmtMoney(earned)}</span>}
+                            {earned > 0 && <span className="block font-mono tabular-nums text-[10px] text-primary">{fmtMoney(earned, c.currency ?? undefined)}</span>}
                           </span>
                           {!simpleMode && <ChevronDown className={`h-3.5 w-3.5 text-secondary-fg shrink-0 transition-transform ${isOpen ? "rotate-180" : ""}`} />}
                         </LongPressButton>

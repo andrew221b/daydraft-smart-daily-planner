@@ -3,7 +3,7 @@ import { useNavigate, useParams, useSearchParams } from "react-router-dom";
 import { supabase } from "@/integrations/supabase/client";
 import { Block, todayDateStr, wallMsOnPlanDay, blockSlotEndHHMM, addMinutesToWallClock, fmtTime, isOpenUserTask } from "@/lib/daydraft";
 import { minutesFromFocusArmSeconds, resolveActualMinutesOnComplete } from "@/lib/blockActualTime";
-import { Check, ChevronRight, Plus, Sparkles, MapPin, ExternalLink, Loader2, Lightbulb, Copy, Phone, CalendarPlus, Mail, Timer, Square, X, ShieldAlert } from "lucide-react";
+import { Check, Plus, Sparkles, MapPin, ExternalLink, Loader2, Lightbulb, Copy, Phone, CalendarPlus, Mail, Timer, Square, X, ShieldAlert } from "lucide-react";
 import { useAuth } from "@/hooks/useAuth";
 import { useProfile } from "@/hooks/useProfile";
 import { mapsUrl } from "@/lib/maps";
@@ -410,10 +410,8 @@ export default function Focus() {
     : 0;
   const oneThingElapsedSec = focusElapsedSec;
   const trackingThisBlock = !!(tracking && block && tracking.block_id === block.id);
-  const pastPlannedEnd =
-    !!planDate &&
-    !!block &&
-    wallMsOnPlanDay(planDate, blockSlotEndHHMM(block)) < Date.now();
+  const fmtDur = (m: number) =>
+    m < 60 ? `${m}m` : `${Math.floor(m / 60)}h${m % 60 ? ` ${m % 60}m` : ""}`;
 
   if (oneThingMode) {
     return (
@@ -555,17 +553,12 @@ export default function Focus() {
               </div>
             ) : (
               <>
-                <div className="text-[10px] font-semibold uppercase tracking-[0.16em] text-secondary-fg/80">Session</div>
+                <div className="text-[10px] font-semibold uppercase tracking-[0.16em] text-secondary-fg/80">Time spent</div>
                 <div className="text-[48px] font-mono-sf font-medium tabular-nums leading-none mt-2 text-foreground">
                   {fmtHMS(focusElapsedSec)}
                 </div>
-                <div className="text-secondary-fg text-[12px] mt-3 text-center leading-relaxed max-w-[260px]">
-                  Planned window ends {fmtTime(blockSlotEndHHMM(block))}
-                  {pastPlannedEnd && (
-                    <span className="mt-2 block text-[11px] font-medium text-amber-700/90 dark:text-amber-400/90">
-                      Past planned end — wrap up, extend +5m, or complete when ready.
-                    </span>
-                  )}
+                <div className="text-secondary-fg text-[12px] mt-3 text-center">
+                  {fmtDur(block.duration_min)} planned
                 </div>
                 {armed && trackingThisBlock && trackingCat && (
                   <div className="mt-4 text-center w-full border-t border-border/40 pt-4">
@@ -588,35 +581,43 @@ export default function Focus() {
           </div>
         </div>
 
-        <div className="mt-10 grid w-full max-w-[320px] grid-cols-2 gap-2">
-          <button
-            type="button"
-            onClick={extendFiveMin}
-            className="flex h-12 flex-col items-center justify-center gap-0.5 rounded-2xl border border-border/55 bg-card/85 text-[12px] font-semibold text-foreground shadow-sm pressable transition-colors hover:bg-card"
-          >
-            <Plus className="h-4 w-4 text-primary" strokeWidth={2.25} />
-            +5 min
-          </button>
+        <div className="mt-10 w-full max-w-[320px] space-y-2.5">
           <button
             type="button"
             onClick={() => void complete()}
-            className="flex h-12 items-center justify-center gap-2 rounded-2xl bg-primary text-[14px] font-semibold text-primary-foreground shadow-card pressable"
+            className="w-full flex h-14 items-center justify-center gap-2 rounded-2xl bg-primary text-[15px] font-semibold text-primary-foreground pressable"
           >
-            <Check className="h-4 w-4 shrink-0" strokeWidth={2.75} />
-            Complete
+            <Check className="h-5 w-5 shrink-0" strokeWidth={2.75} />
+            Done
           </button>
+          <div className="grid grid-cols-3 gap-2">
+            <button
+              type="button"
+              onClick={extendFiveMin}
+              className="flex h-11 items-center justify-center gap-1 rounded-xl border border-border/55 bg-card/85 text-[12px] font-medium text-secondary-fg pressable hover:text-foreground"
+            >
+              <Plus className="h-3.5 w-3.5" strokeWidth={2.25} /> +5 min
+            </button>
+            <button
+              type="button"
+              onClick={() => setConfirmSkipOpen(true)}
+              className="flex h-11 items-center justify-center rounded-xl border border-border/55 bg-card/85 text-[12px] font-medium text-secondary-fg pressable hover:text-foreground"
+            >
+              Skip
+            </button>
+            {aiFocusRuntimeEnabled ? (
+              <button
+                type="button"
+                onClick={() => void loadHelp("stuck")}
+                className="flex h-11 items-center justify-center gap-1.5 rounded-xl border border-primary/25 bg-primary/10 text-[12px] font-medium text-primary pressable"
+              >
+                <Sparkles className="h-3.5 w-3.5" /> AI
+              </button>
+            ) : (
+              <div />
+            )}
+          </div>
         </div>
-        <button onClick={() => setConfirmSkipOpen(true)} className="mt-3 text-secondary-fg text-xs hover:text-foreground inline-flex items-center gap-1">
-          Skip block <ChevronRight className="h-3 w-3" />
-        </button>
-        {aiFocusRuntimeEnabled && (
-          <button
-            onClick={() => void loadHelp("stuck")}
-            className="mt-2 text-secondary-fg text-xs hover:text-foreground inline-flex items-center gap-1"
-          >
-            {toneCopy(tone, "ai_stuck_cta")} <Sparkles className="h-3 w-3" />
-          </button>
-        )}
         {!trackingThisBlock && armed && (
           <Popover open={catPickerOpen} onOpenChange={(o) => { setCatPickerOpen(o); if (!o) setNewFocusCatName(""); }}>
             <PopoverTrigger asChild>
