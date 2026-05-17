@@ -23,6 +23,7 @@ import { setDndBodyScrollLock } from "@/lib/dndScrollLock";
 import { useProfile } from "@/hooks/useProfile";
 import { getTone, t as toneCopy } from "@/lib/tone";
 import { extractTaskTimeAnchors } from "@/lib/taskTimeAnchors";
+import { parseBulkTasks } from "@/lib/taskSplitter";
 
 export type ClarifiedTask = {
   title: string;
@@ -79,16 +80,8 @@ const STEP = 5;
 const MIN = 5;
 const MAX = 240;
 
-// Best-effort local fallback: split by newlines, semicolons, and bullets.
-// We DO NOT split on " and "/" plus " etc. — those connectors live inside
-// real task names ("John and Bob meeting", "Pick up Anna and Mark") and
-// splitting on them mangles titles. The AI splitter handles natural-language
-// task separation server-side; this is purely a holding fallback.
 function localSplit(input: string): string[] {
-  return input
-    .split(/\r?\n|;|•|(?:^|\s)[-*]\s+|(?:^|\s)\d+[.)]\s+/g)
-    .map(s => s.trim().replace(/^[,.\s]+|[,.\s]+$/g, ""))
-    .filter(Boolean);
+  return parseBulkTasks(input);
 }
 
 export function ClarifySheet({ open, onOpenChange, rawInput, onConfirm, planDate, organizeOnly = false }: Props) {
