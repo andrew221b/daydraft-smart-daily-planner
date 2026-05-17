@@ -156,81 +156,197 @@ export function downloadReportCsv(report: ReportPayload) {
   triggerDownload(blob, `${filenameBase(report)}.csv`);
 }
 
+function hexToRgb(hex: string): [number, number, number] {
+  const h = hex.replace("#", "").trim();
+  if (h.length === 3) {
+    return [parseInt(h[0] + h[0], 16), parseInt(h[1] + h[1], 16), parseInt(h[2] + h[2], 16)];
+  }
+  if (h.length === 6) {
+    return [parseInt(h.slice(0, 2), 16), parseInt(h.slice(2, 4), 16), parseInt(h.slice(4, 6), 16)];
+  }
+  return [120, 120, 120];
+}
+
 export function downloadReportPdf(report: ReportPayload) {
   const doc = new jsPDF({ unit: "pt", format: "a4" });
+  const pageW = doc.internal.pageSize.getWidth();
+  const pageH = doc.internal.pageSize.getHeight();
+  const margin = 40;
+  const accent: [number, number, number] = [99, 102, 241]; // indigo-500
+  const ink: [number, number, number] = [18, 20, 28];
+  const sub: [number, number, number] = [120, 124, 138];
+  const soft: [number, number, number] = [244, 245, 250];
+
+  // Header band
+  doc.setFillColor(...ink);
+  doc.rect(0, 0, pageW, 110, "F");
+  doc.setFillColor(...accent);
+  doc.rect(0, 110, pageW, 3, "F");
+
+  doc.setTextColor(255, 255, 255);
+  doc.setFont("helvetica", "bold");
+  doc.setFontSize(9);
+  doc.text("TIME REPORT", margin, 42, { charSpace: 2 });
+
+  doc.setFontSize(22);
+  doc.text(`${report.periodLabel} · ${report.rangeLabel}`, margin, 70);
+
+  if (report.scopeLabel) {
+    doc.setFont("helvetica", "normal");
+    doc.setFontSize(10);
+    doc.setTextColor(190, 192, 210);
+    doc.text(report.scopeLabel, margin, 90);
+  }
+
+  // Right side: generation date
+  doc.setFont("helvetica", "normal");
+  doc.setFontSize(9);
+  doc.setTextColor(180, 184, 205);
+  const generated = new Date().toLocaleDateString(undefined, {
+    year: "numeric",
+    month: "short",
+    day: "numeric",
+  });
+  doc.text(`Generated ${generated}`, pageW - margin, 42, { align: "right" });
+
+  // Stat cards
+  const cardsY = 138;
+  const cardH = 88;
+  const gap = 14;
+  const hasEarnings = (report.totalEarnings || 0) > 0;
+  const cardW = hasEarnings ? (pageW - margin * 2 - gap) / 2 : pageW - margin * 2;
+
+  const drawCard = (x: number, w: number, label: string, value: string, tone: [number, number, number]) => {
+    doc.setFillColor(...soft);
+    doc.roundedRect(x, cardsY, w, cardH, 12, 12, "F");
+    doc.setFillColor(...tone);
+    doc.rect(x, cardsY, 3, cardH, "F");
+    doc.setTextColor(...sub);
+    doc.setFont("helvetica", "bold");
+    doc.setFontSize(8);
+    doc.text(label.toUpperCase(), x + 18, cardsY + 24, { charSpace: 1.5 });
+    doc.setTextColor(...ink);
+    doc.setFont("helvetica", "bold");
+    doc.setFontSize(26);
+    doc.text(value, x + 18, cardsY + 60);
+  };
+
+  drawCard(margin, cardW, "Total tracked", fmtH(report.totalSeconds), accent);
+  if (hasEarnings) {
+    const currency = report.categories[0]?.currency || report.paymentDetails?.currency || "USD";
+    drawCard(margin + cardW + gap, cardW, "Estimated earned", fmtMoney(report.totalEarnings || 0, currency), [16, 185, 129]);
+  }
+
+  let cursorY = cardsY + cardH + 28;
+
+  // Payment sections
   const sections = report.paymentSections?.length
     ? report.paymentSections
     : report.paymentDetails
       ? [{ title: "Payment details", details: report.paymentDetails }]
       : [];
-  doc.setFont("helvetica", "bold");
-  doc.setFontSize(20);
-  doc.text("Time report", 40, 60);
-  doc.setFont("helvetica", "normal");
-  doc.setFontSize(11);
-  doc.setTextColor(100);
-  doc.text(`${report.periodLabel} — ${report.rangeLabel}`, 40, 80);
-  if (report.scopeLabel) doc.text(`Categories: ${report.scopeLabel}`, 40, 98);
-  doc.setTextColor(20);
-  doc.setFont("helvetica", "bold");
-  doc.setFontSize(28);
-  doc.text(fmtH(report.totalSeconds), 40, 124);
-  doc.setFont("helvetica", "normal");
-  doc.setFontSize(10);
-  doc.setTextColor(120);
-  doc.text("total tracked", 40, 140);
-  if (report.totalEarnings && report.totalEarnings > 0) {
-    doc.setTextColor(20);
-    doc.setFont("helvetica", "bold");
-    doc.setFontSize(16);
-    doc.text(fmtMoney(report.totalEarnings, report.categories[0]?.currency || report.paymentDetails?.currency || "USD"), 220, 124);
-    doc.setFont("helvetica", "normal");
-    doc.setFontSize(10);
-    doc.setTextColor(120);
-    doc.text("estimated earned", 220, 140);
-  }
 
-  let startY = 170;
   for (const sec of sections) {
     const paymentRows = paymentDetailRows(sec.details);
     if (!paymentRows.length) continue;
     autoTable(doc, {
-      startY,
-      head: [[sec.title, ""]],
+      startY: cursorY,
+      head: [[{ content: sec.title, colSpan: 2 }]],
       body: paymentRows,
-      styles: { font: "helvetica", fontSize: 9, cellPadding: 5 },
-      headStyles: { fillColor: [245, 245, 245], textColor: 30 },
+      margin: { left: margin, right: margin },
+      styles: { font: "helvetica", fontSize: 9.5, cellPadding: 7, textColor: ink, lineColor: [230, 232, 240], lineWidth: 0.5 },
+      headStyles: { fillColor: ink, textColor: 255, fontStyle: "bold", fontSize: 9, cellPadding: 8 },
+      columnStyles: { 0: { fontStyle: "bold", textColor: sub, cellWidth: 130 }, 1: { textColor: ink } },
       theme: "grid",
     });
-    startY = ((doc as any).lastAutoTable?.finalY || startY) + 18;
+    cursorY = ((doc as any).lastAutoTable?.finalY || cursorY) + 18;
   }
 
-  autoTable(doc, {
-    startY,
-    head: [["Category", "Time", "%", "Rate / h", "Earned"]],
-    body: report.categories.map((c) => [c.name, fmtH(c.seconds), `${(c.pct * 100).toFixed(1)}%`, c.hourlyRate ? fmtMoney(c.hourlyRate, c.currency || "USD") : "—", fmtMoney(c.earnings || 0, c.currency || "USD")]),
-    styles: { font: "helvetica", fontSize: 10, cellPadding: 6 },
-    headStyles: { fillColor: [30, 30, 30], textColor: 255 },
-    theme: "grid",
-  });
-  startY = ((doc as any).lastAutoTable?.finalY || startY) + 18;
+  // Category breakdown
+  if (report.categories.length) {
+    autoTable(doc, {
+      startY: cursorY,
+      head: [["", "Category", "Time", "Share", "Rate / h", "Earned"]],
+      body: report.categories.map((c) => [
+        "",
+        c.name,
+        fmtH(c.seconds),
+        `${(c.pct * 100).toFixed(1)}%`,
+        c.hourlyRate ? fmtMoney(c.hourlyRate, c.currency || "USD") : "—",
+        fmtMoney(c.earnings || 0, c.currency || "USD"),
+      ]),
+      margin: { left: margin, right: margin },
+      styles: { font: "helvetica", fontSize: 10, cellPadding: 9, textColor: ink, lineColor: [232, 234, 242], lineWidth: 0.5 },
+      headStyles: { fillColor: ink, textColor: 255, fontStyle: "bold", fontSize: 9, cellPadding: 9 },
+      alternateRowStyles: { fillColor: [250, 251, 254] },
+      columnStyles: {
+        0: { cellWidth: 18 },
+        2: { halign: "right", cellWidth: 70 },
+        3: { halign: "right", cellWidth: 55 },
+        4: { halign: "right", cellWidth: 75 },
+        5: { halign: "right", cellWidth: 80, fontStyle: "bold" },
+      },
+      theme: "grid",
+      didDrawCell: (data) => {
+        if (data.section === "body" && data.column.index === 0) {
+          const row = report.categories[data.row.index];
+          if (row) {
+            const [r, g, b] = hexToRgb(row.color || "#6366f1");
+            doc.setFillColor(r, g, b);
+            const cx = data.cell.x + data.cell.width / 2;
+            const cy = data.cell.y + data.cell.height / 2;
+            doc.circle(cx, cy, 3.2, "F");
+          }
+        }
+      },
+    });
+    cursorY = ((doc as any).lastAutoTable?.finalY || cursorY) + 22;
+  }
 
-  autoTable(doc, {
-    startY,
-    head: [["Date", "Started", "Ended", "Category", "Min", "Earned", "Note"]],
-    body: report.entries.map((e) => [
-      e.date,
-      e.startedAt,
-      e.endedAt,
-      e.category,
-      e.durationMin.toString(),
-      fmtMoney(e.earnings || 0, e.currency || "USD"),
-      e.note ?? "",
-    ]),
-    styles: { font: "helvetica", fontSize: 9, cellPadding: 5 },
-    headStyles: { fillColor: [240, 240, 240], textColor: 30 },
-    theme: "striped",
-  });
+  // Detailed entries
+  if (report.entries.length) {
+    autoTable(doc, {
+      startY: cursorY,
+      head: [["Date", "Start", "End", "Category", "Min", "Earned", "Note"]],
+      body: report.entries.map((e) => [
+        e.date,
+        e.startedAt,
+        e.endedAt,
+        e.category,
+        e.durationMin.toString(),
+        fmtMoney(e.earnings || 0, e.currency || "USD"),
+        e.note ?? "",
+      ]),
+      margin: { left: margin, right: margin },
+      styles: { font: "helvetica", fontSize: 9, cellPadding: 6, textColor: ink, lineColor: [235, 237, 244], lineWidth: 0.4 },
+      headStyles: { fillColor: soft, textColor: ink, fontStyle: "bold", fontSize: 8.5, cellPadding: 7 },
+      alternateRowStyles: { fillColor: [252, 253, 255] },
+      columnStyles: {
+        4: { halign: "right" },
+        5: { halign: "right", fontStyle: "bold" },
+      },
+      theme: "grid",
+    });
+  } else {
+    doc.setTextColor(...sub);
+    doc.setFont("helvetica", "italic");
+    doc.setFontSize(11);
+    doc.text("No tracker entries in this period yet.", margin, cursorY + 12);
+  }
+
+  // Footer on every page
+  const pageCount = doc.getNumberOfPages();
+  for (let i = 1; i <= pageCount; i++) {
+    doc.setPage(i);
+    doc.setDrawColor(230, 232, 240);
+    doc.setLineWidth(0.5);
+    doc.line(margin, pageH - 36, pageW - margin, pageH - 36);
+    doc.setFont("helvetica", "normal");
+    doc.setFontSize(8.5);
+    doc.setTextColor(...sub);
+    doc.text("DayDraft · Time report", margin, pageH - 20);
+    doc.text(`${i} / ${pageCount}`, pageW - margin, pageH - 20, { align: "right" });
+  }
 
   doc.save(`${filenameBase(report)}.pdf`);
 }
