@@ -1049,15 +1049,38 @@ export default function DayView() {
               placeholder={newKind === "break" ? "Break name (optional)" : "What's the task?"}
               className="w-full h-11 px-3 rounded-lg bg-card border border-soft text-[14px] text-foreground placeholder:text-faint focus:outline-none focus:border-primary/50 focus:ring-2 focus:ring-primary/15"
             />
-            <button
-              onClick={() => setNewDurationOpen(true)}
-              className="w-full flex items-center justify-between bg-card border border-soft rounded-lg px-3 py-2.5 pressable hover:border-primary/40 transition-colors"
-            >
-              <span className="text-[12px] text-secondary-fg">Duration</span>
-              <span className="text-[13px] font-semibold tabular-nums">
-                {newDuration < 60 ? `${newDuration}m` : `${Math.floor(newDuration/60)}h${newDuration%60 ? ` ${newDuration%60}m` : ""}`}
-              </span>
-            </button>
+            <div className="rounded-2xl border border-soft bg-card px-3.5 py-3">
+              <div className="flex items-center justify-between gap-3">
+                <span className="text-[12px] text-secondary-fg">Duration</span>
+                <button
+                  type="button"
+                  onClick={() => setNewDurationOpen(true)}
+                  className="h-8 px-3 rounded-xl border border-soft bg-muted/30 text-[13px] font-semibold tabular-nums pressable hover:border-primary/40"
+                >
+                  {newDuration < 60 ? `${newDuration}m` : `${Math.floor(newDuration/60)}h${newDuration%60 ? ` ${newDuration%60}m` : ""}`}
+                </button>
+              </div>
+              <Slider
+                value={[newDuration]}
+                min={5}
+                max={180}
+                step={5}
+                onValueChange={(v) => setNewDuration(v[0] ?? 30)}
+                className="mt-3"
+              />
+              <div className="mt-3 grid grid-cols-4 gap-1.5">
+                {[15, 30, 60, 90].map((m) => (
+                  <button
+                    key={m}
+                    type="button"
+                    onClick={() => setNewDuration(m)}
+                    className={`h-8 rounded-lg border text-[11px] font-medium tabular-nums pressable ${newDuration === m ? "surface-accent border-accent text-primary" : "bg-background border-soft text-secondary-fg"}`}
+                  >
+                    {m < 60 ? `${m}m` : `${m / 60}h`}
+                  </button>
+                ))}
+              </div>
+            </div>
             <Button
               onClick={addInlineBlock}
               disabled={planMutating}
