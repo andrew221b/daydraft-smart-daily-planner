@@ -8,7 +8,7 @@ import {
   Block, fmtTime, todayDateStr, parseDateStr, friendlyDateFor, isFutureDateStr, isUserTask, isOpenUserTask, isUserTaskDone, inferScheduleBlockType, packLinearSchedule,
   blockSlotEndHHMM,
 } from "@/lib/daydraft";
-import { ChevronLeft, Play, Plus, Coffee, CalendarDays, Trash2, Bell, BellOff, MoreHorizontal, Clock, MapPin, Copy, Sparkles, ListPlus } from "lucide-react";
+import { ChevronLeft, Play, Plus, Coffee, CalendarDays, Trash2, Bell, BellOff, MoreHorizontal, Clock, MapPin, Copy, Sparkles, ListPlus, Wand2 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { DndContext, closestCenter, PointerSensor, TouchSensor, useSensor, useSensors, DragEndEvent, DragStartEvent } from "@dnd-kit/core";
 import { SortableContext, arrayMove, verticalListSortingStrategy } from "@dnd-kit/sortable";
@@ -45,6 +45,7 @@ import { UpgradeSheet } from "@/components/app/UpgradeSheet";
 import { setDndBodyScrollLock } from "@/lib/dndScrollLock";
 import { AskAiSheet } from "@/components/app/AskAiSheet";
 import { Textarea } from "@/components/ui/textarea";
+import { parseBulkTasks } from "@/lib/taskSplitter";
 
 type ExBlock = Block & {
   ai_reasoning?: string | null;
@@ -59,33 +60,6 @@ type ExBlock = Block & {
   slot_end_time?: string | null;
   resolution?: string | null;
   resolved_at?: string | null;
-};
-
-const taskSeparatorPattern =
-  /\r?\n+|;|•|(?:^|\s)[-*]\s+|(?:^|\s)\d+[.)]\s+|\s(?:и еще|ещ[её]|потом|затем|после этого|также|and then|then|also)\s|\s(?:и|and)\s+(?=(?:убрать|добавить|сделать|исправить|проверить|написать|купить|позвонить|отправить|создать|обновить|починить|переделать|настроить|выбрать|подготовить|закончить|разобрать|clean|fix|add|remove|write|call|send|create|update|finish|prepare)(?=$|[\s,.;:!?]))/gi;
-
-const cleanupBulkTaskTitle = (value: string) =>
-  value
-    .replace(/^[,.;:\-–—•*\d.)\s]+/, "")
-    .replace(/[,.;:\-–—\s]+$/, "")
-    .trim();
-
-const taskStarterPattern =
-  /^(убрать|добавить|сделать|исправить|проверить|написать|купить|позвонить|отправить|создать|обновить|починить|переделать|настроить|выбрать|подготовить|закончить|разобрать|clean|fix|add|remove|write|call|send|create|update|finish|prepare)(?=$|[\s,.;:!?])/i;
-
-const parseBulkTasks = (input: string): string[] => {
-  const primary = input
-    .split(taskSeparatorPattern)
-    .map(cleanupBulkTaskTitle)
-    .filter(Boolean);
-
-  const expanded = primary.flatMap((part) => {
-    const commaParts = part.split(/,\s+/).map(cleanupBulkTaskTitle).filter(Boolean);
-    if (commaParts.length >= 2 && commaParts.filter((p) => taskStarterPattern.test(p)).length >= 2) return commaParts;
-    return [part];
-  });
-
-  return expanded.slice(0, 40);
 };
 
 export default function DayView() {
