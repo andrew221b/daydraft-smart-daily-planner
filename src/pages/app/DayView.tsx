@@ -8,7 +8,7 @@ import {
   Block, fmtTime, todayDateStr, parseDateStr, friendlyDateFor, isFutureDateStr, isUserTask, isOpenUserTask, isUserTaskDone, inferScheduleBlockType, packLinearSchedule,
   blockSlotEndHHMM,
 } from "@/lib/daydraft";
-import { ChevronLeft, Play, Plus, Coffee, CalendarDays, Trash2, Bell, BellOff, MoreHorizontal, Clock, MapPin, Copy, Sparkles, ListPlus } from "lucide-react";
+import { ChevronLeft, Play, Plus, Coffee, CalendarDays, Trash2, Bell, BellOff, MoreHorizontal, Clock, MapPin, Copy, Sparkles, ListPlus, Wand2 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { DndContext, closestCenter, PointerSensor, TouchSensor, useSensor, useSensors, DragEndEvent, DragStartEvent } from "@dnd-kit/core";
 import { SortableContext, arrayMove, verticalListSortingStrategy } from "@dnd-kit/sortable";
@@ -45,6 +45,8 @@ import { UpgradeSheet } from "@/components/app/UpgradeSheet";
 import { setDndBodyScrollLock } from "@/lib/dndScrollLock";
 import { AskAiSheet } from "@/components/app/AskAiSheet";
 import { Textarea } from "@/components/ui/textarea";
+import { Slider } from "@/components/ui/slider";
+import { parseBulkTasks } from "@/lib/taskSplitter";
 
 type ExBlock = Block & {
   ai_reasoning?: string | null;
@@ -59,33 +61,6 @@ type ExBlock = Block & {
   slot_end_time?: string | null;
   resolution?: string | null;
   resolved_at?: string | null;
-};
-
-const taskSeparatorPattern =
-  /\r?\n+|;|•|(?:^|\s)[-*]\s+|(?:^|\s)\d+[.)]\s+|\s(?:и еще|ещ[её]|потом|затем|после этого|также|and then|then|also)\s|\s(?:и|and)\s+(?=(?:убрать|добавить|сделать|исправить|проверить|написать|купить|позвонить|отправить|создать|обновить|починить|переделать|настроить|выбрать|подготовить|закончить|разобрать|clean|fix|add|remove|write|call|send|create|update|finish|prepare)(?=$|[\s,.;:!?]))/gi;
-
-const cleanupBulkTaskTitle = (value: string) =>
-  value
-    .replace(/^[,.;:\-–—•*\d.)\s]+/, "")
-    .replace(/[,.;:\-–—\s]+$/, "")
-    .trim();
-
-const taskStarterPattern =
-  /^(убрать|добавить|сделать|исправить|проверить|написать|купить|позвонить|отправить|создать|обновить|починить|переделать|настроить|выбрать|подготовить|закончить|разобрать|clean|fix|add|remove|write|call|send|create|update|finish|prepare)(?=$|[\s,.;:!?])/i;
-
-const parseBulkTasks = (input: string): string[] => {
-  const primary = input
-    .split(taskSeparatorPattern)
-    .map(cleanupBulkTaskTitle)
-    .filter(Boolean);
-
-  const expanded = primary.flatMap((part) => {
-    const commaParts = part.split(/,\s+/).map(cleanupBulkTaskTitle).filter(Boolean);
-    if (commaParts.length >= 2 && commaParts.filter((p) => taskStarterPattern.test(p)).length >= 2) return commaParts;
-    return [part];
-  });
-
-  return expanded.slice(0, 40);
 };
 
 export default function DayView() {
@@ -108,6 +83,7 @@ export default function DayView() {
   const [bulkInput, setBulkInput] = useState("");
   const [bulkRows, setBulkRows] = useState<{ title: string; duration: number }[]>([]);
   const [bulkStep, setBulkStep] = useState<"input" | "review">("input");
+  const [bulkDurationEditIndex, setBulkDurationEditIndex] = useState<number | null>(null);
   const [newTitle, setNewTitle] = useState("");
   const [newKind, setNewKind] = useState<"task" | "break">("task");
   const [newDuration, setNewDuration] = useState(30);
@@ -817,12 +793,23 @@ export default function DayView() {
             <p className="text-[12px] text-secondary-fg/80 mt-2 leading-relaxed">
               Write your plan however it comes out. We'll clean it up into separate blocks for review.
             </p>
-            <div className="mt-6">
+            <div className="mt-6 grid grid-cols-2 gap-2">
               <Button
                 onClick={() => setBulkOpen(true)}
-                className="h-11 w-full rounded-2xl bg-primary hover:bg-primary/92 text-primary-foreground text-[13px] font-medium pressable"
+                className="h-11 rounded-2xl bg-primary hover:bg-primary/92 text-primary-foreground text-[13px] font-medium pressable"
               >
                 <ListPlus className="h-4 w-4 mr-1" /> Write plan
+              </Button>
+              <Button
+                type="button"
+                variant="outline"
+                onClick={() => {
+                  setAskAiContext("I have an empty day. Ask me one useful question that helps me decide what to add, without creating a schedule for me.");
+                  setAskAiOpen(true);
+                }}
+                className="h-11 rounded-2xl border-primary/25 bg-primary/10 text-primary text-[13px] font-medium pressable"
+              >
+                <Wand2 className="h-4 w-4 mr-1" /> Ask AI
               </Button>
             </div>
           </div>
@@ -857,6 +844,11 @@ export default function DayView() {
                           if (blk?.is_calendar_event) return;
                           completeBlock(blk.id);
                         }}
+                        onAskAi={(blk) => {
+                          if (blk?.is_calendar_event) return;
+                          setAskAiContext(`Help me think about this task: "${blk.title}" (${blk.duration_min} min). Suggest one practical next step, a better estimate, or a small breakdown. Don't schedule my day — just advice.`);
+                          setAskAiOpen(true);
+                        }}
                       />
                     ))}
                     {blocks.length === 0 && (
@@ -869,7 +861,7 @@ export default function DayView() {
 
             {/* Inline add — single soft button, no sheet trigger needed */}
             {!isFuture && (
-              <div className="mt-4 grid grid-cols-2 gap-2">
+              <div className="mt-4 grid grid-cols-3 gap-2">
                 <button
                   onClick={() => setAddOpen(true)}
                   disabled={planMutating}
@@ -883,6 +875,16 @@ export default function DayView() {
                   className="inline-flex items-center justify-center gap-1.5 text-[12px] font-medium text-foreground/75 border border-border/40 rounded-2xl h-11 bg-transparent hover:bg-muted/35 pressable transition-colors disabled:opacity-50"
                 >
                   <ListPlus className="h-3.5 w-3.5 opacity-70" /> Paste list
+                </button>
+                <button
+                  onClick={() => {
+                    setAskAiContext("Look at my current day and suggest one small helpful improvement. Don't change or schedule anything — just advice I can apply manually.");
+                    setAskAiOpen(true);
+                  }}
+                  disabled={planMutating}
+                  className="inline-flex items-center justify-center gap-1.5 text-[12px] font-medium text-primary border border-primary/25 rounded-2xl h-11 bg-primary/10 hover:bg-primary/15 pressable transition-colors disabled:opacity-50"
+                >
+                  <Wand2 className="h-3.5 w-3.5" /> Ask AI
                 </button>
               </div>
             )}
@@ -1047,15 +1049,38 @@ export default function DayView() {
               placeholder={newKind === "break" ? "Break name (optional)" : "What's the task?"}
               className="w-full h-11 px-3 rounded-lg bg-card border border-soft text-[14px] text-foreground placeholder:text-faint focus:outline-none focus:border-primary/50 focus:ring-2 focus:ring-primary/15"
             />
-            <button
-              onClick={() => setNewDurationOpen(true)}
-              className="w-full flex items-center justify-between bg-card border border-soft rounded-lg px-3 py-2.5 pressable hover:border-primary/40 transition-colors"
-            >
-              <span className="text-[12px] text-secondary-fg">Duration</span>
-              <span className="text-[13px] font-semibold tabular-nums">
-                {newDuration < 60 ? `${newDuration}m` : `${Math.floor(newDuration/60)}h${newDuration%60 ? ` ${newDuration%60}m` : ""}`}
-              </span>
-            </button>
+            <div className="rounded-2xl border border-soft bg-card px-3.5 py-3">
+              <div className="flex items-center justify-between gap-3">
+                <span className="text-[12px] text-secondary-fg">Duration</span>
+                <button
+                  type="button"
+                  onClick={() => setNewDurationOpen(true)}
+                  className="h-8 px-3 rounded-xl border border-soft bg-muted/30 text-[13px] font-semibold tabular-nums pressable hover:border-primary/40"
+                >
+                  {newDuration < 60 ? `${newDuration}m` : `${Math.floor(newDuration/60)}h${newDuration%60 ? ` ${newDuration%60}m` : ""}`}
+                </button>
+              </div>
+              <Slider
+                value={[newDuration]}
+                min={5}
+                max={180}
+                step={5}
+                onValueChange={(v) => setNewDuration(v[0] ?? 30)}
+                className="mt-3"
+              />
+              <div className="mt-3 grid grid-cols-4 gap-1.5">
+                {[15, 30, 60, 90].map((m) => (
+                  <button
+                    key={m}
+                    type="button"
+                    onClick={() => setNewDuration(m)}
+                    className={`h-8 rounded-lg border text-[11px] font-medium tabular-nums pressable ${newDuration === m ? "surface-accent border-accent text-primary" : "bg-background border-soft text-secondary-fg"}`}
+                  >
+                    {m < 60 ? `${m}m` : `${m / 60}h`}
+                  </button>
+                ))}
+              </div>
+            </div>
             <Button
               onClick={addInlineBlock}
               disabled={planMutating}
@@ -1075,13 +1100,13 @@ export default function DayView() {
           {bulkStep === "input" ? (
             <div className="mt-4 space-y-3">
               <p className="text-[12px] leading-relaxed text-secondary-fg">
-                Paste a messy list. It will only become editable tasks — no AI schedule, no automatic planning.
+                Paste a messy list. Missing commas and odd symbols are okay — it becomes editable tasks only.
               </p>
               <Textarea
                 autoFocus
                 value={bulkInput}
                 onChange={(e) => setBulkInput(e.target.value)}
-                placeholder={"Finish Nike review\nCall Alex\nInvoice client\nQuick cleanup"}
+                placeholder={"поправить моб верстку скачать PDF отправить клиенту\nCall Alex / invoice client"}
                 className="min-h-[150px] rounded-2xl border-soft bg-card text-[14px]"
               />
               <Button
@@ -1095,7 +1120,7 @@ export default function DayView() {
           ) : (
             <div className="mt-4 space-y-3">
               <p className="text-[11px] text-secondary-fg leading-relaxed">
-                Edit titles or duration. Tasks stay in this order; no AI changes them.
+                Edit titles and time. Tasks stay in this order; nothing is scheduled by AI.
               </p>
               <div className="space-y-2 max-h-[50vh] overflow-y-auto pr-1">
                 {bulkRows.map((row, i) => (
@@ -1105,15 +1130,13 @@ export default function DayView() {
                       onChange={(e) => setBulkRows((rs) => rs.map((r, idx) => idx === i ? { ...r, title: e.target.value } : r))}
                       className="flex-1 h-9 px-1 bg-transparent border-0 text-[13.5px] focus:outline-none"
                     />
-                    <select
-                      value={row.duration}
-                      onChange={(e) => setBulkRows((rs) => rs.map((r, idx) => idx === i ? { ...r, duration: Number(e.target.value) } : r))}
-                      className="h-8 px-2 rounded-lg bg-muted/40 border border-soft text-[12px] tabular-nums"
+                    <button
+                      type="button"
+                      onClick={() => setBulkDurationEditIndex(i)}
+                      className="h-8 min-w-[58px] px-2 rounded-lg bg-muted/40 border border-soft text-[12px] font-semibold tabular-nums pressable hover:border-primary/40"
                     >
-                      {[15, 30, 45, 60, 90, 120].map((m) => (
-                        <option key={m} value={m}>{m < 60 ? `${m}m` : `${m / 60}h${m % 60 ? ` ${m % 60}m` : ""}`}</option>
-                      ))}
-                    </select>
+                      {row.duration < 60 ? `${row.duration}m` : `${Math.floor(row.duration / 60)}h${row.duration % 60 ? ` ${row.duration % 60}m` : ""}`}
+                    </button>
                     <button
                       type="button"
                       onClick={() => setBulkRows((rs) => rs.filter((_, idx) => idx !== i))}
@@ -1322,6 +1345,18 @@ export default function DayView() {
         value={newDuration}
         onChange={setNewDuration}
         title="New block duration"
+      />
+
+      <DurationPicker
+        open={bulkDurationEditIndex !== null}
+        onClose={() => setBulkDurationEditIndex(null)}
+        value={bulkDurationEditIndex !== null ? bulkRows[bulkDurationEditIndex]?.duration || 30 : 30}
+        onChange={(minutes) => {
+          const index = bulkDurationEditIndex;
+          if (index === null) return;
+          setBulkRows((rows) => rows.map((row, i) => i === index ? { ...row, duration: minutes } : row));
+        }}
+        title="Task duration"
       />
 
       <Sheet open={!!startTimeEditId} onOpenChange={(v) => !v && setStartTimeEditId(null)}>
