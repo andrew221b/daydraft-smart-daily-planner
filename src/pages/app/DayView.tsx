@@ -832,6 +832,11 @@ export default function DayView() {
                           if (blk?.is_calendar_event) return;
                           completeBlock(blk.id);
                         }}
+                        onAskAi={(blk) => {
+                          if (blk?.is_calendar_event) return;
+                          setAskAiContext(`Help me think about this task: "${blk.title}" (${blk.duration_min} min). Suggest one practical next step, a better estimate, or a small breakdown. Don't schedule my day — just advice.`);
+                          setAskAiOpen(true);
+                        }}
                       />
                     ))}
                     {blocks.length === 0 && (
