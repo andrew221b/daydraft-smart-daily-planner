@@ -155,7 +155,8 @@ export function ClarifySheet({ open, onOpenChange, rawInput, onConfirm, planDate
         if (splitSettled.status === "fulfilled") {
           const { data, error } = splitSettled.value;
           if (!error && Array.isArray(data?.tasks) && data.tasks.length > 0) {
-            rows = data.tasks.map(parseLine);
+            const aiRows = data.tasks.map(parseLine);
+            rows = aiRows.length < fallback.length ? fallback : aiRows;
           }
         } else {
           console.error("split-tasks failed", splitSettled.reason);
