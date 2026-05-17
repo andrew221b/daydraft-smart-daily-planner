@@ -849,7 +849,7 @@ export default function DayView() {
 
             {/* Inline add — single soft button, no sheet trigger needed */}
             {!isFuture && (
-              <div className="mt-4 grid grid-cols-2 gap-2">
+              <div className="mt-4 grid grid-cols-3 gap-2">
                 <button
                   onClick={() => setAddOpen(true)}
                   disabled={planMutating}
@@ -863,6 +863,16 @@ export default function DayView() {
                   className="inline-flex items-center justify-center gap-1.5 text-[12px] font-medium text-foreground/75 border border-border/40 rounded-2xl h-11 bg-transparent hover:bg-muted/35 pressable transition-colors disabled:opacity-50"
                 >
                   <ListPlus className="h-3.5 w-3.5 opacity-70" /> Paste list
+                </button>
+                <button
+                  onClick={() => {
+                    setAskAiContext("Look at my current day and suggest one small helpful improvement. Don't change or schedule anything — just advice I can apply manually.");
+                    setAskAiOpen(true);
+                  }}
+                  disabled={planMutating}
+                  className="inline-flex items-center justify-center gap-1.5 text-[12px] font-medium text-primary border border-primary/25 rounded-2xl h-11 bg-primary/10 hover:bg-primary/15 pressable transition-colors disabled:opacity-50"
+                >
+                  <Wand2 className="h-3.5 w-3.5" /> Ask AI
                 </button>
               </div>
             )}
