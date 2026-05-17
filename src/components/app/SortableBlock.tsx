@@ -4,7 +4,7 @@ import { Block, fmtTime, inferScheduleBlockType, blockSlotEndHHMM, isOpenUserTas
 import { Check, Calendar, Sparkles, Layers, GripVertical } from "lucide-react";
 
 export const SortableBlock = ({
-  block, editing, onTap, onTapTime, onToggleComplete, tourSpotlight,
+  block, editing, onTap, onTapTime, onToggleComplete, onAskAi, tourSpotlight,
 }: {
   block: Block & {
     ai_reasoning?: string | null;
@@ -22,6 +22,7 @@ export const SortableBlock = ({
   onTap?: (b: any) => void;
   onTapTime?: (b: any) => void;
   onToggleComplete?: (b: any) => void;
+  onAskAi?: (b: any) => void;
   /** First visible row — tour hotspot only on one element. */
   tourSpotlight?: boolean;
 }) => {
@@ -189,6 +190,20 @@ export const SortableBlock = ({
             </div>
           )}
         </div>
+        {block.kind === "task" && !isCal && !block.resolution && onAskAi && (
+          <button
+            type="button"
+            onPointerDown={(e) => e.stopPropagation()}
+            onClick={(e) => {
+              e.stopPropagation();
+              onAskAi(block);
+            }}
+            className="h-7 w-7 rounded-full border border-primary/25 bg-primary/10 text-primary shrink-0 grid place-items-center pressable hover:bg-primary/15"
+            aria-label="Ask AI about this task"
+          >
+            <Sparkles className="h-3.5 w-3.5" />
+          </button>
+        )}
         {block.kind === "task" && !isCal && block.resolution === "skipped" ? (
           <div className="h-6 w-6 rounded-full border border-amber-500/40 bg-amber-500/10 shrink-0" title="Skipped" aria-hidden />
         ) : block.kind === "task" && !isCal && block.resolution === "missed" ? (
