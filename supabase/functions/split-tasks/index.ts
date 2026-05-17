@@ -29,6 +29,8 @@ The user writes in any language, with typos, abbreviations, slang. Items may be 
 
 Rules:
 - Output one task per distinct intent. NEVER merge two different things into one task.
+- If the user missed a comma or used a wrong symbol, infer the split from repeated action verbs.
+- Examples: "fix mobile text update PDF" => ["fix mobile text", "update PDF"]; "сделай сайт проверь оплату" => ["сделай сайт", "проверь оплату"].
 - Preserve the user's original language and wording — fix only obvious typos.
 - Keep inline duration/time hints attached to their task ("call mom 15min", "gym at 7pm").
 - Strip filler words ("ok so", "i need to", "todo:", "также надо").
