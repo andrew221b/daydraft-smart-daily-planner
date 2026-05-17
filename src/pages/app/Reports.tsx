@@ -323,13 +323,10 @@ export default function Reports() {
       return;
     }
     const payload = buildPayload(categoryIds, scopeLabel || "All categories");
-    if (!payload.entries.length) {
-      toast("Nothing to export for this period");
-      return;
-    }
     try {
       if (kind === "pdf") downloadReportPdf(payload);
       else downloadReportCsv(payload);
+      if (!payload.entries.length) toast("Exported an empty report — no entries in this period");
     } catch (e: any) {
       toast.error(e?.message || "Export failed");
     }
