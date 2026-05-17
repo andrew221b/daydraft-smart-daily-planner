@@ -1100,13 +1100,13 @@ export default function DayView() {
           {bulkStep === "input" ? (
             <div className="mt-4 space-y-3">
               <p className="text-[12px] leading-relaxed text-secondary-fg">
-                Paste a messy list. It will only become editable tasks — no AI schedule, no automatic planning.
+                Paste a messy list. Missing commas and odd symbols are okay — it becomes editable tasks only.
               </p>
               <Textarea
                 autoFocus
                 value={bulkInput}
                 onChange={(e) => setBulkInput(e.target.value)}
-                placeholder={"Finish Nike review\nCall Alex\nInvoice client\nQuick cleanup"}
+                placeholder={"поправить моб верстку скачать PDF отправить клиенту\nCall Alex / invoice client"}
                 className="min-h-[150px] rounded-2xl border-soft bg-card text-[14px]"
               />
               <Button
@@ -1120,7 +1120,7 @@ export default function DayView() {
           ) : (
             <div className="mt-4 space-y-3">
               <p className="text-[11px] text-secondary-fg leading-relaxed">
-                Edit titles or duration. Tasks stay in this order; no AI changes them.
+                Edit titles and time. Tasks stay in this order; nothing is scheduled by AI.
               </p>
               <div className="space-y-2 max-h-[50vh] overflow-y-auto pr-1">
                 {bulkRows.map((row, i) => (
