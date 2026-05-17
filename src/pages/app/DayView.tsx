@@ -1347,6 +1347,18 @@ export default function DayView() {
         title="New block duration"
       />
 
+      <DurationPicker
+        open={bulkDurationEditIndex !== null}
+        onClose={() => setBulkDurationEditIndex(null)}
+        value={bulkDurationEditIndex !== null ? bulkRows[bulkDurationEditIndex]?.duration || 30 : 30}
+        onChange={(minutes) => {
+          const index = bulkDurationEditIndex;
+          if (index === null) return;
+          setBulkRows((rows) => rows.map((row, i) => i === index ? { ...row, duration: minutes } : row));
+        }}
+        title="Task duration"
+      />
+
       <Sheet open={!!startTimeEditId} onOpenChange={(v) => !v && setStartTimeEditId(null)}>
         <SheetContent side="bottom" className="rounded-t-[28px] border-border/45 bg-popover">
           <SheetHeader className="text-left mb-3">
