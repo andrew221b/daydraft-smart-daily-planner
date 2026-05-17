@@ -793,12 +793,23 @@ export default function DayView() {
             <p className="text-[12px] text-secondary-fg/80 mt-2 leading-relaxed">
               Write your plan however it comes out. We'll clean it up into separate blocks for review.
             </p>
-            <div className="mt-6">
+            <div className="mt-6 grid grid-cols-2 gap-2">
               <Button
                 onClick={() => setBulkOpen(true)}
-                className="h-11 w-full rounded-2xl bg-primary hover:bg-primary/92 text-primary-foreground text-[13px] font-medium pressable"
+                className="h-11 rounded-2xl bg-primary hover:bg-primary/92 text-primary-foreground text-[13px] font-medium pressable"
               >
                 <ListPlus className="h-4 w-4 mr-1" /> Write plan
+              </Button>
+              <Button
+                type="button"
+                variant="outline"
+                onClick={() => {
+                  setAskAiContext("I have an empty day. Ask me one useful question that helps me decide what to add, without creating a schedule for me.");
+                  setAskAiOpen(true);
+                }}
+                className="h-11 rounded-2xl border-primary/25 bg-primary/10 text-primary text-[13px] font-medium pressable"
+              >
+                <Wand2 className="h-4 w-4 mr-1" /> Ask AI
               </Button>
             </div>
           </div>
