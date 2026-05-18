@@ -8,7 +8,7 @@ import {
   Block, fmtTime, todayDateStr, parseDateStr, friendlyDateFor, isFutureDateStr, isUserTask, isOpenUserTask, isUserTaskDone, inferScheduleBlockType, packLinearSchedule,
   blockSlotEndHHMM,
 } from "@/lib/daydraft";
-import { ChevronLeft, Play, CalendarDays, Trash2, Bell, BellOff, MoreHorizontal, Clock, MapPin, Copy, Sparkles, ListPlus, Wand2 } from "lucide-react";
+import { ChevronLeft, Play, CalendarDays, Trash2, Bell, BellOff, MoreHorizontal, Clock, Timer, MapPin, Copy, Sparkles, ListPlus, Wand2 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { DndContext, closestCenter, PointerSensor, TouchSensor, useSensor, useSensors, DragEndEvent, DragStartEvent } from "@dnd-kit/core";
 import { SortableContext, arrayMove, verticalListSortingStrategy } from "@dnd-kit/sortable";
@@ -497,6 +497,7 @@ export default function DayView() {
       .catch((e: any) => {
         setBlocks(snapshot);
         toast.error(e?.message || "Unable to reorder blocks");
+        void invalidatePlanCaches();
       });
   };
 
@@ -681,16 +682,23 @@ export default function DayView() {
       {!calmMode && !planMissing && totalTasks > 0 && (
         <div className="mt-4 shrink-0 px-6">
           <div className="app-card px-4 py-3">
-            <div className="flex items-center justify-between gap-2 mb-2">
-              <div className="text-[12px] text-foreground/90 tabular-nums">
-                <span className="font-semibold">{doneTasks}</span>
-                <span className="text-secondary-fg/70"> / {totalTasks} done</span>
+            <div className="flex items-center justify-between gap-2 mb-2.5">
+              <div className="text-[13px] text-foreground/95 tabular-nums">
+                <span className="font-bold">{doneTasks}</span>
+                <span className="text-secondary-fg/60 font-normal"> / {totalTasks} done</span>
               </div>
-              <div className="text-[11px] text-secondary-fg/65 tabular-nums">
-                {Math.round(userTasks.reduce((s, b) => s + b.duration_min, 0) / 6) / 10}h planned
+              <div className="flex items-center gap-2">
+                {totalTasks > 0 && (
+                  <span className="text-[12px] font-semibold text-primary tabular-nums">
+                    {Math.round((doneTasks / totalTasks) * 100)}%
+                  </span>
+                )}
+                <span className="text-[11px] text-secondary-fg/55 tabular-nums">
+                  {Math.round(userTasks.reduce((s, b) => s + b.duration_min, 0) / 6) / 10}h
+                </span>
               </div>
             </div>
-            <div className="h-1 rounded-full bg-muted/50 overflow-hidden">
+            <div className="h-1.5 rounded-full bg-muted/50 overflow-hidden">
               <div
                 className="h-full rounded-full bg-primary transition-all duration-700 ease-out"
                 style={{ width: totalTasks ? `${(doneTasks / totalTasks) * 100}%` : "0%" }}
@@ -766,11 +774,6 @@ export default function DayView() {
                           if (blk?.is_calendar_event) return;
                           completeBlock(blk.id);
                         }}
-                        onAskAi={(blk) => {
-                          if (blk?.is_calendar_event) return;
-                          setAskAiContext(`Help me think about this task: "${blk.title}" (${blk.duration_min} min). Suggest one practical next step, a better estimate, or a small breakdown. Don't schedule my day — just advice.`);
-                          setAskAiOpen(true);
-                        }}
                       />
                     ))}
                     {blocks.length === 0 && (
@@ -815,8 +818,8 @@ export default function DayView() {
           style={{ bottom: "calc(84px + env(safe-area-inset-bottom))" }}
         >
           <Button onClick={() => nav(`/focus/${firstUnfinishedTask.id}`)}
-            className="w-full h-13 rounded-2xl bg-primary hover:bg-primary/92 text-primary-foreground text-[15px] font-semibold pressable shadow-[0_8px_28px_-10px_hsl(var(--primary)/0.55)]">
-            <Play className="h-4 w-4 mr-1" fill="currentColor" /> {toneCopy(getTone(profile as any), doneTasks === 0 ? "start_first" : "start_next")}
+            className="w-full h-14 rounded-2xl bg-primary hover:bg-primary/92 text-primary-foreground text-[15px] font-semibold pressable shadow-[0_10px_36px_-10px_hsl(var(--primary)/0.65)]">
+            <Play className="h-4.5 w-4.5 mr-1.5" fill="currentColor" /> {toneCopy(getTone(profile as any), doneTasks === 0 ? "start_first" : "start_next")}
           </Button>
         </div>
       )}
@@ -855,7 +858,7 @@ export default function DayView() {
               {!tappedBlock.is_calendar_event && (
                 <ActionRow
                   onClick={() => { setDurationEditId(tappedBlock.id); setTappedBlock(null); }}
-                  icon={<Clock className="h-4 w-4" />}
+                  icon={<Timer className="h-4 w-4" />}
                   label="Change duration"
                 />
               )}
@@ -869,9 +872,6 @@ export default function DayView() {
                   icon={<Clock className="h-4 w-4" />}
                   label="Change start time"
                 />
-              )}
-              {!tappedBlock.is_calendar_event && tappedBlock.kind === "task" && isOpenUserTask(tappedBlock) && (
-                null
               )}
               {!calmMode && !tappedBlock.is_calendar_event && isToday && (
                 <ActionRow
@@ -979,19 +979,19 @@ export default function DayView() {
                 </p>
                 <div className="space-y-2 max-h-[45vh] overflow-y-auto pr-1">
                   {bulkRows.map((row, i) => (
-                    <div key={i} className="flex items-center gap-2 rounded-xl border border-soft bg-card px-2.5 py-2">
+                    <div key={i} className="flex items-center gap-2 rounded-2xl border border-border/35 bg-card/70 px-3 py-2.5">
                       <input
                         value={row.title}
                         onChange={(e) => setBulkRows((rs) => rs.map((r, idx) => idx === i ? { ...r, title: e.target.value } : r))}
-                        className="flex-1 h-9 px-1 bg-transparent border-0 text-[13.5px] focus:outline-none"
+                        className="flex-1 h-8 px-0 bg-transparent border-0 text-[14px] font-medium text-foreground focus:outline-none placeholder:text-secondary-fg/50"
                       />
                       <button type="button" onClick={() => setBulkDurationEditIndex(i)}
-                        className="h-8 min-w-[58px] px-2 rounded-lg bg-muted/40 border border-soft text-[12px] font-semibold tabular-nums pressable hover:border-primary/40"
+                        className="h-7 min-w-[52px] px-2.5 rounded-full border border-border/40 bg-muted/30 text-[12px] font-semibold tabular-nums text-foreground/80 pressable hover:border-primary/45 hover:text-foreground transition-colors"
                       >
                         {row.duration < 60 ? `${row.duration}m` : `${Math.floor(row.duration / 60)}h${row.duration % 60 ? ` ${row.duration % 60}m` : ""}`}
                       </button>
                       <button type="button" onClick={() => setBulkRows((rs) => rs.filter((_, idx) => idx !== i))}
-                        className="h-8 w-8 grid place-items-center text-secondary-fg hover:text-destructive pressable" aria-label="Remove"
+                        className="h-7 w-7 grid place-items-center rounded-full text-secondary-fg/60 hover:text-destructive hover:bg-destructive/10 pressable transition-colors" aria-label="Remove"
                       >
                         <Trash2 className="h-3.5 w-3.5" />
                       </button>
@@ -1165,7 +1165,8 @@ export default function DayView() {
           setBlocks(next);
           setPlanMutating(true);
           try {
-            const updatedBlock = next.find((x) => x.id === id)!;
+            const updatedBlock = next.find((x) => x.id === id);
+            if (!updatedBlock) { setBlocks(snapshot); return; }
             const { error } = await supabase.from("blocks").update({
               duration_min: v,
               slot_end_time: blockSlotEndHHMM(updatedBlock),

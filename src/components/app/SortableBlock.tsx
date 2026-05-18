@@ -1,10 +1,10 @@
 import { useSortable } from "@dnd-kit/sortable";
 import { CSS } from "@dnd-kit/utilities";
 import { Block, fmtTime, inferScheduleBlockType, isOpenUserTask, isUserTaskDone } from "@/lib/daydraft";
-import { Check, Calendar, Sparkles, Layers, GripVertical } from "lucide-react";
+import { Check, Calendar, Layers, GripVertical } from "lucide-react";
 
 export const SortableBlock = ({
-  block, editing, onTap, onTapTime, onToggleComplete, onAskAi, tourSpotlight,
+  block, editing, onTap, onTapTime, onToggleComplete, tourSpotlight,
 }: {
   block: Block & {
     ai_reasoning?: string | null;
@@ -22,7 +22,6 @@ export const SortableBlock = ({
   onTap?: (b: any) => void;
   onTapTime?: (b: any) => void;
   onToggleComplete?: (b: any) => void;
-  onAskAi?: (b: any) => void;
   /** First visible row — tour hotspot only on one element. */
   tourSpotlight?: boolean;
 }) => {
@@ -107,22 +106,22 @@ export const SortableBlock = ({
             type="button"
             onPointerDown={(e) => e.stopPropagation()}
             onClick={(e) => { e.stopPropagation(); onTapTime?.(block); }}
-            className="shrink-0 min-w-[54px] h-9 rounded-xl border border-border/40 bg-background/30 backdrop-blur-sm px-2 inline-flex items-center justify-center text-secondary-fg/90 text-[11px] font-mono-sf tabular-nums pressable hover:border-primary/40 hover:text-foreground"
+            className="shrink-0 h-7 rounded-full border border-border/40 bg-background/50 px-2.5 inline-flex items-center justify-center text-foreground/75 text-[11px] font-mono-sf tabular-nums pressable hover:border-primary/45 hover:text-foreground transition-colors"
             aria-label="Change start time"
           >
             {fmtTime(block.start_time)}
           </button>
         ) : (
-          <div className="shrink-0 min-w-[54px] h-9 rounded-xl border border-border/40 bg-background/30 backdrop-blur-sm px-2 inline-flex items-center justify-center text-secondary-fg/90 text-[11px] font-mono-sf tabular-nums">
+          <div className="shrink-0 h-7 rounded-full border border-border/35 bg-background/40 px-2.5 inline-flex items-center justify-center text-secondary-fg/75 text-[11px] font-mono-sf tabular-nums">
             {fmtTime(block.start_time)}
           </div>
         )}
-        <div className="w-[4px] h-9 rounded-full shrink-0" style={{ background: stripeColor }} />
+        <div className="w-[4px] h-8 rounded-full shrink-0" style={{ background: stripeColor }} />
         <div className="flex-1 min-w-0">
-          <div className={`leading-tight flex items-center gap-1.5 min-w-0 ${rhythmType === "rest" ? "text-[12.5px]" : "text-[14px]"} ${isUserTaskDone(block) && block.kind === "task" ? "text-foreground/80" : "text-foreground"}`}>
+          <div className={`leading-tight flex items-center gap-1.5 min-w-0 ${rhythmType === "rest" ? "text-[12.5px]" : "text-[14px] font-medium"} ${isUserTaskDone(block) && block.kind === "task" ? "text-foreground/65" : "text-foreground"}`}>
           {isCal && <Calendar className="h-3 w-3 text-secondary-fg shrink-0" />}
           {!isCal && rhythmType === "rest" && <span className="shrink-0 text-[12px] leading-none" aria-hidden>☕</span>}
-          <span className="truncate">{block.title}</span>
+          <span className={`truncate ${isUserTaskDone(block) && block.kind === "task" ? "line-through" : ""}`}>{block.title}</span>
           {!isCal && Boolean(block.overlap_ok) && (
             <span className="shrink-0 text-secondary-fg" title="Runs alongside other work">
               <Layers className="h-3 w-3" aria-hidden />
@@ -177,20 +176,6 @@ export const SortableBlock = ({
             </div>
           )}
         </div>
-        {block.kind === "task" && !isCal && !block.resolution && onAskAi && (
-          <button
-            type="button"
-            onPointerDown={(e) => e.stopPropagation()}
-            onClick={(e) => {
-              e.stopPropagation();
-              onAskAi(block);
-            }}
-            className="h-7 w-7 rounded-full border border-primary/25 bg-primary/10 text-primary shrink-0 grid place-items-center pressable hover:bg-primary/15"
-            aria-label="Ask AI about this task"
-          >
-            <Sparkles className="h-3.5 w-3.5" />
-          </button>
-        )}
         {block.kind === "task" && !isCal && block.resolution === "skipped" ? (
           <div className="h-6 w-6 rounded-full border border-amber-500/40 bg-amber-500/10 shrink-0" title="Skipped" aria-hidden />
         ) : block.kind === "task" && !isCal && block.resolution === "missed" ? (
@@ -204,10 +189,10 @@ export const SortableBlock = ({
               e.stopPropagation();
               onToggleComplete?.(block);
             }}
-            className="h-6 w-6 rounded-full bg-success flex items-center justify-center shrink-0 pressable"
+            className="h-8 w-8 rounded-full bg-success flex items-center justify-center shrink-0 pressable shadow-[0_2px_8px_-2px_hsl(var(--success)/0.5)]"
             aria-label="Mark as not done"
           >
-            <Check className="h-3 w-3 text-success-foreground" strokeWidth={3} />
+            <Check className="h-4 w-4 text-success-foreground" strokeWidth={3} />
           </button>
         ) : (
           <button
@@ -218,7 +203,7 @@ export const SortableBlock = ({
               e.stopPropagation();
               onToggleComplete?.(block);
             }}
-            className="h-6 w-6 rounded-full border-[1.5px] border-border/45 shrink-0 pressable hover:border-primary/35"
+            className="h-8 w-8 rounded-full border-[1.5px] border-border/50 shrink-0 pressable hover:border-primary/50 hover:bg-primary/6 transition-colors"
             aria-label="Mark done"
           />
         )}

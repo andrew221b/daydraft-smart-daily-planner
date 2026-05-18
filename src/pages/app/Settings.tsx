@@ -212,16 +212,6 @@ export default function Settings() {
           {/* 6. Help + legal — quiet, terminal items */}
           <Section title="More">
             <div className="rounded-[18px] border border-soft surface-card backdrop-blur-sm divide-y divide-border/50 overflow-hidden">
-              {!isPro && (
-                <button
-                  onClick={() => setUpgradeOpen(true)}
-                  className="w-full flex items-center gap-3 px-4 py-3 pressable hover:bg-surface-elevated"
-                >
-                  <Sparkles className="h-4 w-4 text-primary" />
-                  <span className="text-[14px] flex-1 text-left">Upgrade to Pro</span>
-                  <span className="text-secondary-fg">›</span>
-                </button>
-              )}
               <button
                 onClick={async () => {
                   await tour.resetAll();

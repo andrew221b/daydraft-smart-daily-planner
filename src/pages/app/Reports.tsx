@@ -555,33 +555,25 @@ export default function Reports() {
 
           {/* Export */}
           <section className="space-y-2 pt-2">
-            <div className="rounded-2xl border border-border/40 bg-card/25 px-4 py-3">
-              <div className="text-[11px] font-semibold uppercase tracking-[0.16em] text-secondary-fg/70">
-                Export scope
-              </div>
-              <div className="mt-1 text-[13px] text-foreground/90">
-                All categories
-              </div>
-              {!isPro && (
-                <p className="mt-1 text-[11px] text-secondary-fg/70">
-                  Exporting billing reports and payment details is included with Pro.
-                </p>
-              )}
-            </div>
+            {!isPro && (
+              <p className="text-[11px] text-secondary-fg/70 px-0.5">
+                PDF and CSV export with billing details is included with Pro.
+              </p>
+            )}
             <div className="grid grid-cols-2 gap-2">
             <Button
               variant="outline"
               onClick={() => onExport("pdf")}
               className="h-11 rounded-2xl border-border/50 text-[13px] font-medium"
             >
-              <FileText className="h-4 w-4 mr-1.5" /> {isPro ? "All PDF" : "Pro PDF"}
+              <FileText className="h-4 w-4 mr-1.5" /> Export PDF
             </Button>
             <Button
               variant="outline"
               onClick={() => onExport("csv")}
               className="h-11 rounded-2xl border-border/50 text-[13px] font-medium"
             >
-              <Download className="h-4 w-4 mr-1.5" /> {isPro ? "All CSV" : "Pro CSV"}
+              <Download className="h-4 w-4 mr-1.5" /> Export CSV
             </Button>
             </div>
           </section>

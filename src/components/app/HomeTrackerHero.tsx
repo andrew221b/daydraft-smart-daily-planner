@@ -72,6 +72,7 @@ export function HomeTrackerHero({ onOpenDetails }: { onOpenDetails: () => void }
   const [draftCurrency, setDraftCurrency] = useState("USD");
   const [draftPaymentMethod, setDraftPaymentMethod] = useState("");
   const [billingOpen, setBillingOpen] = useState(false);
+  const [billingExpanded, setBillingExpanded] = useState(false);
   const [paymentDetails, setPaymentDetails] = useState<PaymentDetailsDraft>(emptyPaymentDetails);
   const [paymentSaving, setPaymentSaving] = useState(false);
   const [categorySaving, setCategorySaving] = useState(false);
@@ -333,72 +334,87 @@ export function HomeTrackerHero({ onOpenDetails }: { onOpenDetails: () => void }
           </p>
         )}
 
-        {/* Billing + cap for the selected category — uses space under the chips */}
+        {/* Billing — collapsed by default, tap to expand */}
         {!active && selectedCat && (
-          <div className="mt-4 rounded-2xl border border-border/40 bg-background/35 px-3.5 py-3 text-left">
-            <p className="text-[10px] font-semibold uppercase tracking-[0.14em] text-secondary-fg/70">
-              Category · {selectedCat.name}
-            </p>
-            <div className="mt-2.5 grid grid-cols-[1fr_104px] gap-2">
-              <label className="space-y-1 block min-w-0">
-                <span className="text-[10px] text-secondary-fg/80">Rate / h</span>
-                <Input
-                  inputMode="decimal"
-                  value={draftRate}
-                  onChange={(e) => setDraftRate(e.target.value)}
-                  placeholder="—"
-                  className="h-9 rounded-xl border-border/45 bg-card/50 text-[13px]"
+          <div className="mt-3 rounded-2xl border border-border/30 bg-background/25 overflow-hidden">
+            <button
+              type="button"
+              onClick={() => setBillingExpanded((v) => !v)}
+              className="w-full flex items-center justify-between px-3.5 py-2.5 pressable"
+            >
+              <span className="text-[11px] font-semibold uppercase tracking-[0.16em] text-secondary-fg/60">
+                Rate & billing
+              </span>
+              <div className="flex items-center gap-2">
+                {selectedCat.hourly_rate != null && (
+                  <span className="text-[12px] font-medium text-foreground/65 tabular-nums">
+                    {selectedCat.hourly_rate}/{selectedCat.currency || "USD"}/h
+                  </span>
+                )}
+                <ChevronDown
+                  className={`h-3.5 w-3.5 text-secondary-fg/50 transition-transform duration-200 ${billingExpanded ? "rotate-180" : ""}`}
                 />
-              </label>
-              <label className="space-y-1 block min-w-0">
-                <span className="text-[10px] text-secondary-fg/80">Currency</span>
-                <select
-                  value={draftCurrency}
-                  onChange={(e) => setDraftCurrency(e.target.value)}
-                  className="h-9 w-full rounded-xl border border-border/45 bg-card/50 px-2 text-[12px] text-foreground outline-none focus:border-primary/50"
-                >
-                  {currencyOptions.map((code) => <option key={code} value={code}>{code}</option>)}
-                </select>
-              </label>
-            </div>
-            <label className="mt-2 block space-y-1">
-              <span className="text-[10px] text-secondary-fg/80">Payment method</span>
-              <select
-                value={draftPaymentMethod}
-                onChange={(e) => setDraftPaymentMethod(e.target.value)}
-                className="h-9 w-full rounded-xl border border-border/45 bg-card/50 px-2 text-[12px] text-foreground outline-none focus:border-primary/50"
-              >
-                {paymentMethodOptions.map((method) => <option key={method || "blank"} value={method}>{method || "Not set"}</option>)}
-              </select>
-            </label>
-            <div className="mt-3 flex flex-col gap-2">
-              <Button
-                type="button"
-                size="sm"
-                disabled={categorySaving}
-                onClick={() => void saveCategoryBilling()}
-                className="h-9 w-full rounded-xl text-[12px] font-semibold"
-              >
-                {categorySaving ? "Saving…" : "Save billing"}
-              </Button>
-              <button
-                type="button"
-                onClick={() => {
-                  if (!isPro) {
-                    setUpgradeOpen(true);
-                    return;
-                  }
-                  setBillingOpen(true);
-                }}
-                className="inline-flex w-full items-center justify-center gap-2 rounded-xl border border-border/45 bg-card/40 py-2 text-[12px] font-semibold text-secondary-fg/90 pressable hover:text-foreground"
-              >
-                <Wallet className="h-3.5 w-3.5" />
-                Payment for this category
-              </button>
-            </div>
-            <p className="mt-2 text-[10px] leading-relaxed text-secondary-fg/65">
-              Optional per-category payment lines override your global defaults in Pro exports. Full tracker charts live under Track.
-            </p>
+              </div>
+            </button>
+
+            {billingExpanded && (
+              <div className="px-3.5 pb-3.5 space-y-2.5 border-t border-border/25 pt-3">
+                <div className="grid grid-cols-[1fr_100px] gap-2">
+                  <label className="space-y-1 block min-w-0">
+                    <span className="text-[10px] text-secondary-fg/70">Rate / h</span>
+                    <Input
+                      inputMode="decimal"
+                      value={draftRate}
+                      onChange={(e) => setDraftRate(e.target.value)}
+                      placeholder="—"
+                      className="h-9 rounded-xl border-border/40 bg-card/40 text-[13px]"
+                    />
+                  </label>
+                  <label className="space-y-1 block min-w-0">
+                    <span className="text-[10px] text-secondary-fg/70">Currency</span>
+                    <select
+                      value={draftCurrency}
+                      onChange={(e) => setDraftCurrency(e.target.value)}
+                      className="h-9 w-full rounded-xl border border-border/40 bg-card/40 px-2 text-[12px] text-foreground outline-none focus:border-primary/50"
+                    >
+                      {currencyOptions.map((code) => <option key={code} value={code}>{code}</option>)}
+                    </select>
+                  </label>
+                </div>
+                <label className="block space-y-1">
+                  <span className="text-[10px] text-secondary-fg/70">Payment method</span>
+                  <select
+                    value={draftPaymentMethod}
+                    onChange={(e) => setDraftPaymentMethod(e.target.value)}
+                    className="h-9 w-full rounded-xl border border-border/40 bg-card/40 px-2 text-[12px] text-foreground outline-none focus:border-primary/50"
+                  >
+                    {paymentMethodOptions.map((method) => <option key={method || "blank"} value={method}>{method || "Not set"}</option>)}
+                  </select>
+                </label>
+                <div className="flex gap-2">
+                  <Button
+                    type="button"
+                    size="sm"
+                    disabled={categorySaving}
+                    onClick={() => void saveCategoryBilling()}
+                    className="flex-1 h-9 rounded-xl text-[12px] font-semibold"
+                  >
+                    {categorySaving ? "Saving…" : "Save"}
+                  </Button>
+                  <button
+                    type="button"
+                    onClick={() => {
+                      if (!isPro) { setUpgradeOpen(true); return; }
+                      setBillingOpen(true);
+                    }}
+                    className="flex-1 inline-flex items-center justify-center gap-1.5 rounded-xl border border-border/40 bg-card/35 text-[12px] font-medium text-secondary-fg/80 pressable hover:text-foreground"
+                  >
+                    <Wallet className="h-3.5 w-3.5" />
+                    Details
+                  </button>
+                </div>
+              </div>
+            )}
           </div>
         )}
       </div>

@@ -123,11 +123,11 @@ export default function Home() {
       <PullToRefresh onRefresh={onRefresh}>
         <div className="flex min-h-0 flex-1 flex-col px-5 pt-7 pb-6">
           {/* Greeting */}
-          <header className="mb-4 shrink-0">
-            <p className="text-[11px] font-medium tracking-[0.12em] uppercase text-secondary-fg/60 mb-0.5">
+          <header className="mb-5 shrink-0">
+            <p className="text-[10px] font-semibold tracking-[0.18em] uppercase text-secondary-fg/50 mb-1">
               {new Date().toLocaleDateString("en-US", { weekday: "long", month: "long", day: "numeric" })}
             </p>
-            <h1 className="font-display text-[24px] font-semibold tracking-tight leading-tight text-foreground overflow-hidden text-ellipsis whitespace-nowrap">
+            <h1 className="font-display text-[28px] font-semibold tracking-[-0.025em] leading-[1.1] text-foreground overflow-hidden text-ellipsis whitespace-nowrap">
               {greeting}
             </h1>
           </header>
@@ -138,52 +138,62 @@ export default function Home() {
           {/* Today's plan progress */}
           {userTasks.length > 0 && (
             <div
-              className="mt-3 app-card px-4 py-3.5 cursor-pointer pressable"
+              className="mt-3 app-card px-4 py-4 cursor-pointer pressable"
               onClick={() => nav("/today")}
               role="button"
               tabIndex={0}
               onKeyDown={(e) => e.key === "Enter" && nav("/today")}
               aria-label="Open today's plan"
             >
-              <div className="flex items-center justify-between mb-2.5">
+              <div className="flex items-center justify-between mb-3">
                 <span className="eyebrow">Today's plan</span>
-                <span className="text-[12px] tabular-nums text-secondary-fg/80">
-                  {doneTasks}/{userTasks.length} done
-                </span>
+                <div className="flex items-center gap-2">
+                  {doneTasks > 0 && doneTasks < userTasks.length && (
+                    <span className="text-[12px] font-semibold text-primary tabular-nums">
+                      {Math.round((doneTasks / userTasks.length) * 100)}%
+                    </span>
+                  )}
+                  <span className="text-[12px] tabular-nums text-secondary-fg/70">
+                    {doneTasks}/{userTasks.length}
+                  </span>
+                </div>
               </div>
-              <div className="h-1.5 rounded-full bg-muted/60 overflow-hidden">
+              <div className="h-1.5 rounded-full bg-muted/55 overflow-hidden">
                 <div
-                  className="h-full rounded-full bg-primary/85 transition-all duration-500"
+                  className="h-full rounded-full bg-primary/90 transition-all duration-700 ease-out"
                   style={{ width: `${(doneTasks / userTasks.length) * 100}%` }}
                 />
               </div>
               {nextTask && doneTasks < userTasks.length && (
-                <div className="mt-2.5 flex items-center gap-2">
-                  <span className="text-[10px] text-secondary-fg/70 shrink-0">Next</span>
+                <div className="mt-3 flex items-center gap-2">
+                  <span className="text-[10px] font-semibold uppercase tracking-[0.12em] text-secondary-fg/55 shrink-0">Next</span>
                   <span className="text-[13px] font-medium text-foreground/90 truncate">{nextTask.title}</span>
                 </div>
               )}
               {doneTasks === userTasks.length && (
-                <div className="mt-2 text-[12px] font-medium text-success">All done today ✓</div>
+                <div className="mt-2 text-[13px] font-semibold text-success">All done ✓</div>
               )}
             </div>
           )}
 
           {/* Today categories breakdown — minimal, only if data */}
           {breakdown.length > 0 && (
-            <div className="mt-3 app-card px-4 py-3">
-              <div className="flex items-center justify-between mb-2">
-                <span className="eyebrow">Time tracked</span>
+            <div className="mt-3 app-card px-4 py-3.5">
+              <div className="flex items-center justify-between mb-3">
+                <span className="eyebrow">Time tracked today</span>
+                <span className="text-[11px] tabular-nums text-secondary-fg/55 font-medium">
+                  {fmtHM(breakdown.reduce((s, r) => s + r.sec, 0))} total
+                </span>
               </div>
-              <ul className="space-y-1.5">
+              <ul className="space-y-2.5">
                 {breakdown.map((row) => (
-                  <li key={row.cat!.id} className="flex items-center gap-2.5">
-                    <span className="h-1.5 w-1.5 rounded-full shrink-0" style={{ background: row.cat!.color }} />
-                    <span className="text-[12px] font-medium text-foreground/85 truncate flex-1">{row.cat!.name}</span>
-                    <div className="flex-1 max-w-[80px] h-[3px] rounded-full bg-foreground/[0.06] overflow-hidden">
-                      <div className="h-full rounded-full" style={{ width: `${Math.max(6, row.pct * 100)}%`, background: row.cat!.color }} />
+                  <li key={row.cat!.id} className="flex items-center gap-3">
+                    <span className="h-2 w-2 rounded-full shrink-0" style={{ background: row.cat!.color }} />
+                    <span className="text-[13px] font-medium text-foreground/85 truncate flex-1">{row.cat!.name}</span>
+                    <div className="flex-1 max-w-[72px] h-[3px] rounded-full bg-foreground/[0.07] overflow-hidden">
+                      <div className="h-full rounded-full" style={{ width: `${Math.max(8, row.pct * 100)}%`, background: row.cat!.color }} />
                     </div>
-                    <span className="text-[11px] tabular-nums text-secondary-fg/85 w-[3.2rem] text-right">{fmtHM(row.sec)}</span>
+                    <span className="text-[12px] tabular-nums text-secondary-fg/80 font-medium w-[3.4rem] text-right">{fmtHM(row.sec)}</span>
                   </li>
                 ))}
               </ul>

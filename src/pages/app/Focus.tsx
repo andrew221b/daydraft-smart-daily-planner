@@ -46,7 +46,7 @@ export default function Focus() {
   const { user } = useAuth();
   const { profile } = useProfile();
   const tone = getTone(profile as any);
-  const { active: tracking, start: startTracking, stop: stopTracking, categories, addCategory } = useTimeTracker();
+  const { active: tracking, start: startTracking, stop: stopTracking, categories, addCategory, refresh: refreshTracker } = useTimeTracker();
   const elapsedSec = useTimeTrackerElapsed();
   const [block, setBlock] = useState<any | null>(null);
   const [next, setNext] = useState<Block | null>(null);
@@ -340,8 +340,10 @@ export default function Focus() {
     if (!block) return;
     haptics.impact("light");
     if (startedHereRef.current && tracking) {
+      const entryId = tracking.id;
       try {
-        await supabase.from("time_entries").delete().eq("id", tracking.id);
+        await supabase.from("time_entries").delete().eq("id", entryId);
+        await refreshTracker();
       } catch {/* ignore */}
       startedHereRef.current = false;
     }
@@ -365,8 +367,10 @@ export default function Focus() {
   // is active so the user doesn't accidentally lose tracked time.
   const cancel = async () => {
     if (startedHereRef.current && tracking) {
+      const entryId = tracking.id;
       try {
-        await supabase.from("time_entries").delete().eq("id", tracking.id);
+        await supabase.from("time_entries").delete().eq("id", entryId);
+        await refreshTracker();
       } catch {/* ignore */}
       startedHereRef.current = false;
     }
@@ -412,6 +416,12 @@ export default function Focus() {
   const trackingThisBlock = !!(tracking && block && tracking.block_id === block.id);
   const fmtDur = (m: number) =>
     m < 60 ? `${m}m` : `${Math.floor(m / 60)}h${m % 60 ? ` ${m % 60}m` : ""}`;
+
+  const RING_R = 100;
+  const RING_CIRC = 2 * Math.PI * RING_R;
+  const plannedSec = block.duration_min * 60;
+  const progressRatio = plannedSec > 0 ? Math.min(1, focusElapsedSec / plannedSec) : 0;
+  const isOverTime = focusElapsedSec > 0 && focusElapsedSec > plannedSec;
 
   if (oneThingMode) {
     return (
@@ -530,7 +540,7 @@ export default function Focus() {
             button below already convey state. Two timers on one screen was
             redundant and confusing. */}
 
-        <h1 className="mt-10 font-display text-[22px] font-semibold text-center leading-snug max-w-[300px] line-clamp-3 text-balance">{block.title}</h1>
+        <h1 className="mt-8 font-display text-[26px] font-semibold text-center leading-[1.15] max-w-[310px] line-clamp-3 text-balance tracking-[-0.02em]">{block.title}</h1>
         {(lateDeepWork || longSession) && (
           <div className="mt-3 inline-flex items-center gap-1.5 px-3 py-1.5 rounded-full border border-soft surface-soft text-[11px] text-secondary-fg">
             <ShieldAlert className="h-3.5 w-3.5 text-primary" />
@@ -538,91 +548,107 @@ export default function Focus() {
           </div>
         )}
 
-        <div className="relative mt-10 flex w-full max-w-[320px] flex-col items-center">
-          <div
-            className="absolute inset-0 -m-6 rounded-[40px] pointer-events-none opacity-70"
-            style={{
-              background: "radial-gradient(closest-side, hsl(var(--primary) / 0.08), transparent 72%)",
-              animation: "breathe 4s ease-in-out infinite",
-            }}
-          />
-          <div className="relative z-10 w-full rounded-[28px] border border-soft bg-background/70 backdrop-blur-md px-8 py-10 flex flex-col items-center justify-center min-h-[220px]">
+        {/* Circular ring timer */}
+        <div className="relative mt-10 flex flex-col items-center">
+          <div className="relative h-[240px] w-[240px]">
             {showCheck ? (
-              <div className="h-20 w-20 rounded-full bg-success flex items-center justify-center check-pop">
-                <Check className="h-10 w-10 text-success-foreground" strokeWidth={3} />
+              <div className="absolute inset-0 flex items-center justify-center">
+                <div className="h-28 w-28 rounded-full bg-success flex items-center justify-center check-pop shadow-[0_12px_40px_-10px_hsl(var(--success)/0.55)]">
+                  <Check className="h-14 w-14 text-success-foreground" strokeWidth={2.75} />
+                </div>
               </div>
             ) : (
               <>
-                <div className="text-[10px] font-semibold uppercase tracking-[0.16em] text-secondary-fg/80">Time spent</div>
-                <div className="text-[48px] font-mono-sf font-medium tabular-nums leading-none mt-2 text-foreground">
-                  {fmtHMS(focusElapsedSec)}
-                </div>
-                <div className="text-secondary-fg text-[12px] mt-3 text-center">
-                  {fmtDur(block.duration_min)} planned
-                </div>
-                {armed && trackingThisBlock && trackingCat && (
-                  <div className="mt-4 text-center w-full border-t border-border/40 pt-4">
-                    <div className="text-[11px] text-secondary-fg">Tracker · {trackingCat.name}</div>
-                    <div className="text-[15px] font-mono-sf font-semibold tabular-nums text-foreground mt-1">{fmtHMS(elapsedSec)}</div>
-                    <button
-                      type="button"
-                      onClick={() => {
-                        stopTracking();
-                        startedHereRef.current = false;
-                      }}
-                      className="mt-2 inline-flex items-center gap-1 rounded-full border border-soft bg-background/70 px-3 py-1.5 text-[11px] font-medium text-foreground pressable"
-                    >
-                      <Square className="h-3 w-3" /> Stop tracking
-                    </button>
+                {/* Ambient glow behind ring */}
+                <div
+                  className="absolute inset-0 rounded-full pointer-events-none"
+                  style={{
+                    background: isOverTime
+                      ? "radial-gradient(circle, hsl(var(--destructive)/0.08) 0%, transparent 65%)"
+                      : "radial-gradient(circle, hsl(var(--primary)/0.08) 0%, transparent 65%)",
+                  }}
+                />
+                {/* Progress ring */}
+                <svg className="absolute inset-0 w-full h-full -rotate-90" viewBox="0 0 240 240">
+                  {/* Track */}
+                  <circle cx="120" cy="120" r={RING_R} fill="none" stroke="hsl(var(--border)/0.2)" strokeWidth="9" />
+                  {/* Progress fill */}
+                  <circle
+                    cx="120" cy="120" r={RING_R}
+                    fill="none"
+                    stroke={isOverTime ? "hsl(var(--destructive))" : "hsl(var(--primary))"}
+                    strokeWidth="9"
+                    strokeLinecap="round"
+                    strokeDasharray={`${RING_CIRC} ${RING_CIRC}`}
+                    strokeDashoffset={RING_CIRC * (1 - progressRatio)}
+                    style={{ transition: "stroke-dashoffset 0.9s cubic-bezier(0.4,0,0.2,1), stroke 0.4s ease" }}
+                  />
+                </svg>
+                {/* Center content */}
+                <div className="absolute inset-0 flex flex-col items-center justify-center">
+                  <div className="text-[10px] font-semibold uppercase tracking-[0.16em] text-secondary-fg/55">
+                    {isOverTime ? "overtime" : "elapsed"}
                   </div>
-                )}
+                  <div className={`text-[46px] font-mono-sf font-semibold tabular-nums leading-none mt-1.5 ${isOverTime ? "text-destructive" : "text-foreground"}`}>
+                    {fmtHMS(focusElapsedSec)}
+                  </div>
+                  <div className="text-[12px] text-secondary-fg/60 mt-2">
+                    of {fmtDur(block.duration_min)}
+                  </div>
+                </div>
               </>
             )}
           </div>
+          {/* Tracking pill below ring */}
+          {armed && trackingThisBlock && trackingCat && (
+            <div className="mt-5 text-center">
+              <div className="inline-flex items-center gap-1.5 rounded-full border border-border/35 bg-card/60 px-3 py-1">
+                <span className="h-1.5 w-1.5 rounded-full animate-pulse" style={{ background: trackingCat.color }} />
+                <span className="text-[12px] font-medium text-foreground/85">{trackingCat.name}</span>
+                <span className="font-mono-sf tabular-nums text-[12px] text-secondary-fg ml-1">{fmtHMS(elapsedSec)}</span>
+              </div>
+              <button
+                type="button"
+                onClick={() => { stopTracking(); startedHereRef.current = false; }}
+                className="mt-2 flex items-center gap-1 mx-auto rounded-full border border-soft bg-background/70 px-3 py-1.5 text-[11px] font-medium text-secondary-fg pressable hover:text-foreground"
+              >
+                <Square className="h-3 w-3" /> Stop tracking
+              </button>
+            </div>
+          )}
         </div>
 
-        <div className="mt-10 w-full max-w-[320px] space-y-2.5">
+        <div className="mt-8 w-full max-w-[320px] space-y-2.5">
           <button
             type="button"
             onClick={() => void complete()}
-            className="w-full flex h-14 items-center justify-center gap-2 rounded-2xl bg-primary text-[15px] font-semibold text-primary-foreground pressable"
+            className="w-full flex h-14 items-center justify-center gap-2 rounded-2xl bg-primary text-[16px] font-semibold text-primary-foreground pressable shadow-[0_8px_28px_-8px_hsl(var(--primary)/0.6)]"
           >
             <Check className="h-5 w-5 shrink-0" strokeWidth={2.75} />
             Done
           </button>
-          <div className="grid grid-cols-3 gap-2">
+          <div className="grid grid-cols-2 gap-2">
             <button
               type="button"
               onClick={extendFiveMin}
-              className="flex h-11 items-center justify-center gap-1 rounded-xl border border-border/55 bg-card/85 text-[12px] font-medium text-secondary-fg pressable hover:text-foreground"
+              className="flex h-11 items-center justify-center gap-1.5 rounded-xl border border-border/45 bg-card/80 text-[13px] font-medium text-secondary-fg pressable hover:text-foreground transition-colors"
             >
               <Plus className="h-3.5 w-3.5" strokeWidth={2.25} /> +5 min
             </button>
             <button
               type="button"
               onClick={() => setConfirmSkipOpen(true)}
-              className="flex h-11 items-center justify-center rounded-xl border border-border/55 bg-card/85 text-[12px] font-medium text-secondary-fg pressable hover:text-foreground"
+              className="flex h-11 items-center justify-center rounded-xl border border-border/45 bg-card/80 text-[13px] font-medium text-secondary-fg pressable hover:text-foreground transition-colors"
             >
               Skip
             </button>
-            {aiFocusRuntimeEnabled ? (
-              <button
-                type="button"
-                onClick={() => void loadHelp("stuck")}
-                className="flex h-11 items-center justify-center gap-1.5 rounded-xl border border-primary/25 bg-primary/10 text-[12px] font-medium text-primary pressable"
-              >
-                <Sparkles className="h-3.5 w-3.5" /> AI
-              </button>
-            ) : (
-              <div />
-            )}
           </div>
         </div>
         {!trackingThisBlock && armed && (
           <Popover open={catPickerOpen} onOpenChange={(o) => { setCatPickerOpen(o); if (!o) setNewFocusCatName(""); }}>
             <PopoverTrigger asChild>
-              <button className="mt-3 inline-flex items-center gap-1.5 px-3 py-1.5 rounded-full border border-soft bg-background/60 backdrop-blur-sm text-[12px] text-secondary-fg hover:text-foreground pressable">
-                <Timer className="h-3.5 w-3.5" /> {categories.length ? "Track time…" : "Add category to track"}
+              <button className="mt-3 inline-flex items-center gap-1.5 px-4 py-2 rounded-full border border-border/45 bg-card/60 text-[12px] font-medium text-secondary-fg hover:text-foreground hover:border-border/65 pressable transition-colors">
+                <Timer className="h-3.5 w-3.5" /> {categories.length ? "Track time" : "Set up tracking"}
               </button>
             </PopoverTrigger>
             <PopoverContent className="w-[min(20rem,calc(100vw-2rem))] p-3" align="center">
@@ -678,11 +704,6 @@ export default function Focus() {
             </PopoverContent>
           </Popover>
         )}
-        <style>{`@keyframes breathe {
-          0%, 100% { transform: scale(0.92); opacity: 0.55; }
-          50% { transform: scale(1.05); opacity: 0.95; }
-        }`}</style>
-
         <div className="mt-auto pt-8 text-center px-2">
           <p className="text-[13px] text-secondary-fg/80 leading-relaxed">
             {next ? (

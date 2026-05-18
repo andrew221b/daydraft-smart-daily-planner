@@ -107,7 +107,6 @@ export default function Onboarding() {
 
           {step === 1 && (
             <div className="flex-1 flex flex-col">
-              <p className="eyebrow">Step 2 of 3</p>
               <h1 className="font-display text-[26px] font-semibold leading-tight mt-2 tracking-tight text-balance">
                 Pick the AI voice
               </h1>
@@ -143,7 +142,6 @@ export default function Onboarding() {
 
           {step === 2 && (
             <div className="flex-1 flex flex-col min-h-0">
-              <p className="eyebrow">Step 3 of 3</p>
               <h1 className="font-display text-[26px] font-semibold leading-tight mt-2 tracking-tight text-balance">
                 A line about you (optional)
               </h1>

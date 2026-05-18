@@ -33,9 +33,9 @@ export function NextUpCard({
       <div className="rounded-[18px] border border-success/20 bg-success/[0.04] px-5 py-4 flex items-center gap-4">
         <PartyPopper className="h-5 w-5 text-success shrink-0 opacity-90" />
         <div className="min-w-0 flex-1">
-          <div className="text-[17px] font-semibold text-foreground/95 tracking-tight">All clear</div>
+          <div className="text-[17px] font-semibold text-foreground/95 tracking-tight">All done</div>
           <p className="text-[13px] text-secondary-fg/80 mt-1 leading-snug">
-            Brief recap seals the rhythm for tomorrow.
+            Review how the day went before closing out.
           </p>
         </div>
         <Button asChild size="sm" className="shrink-0 h-10 rounded-xl bg-success/90 text-success-foreground hover:bg-success">

@@ -286,9 +286,6 @@ export default function Recap() {
             <KpiCard label="Planned done" value={fmtHM(completedMin * 60)} />
             <KpiCard label="Actual tracked" value={fmtHM(actualTrackedSec)} tone={trackingCoverage >= 70 ? "success" : "neutral"} />
           </div>
-          <p className="mt-2 text-[11px] text-secondary-fg text-center">
-            Completion quality: {eff}% planned finished · Tracking coverage: {Math.max(0, trackingCoverage)}%
-          </p>
 
           {/* Negative-delta callouts removed — recap should encourage, not
               shame. We only celebrate gains; deeper trends live in History. */}
@@ -375,7 +372,7 @@ export default function Recap() {
             <div className="mt-3 app-card px-4 py-5">
               <div className="flex items-center gap-2 text-primary">
                 <Gauge className="h-4 w-4" />
-                <span className="eyebrow">Weekly product score</span>
+                <span className="eyebrow">Weekly score</span>
               </div>
               <div className="mt-2 text-[26px] font-semibold font-display">{weeklyScore.score}<span className="text-[14px] text-secondary-fg">/100</span></div>
               <div className="mt-2 space-y-1.5">

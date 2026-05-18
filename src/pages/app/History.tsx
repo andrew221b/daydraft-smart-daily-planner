@@ -182,7 +182,6 @@ export default function History() {
           <PageHeader
             eyebrow="Past plans"
             title="History"
-            hint="Each row is a saved day. Progress updates when tasks are marked done on the server."
           />
 
         <div className="mt-6 rounded-[22px] border border-border/40 bg-background/25 px-4 py-4">
@@ -196,12 +195,11 @@ export default function History() {
               onClick={() => nav("/home?tracker=1")}
               className="text-[13px] font-semibold text-primary pressable hover:underline"
             >
-              {fmtHM(weekTotalSec)} tracked · timer
+              {fmtHM(weekTotalSec)} this week ›
             </button>
           </div>
           <p className="mt-2 text-[14px] font-medium leading-snug text-secondary-fg/88">
-            {totalDone}/{totalTasks} tasks closed · <span className="tabular-nums">{fmtHM(todayTotalSec)}</span> today ·{" "}
-            <span className="tabular-nums">{plans.length}</span> days on file
+            {totalDone}/{totalTasks} tasks closed · <span className="tabular-nums">{fmtHM(todayTotalSec)}</span> tracked today
           </p>
         </div>
 
@@ -253,7 +251,6 @@ export default function History() {
                       <p className="mt-2 text-[13px] leading-snug text-secondary-fg/85">
                               {fmtHM(p.trackedSec)} logged · {(p.plannedTaskMin / 60).toFixed(1)}h planned
                             </p>
-                      <p className={`mt-0.5 text-[13px] font-semibold tabular-nums ${allDone ? "text-success" : "text-secondary-fg/80"}`}>{pct}%</p>
                           </div>
                     <ChevronRight className="h-5 w-5 shrink-0 text-secondary-fg/50" aria-hidden />
                         </button>
