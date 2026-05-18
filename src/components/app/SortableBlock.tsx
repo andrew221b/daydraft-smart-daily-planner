@@ -72,7 +72,7 @@ export const SortableBlock = ({
       ref={setNodeRef}
       style={style}
       data-tour={tourSpotlight ? "dayview-block" : undefined}
-      className={`group cursor-pointer pressable transition-all duration-200 app-card px-3 py-3.5 shadow-none ${
+      className={`group cursor-pointer tappable app-card px-3 py-3.5 shadow-none ${
         isUserTaskDone(block) && block.kind === "task" ? "opacity-80" : ""
       } ${
         !isCal && block.overlap_ok ? "border-l-[3px] border-l-primary/45" : ""

@@ -5,19 +5,25 @@ import { cva, type VariantProps } from "class-variance-authority";
 import { cn } from "@/lib/utils";
 
 const buttonVariants = cva(
-  "inline-flex items-center justify-center gap-2 whitespace-nowrap rounded-md text-sm font-medium ring-offset-background transition-[color,background-color,box-shadow,transform,filter] duration-200 ease-out focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 disabled:pointer-events-none disabled:opacity-50 [&_svg]:pointer-events-none [&_svg]:size-4 [&_svg]:shrink-0",
+  // iOS 26 spring on release (cubic-bezier(0.34, 1.56, 0.64, 1)) gives the
+  // small overshoot users feel as "tactile". -webkit-tap-highlight-color is
+  // killed in :root so the default mobile grey flash doesn't fight our scale.
+  "inline-flex items-center justify-center gap-2 whitespace-nowrap rounded-md text-sm font-medium ring-offset-background transition-[color,background-color,box-shadow,transform,filter] duration-[220ms] ease-[cubic-bezier(0.34,1.56,0.64,1)] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 disabled:pointer-events-none disabled:opacity-50 [-webkit-tap-highlight-color:transparent] [&_svg]:pointer-events-none [&_svg]:size-4 [&_svg]:shrink-0",
   {
     variants: {
       variant: {
+        // iOS 26 buttons: press compresses to ~0.965, brightness dims, and
+        // the spring-back is timed in the transition above. Hover is kept
+        // (for keyboard / pointer users) but no longer the primary feedback.
         default:
-          "bg-primary text-primary-foreground shadow-[inset_0_1px_0_rgba(255,255,255,0.14),0_1px_2px_rgba(0,0,0,0.08)] hover:bg-primary/92 hover:shadow-[inset_0_1px_0_rgba(255,255,255,0.2),0_2px_8px_-2px_hsl(var(--primary)/0.35)] dark:shadow-[inset_0_1px_0_rgba(255,255,255,0.1),0_1px_3px_rgba(0,0,0,0.2)] active:scale-[0.985]",
+          "bg-primary text-primary-foreground shadow-[inset_0_1px_0_rgba(255,255,255,0.14),0_1px_2px_rgba(0,0,0,0.08)] hover:bg-primary/92 hover:shadow-[inset_0_1px_0_rgba(255,255,255,0.2),0_8px_22px_-12px_hsl(var(--primary)/0.55)] dark:shadow-[inset_0_1px_0_rgba(255,255,255,0.1),0_1px_3px_rgba(0,0,0,0.2)] active:scale-[0.965] active:brightness-95",
         destructive:
-          "bg-destructive text-destructive-foreground shadow-[inset_0_1px_0_rgba(255,255,255,0.12)] hover:bg-destructive/92 hover:shadow-[inset_0_1px_0_rgba(255,255,255,0.18),0_2px_8px_-2px_hsl(var(--destructive)/0.35)] active:scale-[0.985]",
+          "bg-destructive text-destructive-foreground shadow-[inset_0_1px_0_rgba(255,255,255,0.12)] hover:bg-destructive/92 hover:shadow-[inset_0_1px_0_rgba(255,255,255,0.18),0_2px_8px_-2px_hsl(var(--destructive)/0.35)] active:scale-[0.965] active:brightness-95",
         outline:
-          "border border-soft bg-background/55 text-foreground backdrop-blur-md shadow-[inset_0_1px_0_rgba(255,255,255,0.05)] hover:bg-accent/40 hover:border-strong hover:text-accent-foreground dark:bg-background/40 dark:shadow-[inset_0_1px_0_rgba(255,255,255,0.06)] active:scale-[0.985]",
+          "border border-soft bg-background/55 text-foreground backdrop-blur-md shadow-[inset_0_1px_0_rgba(255,255,255,0.05)] hover:bg-accent/40 hover:border-strong hover:text-accent-foreground dark:bg-background/40 dark:shadow-[inset_0_1px_0_rgba(255,255,255,0.06)] active:scale-[0.965] active:bg-accent/60",
         secondary:
-          "border border-soft bg-secondary/80 text-secondary-foreground backdrop-blur-sm shadow-[inset_0_1px_0_rgba(255,255,255,0.06)] hover:bg-secondary/92 hover:border-strong dark:bg-secondary/70 active:scale-[0.985]",
-        ghost: "hover:bg-accent/50 hover:text-accent-foreground active:scale-[0.985]",
+          "border border-soft bg-secondary/80 text-secondary-foreground backdrop-blur-sm shadow-[inset_0_1px_0_rgba(255,255,255,0.06)] hover:bg-secondary/92 hover:border-strong dark:bg-secondary/70 active:scale-[0.965] active:bg-secondary",
+        ghost: "hover:bg-accent/50 hover:text-accent-foreground active:scale-[0.965] active:bg-accent/55",
         link: "text-primary underline-offset-4 hover:underline shadow-none",
       },
       size: {

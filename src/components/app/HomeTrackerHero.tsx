@@ -8,6 +8,7 @@ import { Textarea } from "@/components/ui/textarea";
 import { useEntitlement } from "@/hooks/useEntitlement";
 import { UpgradeSheet } from "@/components/app/UpgradeSheet";
 import { categoryBillingToDraft } from "@/lib/categoryBilling";
+import { haptics } from "@/lib/haptics";
 import { toast } from "sonner";
 
 /**
@@ -194,6 +195,7 @@ export function HomeTrackerHero({ onOpenDetails }: { onOpenDetails: () => void }
 
   return (
     <section
+      data-tour="hero-tracker"
       className="relative overflow-hidden rounded-[28px] border border-border/35 bg-card/40 px-5 pt-6 pb-5"
       style={{ "--hero-accent": accent } as CSSProperties}
     >
@@ -227,22 +229,25 @@ export function HomeTrackerHero({ onOpenDetails }: { onOpenDetails: () => void }
         <div className="mt-4 flex flex-col items-center text-center">
           {active && activeCat ? (
             <>
-              <div className="inline-flex items-center gap-2 rounded-full bg-foreground/[0.05] px-3 py-1">
+              <div className="inline-flex items-center gap-2 rounded-full bg-foreground/[0.05] px-3 py-1 border border-border/30">
                 <span
-                  className="h-1.5 w-1.5 rounded-full animate-pulse"
+                  className="h-1.5 w-1.5 rounded-full animate-pulse shadow-[0_0_0_3px_color-mix(in_srgb,var(--hero-accent)_22%,transparent)]"
                   style={{ background: accent }}
                 />
                 <span className="text-[12px] font-medium text-foreground/85 truncate max-w-[14rem]">
                   {activeCat.name}
                 </span>
               </div>
-              <div className="mt-3 font-display text-[3.4rem] font-semibold tabular-nums leading-none tracking-[-0.04em] text-foreground">
+              <div
+                className="mt-3 font-display text-[3.4rem] font-semibold tabular-nums leading-none tracking-[-0.04em] text-foreground breathe"
+                style={{ textShadow: `0 0 26px color-mix(in srgb, ${accent} 28%, transparent), 0 0 48px color-mix(in srgb, ${accent} 14%, transparent)` }}
+              >
                 {fmtHMS(elapsedSec)}
               </div>
               <button
                 type="button"
-                onClick={() => stop()}
-                className="mt-4 inline-flex items-center gap-2 rounded-full bg-foreground text-background px-7 py-3 text-[14px] font-semibold pressable active:scale-[0.97] transition-transform"
+                onClick={() => { haptics.impact("medium"); void stop(); }}
+                className="mt-4 inline-flex items-center gap-2 rounded-full bg-foreground text-background px-7 py-3 text-[14px] font-semibold pressable shadow-[0_8px_22px_-12px_rgba(0,0,0,0.45)]"
               >
                 <Square className="h-3.5 w-3.5" fill="currentColor" />
                 Stop
@@ -268,16 +273,19 @@ export function HomeTrackerHero({ onOpenDetails }: { onOpenDetails: () => void }
                 type="button"
                 onClick={() => {
                   if (categories.length === 0) {
+                    haptics.tap();
                     openCategoryPicker({ focusAdd: true });
                     return;
                   }
                   if (selectedCat) {
+                    haptics.impact("medium");
                     void start(selectedCat.id);
                     return;
                   }
+                  haptics.tap();
                   openCategoryPicker();
                 }}
-                className="mt-4 inline-flex items-center gap-2 rounded-full bg-primary text-primary-foreground px-8 py-3.5 text-[14px] font-semibold pressable active:scale-[0.97] transition-transform"
+                className="gleam mt-4 inline-flex items-center gap-2 rounded-full bg-primary text-primary-foreground px-8 py-3.5 text-[14px] font-semibold pressable shadow-[0_10px_28px_-12px_hsl(var(--primary)/0.6)]"
               >
                 <Play className="h-3.5 w-3.5" fill="currentColor" />
                 Start tracking
@@ -293,7 +301,7 @@ export function HomeTrackerHero({ onOpenDetails }: { onOpenDetails: () => void }
               <button
                 key={c.id}
                 type="button"
-                onClick={() => setSelectedCategoryId(c.id)}
+                onClick={() => { haptics.selection(); setSelectedCategoryId(c.id); }}
                 className={`shrink-0 inline-flex items-center gap-1.5 rounded-full border py-1.5 pl-2 pr-3 text-[12px] font-medium transition-colors pressable ${
                   selectedCategoryId === c.id
                     ? "border-primary/60 bg-primary/15 text-foreground ring-1 ring-primary/20"

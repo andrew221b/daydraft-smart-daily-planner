@@ -826,7 +826,7 @@ export default function DayView() {
                 onDragEnd={onDragEnd}
               >
                 <SortableContext items={blocks.map((b) => b.id)} strategy={verticalListSortingStrategy}>
-                  <div className="touch-pan-y space-y-2.5">
+                  <div className="touch-pan-y space-y-2.5 enter-stagger">
                     {blocks.map((b) => (
                       <SortableBlock
                         key={b.id}
@@ -854,7 +854,15 @@ export default function DayView() {
                       />
                     ))}
                     {blocks.length === 0 && (
-                      <div className="text-center text-secondary-fg py-12 text-sm">No tasks scheduled.</div>
+                      <div className="text-center py-14 px-6 fade-in">
+                        <div className="mx-auto mb-4 h-12 w-12 rounded-2xl border border-soft surface-card flex items-center justify-center">
+                          <ListPlus className="h-5 w-5 text-secondary-fg/70" aria-hidden />
+                        </div>
+                        <p className="text-[15px] font-medium text-foreground/95">Nothing scheduled yet</p>
+                        <p className="text-[12.5px] text-secondary-fg/80 mt-1.5 leading-relaxed max-w-[280px] mx-auto">
+                          Brain-dump your tasks below — DayDraft turns them into a timed plan.
+                        </p>
+                      </div>
                     )}
                   </div>
                 </SortableContext>

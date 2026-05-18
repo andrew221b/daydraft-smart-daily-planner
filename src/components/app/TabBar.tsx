@@ -24,13 +24,7 @@ const activeTabIndex = (pathname: string) => {
     return 0;
   }
   if (pathname.startsWith("/today")) return 1;
-  if (
-    pathname.startsWith("/reports") ||
-    pathname.startsWith("/history") ||
-    pathname.startsWith("/stats") ||
-    pathname.startsWith("/recap")
-  )
-    return 2;
+  if (pathname.startsWith("/reports")) return 2;
   if (pathname.startsWith("/settings")) return 3;
   return 0;
 };
@@ -52,7 +46,8 @@ export const TabBar = () => {
   const indicatorStyle = {
     width: `calc(${pillWidthCalc})`,
     left: `calc(${activeIdx} * ((${pillWidthCalc}) + ${TAB_GAP_PX}px))`,
-    transitionTimingFunction: "cubic-bezier(0.25, 0.9, 0.2, 1)",
+    // iOS 26 indicator: tight springy slide with the slightest overshoot.
+    transitionTimingFunction: "cubic-bezier(0.34, 1.4, 0.64, 1)",
   } as const;
 
   return (
@@ -68,7 +63,7 @@ export const TabBar = () => {
           <div className="relative isolate flex min-h-[48px] gap-1.5">
             <span
               aria-hidden
-              className="pointer-events-none absolute inset-y-0 z-0 rounded-2xl bg-primary/[0.12] ring-1 ring-inset ring-primary/20 transition-[left,width] duration-300 will-change-[left,width] dark:bg-primary/[0.14] dark:ring-primary/[0.26]"
+              className="pointer-events-none absolute inset-y-0 z-0 rounded-2xl bg-primary/[0.12] ring-1 ring-inset ring-primary/20 transition-[left,width] duration-[260ms] will-change-[left,width] dark:bg-primary/[0.14] dark:ring-primary/[0.26]"
               style={indicatorStyle}
             />
             {tabs.map((it, idx) => (
@@ -105,13 +100,15 @@ function TabItem({
       aria-current={highlighted ? "page" : undefined}
     >
       <Icon
-        className={`h-[18px] w-[18px] transition-[transform,stroke-width] duration-200 ease-out ${highlighted ? "scale-[1.04]" : ""}`}
-        strokeWidth={highlighted ? 2.1 : 1.75}
+        className={`h-[18px] w-[18px] transition-[transform,stroke-width] duration-300 ease-[cubic-bezier(0.34,1.56,0.64,1)] ${
+          highlighted ? "scale-[1.08]" : "group-hover:scale-[1.02]"
+        }`}
+        strokeWidth={highlighted ? 2.2 : 1.75}
         aria-hidden
       />
       <span
-        className={`max-w-full truncate px-0.5 text-center text-[10px] font-semibold leading-tight tracking-wide transition-opacity duration-200 ${
-          highlighted ? "opacity-100" : "opacity-[0.78]"
+        className={`max-w-full truncate px-0.5 text-center text-[10px] font-semibold leading-tight tracking-wide transition-[opacity,letter-spacing] duration-200 ${
+          highlighted ? "opacity-100 tracking-[0.01em]" : "opacity-[0.78]"
         }`}
       >
         {label}

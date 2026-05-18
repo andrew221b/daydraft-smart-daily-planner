@@ -42,9 +42,25 @@ export function ProfileProvider({ children }: { children: ReactNode }) {
   const refresh = async () => {
     if (!user) { setProfile(null); setLoading(false); return; }
     setLoading(true);
+    // Retry once on transient failure. A single failed profile fetch (network
+    // hiccup, mid-token-refresh) used to leave profile=null, which RequireAuth
+    // treats as "not onboarded" and sends existing-history users back to
+    // /onboarding forever. One quick retry catches the common transient case.
+    let data: Profile | null = null;
+    let lastErr: unknown = null;
+    for (let attempt = 0; attempt < 2; attempt++) {
+      try {
+        const res = await supabase.from("profiles").select("*").eq("id", user.id).maybeSingle();
+        data = (res.data as Profile | null) ?? null;
+        lastErr = res.error ?? null;
+        if (!lastErr) break;
+      } catch (e) {
+        lastErr = e;
+      }
+      if (attempt === 0) await new Promise((r) => setTimeout(r, 400));
+    }
     try {
-      const { data } = await supabase.from("profiles").select("*").eq("id", user.id).maybeSingle();
-      setProfile(data as Profile | null);
+      setProfile(data);
       // Auto-sync timezone on every session: server defaults to 'UTC' and many old
       // accounts were stamped UTC, which corrupts daily nudges and AI planning.
       // Fire-and-forget; ignore errors.
@@ -55,8 +71,6 @@ export function ProfileProvider({ children }: { children: ReactNode }) {
           setProfile({ ...(data as Profile), timezone: localTz });
         }
       } catch {/* ignore */}
-    } catch {
-      setProfile(null);
     } finally {
       setLoading(false);
     }
@@ -65,8 +79,25 @@ export function ProfileProvider({ children }: { children: ReactNode }) {
 
   const update = async (patch: Partial<Profile>) => {
     if (!user) return;
-    const { data } = await supabase.from("profiles").update(patch as never).eq("id", user.id).select().maybeSingle();
-    if (data) setProfile(data as Profile);
+    const { data, error } = await supabase
+      .from("profiles")
+      .update(patch as never)
+      .eq("id", user.id)
+      .select()
+      .maybeSingle();
+    if (error) throw error;
+    // Always reconcile local state. Some environments (RLS edge cases, native
+    // WebView replays) return null from .maybeSingle() on UPDATE even when the
+    // row was written. Without merging the patch, callers like Onboarding
+    // would navigate to /home while the local `onboarded` flag was still false,
+    // and RequireAuth would bounce them back to /onboarding in a loop.
+    setProfile((prev) =>
+      data
+        ? (data as Profile)
+        : prev
+          ? ({ ...prev, ...(patch as object) } as Profile)
+          : prev,
+    );
   };
 
   return <Ctx.Provider value={{ profile, loading, refresh, update }}>{children}</Ctx.Provider>;

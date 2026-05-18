@@ -133,12 +133,12 @@ export default function Home() {
           </header>
 
           {/* THE HERO — tracker */}
-          <HomeTrackerHero onOpenDetails={() => nav("/history")} />
+          <HomeTrackerHero onOpenDetails={() => nav("/reports")} />
 
           {/* Today's plan progress */}
           {userTasks.length > 0 && (
             <div
-              className="mt-3 app-card px-4 py-4 cursor-pointer pressable"
+              className="mt-3 app-card px-4 py-4 cursor-pointer tappable"
               onClick={() => nav("/today")}
               role="button"
               tabIndex={0}

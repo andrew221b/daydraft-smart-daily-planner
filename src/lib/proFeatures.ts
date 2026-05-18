@@ -1,19 +1,19 @@
 import type { LucideIcon } from "lucide-react";
 import {
   Zap,
-  Calendar,
-  Sparkles,
   Compass,
   Clock,
   FileDown,
   Wallet,
 } from "lucide-react";
 
-/** Real product capabilities gated behind Pro — single source for paywall + discovery UI. */
+/** Real product capabilities gated behind Pro — single source for paywall + discovery UI.
+ *  Only list features that actually exist in the current build. Calendar sync
+ *  and Yesterday debrief were removed here because the matching UI is not wired
+ *  up (no VITE_GOOGLE_CALENDAR_CLIENT_ID, TodayInsight not rendered). Add them
+ *  back when their entry points are live in the app. */
 export type ProFeatureId =
   | "unlimited"
-  | "calendar"
-  | "debrief"
   | "drift"
   | "timer_reschedule"
   | "pdf_export"
@@ -34,29 +34,15 @@ export const PRO_FEATURE_CATALOG: ProCatalogItem[] = [
   {
     id: "unlimited",
     Icon: Zap,
-    headline: "Unlimited AI planning",
-    tagline: "New plan days whenever you need them — no lifetime 5-day ceiling.",
-    sheetLine: "Unlimited AI planning days",
-  },
-  {
-    id: "calendar",
-    Icon: Calendar,
-    headline: "Google Calendar in every plan",
-    tagline: "Meetings and holds show up as fixed blocks the AI schedules around.",
-    sheetLine: "Calendar-aware schedules",
-  },
-  {
-    id: "debrief",
-    Icon: Sparkles,
-    headline: "Yesterday debrief",
-    tagline: "AI reads what you did and didn’t — quick takeaways on the Today screen.",
-    sheetLine: "Yesterday debrief cards",
+    headline: "Unlimited planning days",
+    tagline: "Plan every day you need — no lifetime 5-day ceiling.",
+    sheetLine: "Unlimited planning days",
   },
   {
     id: "drift",
     Icon: Compass,
     headline: "Plan drift nudges",
-    tagline: "When the day slips, get a gentle nudge and a one-tap way to reshuffle what’s left.",
+    tagline: "When the day slips, get a gentle nudge and a one-tap way to reshuffle what's left.",
     sheetLine: "Plan drift nudges & replan hints",
   },
   {

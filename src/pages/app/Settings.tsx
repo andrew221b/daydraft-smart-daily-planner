@@ -94,18 +94,20 @@ export default function Settings() {
     }
   };
 
+  const calendarClientId = import.meta.env.VITE_GOOGLE_CALENDAR_CLIENT_ID as string | undefined;
+  const calendarAvailable = !!calendarClientId;
+
   const connectCalendar = async () => {
+    if (!calendarAvailable) {
+      toast("Calendar sync is coming soon — we'll let you know.");
+      return;
+    }
     if (!isPro) { setUpgradeOpen(true); return; }
     setCalConnecting(true);
     try {
-      const clientId = import.meta.env.VITE_GOOGLE_CALENDAR_CLIENT_ID as string | undefined;
-      if (!clientId) {
-        toast("Calendar sync is not configured yet. We will notify you when it becomes available.");
-        return;
-      }
       const redirect = `${window.location.origin}/settings`;
       const scope = encodeURIComponent("https://www.googleapis.com/auth/calendar.readonly");
-      const url = `https://accounts.google.com/o/oauth2/v2/auth?client_id=${clientId}&redirect_uri=${encodeURIComponent(redirect)}&response_type=code&access_type=offline&prompt=consent&scope=${scope}`;
+      const url = `https://accounts.google.com/o/oauth2/v2/auth?client_id=${calendarClientId}&redirect_uri=${encodeURIComponent(redirect)}&response_type=code&access_type=offline&prompt=consent&scope=${scope}`;
       window.location.href = url;
     } finally {
       setCalConnecting(false);
@@ -218,15 +220,17 @@ export default function Settings() {
                 )}
               </div>
               <button onClick={connectCalendar}
-                className="w-full flex items-center justify-between px-4 py-3 pressable hover:bg-surface-elevated">
+                className="w-full flex items-center justify-between px-4 py-3 ios-row">
                 <div className="flex items-center gap-3">
                   <Calendar className="h-4 w-4 text-secondary-fg" />
                   <div className="text-[14px] text-left">Google Calendar</div>
                 </div>
-                <span className="text-[12px] font-medium text-primary">{isPro ? "Connect" : "Pro"}</span>
+                <span className="text-[12px] font-medium text-secondary-fg/80">
+                  {calendarAvailable ? (isPro ? "Connect" : "Pro") : "Soon"}
+                </span>
               </button>
               <button onClick={togglePasskey}
-                className="w-full flex items-center justify-between px-4 py-3 pressable hover:bg-surface-elevated">
+                className="w-full flex items-center justify-between px-4 py-3 ios-row">
                 <div className="flex items-center gap-3">
                   <Fingerprint className="h-4 w-4 text-secondary-fg" />
                   <div className="text-[14px] text-left">Face ID / fingerprint</div>
@@ -244,26 +248,26 @@ export default function Settings() {
               <button
                 onClick={async () => {
                   await tour.resetAll();
-                  nav("/today");
+                  nav("/home");
                   setTimeout(() => tour.start(TOUR_TODAY, { force: true }), 400);
                 }}
-                className="w-full flex items-center gap-3 px-4 py-3 pressable hover:bg-surface-elevated"
+                className="w-full flex items-center gap-3 px-4 py-3 ios-row"
               >
                 <HelpCircle className="h-4 w-4 text-secondary-fg" />
                 <span className="text-[14px] flex-1 text-left">Replay tutorial</span>
                 <span className="text-secondary-fg">›</span>
               </button>
-              <Link to="/privacy" className="flex items-center gap-3 px-4 py-3 pressable hover:bg-surface-elevated">
+              <Link to="/privacy" className="flex items-center gap-3 px-4 py-3 ios-row">
                 <Shield className="h-4 w-4 text-secondary-fg" />
                 <span className="text-[14px] flex-1">Privacy</span>
                 <span className="text-secondary-fg">›</span>
               </Link>
-              <Link to="/terms" className="flex items-center gap-3 px-4 py-3 pressable hover:bg-surface-elevated">
+              <Link to="/terms" className="flex items-center gap-3 px-4 py-3 ios-row">
                 <FileText className="h-4 w-4 text-secondary-fg" />
                 <span className="text-[14px] flex-1">Terms</span>
                 <span className="text-secondary-fg">›</span>
               </Link>
-              <Link to="/settings/delete-account" className="flex items-center gap-3 px-4 py-3 pressable hover:bg-surface-elevated text-destructive">
+              <Link to="/settings/delete-account" className="flex items-center gap-3 px-4 py-3 ios-row text-destructive">
                 <Trash2 className="h-4 w-4" />
                 <span className="text-[14px] flex-1">Delete account</span>
                 <span>›</span>

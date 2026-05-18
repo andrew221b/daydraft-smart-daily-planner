@@ -31,7 +31,7 @@ export default function Onboarding() {
   const [tone, setTone] = useState<Tone>(initial.tone);
   const [aiAbout, setAiAbout] = useState(initial.aiAbout);
   const [finishing, setFinishing] = useState(false);
-  const { update } = useProfile();
+  const { profile, update, refresh } = useProfile();
   const nav = useNavigate();
 
   useEffect(() => {
@@ -55,13 +55,30 @@ export default function Onboarding() {
       }
       const tz = (() => { try { return Intl.DateTimeFormat().resolvedOptions().timeZone; } catch { return "UTC"; } })();
       try { localStorage.setItem("dd_ai_tone", tone); } catch { /* ignore */ }
-      await update({
+      const payload = {
         ai_tone: tone as any,
         ai_context_custom: aiAbout.trim() || null,
         notifications_enabled: enabled,
         onboarded: true,
         timezone: tz,
-      } as any);
+      };
+      if (profile) {
+        await update(payload as any);
+      } else {
+        // No profile row yet (auth trigger missed). Upsert so the user never
+        // gets stuck looping back to /onboarding for accounts where the auth
+        // trigger didn't fire (e.g. historical sign-ups before the trigger
+        // existed, or OAuth flows where the trigger raced with the session).
+        const { data: { session } } = await supabase.auth.getSession();
+        const uid = session?.user?.id;
+        if (uid) {
+          const { error } = await supabase
+            .from("profiles")
+            .upsert({ id: uid, ...payload } as never, { onConflict: "id" });
+          if (error) throw error;
+          await refresh();
+        }
+      }
       try { sessionStorage.removeItem(PROGRESS_KEY); } catch { /* ignore */ }
       nav("/home");
     } catch (e: any) {

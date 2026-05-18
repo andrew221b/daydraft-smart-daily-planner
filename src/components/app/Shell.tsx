@@ -15,11 +15,13 @@ export const Shell = ({
 }) => {
   const { pathname } = useLocation();
 
-  const pageSwitchClass = pathname.startsWith("/today/plan")
+  // iOS 26 navigation:
+  //   • Top-level tabs cross-fade with the lightest horizontal drift.
+  //   • Drill-down pages (focus, planning) slide in from the right —
+  //     matches iOS navigation-stack push semantics on a phone.
+  const pageSwitchClass = pathname.startsWith("/focus") || pathname.startsWith("/today/plan")
     ? "page-switch-luxe page-switch-right"
-    : pathname.startsWith("/today") || pathname.startsWith("/home")
-      ? "page-switch-luxe page-switch-left"
-      : "page-switch-luxe";
+    : "page-switch-luxe";
 
   // Warm lazy route chunks after first paint — same module paths as App.tsx lazy().
   useEffect(() => {

@@ -1,8 +1,9 @@
-import { Loader2 } from "lucide-react";
-
 export const PageFallback = () => (
-  <div className="min-h-[50vh] w-full flex flex-col items-center justify-center gap-3 bg-background">
-    <Loader2 className="h-7 w-7 animate-spin text-primary" aria-hidden />
-    <span className="text-[12px] text-secondary-fg">Loading…</span>
+  <div className="min-h-[60vh] w-full flex flex-col items-center justify-center gap-4 bg-background">
+    <div className="relative grid place-items-center">
+      <div className="pill-loader" aria-hidden />
+      <span className="pill-loader-dot absolute" aria-hidden />
+    </div>
+    <span className="eyebrow text-secondary-fg/80">DayDraft</span>
   </div>
 );

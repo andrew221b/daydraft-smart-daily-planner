@@ -17,17 +17,17 @@ const reasonHeadline: Record<UpgradeReason, string> = {
   momentum: "You're in a rhythm — protect it.",
 };
 const reasonSub: Record<UpgradeReason, string> = {
-  quota: "Upgrade now and never worry about hitting the wall mid-week again. Pro is unlimited AI planning plus calendar-aware schedules.",
-  feature: "Pro unlocks the full stack: unlimited plans, calendar sync, smarter AI, and every premium surface.",
-  "trial-banner": "Stay on unlimited plans, calendar sync, and pattern-aware AI — the version of DayDraft you already rely on.",
-  momentum: "Serious users upgrade so one busy week never blocks the next. Pro keeps plans, nudges, and insights uncapped.",
+  quota: "Upgrade now and keep planning every day — no 5-day lifetime ceiling. Pro also unlocks PDF and billing-ready reports.",
+  feature: "Pro lifts the planning cap and unlocks drift nudges, timer-smart replans, and PDF + billing reports.",
+  "trial-banner": "Stay on unlimited planning days plus drift nudges and timer-smart replans — the version of DayDraft you already rely on.",
+  momentum: "Serious users upgrade so one busy week never blocks the next. Pro keeps plans, nudges, and exports uncapped.",
 };
 /** Bullet order per paywall context — ids must exist in `PRO_FEATURE_CATALOG`. */
 const reasonOrder: Record<UpgradeReason, ProFeatureId[]> = {
-  quota: ["unlimited", "calendar", "debrief", "pdf_export"],
-  feature: ["unlimited", "calendar", "debrief", "pdf_export"],
-  "trial-banner": ["unlimited", "calendar", "debrief", "drift"],
-  momentum: ["unlimited", "drift", "timer_reschedule", "calendar"],
+  quota: ["unlimited", "drift", "pdf_export", "billing_reports"],
+  feature: ["unlimited", "drift", "timer_reschedule", "pdf_export"],
+  "trial-banner": ["unlimited", "drift", "timer_reschedule", "billing_reports"],
+  momentum: ["unlimited", "drift", "timer_reschedule", "pdf_export"],
 };
 const reasonCta: Record<UpgradeReason, string> = {
   quota: "Upgrade to unlimited",
