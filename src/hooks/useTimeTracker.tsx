@@ -211,6 +211,41 @@ export function TimeTrackerProvider({ children }: { children: ReactNode }) {
     return () => window.removeEventListener("beforeunload", handler);
   }, [active?.id]);
 
+  // Long-running timer reminder. Fires once per entry per session as soon as
+  // the timer crosses REMIND_AFTER_HOURS (and on app open if it's already
+  // past that threshold). User can stop or keep going — we never delete the
+  // entry automatically, only nudge.
+  useEffect(() => {
+    if (!active) return;
+    let cancelled = false;
+    const fire = () => {
+      if (cancelled || !active) return;
+      const ageMs = Date.now() - new Date(active.started_at).getTime();
+      if (ageMs < REMIND_AFTER_HOURS * 3_600_000) return;
+      if (remindedEntryIds.has(active.id)) return;
+      remindedEntryIds.add(active.id);
+      const ageLabel = fmtAge(ageMs);
+      tryBrowserNotify("Timer still running", `Your timer has been running for ${ageLabel}.`);
+      toast(`Timer running for ${ageLabel} — still working?`, {
+        duration: 12000,
+        action: {
+          label: "Stop",
+          onClick: () => { void stop(); },
+        },
+      });
+    };
+    // initial check shortly after load so refresh() has set `active`
+    const initial = window.setTimeout(fire, 1500);
+    // and re-check every 10 minutes so we catch the threshold while open
+    const interval = window.setInterval(fire, 10 * 60_000);
+    return () => {
+      cancelled = true;
+      clearTimeout(initial);
+      clearInterval(interval);
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [active?.id, active?.started_at]);
+
   const startSession = async (categoryId?: string, opts?: { source?: string; note?: string; blockId?: string }) => {
     if (!user) return;
     const cat = categoryId || categories.find(c => c.is_default)?.id || categories[0]?.id;
