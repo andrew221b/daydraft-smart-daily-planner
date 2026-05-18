@@ -85,7 +85,7 @@ const RequireAuth = ({ children }: { children: JSX.Element }) => {
   const loc = useLocation();
   if (loading || (user && pLoading)) return <PageFallback />;
   if (!user) return <Navigate to="/auth" replace state={{ from: loc }} />;
-  const onOnboardingRoute = loc.pathname === "/onboarding";
+  const onOnboardingRoute = loc.pathname === "/onboarding" || loc.pathname === "/onboarding/";
   // Treat unknown profile state as "onboarding not resolved" to avoid letting
   // authenticated users into app routes before profile/onboarding is known.
   const onboardingResolved = profile?.onboarded === true;

@@ -17,18 +17,18 @@ body.dd-dnd-scroll-lock {
 
 @layer base {
   :root, :root.dark {
-    --background: 232 34% 8%;
-    --foreground: 220 24% 95%;
-    --surface: 231 27% 12%;
-    --surface-elevated: 230 24% 15%;
-    --card: 231 28% 11%;
-    --card-foreground: 0 0% 90%;
-    --popover: 231 22% 14%;
-    --popover-foreground: 0 0% 90%;
+    --background: 0 0% 0%;               /* Pure black */
+    --foreground: 0 0% 100%;             /* Pure white */
+    --surface: 240 4% 11%;               /* #1C1C1E */
+    --surface-elevated: 240 5% 18%;      /* #2C2C2E */
+    --card: 240 4% 11%;
+    --card-foreground: 0 0% 100%;
+    --popover: 240 4% 11%;
+    --popover-foreground: 0 0% 100%;
 
-    --primary: 200 89% 68%;              /* cyan sapphire highlight */
-    --primary-foreground: 230 45% 8%;
-    --primary-glow: 265 88% 73%;         /* violet bloom */
+    --primary: 211 100% 50%;             /* Apple System Blue #007AFF */
+    --primary-foreground: 0 0% 100%;
+    --primary-glow: 253 100% 58%;        /* Apple System Indigo #5856D6 */
 
     --secondary: 231 20% 17%;
     --secondary-foreground: 0 0% 90%;
@@ -53,8 +53,8 @@ body.dd-dnd-scroll-lock {
 
     --radius: 1.125rem;
 
-    --shadow-card: 0 1px 0 rgba(255,255,255,0.07), 0 10px 36px rgba(8,10,24,0.48);
-    --shadow-card-inset: inset 0 1px 0 rgba(255,255,255,0.06);
+    --shadow-card: 0 1px 0 rgba(255,255,255,0.07), 0 10px 36px rgba(0,0,0,0.48);
+    --shadow-card-inset: inset 1px 1px 0 rgba(255,255,255,0.12), inset -1px -1px 0 rgba(0,0,0,0.2);
     --shadow-elevated: 0 20px 56px rgba(6,8,26,0.62), 0 6px 22px rgba(12,16,42,0.35);
     --shadow-glow: 0 0 0 4px hsl(var(--primary) / 0.22);
     --shadow-tab: 0 16px 56px -14px rgba(4,8,28,0.62), inset 0 1px 0 rgba(255,255,255,0.1);
@@ -65,25 +65,25 @@ body.dd-dnd-scroll-lock {
     --motion-section-in-ms: 220ms;
     --motion-glow-breathe-s: 20s;
     --motion-tab-indicator-s: 7s;
-    --glass-blur: 18px;
-    --glass-saturate: 1.16;
-    --hero-glass-blur: 20px;
-    --hero-glass-saturate: 1.2;
+    --glass-blur: 24px;
+    --glass-saturate: 1.4;
+    --hero-glass-blur: 32px;
+    --hero-glass-saturate: 1.4;
   }
 
   /* Light mode — premium "paper" palette with measurable elevation steps. */
   :root.light {
-    --background: 215 32% 96%;          /* soft off-white page */
-    --foreground: 224 38% 12%;          /* near-black ink (≥ 14:1 on bg) */
-    --surface: 0 0% 100%;               /* card base sits clearly above bg */
-    --surface-elevated: 210 38% 99%;    /* lifted card / popover */
+    --background: 240 18% 97%;          /* iOS Grouped Background #F2F2F7 */
+    --foreground: 0 0% 0%;              /* iOS Label */
+    --surface: 0 0% 100%;               /* #FFFFFF */
+    --surface-elevated: 0 0% 100%;
     --card: 0 0% 100%;
-    --card-foreground: 224 38% 12%;
+    --card-foreground: 0 0% 0%;
     --popover: 0 0% 100%;
-    --popover-foreground: 224 38% 12%;
-    --primary: 200 96% 38%;             /* deeper sapphire for AA on white */
+    --popover-foreground: 0 0% 0%;
+    --primary: 211 100% 50%;            /* Apple System Blue #007AFF */
     --primary-foreground: 0 0% 100%;
-    --primary-glow: 262 78% 56%;
+    --primary-glow: 253 100% 58%;       /* Apple System Indigo #5856D6 */
     --secondary: 214 30% 92%;
     --secondary-foreground: 224 30% 18%;
     --muted: 214 26% 91%;
@@ -100,16 +100,16 @@ body.dd-dnd-scroll-lock {
     --type-deep: 200 96% 38%;
     --type-comm: 24 84% 42%;
     --type-routine: 230 22% 40%;
-    --shadow-card: 0 1px 0 rgba(255,255,255,0.85), 0 8px 22px -10px rgba(18,28,56,0.16), 0 1px 3px rgba(18,28,56,0.06);
-    --shadow-card-inset: inset 0 1px 0 rgba(255,255,255,0.95);
+    --shadow-card: 0 1px 0 rgba(255,255,255,0.85), 0 8px 22px -10px rgba(0,0,0,0.12), 0 1px 3px rgba(0,0,0,0.04);
+    --shadow-card-inset: inset 1px 1px 0 rgba(255,255,255,0.95), inset -1px -1px 0 rgba(0,0,0,0.04);
     --shadow-elevated: 0 16px 38px -14px rgba(18,28,56,0.22), 0 4px 14px -4px rgba(18,28,56,0.12);
     --shadow-tab: 0 10px 32px -14px rgba(18,28,56,0.22), inset 0 1px 0 rgba(255,255,255,0.96);
     --gradient-glow: radial-gradient(56% 40% at 50% -6%, hsl(var(--primary) / 0.14), transparent 70%);
     --gradient-floor: radial-gradient(ellipse 72% 44% at 50% 100%, hsl(var(--primary-glow) / 0.08), transparent 70%);
-    --glass-blur: 12px;
-    --glass-saturate: 1.05;
-    --hero-glass-blur: 14px;
-    --hero-glass-saturate: 1.06;
+    --glass-blur: 20px;
+    --glass-saturate: 1.2;
+    --hero-glass-blur: 24px;
+    --hero-glass-saturate: 1.2;
   }
 
   :root[data-visual-mode="neon"] {
@@ -182,7 +182,7 @@ body.dd-dnd-scroll-lock {
   html { -webkit-text-size-adjust: 100%; }
   body {
     @apply bg-background text-foreground antialiased;
-    font-family: "Manrope", -apple-system, BlinkMacSystemFont, "SF Pro Text", system-ui, sans-serif;
+    font-family: -apple-system, BlinkMacSystemFont, "SF Pro Text", system-ui, sans-serif;
     font-feature-settings: "ss01", "cv11";
     -webkit-font-smoothing: antialiased;
     -webkit-tap-highlight-color: transparent;
@@ -211,16 +211,16 @@ body.dd-dnd-scroll-lock {
     color: hsl(var(--foreground));
   }
   h1, h2, h3, h4, h5 {
-    font-family: "Sora", -apple-system, BlinkMacSystemFont, system-ui, sans-serif;
-    letter-spacing: -0.025em;
+    font-family: -apple-system, BlinkMacSystemFont, "SF Pro Display", system-ui, sans-serif;
+    letter-spacing: -0.04em;
     font-weight: 600;
   }
 }
 
 @layer utilities {
-  .font-display { font-family: "Sora", -apple-system, system-ui, sans-serif; letter-spacing: -0.025em; }
+  .font-display { font-family: -apple-system, BlinkMacSystemFont, "SF Pro Display", system-ui, sans-serif; letter-spacing: -0.04em; }
   .font-mono-sf { font-family: "JetBrains Mono", "SF Mono", ui-monospace, Menlo, monospace; }
-  .type-title { font-family: "Sora", -apple-system, system-ui, sans-serif; font-size: 1.7rem; line-height: 1.1; letter-spacing: -0.03em; font-weight: 600; }
+  .type-title { font-family: -apple-system, BlinkMacSystemFont, "SF Pro Display", system-ui, sans-serif; font-size: 1.7rem; line-height: 1.1; letter-spacing: -0.04em; font-weight: 600; }
   .type-section { font-size: 0.74rem; font-weight: 600; letter-spacing: 0.12em; text-transform: uppercase; color: hsl(var(--muted-foreground) / 0.88); }
   .type-body { font-size: 0.875rem; line-height: 1.45; color: hsl(var(--foreground)); }
   .type-meta { font-size: 0.72rem; line-height: 1.35; color: hsl(var(--muted-foreground)); }
@@ -251,7 +251,7 @@ body.dd-dnd-scroll-lock {
      Mobile-first: no `:hover` dependency. */
   .pressable {
     transition:
-      transform 220ms cubic-bezier(0.34, 1.56, 0.64, 1),
+      transform 220ms cubic-bezier(0.28, 0.84, 0.42, 1),
       background-color 180ms ease,
       border-color 180ms ease,
       opacity 180ms ease,
@@ -259,9 +259,9 @@ body.dd-dnd-scroll-lock {
     -webkit-tap-highlight-color: transparent;
   }
   .pressable:active {
-    transform: scale(0.965);
+    transform: scale(0.96);
     transition-duration: 80ms;
-    transition-timing-function: cubic-bezier(0.4, 0, 0.6, 1);
+    transition-timing-function: cubic-bezier(0.28, 0.84, 0.42, 1);
   }
 
   /* ─── Tappable card/row ──────────────────────────────────────────
@@ -506,7 +506,7 @@ body.dd-dnd-scroll-lock {
   .eyebrow {
     font-size: 10px;
     font-weight: 600;
-    letter-spacing: 0.16em;
+    letter-spacing: 0.08em;
     text-transform: uppercase;
     color: hsl(var(--muted-foreground) / 0.92);
   }
@@ -543,7 +543,7 @@ body.dd-dnd-scroll-lock {
 
   .kicker {
     font-size: 11px;
-    letter-spacing: 0.14em;
+    letter-spacing: 0.06em;
     text-transform: uppercase;
     color: hsl(var(--primary) / 0.98);
     font-weight: 700;

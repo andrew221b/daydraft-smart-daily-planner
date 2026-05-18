@@ -111,7 +111,7 @@ export function ProfileProvider({ children }: { children: ReactNode }) {
         ? (data as Profile)
         : prev
           ? ({ ...prev, ...(patch as object) } as Profile)
-          : prev,
+          : ({ id: user.id, ...(patch as object) } as Profile),
     );
   };
 
