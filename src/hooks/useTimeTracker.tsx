@@ -139,12 +139,8 @@ export function TimeTrackerProvider({ children }: { children: ReactNode }) {
       setCategories(dedupeCategoriesStable((catsRes.data || []) as TimeCategory[]));
       const running = (runRes.data?.[0] as TimeEntry) || null;
       setActive(running);
-      // Long-running timer reminder: instead of silently dropping the entry,
-      // surface it so the user can decide (stop / keep going). Fires once per
-      // session per entry.
-      if (running) {
-        maybeRemindLongRunning(running);
-      }
+      // Long-running timer reminder is handled by a dedicated effect below
+      // (so it can re-check periodically while the app stays open).
 
       const now = Date.now();
       const startOfToday = new Date(); startOfToday.setHours(0,0,0,0);
