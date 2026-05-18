@@ -94,6 +94,26 @@ const TimeTrackerElapsedCtx = createContext(0);
 
 const PALETTE = ["#6366f1", "#ec4899", "#f59e0b", "#10b981", "#06b6d4", "#8b5cf6", "#ef4444"];
 
+/** Avoid spamming the same toast for the same entry within a session. */
+const remindedEntryIds = new Set<string>();
+const REMIND_AFTER_HOURS = 2; // first reminder
+
+function fmtAge(ms: number): string {
+  const m = Math.floor(ms / 60000);
+  const h = Math.floor(m / 60);
+  return h > 0 ? `${h}h ${m % 60}m` : `${m}m`;
+}
+
+function tryBrowserNotify(title: string, body: string) {
+  try {
+    if (typeof window === "undefined" || !("Notification" in window)) return;
+    if (Notification.permission !== "granted") return;
+    new Notification(title, { body, tag: "dd-tracker-running" });
+  } catch {
+    /* ignore */
+  }
+}
+
 export function TimeTrackerProvider({ children }: { children: ReactNode }) {
   const { user } = useAuth();
   const [categories, setCategories] = useState<TimeCategory[]>([]);
