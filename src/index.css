@@ -350,6 +350,46 @@ body.dd-dnd-scroll-lock {
     50% { transform: scale(1.015); }
   }
 
+  /* ─── Clock sweep behind the running tracker ─────────────────────
+     A slow clockwise conic gradient in the category's accent colour.
+     Reads as a luminous, breathing presence — never as a busy spinner.
+     Cadence (22s/rotation) is intentionally slow so it lives in the
+     background of the user's attention, not the foreground. */
+  .tracker-hero-clock {
+    position: relative;
+    isolation: isolate;
+  }
+  .tracker-hero-clock::before {
+    content: "";
+    position: absolute;
+    inset: -18%;
+    border-radius: 50%;
+    background: conic-gradient(
+      from 0deg,
+      transparent 0deg,
+      color-mix(in srgb, var(--hero-accent, hsl(var(--primary))) 55%, transparent) 50deg,
+      transparent 130deg,
+      transparent 220deg,
+      color-mix(in srgb, var(--hero-accent, hsl(var(--primary))) 38%, transparent) 295deg,
+      transparent 360deg
+    );
+    filter: blur(34px);
+    opacity: 0.42;
+    pointer-events: none;
+    z-index: 0;
+    animation: trackerHeroClockSweep 22s linear infinite;
+    transform-origin: 50% 50%;
+    will-change: transform;
+  }
+  @keyframes trackerHeroClockSweep {
+    to { transform: rotate(360deg); }
+  }
+  /* Children stack above the sweep without each needing z-index. */
+  .tracker-hero-clock > * {
+    position: relative;
+    z-index: 1;
+  }
+
   /* ─── Focus ring honouring the palette ─────────────────────────── */
   .focus-ring:focus-visible {
     outline: none;
@@ -943,10 +983,26 @@ body.dd-dnd-scroll-lock {
   .spring-in,
   .breathe,
   .pill-loader,
-  .pill-loader-dot {
+  .pill-loader-dot,
+  .tracker-hero-clock::before {
     animation: none !important;
     transition: none !important;
     transform: none !important;
     filter: none !important;
   }
+  .tracker-hero-clock::before {
+    /* Without the rotation a single static slice would look arbitrary —
+       drop the layer entirely and let the accent text-shadow carry the
+       "live" cue. */
+    display: none !important;
+  }
+}
+
+/* Capacitor iOS: a 34px blur over a rotating gradient is the kind of
+   thing WKWebView promotes to a permanent compositor layer. Cut blur
+   in half and slow the rotation so the GPU isn't busy at idle. */
+:root[data-capacitor-ios="true"] .tracker-hero-clock::before {
+  filter: blur(22px);
+  opacity: 0.38;
+  animation-duration: 28s;
 }

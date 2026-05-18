@@ -39,35 +39,50 @@ export function ProfileProvider({ children }: { children: ReactNode }) {
   const [profile, setProfile] = useState<Profile | null>(null);
   const [loading, setLoading] = useState(true);
 
+  // Hard cap so the app never sits on the loader forever. If Supabase is
+  // slow / unreachable (Lovable preview's iframe, flaky network, blocked
+  // 3rd-party storage in Safari), we fall through with profile=null which
+  // routes the user to /onboarding instead of an indefinite spinner.
+  const PROFILE_FETCH_TIMEOUT_MS = 5_000;
+
+  const fetchProfileOnce = async (uid: string): Promise<{ data: Profile | null; error: unknown }> => {
+    try {
+      const res = await Promise.race([
+        supabase.from("profiles").select("*").eq("id", uid).maybeSingle(),
+        new Promise<never>((_, reject) =>
+          setTimeout(() => reject(new Error("profile_fetch_timeout")), PROFILE_FETCH_TIMEOUT_MS),
+        ),
+      ]);
+      return { data: (res.data as Profile | null) ?? null, error: res.error ?? null };
+    } catch (e) {
+      return { data: null, error: e };
+    }
+  };
+
   const refresh = async () => {
     if (!user) { setProfile(null); setLoading(false); return; }
     setLoading(true);
-    // Retry once on transient failure. A single failed profile fetch (network
-    // hiccup, mid-token-refresh) used to leave profile=null, which RequireAuth
-    // treats as "not onboarded" and sends existing-history users back to
-    // /onboarding forever. One quick retry catches the common transient case.
+    // Retry once on transient failure (mid-token-refresh, single hiccup).
+    // Both attempts are wrapped in PROFILE_FETCH_TIMEOUT_MS so a hung
+    // request can never lock the UI on PageFallback.
     let data: Profile | null = null;
     let lastErr: unknown = null;
     for (let attempt = 0; attempt < 2; attempt++) {
-      try {
-        const res = await supabase.from("profiles").select("*").eq("id", user.id).maybeSingle();
-        data = (res.data as Profile | null) ?? null;
-        lastErr = res.error ?? null;
-        if (!lastErr) break;
-      } catch (e) {
-        lastErr = e;
-      }
+      const res = await fetchProfileOnce(user.id);
+      data = res.data;
+      lastErr = res.error;
+      if (!lastErr) break;
       if (attempt === 0) await new Promise((r) => setTimeout(r, 400));
     }
     try {
       setProfile(data);
       // Auto-sync timezone on every session: server defaults to 'UTC' and many old
       // accounts were stamped UTC, which corrupts daily nudges and AI planning.
-      // Fire-and-forget; ignore errors.
+      // Fire-and-forget; ignore errors. Don't await the network — it can hang.
       try {
         const localTz = Intl.DateTimeFormat().resolvedOptions().timeZone;
         if (localTz && data && (data as any).timezone !== localTz) {
-          await supabase.from("profiles").update({ timezone: localTz }).eq("id", user.id);
+          void supabase.from("profiles").update({ timezone: localTz }).eq("id", user.id);
           setProfile({ ...(data as Profile), timezone: localTz });
         }
       } catch {/* ignore */}

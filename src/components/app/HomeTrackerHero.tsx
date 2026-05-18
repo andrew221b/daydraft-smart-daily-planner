@@ -196,21 +196,13 @@ export function HomeTrackerHero({ onOpenDetails }: { onOpenDetails: () => void }
   return (
     <section
       data-tour="hero-tracker"
-      className="relative overflow-hidden rounded-[28px] border border-border/35 bg-card/40 px-5 pt-6 pb-5"
+      className={`relative overflow-hidden rounded-[28px] border px-5 pt-6 pb-5 transition-[border-color,background-color] duration-500 ${
+        active
+          ? "tracker-hero-clock border-[color-mix(in_srgb,var(--hero-accent)_42%,hsl(var(--border)/0.4))] bg-card/30"
+          : "border-border/35 bg-card/40"
+      }`}
       style={{ "--hero-accent": accent } as CSSProperties}
     >
-      {/* Subtle accent wash — only when recording */}
-      {active && (
-        <div
-          aria-hidden
-          className="pointer-events-none absolute inset-0 opacity-70"
-          style={{
-            background:
-              "radial-gradient(80% 50% at 50% 0%, color-mix(in oklab, var(--hero-accent) 18%, transparent), transparent 70%)",
-          }}
-        />
-      )}
-
       <div className="relative">
         <div className="flex items-center justify-between">
           <span className="text-[10px] font-semibold uppercase tracking-[0.2em] text-secondary-fg/70">

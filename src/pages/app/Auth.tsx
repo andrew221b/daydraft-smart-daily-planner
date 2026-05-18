@@ -29,9 +29,12 @@ export default function Auth() {
   useEffect(() => {
     if (loading || (user && profileLoading)) return;
     if (!user) return;
-    // In Lovable preview / flaky network, profile can be temporarily null even for
-    // existing users. Only force onboarding when we explicitly know it's false.
-    nav(profile?.onboarded === false ? "/onboarding" : "/today", { replace: true });
+    // Only send the user straight to /today when we're confident they're
+    // already onboarded. For fresh sign-ups the profile row might not have
+    // propagated yet (trigger race or Lovable preview slowness) — onboarding
+    // upserts on commit, so routing there first is the safe default.
+    const onboarded = profile?.onboarded === true;
+    nav(onboarded ? "/today" : "/onboarding", { replace: true });
   }, [loading, nav, profile?.onboarded, profileLoading, user]);
 
   const getErrorMessage = (message: string) => {
