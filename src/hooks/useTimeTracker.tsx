@@ -127,7 +127,6 @@ export function TimeTrackerProvider({ children }: { children: ReactNode }) {
         const ageHours = (Date.now() - startedMs) / 3_600_000;
         if (ageHours > 8) {
           await supabase.from("time_entries").delete().eq("id", running.id);
-          toast("Stopped a stale timer older than 8 hours. Log it manually if needed.", { duration: 5000 });
           running = null;
         }
       }
