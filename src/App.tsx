@@ -1,4 +1,4 @@
-import { lazy, Suspense, type ReactNode } from "react";
+import { lazy, Suspense, type ComponentType, type ReactNode } from "react";
 import { Capacitor } from "@capacitor/core";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { BrowserRouter, Navigate, Route, Routes, useLocation } from "react-router-dom";
@@ -17,15 +17,55 @@ import ResetPassword from "./pages/app/ResetPassword";
 import Privacy from "./pages/legal/Privacy";
 import Terms from "./pages/legal/Terms";
 
-const Home = lazy(() => import("./pages/app/Home"));
-const Tracker = lazy(() => import("./pages/app/Tracker"));
-const DayView = lazy(() => import("./pages/app/DayView"));
-const Focus = lazy(() => import("./pages/app/Focus"));
-const Reports = lazy(() => import("./pages/app/Reports"));
-const Settings = lazy(() => import("./pages/app/Settings"));
-const Onboarding = lazy(() => import("./pages/app/Onboarding"));
-const Auth = lazy(() => import("./pages/app/Auth"));
-const DeleteAccount = lazy(() => import("./pages/legal/DeleteAccount"));
+/**
+ * Wraps lazy() so a stale browser tab that references a chunk hash which no
+ * longer exists on the CDN (after a deploy) recovers by reloading once,
+ * instead of leaving the user on the "Importing a module script failed"
+ * error boundary screen.
+ */
+const RELOAD_FLAG = "dd_chunk_reload_attempted";
+function lazyWithReload<T extends { default: ComponentType<any> }>(
+  factory: () => Promise<T>
+) {
+  return lazy(() =>
+    factory().catch((err) => {
+      const msg = String(err?.message || err || "");
+      const isChunkErr =
+        /Importing a module script failed|Failed to fetch dynamically imported module|ChunkLoadError|Loading chunk/i.test(msg);
+      if (isChunkErr && typeof window !== "undefined") {
+        try {
+          if (!sessionStorage.getItem(RELOAD_FLAG)) {
+            sessionStorage.setItem(RELOAD_FLAG, "1");
+            window.location.reload();
+            // Return a never-resolving promise so Suspense keeps the fallback
+            // until the reload kicks in.
+            return new Promise(() => {}) as Promise<T>;
+          }
+        } catch {
+          // ignore storage errors and fall through to re-throw
+        }
+      }
+      throw err;
+    })
+  );
+}
+
+if (typeof window !== "undefined") {
+  // Clear the reload flag once the new bundle loads successfully.
+  window.addEventListener("load", () => {
+    try { sessionStorage.removeItem(RELOAD_FLAG); } catch { /* ignore */ }
+  });
+}
+
+const Home = lazyWithReload(() => import("./pages/app/Home"));
+const Tracker = lazyWithReload(() => import("./pages/app/Tracker"));
+const DayView = lazyWithReload(() => import("./pages/app/DayView"));
+const Focus = lazyWithReload(() => import("./pages/app/Focus"));
+const Reports = lazyWithReload(() => import("./pages/app/Reports"));
+const Settings = lazyWithReload(() => import("./pages/app/Settings"));
+const Onboarding = lazyWithReload(() => import("./pages/app/Onboarding"));
+const Auth = lazyWithReload(() => import("./pages/app/Auth"));
+const DeleteAccount = lazyWithReload(() => import("./pages/legal/DeleteAccount"));
 
 const queryClient = new QueryClient({
   defaultOptions: {
