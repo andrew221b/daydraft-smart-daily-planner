@@ -94,6 +94,26 @@ const TimeTrackerElapsedCtx = createContext(0);
 
 const PALETTE = ["#6366f1", "#ec4899", "#f59e0b", "#10b981", "#06b6d4", "#8b5cf6", "#ef4444"];
 
+/** Avoid spamming the same toast for the same entry within a session. */
+const remindedEntryIds = new Set<string>();
+const REMIND_AFTER_HOURS = 2; // first reminder
+
+function fmtAge(ms: number): string {
+  const m = Math.floor(ms / 60000);
+  const h = Math.floor(m / 60);
+  return h > 0 ? `${h}h ${m % 60}m` : `${m}m`;
+}
+
+function tryBrowserNotify(title: string, body: string) {
+  try {
+    if (typeof window === "undefined" || !("Notification" in window)) return;
+    if (Notification.permission !== "granted") return;
+    new Notification(title, { body, tag: "dd-tracker-running" });
+  } catch {
+    /* ignore */
+  }
+}
+
 export function TimeTrackerProvider({ children }: { children: ReactNode }) {
   const { user } = useAuth();
   const [categories, setCategories] = useState<TimeCategory[]>([]);
@@ -117,20 +137,10 @@ export function TimeTrackerProvider({ children }: { children: ReactNode }) {
         })(),
       ]);
       setCategories(dedupeCategoriesStable((catsRes.data || []) as TimeCategory[]));
-      let running = (runRes.data?.[0] as TimeEntry) || null;
-      // Auto-close stale runs: anything still open after 8h is almost certainly
-      // a forgotten timer (e.g. user fell asleep). DROP it rather than crediting
-      // the user with hours they didn't actually work — false data is worse than
-      // missing data. We delete the entry entirely and notify on recovery.
-      if (running) {
-        const startedMs = new Date(running.started_at).getTime();
-        const ageHours = (Date.now() - startedMs) / 3_600_000;
-        if (ageHours > 8) {
-          await supabase.from("time_entries").delete().eq("id", running.id);
-          running = null;
-        }
-      }
+      const running = (runRes.data?.[0] as TimeEntry) || null;
       setActive(running);
+      // Long-running timer reminder is handled by a dedicated effect below
+      // (so it can re-check periodically while the app stays open).
 
       const now = Date.now();
       const startOfToday = new Date(); startOfToday.setHours(0,0,0,0);
@@ -200,6 +210,41 @@ export function TimeTrackerProvider({ children }: { children: ReactNode }) {
     window.addEventListener("beforeunload", handler);
     return () => window.removeEventListener("beforeunload", handler);
   }, [active?.id]);
+
+  // Long-running timer reminder. Fires once per entry per session as soon as
+  // the timer crosses REMIND_AFTER_HOURS (and on app open if it's already
+  // past that threshold). User can stop or keep going — we never delete the
+  // entry automatically, only nudge.
+  useEffect(() => {
+    if (!active) return;
+    let cancelled = false;
+    const fire = () => {
+      if (cancelled || !active) return;
+      const ageMs = Date.now() - new Date(active.started_at).getTime();
+      if (ageMs < REMIND_AFTER_HOURS * 3_600_000) return;
+      if (remindedEntryIds.has(active.id)) return;
+      remindedEntryIds.add(active.id);
+      const ageLabel = fmtAge(ageMs);
+      tryBrowserNotify("Timer still running", `Your timer has been running for ${ageLabel}.`);
+      toast(`Timer running for ${ageLabel} — still working?`, {
+        duration: 12000,
+        action: {
+          label: "Stop",
+          onClick: () => { void stop(); },
+        },
+      });
+    };
+    // initial check shortly after load so refresh() has set `active`
+    const initial = window.setTimeout(fire, 1500);
+    // and re-check every 10 minutes so we catch the threshold while open
+    const interval = window.setInterval(fire, 10 * 60_000);
+    return () => {
+      cancelled = true;
+      clearTimeout(initial);
+      clearInterval(interval);
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [active?.id, active?.started_at]);
 
   const startSession = async (categoryId?: string, opts?: { source?: string; note?: string; blockId?: string }) => {
     if (!user) return;
