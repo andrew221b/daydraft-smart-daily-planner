@@ -117,20 +117,14 @@ export function TimeTrackerProvider({ children }: { children: ReactNode }) {
         })(),
       ]);
       setCategories(dedupeCategoriesStable((catsRes.data || []) as TimeCategory[]));
-      let running = (runRes.data?.[0] as TimeEntry) || null;
-      // Auto-close stale runs: anything still open after 8h is almost certainly
-      // a forgotten timer (e.g. user fell asleep). DROP it rather than crediting
-      // the user with hours they didn't actually work — false data is worse than
-      // missing data. We delete the entry entirely and notify on recovery.
-      if (running) {
-        const startedMs = new Date(running.started_at).getTime();
-        const ageHours = (Date.now() - startedMs) / 3_600_000;
-        if (ageHours > 8) {
-          await supabase.from("time_entries").delete().eq("id", running.id);
-          running = null;
-        }
-      }
+      const running = (runRes.data?.[0] as TimeEntry) || null;
       setActive(running);
+      // Long-running timer reminder: instead of silently dropping the entry,
+      // surface it so the user can decide (stop / keep going). Fires once per
+      // session per entry.
+      if (running) {
+        maybeRemindLongRunning(running);
+      }
 
       const now = Date.now();
       const startOfToday = new Date(); startOfToday.setHours(0,0,0,0);
