@@ -8,7 +8,8 @@ import {
   Block, fmtTime, todayDateStr, parseDateStr, friendlyDateFor, isFutureDateStr, isUserTask, isOpenUserTask, isUserTaskDone, inferScheduleBlockType, packLinearSchedule,
   blockSlotEndHHMM,
 } from "@/lib/daydraft";
-import { ChevronLeft, Play, CalendarDays, Trash2, Bell, BellOff, MoreHorizontal, Clock, Timer, MapPin, Copy, Sparkles, ListPlus, Wand2 } from "lucide-react";
+import { ChevronLeft, ChevronRight, Play, CalendarDays, Trash2, Bell, BellOff, MoreHorizontal, Clock, Timer, MapPin, Copy, Sparkles, ListPlus, Wand2, ArrowRightCircle } from "lucide-react";
+import { DayPickerSheet } from "@/components/app/DayPickerSheet";
 import { Button } from "@/components/ui/button";
 import { DndContext, closestCenter, PointerSensor, TouchSensor, useSensor, useSensors, DragEndEvent, DragStartEvent } from "@dnd-kit/core";
 import { SortableContext, arrayMove, verticalListSortingStrategy } from "@dnd-kit/sortable";
@@ -110,15 +111,28 @@ export default function DayView() {
   const [newCatName, setNewCatName] = useState("");
   const [addingCategory, setAddingCategory] = useState(false);
 
+  // Day picker — opens with one of three intents (jump / carry / move-task).
+  type DayPickerIntent =
+    | { kind: "navigate" }
+    | { kind: "carry-missed" }
+    | { kind: "move-task"; blockId: string };
+  const [dayPickerIntent, setDayPickerIntent] = useState<DayPickerIntent | null>(null);
+
   useEffect(() => {
     if (searchParams.get("composer") === "1") setComposerOpen(true);
   }, [searchParams]);
 
-  const tomorrowDate = (() => {
-    const d = parseDateStr(viewDate);
-    d.setDate(d.getDate() + 1);
+  const shiftDate = (ymd: string, days: number) => {
+    const d = parseDateStr(ymd);
+    d.setDate(d.getDate() + days);
     return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
-  })();
+  };
+  const tomorrowDate = shiftDate(viewDate, 1);
+  const yesterdayDate = shiftDate(viewDate, -1);
+  const navigateToDay = (ymd: string) => {
+    if (ymd === todayDateStr()) nav("/today");
+    else nav(`/today?date=${ymd}`);
+  };
 
   const { data: dayData, isLoading: loading, refetch } = useQuery({
     queryKey: planDayQueryKey(user?.id ?? "", viewDate),
@@ -644,28 +658,143 @@ export default function DayView() {
     }
   };
 
-  const rollOverUnfinishedToTomorrow = async () => {
-    if (!user) return;
-    const openTasks = blocks
-      .filter((b) => isUserTask(b) && isOpenUserTask(b) && !b.is_calendar_event)
-      .map((b) => b.title?.trim())
-      .filter(Boolean) as string[];
-    if (!openTasks.length) {
-      toast("No unfinished tasks to carry forward");
+  /** Ensure (and return) the plan id for an arbitrary date. */
+  const ensurePlanIdForDate = async (date: string): Promise<string | null> => {
+    if (!user) return null;
+    const { data: existing } = await supabase
+      .from("plans")
+      .select("id")
+      .eq("user_id", user.id)
+      .eq("date", date)
+      .maybeSingle();
+    if (existing?.id) return existing.id as string;
+    const { data: created, error } = await supabase
+      .from("plans")
+      .insert({ user_id: user.id, date, raw_input: "" } as any)
+      .select("id")
+      .single();
+    if (error || !created?.id) {
+      toast.error(error?.message || "Couldn't open that day");
+      return null;
+    }
+    return created.id as string;
+  };
+
+  /** Copy a set of blocks onto a target day as fresh user tasks, then mark
+   *  the originals as `skipped` so they read as "moved" rather than missed. */
+  const moveBlocksToDate = async (
+    sourceBlocks: ExBlock[],
+    targetDate: string,
+  ): Promise<{ moved: number } | null> => {
+    if (!user) return null;
+    const items = sourceBlocks.filter(
+      (b) => !b.is_calendar_event && b.kind === "task",
+    );
+    if (!items.length) return { moved: 0 };
+    const targetPlanId = await ensurePlanIdForDate(targetDate);
+    if (!targetPlanId) return null;
+    // Read existing blocks on the target day to compute position offset.
+    const { data: existing } = await supabase
+      .from("blocks")
+      .select("id, position")
+      .eq("plan_id", targetPlanId);
+    const startPos = (existing?.length ?? 0);
+    const toInsert = items.map((b, i) => ({
+      plan_id: targetPlanId,
+      user_id: user.id,
+      start_time: "09:00",
+      duration_min: b.duration_min,
+      title: b.title,
+      type: b.type,
+      kind: "task" as const,
+      block_type: inferScheduleBlockType(b),
+      completed: false,
+      position: startPos + i,
+      estimated_minutes: b.estimated_minutes ?? b.duration_min,
+      actual_minutes: null,
+      location: b.location ?? null,
+      location_lat: b.location_lat ?? null,
+      location_lng: b.location_lng ?? null,
+      slot_end_time: blockSlotEndHHMM({
+        start_time: "09:00",
+        duration_min: b.duration_min,
+      } as Block),
+    }));
+    const { error: insertErr } = await supabase.from("blocks").insert(toInsert as any);
+    if (insertErr) {
+      const msg = insertErr.message || "";
+      if (msg.includes("PLAN_QUOTA_REACHED")) {
+        void refreshEntitlement();
+        toast(`Free trial limit reached — ${planQuotaLimit} planning days used`, {
+          description: "Upgrade to keep moving tasks to new days.",
+          action: { label: "Upgrade", onClick: () => setUpgradeOpen(true) },
+        });
+        setUpgradeOpen(true);
+        return null;
+      }
+      throw insertErr;
+    }
+    // Mark the source blocks as moved (resolution=skipped, so they don't
+    // keep counting as "missed" on revisits).
+    const movedAt = new Date().toISOString();
+    await supabase
+      .from("blocks")
+      .update({ resolution: "skipped", resolved_at: movedAt })
+      .in("id", items.map((b) => b.id));
+    return { moved: items.length };
+  };
+
+  const handleDayPickerPick = async (targetDate: string) => {
+    const intent = dayPickerIntent;
+    setDayPickerIntent(null);
+    if (!intent) return;
+    if (intent.kind === "navigate") {
+      navigateToDay(targetDate);
       return;
     }
-    try {
-      await supabase.from("quick_captures").insert(
-        openTasks.map((title) => ({
-          user_id: user.id,
-          content: `[for:${tomorrowDate}] ${title}`,
-        })) as any
+    if (targetDate === viewDate) {
+      toast("Pick a different day");
+      return;
+    }
+    if (intent.kind === "move-task") {
+      const blk = blocks.find((b) => b.id === intent.blockId);
+      if (!blk) return;
+      try {
+        const result = await moveBlocksToDate([blk], targetDate);
+        if (!result) return;
+        await invalidatePlanCaches();
+        await refetch();
+        haptics.notify("success");
+        toast.success(`Moved to ${friendlyDateFor(parseDateStr(targetDate))}`, {
+          action: { label: "Open", onClick: () => navigateToDay(targetDate) },
+        });
+      } catch (e: any) {
+        toast.error(e?.message || "Couldn't move that task");
+      }
+      return;
+    }
+    if (intent.kind === "carry-missed") {
+      const candidates = blocks.filter(
+        (b) => isUserTask(b) && isOpenUserTask(b) && !b.is_calendar_event,
       );
-      setMoreOpen(false);
-      toast.success(`Moved ${openTasks.length} task${openTasks.length === 1 ? "" : "s"} to tomorrow`);
-      nav(`/today?date=${tomorrowDate}`);
-    } catch (e: any) {
-      toast.error(e?.message || "Unable to carry tasks forward");
+      if (!candidates.length) {
+        toast("Nothing left to carry forward");
+        return;
+      }
+      try {
+        const result = await moveBlocksToDate(candidates, targetDate);
+        if (!result) return;
+        await invalidatePlanCaches();
+        await refetch();
+        setMoreOpen(false);
+        haptics.notify("success");
+        toast.success(
+          `Moved ${result.moved} task${result.moved === 1 ? "" : "s"} to ${friendlyDateFor(parseDateStr(targetDate))}`,
+          { action: { label: "Open", onClick: () => navigateToDay(targetDate) } },
+        );
+      } catch (e: any) {
+        toast.error(e?.message || "Unable to carry tasks forward");
+      }
     }
   };
 
@@ -673,6 +802,15 @@ export default function DayView() {
   const userTasks = blocks.filter(isUserTask);
   const totalTasks = userTasks.length;
   const doneTasks = userTasks.filter((b) => isUserTaskDone(b)).length;
+  const missedTasks = useMemo(
+    () =>
+      blocks.filter(
+        (b) =>
+          isUserTask(b) && !b.is_calendar_event && (b as ExBlock).resolution === "missed",
+      ),
+    [blocks],
+  );
+  const isPast = !isToday && !isFuture;
 
   const spotlightId = useMemo(
     () => blocks.find((b) => isUserTask(b) && isOpenUserTask(b) && !b.is_calendar_event)?.id,
@@ -690,53 +828,48 @@ export default function DayView() {
       >
       <div className="flex min-h-0 flex-1 flex-col">
       <div className="shrink-0 px-6 pt-12 pb-2">
-        <div className="app-card px-3 py-3.5 flex items-center justify-between gap-2">
+        <div className="app-card px-2 py-2.5 flex items-center gap-1">
           <button
             type="button"
-            onClick={() => nav(isToday ? "/home" : `/today?date=${viewDate}`)}
-            className="h-10 w-10 shrink-0 rounded-full flex items-center justify-center text-secondary-fg/90 hover:text-foreground hover:bg-muted/40 pressable transition-colors"
-            aria-label={isToday ? "Back to home" : "Back to planner"}
+            onClick={() => navigateToDay(yesterdayDate)}
+            className="h-10 w-10 shrink-0 rounded-full flex items-center justify-center text-secondary-fg/90 pressable"
+            aria-label="Previous day"
           >
             <ChevronLeft className="h-5 w-5" />
           </button>
-          <div className="flex-1 min-w-0 flex flex-col items-center px-1">
+          <button
+            type="button"
+            onClick={() => setDayPickerIntent({ kind: "navigate" })}
+            className="flex-1 min-w-0 flex flex-col items-center px-1 py-1 rounded-2xl pressable"
+            aria-label="Pick a day"
+          >
             <p className="text-[10px] font-medium uppercase tracking-[0.2em] text-secondary-fg/65">
-              {isToday ? "Timeline" : "Plan"}
+              {isToday ? "Timeline" : isPast ? "Past" : "Plan"}
             </p>
             <h1 className="font-display text-[22px] font-medium tracking-[-0.02em] text-foreground/95 text-center truncate w-full mt-1 leading-tight">
               {isToday ? "Today" : friendlyDateFor(parseDateStr(viewDate))}
             </h1>
             {!isToday && (
-              <button
-                type="button"
-                onClick={() => nav("/home")}
-                className="mt-1.5 text-[12px] font-medium text-primary/90 pressable"
-              >
-                Jump to today
-              </button>
+              <span className="mt-1 text-[11px] font-medium text-primary/85">Tap to jump</span>
             )}
-          </div>
-          <div className="flex items-center shrink-0 gap-0.5">
-            {!calmMode && !planMissing && blocks.length > 0 && (
-              <button
-                type="button"
-                onClick={() => void copyDayOutline()}
-                className="h-10 w-10 rounded-full flex items-center justify-center text-secondary-fg/90 hover:text-foreground hover:bg-muted/40 pressable transition-colors"
-                aria-label="Copy plan as text"
-              >
-                <Copy className="h-4 w-4" />
-              </button>
-            )}
-            {!planMissing && (
-              <button
-                onClick={() => setMoreOpen(true)}
-                className="h-10 w-10 rounded-full flex items-center justify-center text-secondary-fg/90 hover:text-foreground hover:bg-muted/40 pressable transition-colors"
-                aria-label="More"
-              >
-                <MoreHorizontal className="h-5 w-5" />
-              </button>
-            )}
-          </div>
+          </button>
+          <button
+            type="button"
+            onClick={() => navigateToDay(tomorrowDate)}
+            className="h-10 w-10 shrink-0 rounded-full flex items-center justify-center text-secondary-fg/90 pressable"
+            aria-label="Next day"
+          >
+            <ChevronRight className="h-5 w-5" />
+          </button>
+          {!planMissing && (
+            <button
+              onClick={() => setMoreOpen(true)}
+              className="h-10 w-10 shrink-0 rounded-full flex items-center justify-center text-secondary-fg/90 pressable"
+              aria-label="More"
+            >
+              <MoreHorizontal className="h-5 w-5" />
+            </button>
+          )}
         </div>
       </div>
 
@@ -773,6 +906,34 @@ export default function DayView() {
                 style={{ width: totalTasks ? `${(doneTasks / totalTasks) * 100}%` : "0%" }}
               />
             </div>
+          </div>
+        </div>
+      )}
+
+      {/* Missed-tasks banner. iOS-style sectioned card — quiet but always
+          one tap from a useful action. Only when there are open misses
+          on a today/past day; future plans can't have misses yet. */}
+      {!planMissing && !isFuture && missedTasks.length > 0 && (
+        <div className="mt-4 shrink-0 px-6">
+          <div className="rounded-[16px] border border-destructive/25 bg-destructive/[0.06] px-3.5 py-2.5 flex items-center gap-3">
+            <span className="h-1.5 w-1.5 rounded-full bg-destructive/85 animate-pulse shrink-0" aria-hidden />
+            <div className="flex-1 min-w-0">
+              <div className="text-[13px] font-medium text-foreground/95 leading-snug">
+                {missedTasks.length === 1
+                  ? "1 task missed its slot"
+                  : `${missedTasks.length} tasks missed their slot`}
+              </div>
+              <div className="text-[11px] text-secondary-fg/80 mt-0.5">
+                Move them forward instead of leaving them behind.
+              </div>
+            </div>
+            <button
+              type="button"
+              onClick={() => setDayPickerIntent({ kind: "carry-missed" })}
+              className="shrink-0 h-9 px-3 rounded-full text-[12px] font-semibold text-primary bg-primary/12 border border-primary/30 pressable"
+            >
+              Move…
+            </button>
           </div>
         </div>
       )}
@@ -869,7 +1030,7 @@ export default function DayView() {
               </DndContext>
             )}
 
-            {!isFuture && (
+            {!isPast && (
               <div className="mt-4 grid grid-cols-2 gap-2">
                 <button
                   onClick={() => setComposerOpen(true)}
@@ -965,6 +1126,17 @@ export default function DayView() {
                   label="Change start time"
                 />
               )}
+              {!tappedBlock.is_calendar_event && tappedBlock.kind === "task" && isOpenUserTask(tappedBlock as Block) && (
+                <ActionRow
+                  onClick={() => {
+                    const id = tappedBlock.id;
+                    setTappedBlock(null);
+                    setDayPickerIntent({ kind: "move-task", blockId: id });
+                  }}
+                  icon={<ArrowRightCircle className="h-4 w-4" />}
+                  label="Move to another day"
+                />
+              )}
               {!calmMode && !tappedBlock.is_calendar_event && isToday && (
                 <ActionRow
                   onClick={() => openReminders(tappedBlock.id)}
@@ -1015,9 +1187,19 @@ export default function DayView() {
           </SheetHeader>
           {!isFuture && (
             <ActionRow
-              onClick={rollOverUnfinishedToTomorrow}
+              onClick={() => {
+                setMoreOpen(false);
+                setDayPickerIntent({ kind: "carry-missed" });
+              }}
               icon={<CalendarDays className="h-4 w-4" />}
-              label="Carry unfinished to tomorrow"
+              label="Carry unfinished to…"
+            />
+          )}
+          {!calmMode && blocks.length > 0 && (
+            <ActionRow
+              onClick={() => { setMoreOpen(false); void copyDayOutline(); }}
+              icon={<Copy className="h-4 w-4" />}
+              label="Copy plan as text"
             />
           )}
           <ActionRow
@@ -1320,6 +1502,34 @@ export default function DayView() {
       </Sheet>
       <UpgradeSheet open={upgradeOpen} onOpenChange={setUpgradeOpen} reason="feature" />
       <AskAiSheet open={askAiOpen} onOpenChange={setAskAiOpen} initialPrompt={askAiContext} />
+
+      <DayPickerSheet
+        open={!!dayPickerIntent}
+        onOpenChange={(v) => { if (!v) setDayPickerIntent(null); }}
+        value={
+          dayPickerIntent?.kind === "navigate"
+            ? viewDate
+            : // For move/carry default the suggestion to tomorrow.
+              tomorrowDate
+        }
+        onPick={(d) => void handleDayPickerPick(d)}
+        title={
+          dayPickerIntent?.kind === "move-task"
+            ? "Move task to…"
+            : dayPickerIntent?.kind === "carry-missed"
+              ? "Carry unfinished to…"
+              : "Pick a day"
+        }
+        subtitle={
+          dayPickerIntent?.kind === "move-task"
+            ? "We'll put it at the end of that day's plan."
+            : dayPickerIntent?.kind === "carry-missed"
+              ? `${missedTasks.length || blocks.filter((b) => isUserTask(b) && isOpenUserTask(b) && !b.is_calendar_event).length} task${(missedTasks.length || blocks.filter((b) => isUserTask(b) && isOpenUserTask(b) && !b.is_calendar_event).length) === 1 ? "" : "s"} will be added there and marked moved here.`
+              : undefined
+        }
+        pastDays={dayPickerIntent?.kind === "navigate" ? 7 : 0}
+        futureDays={28}
+      />
 
       {/* Category picker — opens when user taps "Track" on a row. */}
       <Sheet open={!!trackPickerBlock} onOpenChange={(v) => { if (!v) { setTrackPickerBlock(null); setNewCatName(""); } }}>

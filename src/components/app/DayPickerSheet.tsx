@@ -1,0 +1,191 @@
+import { useMemo, useRef, useEffect } from "react";
+import { Sheet, SheetContent } from "@/components/ui/sheet";
+import { dateStr, parseDateStr, todayDateStr } from "@/lib/daydraft";
+import { haptics } from "@/lib/haptics";
+
+type Props = {
+  open: boolean;
+  onOpenChange: (v: boolean) => void;
+  /** YYYY-MM-DD currently selected. Used to highlight + scroll into view. */
+  value: string;
+  onPick: (next: string) => void;
+  /** How far back from today the picker is allowed to go. Default: -3. */
+  pastDays?: number;
+  /** How far forward from today the picker can go. Default: 28. */
+  futureDays?: number;
+  /** Header copy; varies per call site (nav vs carry-forward vs reschedule). */
+  title?: string;
+  subtitle?: string;
+};
+
+type DayCell = {
+  ymd: string;
+  date: Date;
+  isToday: boolean;
+  isPast: boolean;
+  isSelected: boolean;
+  weekday: string;
+  day: number;
+  month: string;
+};
+
+const WEEKDAY_FMT = new Intl.DateTimeFormat(undefined, { weekday: "short" });
+const MONTH_FMT = new Intl.DateTimeFormat(undefined, { month: "short" });
+
+/**
+ * Compact iOS-style day picker. Horizontal scroll of pills representing
+ * each upcoming day; current selection is centred on open.
+ *
+ * Built once, reused for: header date navigation, "carry unfinished
+ * to…", and "move task to another day". One look across the app.
+ */
+export function DayPickerSheet({
+  open,
+  onOpenChange,
+  value,
+  onPick,
+  pastDays = 3,
+  futureDays = 28,
+  title = "Pick a day",
+  subtitle,
+}: Props) {
+  const scrollerRef = useRef<HTMLDivElement | null>(null);
+  const cells = useMemo<DayCell[]>(() => {
+    const today = parseDateStr(todayDateStr());
+    const todayMs = today.getTime();
+    const list: DayCell[] = [];
+    for (let i = -pastDays; i <= futureDays; i++) {
+      const d = new Date(today);
+      d.setDate(today.getDate() + i);
+      const ymd = dateStr(d);
+      list.push({
+        ymd,
+        date: d,
+        isToday: d.getTime() === todayMs,
+        isPast: d.getTime() < todayMs,
+        isSelected: ymd === value,
+        weekday: WEEKDAY_FMT.format(d),
+        day: d.getDate(),
+        month: MONTH_FMT.format(d),
+      });
+    }
+    return list;
+  }, [pastDays, futureDays, value]);
+
+  // Centre the selected pill on open. Without this the user always lands
+  // at "3 days ago" and has to scroll right to find their selection.
+  useEffect(() => {
+    if (!open) return;
+    const id = requestAnimationFrame(() => {
+      const el = scrollerRef.current?.querySelector<HTMLElement>('[data-selected="true"]');
+      if (!el || !scrollerRef.current) return;
+      const scroller = scrollerRef.current;
+      const target = el.offsetLeft - scroller.clientWidth / 2 + el.clientWidth / 2;
+      scroller.scrollTo({ left: Math.max(0, target), behavior: "instant" as ScrollBehavior });
+    });
+    return () => cancelAnimationFrame(id);
+  }, [open]);
+
+  // Group by month for the subtle month dividers between Aug→Sep style breaks.
+  const groups = useMemo(() => {
+    const out: { month: string; cells: DayCell[] }[] = [];
+    cells.forEach((c) => {
+      const last = out[out.length - 1];
+      if (last && last.month === c.month) last.cells.push(c);
+      else out.push({ month: c.month, cells: [c] });
+    });
+    return out;
+  }, [cells]);
+
+  return (
+    <Sheet open={open} onOpenChange={onOpenChange}>
+      <SheetContent
+        side="bottom"
+        className="rounded-t-[28px] border-border/45 bg-popover px-0 pt-5 pb-6"
+      >
+        <div className="px-6">
+          <h3 className="font-display text-[17px] font-semibold tracking-tight">{title}</h3>
+          {subtitle && (
+            <p className="text-[12.5px] text-secondary-fg/85 mt-1 leading-relaxed">{subtitle}</p>
+          )}
+        </div>
+
+        <div
+          ref={scrollerRef}
+          className="mt-4 overflow-x-auto no-scrollbar"
+          style={{ scrollSnapType: "x mandatory" }}
+        >
+          <div className="flex items-stretch gap-3 px-6 pb-1">
+            {groups.map((g, gi) => (
+              <div key={`${g.month}-${gi}`} className="flex items-stretch gap-2">
+                {gi > 0 && (
+                  <div className="flex items-center pr-1">
+                    <span className="eyebrow text-secondary-fg/60">{g.month}</span>
+                  </div>
+                )}
+                {g.cells.map((c) => (
+                  <button
+                    key={c.ymd}
+                    type="button"
+                    data-selected={c.isSelected}
+                    onClick={() => {
+                      haptics.selection();
+                      onPick(c.ymd);
+                      onOpenChange(false);
+                    }}
+                    style={{ scrollSnapAlign: "center" }}
+                    className={[
+                      "shrink-0 w-[58px] py-2.5 rounded-2xl border pressable flex flex-col items-center gap-0.5 transition-colors",
+                      c.isSelected
+                        ? "border-primary/60 bg-primary text-primary-foreground shadow-[0_8px_22px_-12px_hsl(var(--primary)/0.6)]"
+                        : c.isToday
+                          ? "border-primary/40 bg-primary/10 text-foreground"
+                          : c.isPast
+                            ? "border-border/35 bg-transparent text-secondary-fg/65"
+                            : "border-border/40 bg-card/60 text-foreground/90",
+                    ].join(" ")}
+                  >
+                    <span
+                      className={`text-[9.5px] font-semibold uppercase tracking-[0.14em] ${
+                        c.isSelected ? "text-primary-foreground/85" : "text-secondary-fg/75"
+                      }`}
+                    >
+                      {c.weekday}
+                    </span>
+                    <span className="font-display text-[18px] font-semibold tabular-nums leading-none">
+                      {c.day}
+                    </span>
+                    {c.isToday && !c.isSelected && (
+                      <span className="mt-0.5 h-[3px] w-[3px] rounded-full bg-primary" aria-hidden />
+                    )}
+                  </button>
+                ))}
+              </div>
+            ))}
+          </div>
+        </div>
+
+        <div className="px-6 mt-5 flex gap-2">
+          <button
+            type="button"
+            onClick={() => {
+              haptics.selection();
+              onPick(todayDateStr());
+              onOpenChange(false);
+            }}
+            className="flex-1 h-11 rounded-2xl border border-border/40 bg-card/60 text-[13px] font-medium text-foreground/90 pressable"
+          >
+            Today
+          </button>
+          <button
+            type="button"
+            onClick={() => onOpenChange(false)}
+            className="flex-1 h-11 rounded-2xl text-[13px] font-medium text-secondary-fg/85 pressable"
+          >
+            Cancel
+          </button>
+        </div>
+      </SheetContent>
+    </Sheet>
+  );
+}
