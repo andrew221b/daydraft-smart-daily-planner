@@ -122,11 +122,14 @@ export default function Home() {
     <Shell>
       <PullToRefresh onRefresh={onRefresh}>
         <div className="flex min-h-0 flex-1 flex-col px-5 pt-7 pb-6">
-          {/* Slim greeting */}
-          <header className="mb-3 shrink-0">
-            <p className="text-[10px] font-semibold uppercase tracking-[0.2em] text-secondary-fg/65">
-              {firstName ? `Hi, ${firstName}` : greeting}
+          {/* Greeting */}
+          <header className="mb-4 shrink-0">
+            <p className="text-[11px] font-medium tracking-[0.12em] uppercase text-secondary-fg/60 mb-0.5">
+              {new Date().toLocaleDateString("en-US", { weekday: "long", month: "long", day: "numeric" })}
             </p>
+            <h1 className="font-display text-[24px] font-semibold tracking-tight leading-tight text-foreground overflow-hidden text-ellipsis whitespace-nowrap">
+              {greeting}
+            </h1>
           </header>
 
           {/* THE HERO — tracker */}

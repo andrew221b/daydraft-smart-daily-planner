@@ -683,24 +683,26 @@ export default function Focus() {
           50% { transform: scale(1.05); opacity: 0.95; }
         }`}</style>
 
-        <div className="mt-auto pt-8 text-secondary-fg text-[13px] leading-relaxed text-center px-2">
-          {next ? (
-            <>Next up: <span className="text-foreground">{next.title}</span></>
-          ) : block.kind === "task" ? (
-            "Last block — finish strong."
-          ) : block.kind === "lunch" ? (
-            "Enjoy your lunch."
-          ) : (
-            "Take a real break."
-          )}
+        <div className="mt-auto pt-8 text-center px-2">
+          <p className="text-[13px] text-secondary-fg/80 leading-relaxed">
+            {next ? (
+              <>Next up: <span className="text-foreground font-medium">{next.title}</span></>
+            ) : block.kind === "task" ? (
+              "Last block — finish strong."
+            ) : block.kind === "lunch" ? (
+              "Enjoy your lunch."
+            ) : (
+              "Take a real break."
+            )}
+          </p>
         </div>
 
         {/* AI Assistant panel */}
-        <div className="w-full mt-6">
+        <div className="w-full mt-5">
           {!helpOpen ? (
             <button
               onClick={() => loadHelp()}
-              className="w-full h-10 rounded-[12px] app-card py-0 text-sm font-medium pressable inline-flex items-center justify-center gap-2 text-foreground"
+              className="w-full h-11 rounded-2xl app-card py-0 text-[13px] font-medium pressable inline-flex items-center justify-center gap-2 text-foreground border-primary/20 hover:border-primary/40 transition-colors"
             >
               <Sparkles className="h-4 w-4 text-primary" />
               {toneCopy(tone, "ai_help_cta")}

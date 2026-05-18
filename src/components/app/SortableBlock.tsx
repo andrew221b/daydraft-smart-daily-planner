@@ -69,8 +69,8 @@ export const SortableBlock = ({
       ref={setNodeRef}
       style={style}
       data-tour={tourSpotlight ? "dayview-block" : undefined}
-      className={`group cursor-pointer pressable transition-all duration-200 app-card px-3 py-4 shadow-none ${
-        isUserTaskDone(block) && block.kind === "task" ? "opacity-95" : ""
+      className={`group cursor-pointer pressable transition-all duration-200 app-card px-3 py-3.5 shadow-none ${
+        isUserTaskDone(block) && block.kind === "task" ? "opacity-80" : ""
       } ${
         !isCal && block.overlap_ok ? "border-l-[3px] border-l-primary/45" : ""
       } ${
@@ -80,7 +80,7 @@ export const SortableBlock = ({
             ? "bg-muted/25 !border-border/35 hover:border-border/50"
             : rhythmType === "personal"
               ? "bg-[linear-gradient(165deg,hsl(278_72%_62%/.08)_0%,hsl(var(--surface)/.72)_58%,hsl(var(--surface-elevated)/.65)_100%)] border-[hsl(270_70%_66%/.28)] hover:border-[hsl(270_72%_70%/.44)]"
-              : "!border-border/40 hover:border-border/55 hover:!border-primary/25"
+              : "!border-border/40 hover:border-border/55 hover:!border-primary/30"
       }`}
     >
       <div className="flex items-center gap-2">

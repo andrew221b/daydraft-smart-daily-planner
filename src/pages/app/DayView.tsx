@@ -8,7 +8,7 @@ import {
   Block, fmtTime, todayDateStr, parseDateStr, friendlyDateFor, isFutureDateStr, isUserTask, isOpenUserTask, isUserTaskDone, inferScheduleBlockType, packLinearSchedule,
   blockSlotEndHHMM,
 } from "@/lib/daydraft";
-import { ChevronLeft, Play, Plus, Coffee, CalendarDays, Trash2, Bell, BellOff, MoreHorizontal, Clock, MapPin, Copy, Sparkles, ListPlus, Wand2 } from "lucide-react";
+import { ChevronLeft, Play, CalendarDays, Trash2, Bell, BellOff, MoreHorizontal, Clock, MapPin, Copy, Sparkles, ListPlus, Wand2 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { DndContext, closestCenter, PointerSensor, TouchSensor, useSensor, useSensors, DragEndEvent, DragStartEvent } from "@dnd-kit/core";
 import { SortableContext, arrayMove, verticalListSortingStrategy } from "@dnd-kit/sortable";
@@ -45,7 +45,6 @@ import { UpgradeSheet } from "@/components/app/UpgradeSheet";
 import { setDndBodyScrollLock } from "@/lib/dndScrollLock";
 import { AskAiSheet } from "@/components/app/AskAiSheet";
 import { Textarea } from "@/components/ui/textarea";
-import { Slider } from "@/components/ui/slider";
 import { parseBulkTasks } from "@/lib/taskSplitter";
 
 type ExBlock = Block & {
@@ -79,16 +78,10 @@ export default function DayView() {
   const [replanning, setReplanning] = useState(false);
   const dayScrollRef = useRef<HTMLDivElement>(null);
   const [composerOpen, setComposerOpen] = useState(false);
-  const [composerMode, setComposerMode] = useState<"single" | "bulk">("single");
-  const openComposer = (mode: "single" | "bulk") => { setComposerMode(mode); setComposerOpen(true); };
   const [bulkInput, setBulkInput] = useState("");
   const [bulkRows, setBulkRows] = useState<{ title: string; duration: number }[]>([]);
   const [bulkStep, setBulkStep] = useState<"input" | "review">("input");
   const [bulkDurationEditIndex, setBulkDurationEditIndex] = useState<number | null>(null);
-  const [newTitle, setNewTitle] = useState("");
-  const [newKind, setNewKind] = useState<"task" | "break">("task");
-  const [newDuration, setNewDuration] = useState(30);
-  const [newDurationOpen, setNewDurationOpen] = useState(false);
   const [confirmDeletePlan, setConfirmDeletePlan] = useState(false);
   const [moreOpen, setMoreOpen] = useState(false);
   const [tappedBlock, setTappedBlock] = useState<ExBlock | null>(null);
@@ -113,7 +106,7 @@ export default function DayView() {
   const { isPro } = useEntitlement();
 
   useEffect(() => {
-    if (searchParams.get("composer") === "1") openComposer("bulk");
+    if (searchParams.get("composer") === "1") setComposerOpen(true);
   }, [searchParams]);
 
   const tomorrowDate = (() => {
@@ -369,80 +362,6 @@ export default function DayView() {
     }
   };
 
-  const addInlineBlock = async () => {
-    if (planMutating) return;
-    if (!user) return;
-    if (!newTitle.trim() && newKind === "task") { toast.error("Add a title"); return; }
-    let planId = plan?.id;
-    if (!planId) {
-      const { data: created, error: planErr } = await supabase
-        .from("plans")
-        .insert({ user_id: user.id, date: viewDate, raw_input: "" } as any)
-        .select("id")
-        .single();
-      if (planErr || !created?.id) {
-        toast.error(planErr?.message || "Couldn't create plan");
-        return;
-      }
-      planId = created.id;
-    }
-    const insertAt = blocks.length;
-    const newId = crypto.randomUUID();
-    const last = blocks[blocks.length - 1];
-    const startMin = last ? (() => {
-      const [h, m] = last.start_time.split(":").map(Number);
-      return h * 60 + m + last.duration_min;
-    })() : 9 * 60;
-    const item: ExBlock = {
-      id: newId,
-      plan_id: planId!,
-      user_id: user.id,
-      start_time: `${String(Math.floor(startMin / 60)).padStart(2, "0")}:${String(startMin % 60).padStart(2, "0")}`,
-      duration_min: newDuration,
-      estimated_minutes: newDuration,
-      actual_minutes: null,
-      title: newKind === "break" ? (newTitle.trim() || "Break") : newTitle.trim(),
-      type: newKind === "break" ? "routine" : "deep_work",
-      kind: newKind,
-      block_type: newKind === "break" ? "rest" : inferScheduleBlockType({ kind: newKind, title: newTitle.trim() }),
-      completed: false,
-      position: insertAt,
-    };
-    const snapshot = blocks;
-    const next = packLinearSchedule([...snapshot, item]);
-    setBlocks(next);
-    setComposerOpen(false);
-    setNewTitle(""); setNewDuration(30); setNewKind("task");
-    haptics.notify("success");
-    setPlanMutating(true);
-    try {
-      const placed = next.find((b) => b.id === newId)!;
-      const { error: insertErr } = await supabase.from("blocks").insert({
-        id: newId,
-        plan_id: planId!,
-        user_id: user.id,
-        start_time: placed.start_time,
-        duration_min: placed.duration_min,
-        title: placed.title,
-        type: placed.type,
-        kind: placed.kind,
-        estimated_minutes: placed.estimated_minutes ?? placed.duration_min,
-        actual_minutes: placed.actual_minutes ?? null,
-        block_type: inferScheduleBlockType(placed),
-        position: placed.position,
-        slot_end_time: blockSlotEndHHMM(placed),
-      });
-      if (insertErr) throw insertErr;
-      await persistOrder(next);
-      await invalidatePlanCaches();
-      await refetch();
-    } catch (e: any) {
-      setBlocks(snapshot);
-      toast.error(e?.message || "Unable to add block");
-    } finally {
-      setPlanMutating(false);
-    }
-  };
 
   const ensurePlanId = async () => {
     if (!user) return null;
@@ -758,22 +677,22 @@ export default function DayView() {
           </div>
         </div>
       )}
-      {/* Progress — soft container */}
+      {/* Progress bar */}
       {!calmMode && !planMissing && totalTasks > 0 && (
-        <div className="mt-5 shrink-0 px-6">
-          <div className="app-card px-4 py-3.5">
-            <div className="flex items-baseline justify-between gap-2">
-              <div className="text-[13px] text-foreground/95 tabular-nums">
-                <span className="font-medium">{doneTasks}</span>
-                <span className="text-secondary-fg/80">/{totalTasks} done</span>
+        <div className="mt-4 shrink-0 px-6">
+          <div className="app-card px-4 py-3">
+            <div className="flex items-center justify-between gap-2 mb-2">
+              <div className="text-[12px] text-foreground/90 tabular-nums">
+                <span className="font-semibold">{doneTasks}</span>
+                <span className="text-secondary-fg/70"> / {totalTasks} done</span>
               </div>
-              <div className="text-[11px] text-secondary-fg/75 tabular-nums">
+              <div className="text-[11px] text-secondary-fg/65 tabular-nums">
                 {Math.round(userTasks.reduce((s, b) => s + b.duration_min, 0) / 6) / 10}h planned
               </div>
             </div>
-            <div className="mt-2.5 h-1.5 rounded-full bg-muted/60 overflow-hidden">
+            <div className="h-1 rounded-full bg-muted/50 overflow-hidden">
               <div
-                className="h-full rounded-full bg-primary/85 transition-all duration-500"
+                className="h-full rounded-full bg-primary transition-all duration-700 ease-out"
                 style={{ width: totalTasks ? `${(doneTasks / totalTasks) * 100}%` : "0%" }}
               />
             </div>
@@ -786,20 +705,22 @@ export default function DayView() {
         className="min-h-0 flex-1 overflow-y-auto overscroll-y-contain px-6 pb-[calc(96px+env(safe-area-inset-bottom))] [-webkit-overflow-scrolling:touch] pt-8"
       >
         {planMissing && (
-          <div className="rounded-[22px] border border-dashed border-border/50 bg-muted/[0.06] px-6 py-10 text-center">
-            <CalendarDays className="h-7 w-7 mx-auto text-secondary-fg/70 mb-3 opacity-80" />
-            <div className="text-[15px] font-medium text-foreground/95 tracking-tight">
+          <div className="rounded-[24px] border border-dashed border-border/45 bg-muted/[0.04] px-6 py-12 text-center">
+            <div className="h-12 w-12 rounded-2xl bg-primary/10 border border-primary/20 flex items-center justify-center mx-auto mb-4">
+              <CalendarDays className="h-6 w-6 text-primary/80" />
+            </div>
+            <div className="text-[16px] font-semibold text-foreground tracking-tight">
               {isToday ? "Empty day" : friendlyDateFor(parseDateStr(viewDate))}
             </div>
-            <p className="text-[12px] text-secondary-fg/80 mt-2 leading-relaxed">
-              Write your plan however it comes out. We'll clean it up into separate blocks for review.
+            <p className="text-[13px] text-secondary-fg/75 mt-2 leading-relaxed max-w-[260px] mx-auto">
+              Add your tasks — type them out, paste a list, or let AI plan your day.
             </p>
-            <div className="mt-6 grid grid-cols-2 gap-2">
+            <div className="mt-6 flex flex-col gap-2">
               <Button
-                onClick={() => openComposer("bulk")}
-                className="h-11 rounded-2xl bg-primary hover:bg-primary/92 text-primary-foreground text-[13px] font-medium pressable"
+                onClick={() => setComposerOpen(true)}
+                className="h-12 rounded-2xl bg-primary hover:bg-primary/92 text-primary-foreground text-[14px] font-semibold pressable w-full"
               >
-                <ListPlus className="h-4 w-4 mr-1" /> Write plan
+                <ListPlus className="h-4 w-4 mr-1.5" /> Add tasks
               </Button>
               <Button
                 type="button"
@@ -808,9 +729,9 @@ export default function DayView() {
                   setAskAiContext("I have an empty day. Ask me one useful question that helps me decide what to add, without creating a schedule for me.");
                   setAskAiOpen(true);
                 }}
-                className="h-11 rounded-2xl border-primary/25 bg-primary/10 text-primary text-[13px] font-medium pressable"
+                className="h-11 rounded-2xl border-primary/25 bg-primary/10 text-primary text-[13px] font-medium pressable w-full"
               >
-                <Wand2 className="h-4 w-4 mr-1" /> Ask AI
+                <Wand2 className="h-4 w-4 mr-1.5" /> Ask AI
               </Button>
             </div>
           </div>
@@ -860,22 +781,14 @@ export default function DayView() {
               </DndContext>
             )}
 
-            {/* Inline add — single soft button, no sheet trigger needed */}
             {!isFuture && (
-              <div className="mt-4 grid grid-cols-3 gap-2">
+              <div className="mt-4 grid grid-cols-2 gap-2">
                 <button
-                  onClick={() => openComposer("single")}
+                  onClick={() => setComposerOpen(true)}
                   disabled={planMutating}
                   className="inline-flex items-center justify-center gap-1.5 text-[12px] font-medium text-foreground/75 border border-border/40 rounded-2xl h-11 bg-transparent hover:bg-muted/35 pressable transition-colors disabled:opacity-50"
                 >
-                  <Plus className="h-3.5 w-3.5 opacity-70" /> Add task
-                </button>
-                <button
-                  onClick={() => openComposer("bulk")}
-                  disabled={planMutating}
-                  className="inline-flex items-center justify-center gap-1.5 text-[12px] font-medium text-foreground/75 border border-border/40 rounded-2xl h-11 bg-transparent hover:bg-muted/35 pressable transition-colors disabled:opacity-50"
-                >
-                  <ListPlus className="h-3.5 w-3.5 opacity-70" /> Paste list
+                  <ListPlus className="h-3.5 w-3.5 opacity-70" /> Add tasks
                 </button>
                 <button
                   onClick={() => {
@@ -902,8 +815,8 @@ export default function DayView() {
           style={{ bottom: "calc(84px + env(safe-area-inset-bottom))" }}
         >
           <Button onClick={() => nav(`/focus/${firstUnfinishedTask.id}`)}
-            className="w-full h-12 rounded-2xl bg-primary hover:bg-primary/92 text-primary-foreground text-[15px] font-medium pressable">
-            <Play className="h-4 w-4" fill="currentColor" /> {toneCopy(getTone(profile as any), doneTasks === 0 ? "start_first" : "start_next")}
+            className="w-full h-13 rounded-2xl bg-primary hover:bg-primary/92 text-primary-foreground text-[15px] font-semibold pressable shadow-[0_8px_28px_-10px_hsl(var(--primary)/0.55)]">
+            <Play className="h-4 w-4 mr-1" fill="currentColor" /> {toneCopy(getTone(profile as any), doneTasks === 0 ? "start_first" : "start_next")}
           </Button>
         </div>
       )}
@@ -912,8 +825,8 @@ export default function DayView() {
           className="fixed left-1/2 -translate-x-1/2 w-full max-w-[440px] px-6 z-30"
           style={{ bottom: "calc(84px + env(safe-area-inset-bottom))" }}
         >
-          <div className="w-full h-12 rounded-2xl bg-success/15 text-success border border-success/30 flex items-center justify-center text-[14px] font-medium">
-            All done for today ✓
+          <div className="w-full h-12 rounded-2xl bg-success/15 text-success border border-success/25 flex items-center justify-center gap-2 text-[14px] font-semibold">
+            <span className="text-success/90">✓</span> All done for today
           </div>
         </div>
       )}
@@ -1024,98 +937,38 @@ export default function DayView() {
         </SheetContent>
       </Sheet>
 
-      {/* Unified task composer */}
+      {/* Task composer — bulk mode only */}
       <Sheet
         open={composerOpen}
         onOpenChange={(v) => {
-          if (!v) { setBulkStep("input"); setBulkInput(""); setBulkRows([]); setNewTitle(""); setNewKind("task"); setNewDuration(30); }
+          if (!v) { setBulkStep("input"); setBulkInput(""); setBulkRows([]); }
           setComposerOpen(v);
         }}
       >
         <SheetContent side="bottom" className="rounded-t-[28px] border-border/45 bg-popover max-h-[92vh] flex flex-col">
           <SheetHeader className="text-left shrink-0">
             <SheetTitle className="flex items-center gap-2 text-[16px]">
-              {composerMode === "single"
-                ? <><Plus className="h-4 w-4 text-primary" /> Add to day</>
-                : bulkStep === "review"
-                  ? <><ListPlus className="h-4 w-4 text-primary" /> Review tasks</>
-                  : <><ListPlus className="h-4 w-4 text-primary" /> Paste your tasks</>
+              {bulkStep === "review"
+                ? <><ListPlus className="h-4 w-4 text-primary" /> Review tasks</>
+                : <><ListPlus className="h-4 w-4 text-primary" /> Add tasks</>
               }
             </SheetTitle>
           </SheetHeader>
 
-          {/* Mode toggle — only visible on input step */}
-          {bulkStep === "input" && (
-            <div className="mt-4 flex gap-2 shrink-0">
-              <button
-                onClick={() => setComposerMode("single")}
-                className={`flex-1 h-9 rounded-xl text-[13px] font-medium pressable transition-colors border ${composerMode === "single" ? "surface-accent border-accent text-primary" : "bg-card border-soft text-secondary-fg"}`}
-              >Single task</button>
-              <button
-                onClick={() => setComposerMode("bulk")}
-                className={`flex-1 h-9 rounded-xl text-[13px] font-medium pressable transition-colors border ${composerMode === "bulk" ? "surface-accent border-accent text-primary" : "bg-card border-soft text-secondary-fg"}`}
-              >Paste list</button>
-            </div>
-          )}
-
           <div className="mt-4 flex-1 overflow-y-auto">
-            {composerMode === "single" ? (
-              <div className="space-y-3 pb-4">
-                <div className="flex gap-2">
-                  <button
-                    onClick={() => setNewKind("task")}
-                    className={`flex-1 h-10 rounded-lg border text-[13px] font-medium pressable transition-colors ${newKind === "task" ? "surface-accent border-accent text-primary" : "bg-card border-soft text-secondary-fg"}`}
-                  >Task</button>
-                  <button
-                    onClick={() => { setNewKind("break"); if (!newTitle) setNewTitle("Break"); }}
-                    className={`flex-1 h-10 rounded-lg border text-[13px] font-medium pressable inline-flex items-center justify-center gap-1.5 transition-colors ${newKind === "break" ? "surface-accent border-accent text-primary" : "bg-card border-soft text-secondary-fg"}`}
-                  ><Coffee className="h-3.5 w-3.5" /> Break</button>
-                </div>
-                <input
-                  autoFocus
-                  value={newTitle}
-                  onChange={e => setNewTitle(e.target.value)}
-                  onKeyDown={(e) => { if (e.key === "Enter" && (newTitle.trim() || newKind === "break")) void addInlineBlock(); }}
-                  placeholder={newKind === "break" ? "Break name (optional)" : "What's the task?"}
-                  className="w-full h-11 px-3 rounded-lg bg-card border border-soft text-[14px] text-foreground placeholder:text-faint focus:outline-none focus:border-primary/50 focus:ring-2 focus:ring-primary/15"
-                />
-                <div className="rounded-2xl border border-soft bg-card px-3.5 py-3">
-                  <div className="flex items-center justify-between gap-3">
-                    <span className="text-[12px] text-secondary-fg">Duration</span>
-                    <button
-                      type="button"
-                      onClick={() => setNewDurationOpen(true)}
-                      className="h-8 px-3 rounded-xl border border-soft bg-muted/30 text-[13px] font-semibold tabular-nums pressable hover:border-primary/40"
-                    >
-                      {newDuration < 60 ? `${newDuration}m` : `${Math.floor(newDuration/60)}h${newDuration%60 ? ` ${newDuration%60}m` : ""}`}
-                    </button>
-                  </div>
-                  <Slider value={[newDuration]} min={5} max={180} step={5} onValueChange={(v) => setNewDuration(v[0] ?? 30)} className="mt-3" />
-                  <div className="mt-3 grid grid-cols-4 gap-1.5">
-                    {[15, 30, 60, 90].map((m) => (
-                      <button key={m} type="button" onClick={() => setNewDuration(m)}
-                        className={`h-8 rounded-lg border text-[11px] font-medium tabular-nums pressable ${newDuration === m ? "surface-accent border-accent text-primary" : "bg-background border-soft text-secondary-fg"}`}
-                      >{m < 60 ? `${m}m` : `${m / 60}h`}</button>
-                    ))}
-                  </div>
-                </div>
-                <Button onClick={addInlineBlock} disabled={planMutating} className="w-full h-11 rounded-lg bg-primary hover:bg-primary/92 text-primary-foreground font-medium pressable">
-                  Add
-                </Button>
-              </div>
-            ) : bulkStep === "input" ? (
+            {bulkStep === "input" ? (
               <div className="space-y-3 pb-4">
                 <p className="text-[12px] leading-relaxed text-secondary-fg">
-                  Paste a messy list — commas, bullets, mixed languages. We'll split it into editable tasks.
+                  Type or paste your tasks — one per line, bullets, commas, anything. We'll split them into blocks.
                 </p>
                 <Textarea
                   autoFocus
                   value={bulkInput}
                   onChange={(e) => setBulkInput(e.target.value)}
-                  placeholder={"поправить моб верстку скачать PDF отправить клиенту\nCall Alex / invoice client"}
+                  placeholder={"Fix mobile layout, download PDF, send to client\nCall Alex, invoice client"}
                   className="min-h-[150px] rounded-2xl border-soft bg-card text-[14px]"
                 />
-                <Button onClick={() => void prepareBulkRows()} disabled={planMutating} className="w-full h-11 rounded-2xl bg-primary hover:bg-primary/92 text-primary-foreground font-medium pressable">
+                <Button onClick={() => void prepareBulkRows()} disabled={planMutating} className="w-full h-12 rounded-2xl bg-primary hover:bg-primary/92 text-primary-foreground font-semibold pressable">
                   Continue
                 </Button>
               </div>
@@ -1331,14 +1184,6 @@ export default function DayView() {
       />
 
       <DurationPicker
-        open={newDurationOpen}
-        onClose={() => setNewDurationOpen(false)}
-        value={newDuration}
-        onChange={setNewDuration}
-        title="New block duration"
-      />
-
-      <DurationPicker
         open={bulkDurationEditIndex !== null}
         onClose={() => setBulkDurationEditIndex(null)}
         value={bulkDurationEditIndex !== null ? bulkRows[bulkDurationEditIndex]?.duration || 30 : 30}
@@ -1412,9 +1257,9 @@ export default function DayView() {
 const ActionRow = ({ onClick, icon, label, destructive }: { onClick: () => void; icon?: React.ReactNode; label: string; destructive?: boolean }) => (
   <button
     onClick={onClick}
-    className={`w-full flex items-center gap-3 px-3 py-3 rounded-lg pressable hover:bg-muted/40 text-[14px] ${destructive ? "text-destructive" : "text-foreground"}`}
+    className={`w-full flex items-center gap-3 px-3 py-3.5 rounded-xl pressable transition-colors text-[14px] ${destructive ? "text-destructive hover:bg-destructive/10" : "text-foreground hover:bg-muted/40"}`}
   >
-    {icon && <span className={destructive ? "text-destructive" : "text-secondary-fg"}>{icon}</span>}
+    {icon && <span className={`shrink-0 ${destructive ? "text-destructive/80" : "text-secondary-fg"}`}>{icon}</span>}
     <span className="flex-1 text-left">{label}</span>
   </button>
 );
