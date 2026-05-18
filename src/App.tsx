@@ -1,4 +1,4 @@
-import { lazy, Suspense, type ReactNode } from "react";
+import { lazy, Suspense, type ComponentType, type ReactNode } from "react";
 import { Capacitor } from "@capacitor/core";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { BrowserRouter, Navigate, Route, Routes, useLocation } from "react-router-dom";
@@ -24,7 +24,7 @@ import Terms from "./pages/legal/Terms";
  * error boundary screen.
  */
 const RELOAD_FLAG = "dd_chunk_reload_attempted";
-function lazyWithReload<T extends { default: React.ComponentType<any> }>(
+function lazyWithReload<T extends { default: ComponentType<any> }>(
   factory: () => Promise<T>
 ) {
   return lazy(() =>
