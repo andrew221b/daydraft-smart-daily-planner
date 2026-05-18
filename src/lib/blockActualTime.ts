@@ -14,6 +14,9 @@ export function wallMinutesFromSlotStart(planDateYmd: string, startHHMM: string,
  * When marking a block complete without a prior `actual_minutes` write:
  * - Prefer summed time on `time_entries` for this block (includes an open session up to `endMs`)
  * - Otherwise use wall time from slot start → completion, capped at 24h
+ * - If completion happens BEFORE the slot's planned start (and no tracking exists),
+ *   we have no honest signal for actual time — return null and let callers omit
+ *   the "actual" line rather than fabricating a "1m" value.
  */
 export async function resolveActualMinutesOnComplete(
   supabase: SupabaseClient,
@@ -22,7 +25,7 @@ export async function resolveActualMinutesOnComplete(
   planDateYmd: string,
   startHHMM: string,
   endMs: number,
-): Promise<number> {
+): Promise<number | null> {
   const { data: entries, error } = await supabase
     .from("time_entries")
     .select("started_at, ended_at")
@@ -38,6 +41,7 @@ export async function resolveActualMinutesOnComplete(
   const trackedMin = Math.round(trackedSec / 60);
   if (trackedMin > 0) return Math.max(1, trackedMin);
   const wall = wallMinutesFromSlotStart(planDateYmd, startHHMM, endMs);
+  if (wall <= 0) return null;
   return Math.max(1, Math.min(wall, 24 * 60));
 }
 

@@ -46,6 +46,7 @@ import { setDndBodyScrollLock } from "@/lib/dndScrollLock";
 import { AskAiSheet } from "@/components/app/AskAiSheet";
 import { Textarea } from "@/components/ui/textarea";
 import { parseBulkTasks } from "@/lib/taskSplitter";
+import { useTimeTracker } from "@/hooks/useTimeTracker";
 
 type ExBlock = Block & {
   ai_reasoning?: string | null;
@@ -103,7 +104,11 @@ export default function DayView() {
   const [askAiContext, setAskAiContext] = useState<string | null>(null);
   const blockOpLocksRef = useRef(new Set<string>());
   const [calmMode] = useCalmMode();
-  const { isPro } = useEntitlement();
+  const { isPro, overQuota, planQuotaLimit, refresh: refreshEntitlement } = useEntitlement();
+  const tracker = useTimeTracker();
+  const [trackPickerBlock, setTrackPickerBlock] = useState<ExBlock | null>(null);
+  const [newCatName, setNewCatName] = useState("");
+  const [addingCategory, setAddingCategory] = useState(false);
 
   useEffect(() => {
     if (searchParams.get("composer") === "1") setComposerOpen(true);
@@ -133,6 +138,41 @@ export default function DayView() {
     setReminderCfg(getReminderConfig(id));
     setReminderBlockId(id);
     setTappedBlock(null);
+  };
+
+  const startTrackingForBlock = async (categoryId: string, block: ExBlock) => {
+    if (tracker.active) {
+      // already running — if it's not on this block, stop and switch silently
+      if (tracker.active.block_id !== block.id) await tracker.stop();
+      else { setTrackPickerBlock(null); return; }
+    }
+    await tracker.start(categoryId, { source: "plan", blockId: block.id, note: block.title });
+    haptics.notify("success");
+    setTrackPickerBlock(null);
+    toast.success(`Tracking "${block.title}"`, {
+      action: { label: "Open", onClick: () => nav(`/focus/${block.id}`) },
+    });
+  };
+
+  const stopTrackingForBlock = async (block: ExBlock) => {
+    if (!tracker.active || tracker.active.block_id !== block.id) return;
+    await tracker.stop();
+    haptics.notify("success");
+  };
+
+  const handleAddCategoryAndStart = async () => {
+    const name = newCatName.trim();
+    if (!name || !trackPickerBlock || addingCategory) return;
+    setAddingCategory(true);
+    try {
+      const cat = await tracker.addCategory(name);
+      if (cat) {
+        setNewCatName("");
+        await startTrackingForBlock(cat.id, trackPickerBlock);
+      }
+    } finally {
+      setAddingCategory(false);
+    }
   };
   const saveReminders = (cfg: ReminderConfig) => {
     if (!reminderBlockId) return;
@@ -298,7 +338,8 @@ export default function DayView() {
           completedAtMs,
         );
       } catch {
-        resolvedActual = Math.max(1, Math.min(wallMinutesFromSlotStart(viewDate, toggled.start_time, completedAtMs), 24 * 60));
+        const wall = wallMinutesFromSlotStart(viewDate, toggled.start_time, completedAtMs);
+        resolvedActual = wall > 0 ? Math.max(1, Math.min(wall, 24 * 60)) : null;
       }
     }
 
@@ -395,6 +436,20 @@ export default function DayView() {
       toast.error("No tasks to add");
       return;
     }
+    // Free-tier gate: only block when this would consume a *new* quota day.
+    // Adding more tasks to an already-counted day stays free.
+    const wouldStartNewDay = !plan || blocks.length === 0;
+    if (overQuota && wouldStartNewDay) {
+      setComposerOpen(false);
+      setBulkStep("input");
+      setBulkRows([]);
+      toast(`Free trial limit reached — ${planQuotaLimit} planning days used`, {
+        description: "Upgrade to start a new plan. Existing days stay editable.",
+        action: { label: "Upgrade", onClick: () => setUpgradeOpen(true) },
+      });
+      setUpgradeOpen(true);
+      return;
+    }
     setPlanMutating(true);
     const snapshot = blocks;
     try {
@@ -453,10 +508,24 @@ export default function DayView() {
       await persistOrder(packed);
       await invalidatePlanCaches();
       await refetch();
+      // First task on a brand-new day burns a trial slot — refresh the counter.
+      if (wouldStartNewDay) void refreshEntitlement();
       toast.success(`Added ${clean.length} task${clean.length === 1 ? "" : "s"}`);
     } catch (e: any) {
       setBlocks(snapshot);
-      toast.error(e?.message || "Unable to add tasks");
+      const msg = e?.message || "";
+      if (msg.includes("PLAN_QUOTA_REACHED")) {
+        // DB trigger fired — the client gate let it through (legacy data, race,
+        // or simulated-Pro mismatch). Surface as the upgrade prompt.
+        void refreshEntitlement();
+        toast(`Free trial limit reached — ${planQuotaLimit} planning days used`, {
+          description: "Upgrade to start a new plan.",
+          action: { label: "Upgrade", onClick: () => setUpgradeOpen(true) },
+        });
+        setUpgradeOpen(true);
+      } else {
+        toast.error(msg || "Unable to add tasks");
+      }
     } finally {
       setPlanMutating(false);
     }
@@ -764,6 +833,7 @@ export default function DayView() {
                         block={b}
                         editing={false}
                         tourSpotlight={spotlightId === b.id}
+                        trackingActive={!!tracker.active && tracker.active.block_id === b.id}
                         onTap={(blk) => setTappedBlock(blk)}
                         onTapTime={(blk) => {
                           if (blk?.is_calendar_event) return;
@@ -773,6 +843,13 @@ export default function DayView() {
                         onToggleComplete={(blk) => {
                           if (blk?.is_calendar_event) return;
                           completeBlock(blk.id);
+                        }}
+                        onStartTrack={(blk) => {
+                          if (blk?.is_calendar_event) return;
+                          setTrackPickerBlock(blk);
+                        }}
+                        onStopTrack={(blk) => {
+                          void stopTrackingForBlock(blk);
                         }}
                       />
                     ))}
@@ -855,6 +932,13 @@ export default function DayView() {
                 </div>
               </SheetHeader>
 
+              {!tappedBlock.is_calendar_event && tappedBlock.kind === "task" && isOpenUserTask(tappedBlock as Block) && (
+                <ActionRow
+                  onClick={() => { const blk = tappedBlock; setTappedBlock(null); setTrackPickerBlock(blk); }}
+                  icon={<Play className="h-4 w-4" fill="currentColor" />}
+                  label={tracker.active && tracker.active.block_id === tappedBlock.id ? "Tracking now · stop" : "Start tracking"}
+                />
+              )}
               {!tappedBlock.is_calendar_event && (
                 <ActionRow
                   onClick={() => { setDurationEditId(tappedBlock.id); setTappedBlock(null); }}
@@ -1060,83 +1144,164 @@ export default function DayView() {
           {(() => {
             const b = blocks.find(x => x.id === reminderBlockId);
             if (!b) return null;
-            const LEAD_OPTIONS = [0, 2, 5, 10, 15, 30, 60];
-            const REPEAT_OPTIONS = [0, 1, 2, 3, 5];
-            const toggleLead = (n: number) => {
-              const has = reminderCfg.leadsMin.includes(n);
-              const next = has
-                ? reminderCfg.leadsMin.filter(x => x !== n)
-                : [...reminderCfg.leadsMin, n].sort((a, c) => c - a);
+            // Apple-Calendar–style alerts: one primary, one optional secondary.
+            // The first entry in `leadsMin` is the primary alert; a second
+            // (different) entry becomes the secondary alert.
+            const PRIMARY_OPTIONS = [0, 2, 5, 10, 15, 30, 60];
+            const SECONDARY_OPTIONS = [0, 5, 10, 15, 30, 60];
+            const sortedLeads = [...reminderCfg.leadsMin].sort((a, c) => c - a);
+            const primary = sortedLeads[0] ?? 2;
+            const secondary = sortedLeads.find((n) => n !== primary) ?? null;
+            const setAlerts = (p: number, s: number | null) => {
+              const next = s == null || s === p ? [p] : [p, s].sort((a, c) => c - a);
               saveReminders({ ...reminderCfg, leadsMin: next });
             };
+            const repeatLabel =
+              reminderCfg.repeats === 0 ? "Off" : `${reminderCfg.repeats}× every 5m`;
+            const REPEAT_OPTIONS = [0, 1, 2, 3, 5];
             return (
-              <div className="mt-4 space-y-4">
-                <div className="text-sm text-foreground font-medium">{b.title}</div>
-                <div className="text-xs text-secondary-fg">Starts at {b.start_time}</div>
-                <div className="flex items-center justify-between rounded-xl surface-card border border-soft px-3 py-2.5">
-                  <span className="text-sm">Notify me</span>
-                  <button
-                    onClick={() => saveReminders({ ...reminderCfg, enabled: !reminderCfg.enabled })}
-                    className={`px-3 h-7 rounded-full text-[11px] font-medium pressable ${reminderCfg.enabled ? "bg-primary text-primary-foreground" : "bg-muted text-secondary-fg"}`}
-                  >{reminderCfg.enabled ? "On" : "Off"}</button>
-                </div>
-                <div className={reminderCfg.enabled ? "" : "opacity-40 pointer-events-none"}>
-                  <div className="text-[11px] uppercase tracking-wider text-secondary-fg mb-2">Before start</div>
-                  <div className="flex flex-wrap gap-1.5">
-                    {LEAD_OPTIONS.map(n => {
-                      const on = reminderCfg.leadsMin.includes(n);
-                      return (
-                        <button
-                          key={n}
-                          onClick={() => toggleLead(n)}
-                          className={`h-8 px-3 rounded-full text-[12px] font-medium pressable border ${on ? "surface-accent border-accent text-primary" : "surface-soft border-soft text-secondary-fg"}`}
-                        >{n === 0 ? "At start" : `${n} min`}</button>
-                      );
-                    })}
+              <div className="mt-4 space-y-5">
+                <div>
+                  <div className="text-[15px] font-medium text-foreground">{b.title}</div>
+                  <div className="text-[12px] text-secondary-fg mt-0.5 tabular-nums">
+                    Starts at {fmtTime(b.start_time)} · {b.duration_min < 60 ? `${b.duration_min}m` : `${Math.floor(b.duration_min/60)}h${b.duration_min%60 ? ` ${b.duration_min%60}m` : ""}`}
                   </div>
-                  <div className="text-[11px] uppercase tracking-wider text-secondary-fg mt-5 mb-2">Repeat after start</div>
-                  <div className="flex flex-wrap gap-1.5">
-                    {REPEAT_OPTIONS.map(n => (
+                </div>
+
+                {/* Big primary toggle */}
+                <button
+                  type="button"
+                  onClick={() => saveReminders({ ...reminderCfg, enabled: !reminderCfg.enabled })}
+                  className={`w-full flex items-center justify-between rounded-2xl border px-4 py-3.5 pressable transition-colors ${
+                    reminderCfg.enabled
+                      ? "border-primary/35 bg-primary/[0.07] text-foreground"
+                      : "border-soft surface-card text-foreground/85"
+                  }`}
+                >
+                  <div className="text-left">
+                    <div className="text-[14px] font-medium">Remind me</div>
+                    <div className="text-[11.5px] text-secondary-fg mt-0.5">
+                      {reminderCfg.enabled ? "On — alerts fire while the app is open" : "Off — no reminders for this task"}
+                    </div>
+                  </div>
+                  <span className={`h-7 w-12 rounded-full relative transition-colors ${reminderCfg.enabled ? "bg-primary" : "bg-muted"}`}>
+                    <span
+                      className={`absolute top-0.5 h-6 w-6 rounded-full bg-background shadow-card transition-transform ${reminderCfg.enabled ? "translate-x-5" : "translate-x-0.5"}`}
+                    />
+                  </span>
+                </button>
+
+                <div className={reminderCfg.enabled ? "space-y-5" : "opacity-40 pointer-events-none space-y-5"}>
+                  {/* Primary alert — single choice */}
+                  <div>
+                    <div className="flex items-center justify-between mb-2">
+                      <div className="text-[11px] uppercase tracking-[0.14em] text-secondary-fg/85 font-medium">Alert</div>
+                      <div className="text-[11px] text-secondary-fg tabular-nums">
+                        {primary === 0 ? "at start" : `${primary} min before`}
+                      </div>
+                    </div>
+                    <div className="flex flex-wrap gap-1.5">
+                      {PRIMARY_OPTIONS.map((n) => {
+                        const on = primary === n;
+                        return (
+                          <button
+                            key={n}
+                            type="button"
+                            onClick={() => setAlerts(n, secondary && secondary !== n ? secondary : null)}
+                            className={`h-9 px-3.5 rounded-full text-[12.5px] font-medium pressable border tabular-nums ${
+                              on ? "border-primary/45 bg-primary/12 text-primary" : "border-soft surface-soft text-foreground/80 hover:text-foreground"
+                            }`}
+                          >
+                            {n === 0 ? "At start" : `${n} min`}
+                          </button>
+                        );
+                      })}
+                    </div>
+                  </div>
+
+                  {/* Optional second alert */}
+                  <div>
+                    <div className="flex items-center justify-between mb-2">
+                      <div className="text-[11px] uppercase tracking-[0.14em] text-secondary-fg/85 font-medium">Second alert (optional)</div>
+                      {secondary != null && (
+                        <button
+                          type="button"
+                          onClick={() => setAlerts(primary, null)}
+                          className="text-[11px] text-primary pressable"
+                        >Remove</button>
+                      )}
+                    </div>
+                    <div className="flex flex-wrap gap-1.5">
                       <button
-                        key={n}
-                        onClick={() => saveReminders({ ...reminderCfg, repeats: n })}
-                        className={`h-8 px-3 rounded-full text-[12px] font-medium pressable border ${reminderCfg.repeats === n ? "surface-accent border-accent text-primary" : "surface-soft border-soft text-secondary-fg"}`}
-                      >{n === 0 ? "Don't repeat" : `${n}× every 5 min`}</button>
-                    ))}
+                        type="button"
+                        onClick={() => setAlerts(primary, null)}
+                        className={`h-9 px-3.5 rounded-full text-[12.5px] font-medium pressable border ${
+                          secondary == null ? "border-primary/45 bg-primary/12 text-primary" : "border-soft surface-soft text-foreground/80"
+                        }`}
+                      >None</button>
+                      {SECONDARY_OPTIONS.filter((n) => n !== primary).map((n) => {
+                        const on = secondary === n;
+                        return (
+                          <button
+                            key={n}
+                            type="button"
+                            onClick={() => setAlerts(primary, n)}
+                            className={`h-9 px-3.5 rounded-full text-[12.5px] font-medium pressable border tabular-nums ${
+                              on ? "border-primary/45 bg-primary/12 text-primary" : "border-soft surface-soft text-foreground/80 hover:text-foreground"
+                            }`}
+                          >
+                            {n === 0 ? "At start" : `${n} min`}
+                          </button>
+                        );
+                      })}
+                    </div>
                   </div>
-                  <div className="text-[11px] uppercase tracking-wider text-secondary-fg mt-5 mb-2">Before window ends</div>
-                  <div className="flex flex-wrap gap-1.5">
-                    {[0, 2, 5, 10, 15, 30].map((n) => {
-                      const on = (reminderCfg.endAlertLeadMin ?? 5) === n;
-                      return (
-                        <button
-                          key={n}
-                          type="button"
-                          onClick={() => saveReminders({ ...reminderCfg, endAlertLeadMin: n })}
-                          className={`h-8 px-3 rounded-full text-[12px] font-medium pressable border ${on ? "surface-accent border-accent text-primary" : "surface-soft border-soft text-secondary-fg"}`}
-                        >
-                          {n === 0 ? "At end" : `${n} min`}
-                        </button>
-                      );
-                    })}
-                  </div>
-                  <div className="text-[11px] uppercase tracking-wider text-secondary-fg mt-5 mb-2">Extra pings (every 1 min after first)</div>
-                  <div className="flex flex-wrap gap-1.5">
-                    {[0, 1, 2, 3, 5].map((n) => {
-                      const on = (reminderCfg.endAlertRepeat ?? 0) === n;
-                      return (
-                        <button
-                          key={n}
-                          type="button"
-                          onClick={() => saveReminders({ ...reminderCfg, endAlertRepeat: n })}
-                          className={`h-8 px-3 rounded-full text-[12px] font-medium pressable border ${on ? "surface-accent border-accent text-primary" : "surface-soft border-soft text-secondary-fg"}`}
-                        >
-                          {n === 0 ? "None" : `${n} extra`}
-                        </button>
-                      );
-                    })}
-                  </div>
+
+                  {/* Advanced — collapsed by default */}
+                  <details className="group rounded-2xl border border-soft surface-card overflow-hidden">
+                    <summary className="flex items-center justify-between px-4 py-3 cursor-pointer pressable list-none">
+                      <div>
+                        <div className="text-[13px] font-medium text-foreground/90">Advanced</div>
+                        <div className="text-[11px] text-secondary-fg mt-0.5">
+                          End-of-slot ping in {reminderCfg.endAlertLeadMin}m · repeat after start {repeatLabel.toLowerCase()}
+                        </div>
+                      </div>
+                      <span className="text-secondary-fg/80 transition-transform group-open:rotate-90">›</span>
+                    </summary>
+                    <div className="px-4 pb-4 pt-1 space-y-4 border-t border-border/40">
+                      <div>
+                        <div className="text-[11px] uppercase tracking-[0.14em] text-secondary-fg/85 font-medium mb-2">Before window ends</div>
+                        <div className="flex flex-wrap gap-1.5">
+                          {[0, 2, 5, 10, 15, 30].map((n) => {
+                            const on = (reminderCfg.endAlertLeadMin ?? 5) === n;
+                            return (
+                              <button
+                                key={n}
+                                type="button"
+                                onClick={() => saveReminders({ ...reminderCfg, endAlertLeadMin: n })}
+                                className={`h-8 px-3 rounded-full text-[12px] font-medium pressable border tabular-nums ${on ? "border-primary/45 bg-primary/12 text-primary" : "border-soft surface-soft text-foreground/80"}`}
+                              >{n === 0 ? "At end" : `${n} min`}</button>
+                            );
+                          })}
+                        </div>
+                      </div>
+                      <div>
+                        <div className="text-[11px] uppercase tracking-[0.14em] text-secondary-fg/85 font-medium mb-2">Repeat after start</div>
+                        <div className="flex flex-wrap gap-1.5">
+                          {REPEAT_OPTIONS.map((n) => (
+                            <button
+                              key={n}
+                              type="button"
+                              onClick={() => saveReminders({ ...reminderCfg, repeats: n })}
+                              className={`h-8 px-3 rounded-full text-[12px] font-medium pressable border tabular-nums ${reminderCfg.repeats === n ? "border-primary/45 bg-primary/12 text-primary" : "border-soft surface-soft text-foreground/80"}`}
+                            >{n === 0 ? "Don't repeat" : `${n}×`}</button>
+                          ))}
+                        </div>
+                      </div>
+                    </div>
+                  </details>
                 </div>
+
                 <p className="text-[11px] text-secondary-fg leading-relaxed">
                   Reminders fire while the app is open. Saved on this device.
                 </p>
@@ -1147,6 +1312,83 @@ export default function DayView() {
       </Sheet>
       <UpgradeSheet open={upgradeOpen} onOpenChange={setUpgradeOpen} reason="feature" />
       <AskAiSheet open={askAiOpen} onOpenChange={setAskAiOpen} initialPrompt={askAiContext} />
+
+      {/* Category picker — opens when user taps "Track" on a row. */}
+      <Sheet open={!!trackPickerBlock} onOpenChange={(v) => { if (!v) { setTrackPickerBlock(null); setNewCatName(""); } }}>
+        <SheetContent side="bottom" className="rounded-t-[28px] border-border/45 bg-popover max-h-[85vh] overflow-y-auto">
+          <SheetHeader className="text-left">
+            <SheetTitle className="flex items-center gap-2 text-[16px]">
+              <Play className="h-4 w-4 text-primary" fill="currentColor" /> Track time
+            </SheetTitle>
+          </SheetHeader>
+          {trackPickerBlock && (
+            <div className="mt-4 space-y-4">
+              <div>
+                <div className="text-[14px] font-medium text-foreground leading-tight">{trackPickerBlock.title}</div>
+                <div className="text-[11.5px] text-secondary-fg mt-1">
+                  Pick a category — the timer starts now and links time to this task.
+                </div>
+              </div>
+
+              {tracker.active && tracker.active.block_id !== trackPickerBlock.id && (
+                <div className="rounded-[12px] border border-amber-500/30 bg-amber-500/[0.08] px-3 py-2 text-[12px] text-foreground/85">
+                  A timer is already running on another task. Starting will stop the previous one.
+                </div>
+              )}
+
+              {tracker.categories.length > 0 ? (
+                <div className="grid grid-cols-2 gap-2">
+                  {tracker.categories.map((c) => (
+                    <button
+                      key={c.id}
+                      type="button"
+                      onClick={() => void startTrackingForBlock(c.id, trackPickerBlock)}
+                      className="flex items-center gap-2.5 rounded-2xl border border-soft surface-card px-3 py-3 pressable hover:border-primary/40 transition-colors text-left"
+                    >
+                      <span
+                        className="h-3 w-3 rounded-full shrink-0"
+                        style={{ background: c.color }}
+                        aria-hidden
+                      />
+                      <span className="text-[13px] font-medium text-foreground truncate">{c.name}</span>
+                    </button>
+                  ))}
+                </div>
+              ) : (
+                <p className="text-[12px] text-secondary-fg">
+                  No categories yet — create one to start tracking.
+                </p>
+              )}
+
+              <div>
+                <div className="text-[10.5px] uppercase tracking-[0.14em] text-secondary-fg/85 font-medium mb-1.5">
+                  New category
+                </div>
+                <div className="flex items-center gap-2">
+                  <input
+                    type="text"
+                    value={newCatName}
+                    onChange={(e) => setNewCatName(e.target.value)}
+                    onKeyDown={(e) => {
+                      if (e.key === "Enter") { e.preventDefault(); void handleAddCategoryAndStart(); }
+                    }}
+                    placeholder="e.g. Deep work, Client A, Chores"
+                    className="flex-1 h-11 rounded-xl border border-soft bg-background/40 px-3 text-[14px] text-foreground placeholder:text-secondary-fg/55 focus:outline-none focus:border-primary/45 focus:ring-2 focus:ring-primary/15"
+                  />
+                  <Button
+                    type="button"
+                    onClick={() => void handleAddCategoryAndStart()}
+                    disabled={!newCatName.trim() || addingCategory}
+                    className="h-11 rounded-xl bg-primary hover:bg-primary/92 text-primary-foreground text-[13px] font-semibold px-4 pressable"
+                  >
+                    Start
+                  </Button>
+                </div>
+              </div>
+            </div>
+          )}
+        </SheetContent>
+      </Sheet>
 
       <DurationPicker
         open={!!durationEditId}

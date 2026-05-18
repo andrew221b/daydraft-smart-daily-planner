@@ -1,10 +1,10 @@
 import { useSortable } from "@dnd-kit/sortable";
 import { CSS } from "@dnd-kit/utilities";
 import { Block, fmtTime, inferScheduleBlockType, isOpenUserTask, isUserTaskDone } from "@/lib/daydraft";
-import { Check, Calendar, Layers, GripVertical } from "lucide-react";
+import { Check, Calendar, Layers, GripVertical, Sparkles, Play, Square } from "lucide-react";
 
 export const SortableBlock = ({
-  block, editing, onTap, onTapTime, onToggleComplete, tourSpotlight,
+  block, editing, onTap, onTapTime, onToggleComplete, onStartTrack, onStopTrack, trackingActive, tourSpotlight,
 }: {
   block: Block & {
     ai_reasoning?: string | null;
@@ -22,6 +22,10 @@ export const SortableBlock = ({
   onTap?: (b: any) => void;
   onTapTime?: (b: any) => void;
   onToggleComplete?: (b: any) => void;
+  onStartTrack?: (b: any) => void;
+  onStopTrack?: (b: any) => void;
+  /** True if the live timer is currently running on this block. */
+  trackingActive?: boolean;
   /** First visible row — tour hotspot only on one element. */
   tourSpotlight?: boolean;
 }) => {
@@ -106,13 +110,14 @@ export const SortableBlock = ({
             type="button"
             onPointerDown={(e) => e.stopPropagation()}
             onClick={(e) => { e.stopPropagation(); onTapTime?.(block); }}
-            className="shrink-0 h-7 rounded-full border border-border/40 bg-background/50 px-2.5 inline-flex items-center justify-center text-foreground/75 text-[11px] font-mono-sf tabular-nums pressable hover:border-primary/45 hover:text-foreground transition-colors"
+            className="shrink-0 h-6 px-1.5 inline-flex items-center justify-center text-secondary-fg/85 text-[10.5px] font-mono-sf tabular-nums pressable hover:text-foreground transition-colors rounded-md"
             aria-label="Change start time"
+            title="Change start time"
           >
             {fmtTime(block.start_time)}
           </button>
         ) : (
-          <div className="shrink-0 h-7 rounded-full border border-border/35 bg-background/40 px-2.5 inline-flex items-center justify-center text-secondary-fg/75 text-[11px] font-mono-sf tabular-nums">
+          <div className="shrink-0 h-6 px-1.5 inline-flex items-center justify-center text-secondary-fg/70 text-[10.5px] font-mono-sf tabular-nums">
             {fmtTime(block.start_time)}
           </div>
         )}
@@ -162,11 +167,13 @@ export const SortableBlock = ({
                   <span className="text-faint"> · {fmtMin(estimatedMin)} est</span>
                 )}
               </>
+            ) : isUserTaskDone(block) ? (
+              <span className="text-faint">{fmtMin(estimatedMin)} planned</span>
             ) : (
               <span className="text-faint">{dur}</span>
             )}
           </div>
-          {isUserTaskDone(block) && actualMin != null && estimatedMin > 0 && (
+          {isUserTaskDone(block) && actualMin != null && estimatedMin > 0 && actualMin >= 2 && (
             <div className={`mt-0.5 text-[10px] tabular-nums ${actualToneClass}`}>
               {actualDeltaRatio > 0.15
                 ? `${Math.round(actualDeltaRatio * 100)}% longer than planned`
@@ -175,7 +182,38 @@ export const SortableBlock = ({
                   : "On track vs plan"}
             </div>
           )}
+          {trackingActive && (
+            <div className="mt-1 inline-flex items-center gap-1.5 rounded-full bg-success/15 text-success border border-success/25 px-2 py-0.5 text-[10.5px] font-medium leading-none">
+              <span className="h-1.5 w-1.5 rounded-full bg-success animate-pulse" />
+              Tracking now
+            </div>
+          )}
         </div>
+        {onStartTrack && !isCal && block.kind === "task" && isOpenUserTask(block) && (
+          trackingActive ? (
+            <button
+              type="button"
+              onPointerDown={(e) => e.stopPropagation()}
+              onClick={(e) => { e.stopPropagation(); onStopTrack?.(block); }}
+              className="shrink-0 h-8 rounded-full bg-success/15 text-success border border-success/30 inline-flex items-center justify-center gap-1 px-2.5 text-[11px] font-medium pressable hover:bg-success/22 transition-colors"
+              aria-label="Stop tracking"
+              title="Stop tracking"
+            >
+              <Square className="h-3 w-3" fill="currentColor" /> Stop
+            </button>
+          ) : (
+            <button
+              type="button"
+              onPointerDown={(e) => e.stopPropagation()}
+              onClick={(e) => { e.stopPropagation(); onStartTrack?.(block); }}
+              className="shrink-0 h-8 rounded-full border border-primary/35 bg-primary/10 text-primary inline-flex items-center justify-center gap-1 px-2.5 text-[11px] font-medium pressable hover:bg-primary/15 hover:border-primary/55 transition-colors"
+              aria-label="Start tracking this task"
+              title="Track time on this task"
+            >
+              <Play className="h-3 w-3" fill="currentColor" /> Track
+            </button>
+          )
+        )}
         {block.kind === "task" && !isCal && block.resolution === "skipped" ? (
           <div className="h-6 w-6 rounded-full border border-amber-500/40 bg-amber-500/10 shrink-0" title="Skipped" aria-hidden />
         ) : block.kind === "task" && !isCal && block.resolution === "missed" ? (

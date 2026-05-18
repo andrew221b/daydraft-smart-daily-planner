@@ -71,41 +71,41 @@ body.dd-dnd-scroll-lock {
     --hero-glass-saturate: 1.2;
   }
 
-  /* Light mode kept as a thin override (most users stay dark) */
+  /* Light mode — premium "paper" palette with measurable elevation steps. */
   :root.light {
-    --background: 210 32% 98%;
-    --foreground: 222 34% 16%;
-    --surface: 210 30% 96%;
-    --surface-elevated: 0 0% 100%;
+    --background: 215 32% 96%;          /* soft off-white page */
+    --foreground: 224 38% 12%;          /* near-black ink (≥ 14:1 on bg) */
+    --surface: 0 0% 100%;               /* card base sits clearly above bg */
+    --surface-elevated: 210 38% 99%;    /* lifted card / popover */
     --card: 0 0% 100%;
-    --card-foreground: 222 34% 16%;
+    --card-foreground: 224 38% 12%;
     --popover: 0 0% 100%;
-    --popover-foreground: 222 34% 16%;
-    --primary: 192 92% 43%;
+    --popover-foreground: 224 38% 12%;
+    --primary: 200 96% 38%;             /* deeper sapphire for AA on white */
     --primary-foreground: 0 0% 100%;
-    --primary-glow: 262 82% 61%;
-    --secondary: 210 25% 93%;
-    --secondary-foreground: 222 24% 20%;
-    --muted: 210 24% 93%;
-    --muted-foreground: 220 14% 40%;
-    --accent: 192 92% 43%;
+    --primary-glow: 262 78% 56%;
+    --secondary: 214 30% 92%;
+    --secondary-foreground: 224 30% 18%;
+    --muted: 214 26% 91%;
+    --muted-foreground: 222 18% 34%;    /* secondary text ≥ 6.8:1 on bg */
+    --accent: 200 96% 38%;
     --accent-foreground: 0 0% 100%;
-    --success: 154 52% 36%;
+    --success: 156 64% 30%;
     --success-foreground: 0 0% 100%;
-    --destructive: 3 74% 48%;
+    --destructive: 3 78% 44%;
     --destructive-foreground: 0 0% 100%;
-    --border: 214 25% 82%;
-    --input: 214 24% 84%;
-    --ring: 192 92% 43%;
-    --type-deep: 192 92% 43%;
-    --type-comm: 30 78% 48%;
-    --type-routine: 223 18% 48%;
-    --shadow-card: 0 1px 0 rgba(255,255,255,0.82), 0 8px 24px rgba(16,24,40,0.06);
-    --shadow-card-inset: inset 0 1px 0 rgba(255,255,255,0.92);
-    --shadow-elevated: 0 14px 36px rgba(16,24,40,0.09), 0 4px 14px rgba(16,24,40,0.07);
-    --shadow-tab: 0 10px 32px -14px rgba(16,24,40,0.16), inset 0 1px 0 rgba(255,255,255,0.96);
-    --gradient-glow: radial-gradient(56% 40% at 50% -6%, hsl(var(--primary) / 0.12), transparent 72%);
-    --gradient-floor: radial-gradient(ellipse 72% 44% at 50% 100%, hsl(var(--primary-glow) / 0.07), transparent 70%);
+    --border: 215 22% 74%;              /* visible hairline */
+    --input: 215 22% 74%;
+    --ring: 200 96% 38%;
+    --type-deep: 200 96% 38%;
+    --type-comm: 24 84% 42%;
+    --type-routine: 230 22% 40%;
+    --shadow-card: 0 1px 0 rgba(255,255,255,0.85), 0 8px 22px -10px rgba(18,28,56,0.16), 0 1px 3px rgba(18,28,56,0.06);
+    --shadow-card-inset: inset 0 1px 0 rgba(255,255,255,0.95);
+    --shadow-elevated: 0 16px 38px -14px rgba(18,28,56,0.22), 0 4px 14px -4px rgba(18,28,56,0.12);
+    --shadow-tab: 0 10px 32px -14px rgba(18,28,56,0.22), inset 0 1px 0 rgba(255,255,255,0.96);
+    --gradient-glow: radial-gradient(56% 40% at 50% -6%, hsl(var(--primary) / 0.14), transparent 70%);
+    --gradient-floor: radial-gradient(ellipse 72% 44% at 50% 100%, hsl(var(--primary-glow) / 0.08), transparent 70%);
     --glass-blur: 12px;
     --glass-saturate: 1.05;
     --hero-glass-blur: 14px;
@@ -370,26 +370,33 @@ body.dd-dnd-scroll-lock {
 
   :root.light .type-meta,
   :root.light .eyebrow {
-    color: hsl(var(--muted-foreground) / 0.9);
+    color: hsl(var(--muted-foreground) / 0.95);
+  }
+  /* Boost the very-faint text token so it stays readable on white. */
+  :root.light .text-faint {
+    color: hsl(var(--muted-foreground) / 0.82);
+  }
+  :root.light .text-subtle {
+    color: hsl(var(--muted-foreground) / 0.94);
   }
 
   :root.light .surface-soft {
-    background-color: hsl(var(--surface) / 0.72);
+    background-color: hsl(var(--secondary) / 0.6);
   }
   :root.light .surface-card {
-    background-color: hsl(var(--surface-elevated) / 0.84);
+    background-color: hsl(var(--surface));
   }
   :root.light .surface-accent {
-    background-color: hsl(var(--primary) / 0.1);
+    background-color: hsl(var(--primary) / 0.08);
   }
   :root.light .border-soft {
-    border-color: hsl(var(--border) / 0.72);
+    border-color: hsl(var(--border) / 0.82);
   }
   :root.light .border-strong {
-    border-color: hsl(var(--border) / 0.92);
+    border-color: hsl(var(--border));
   }
   :root.light .border-accent {
-    border-color: hsl(var(--primary) / 0.34);
+    border-color: hsl(var(--primary) / 0.38);
   }
 
   /** Ambient layers behind the app column (Shell) */
@@ -676,27 +683,29 @@ body.dd-dnd-scroll-lock {
 
   :root.light:not([data-visual-mode="neon"]) .hero-glass,
   :root.light:not([data-visual-mode="neon"]) .app-card {
-    border-color: hsl(var(--border) / 0.78);
+    border-color: hsl(var(--border) / 0.88);
     box-shadow:
       0 0 0 1px rgba(255,255,255,0.65),
-      0 12px 30px -18px rgba(16,24,40,0.2),
+      0 14px 32px -20px rgba(16,24,40,0.22),
       var(--shadow-card),
       var(--shadow-card-inset);
   }
   :root.light:not([data-visual-mode="neon"]) .hero-glass {
     background:
-      radial-gradient(110% 110% at 0% 0%, hsl(var(--primary) / 0.08) 0%, transparent 58%),
-      radial-gradient(120% 120% at 100% 0%, hsl(var(--primary-glow) / 0.07) 0%, transparent 62%),
-      linear-gradient(160deg, hsl(var(--surface-elevated) / 0.98) 0%, hsl(var(--surface) / 0.9) 100%);
+      radial-gradient(110% 110% at 0% 0%, hsl(var(--primary) / 0.09) 0%, transparent 58%),
+      radial-gradient(120% 120% at 100% 0%, hsl(var(--primary-glow) / 0.08) 0%, transparent 62%),
+      linear-gradient(160deg, hsl(var(--surface)) 0%, hsl(var(--surface-elevated)) 100%);
   }
   :root.light:not([data-visual-mode="neon"]) .app-card {
     background:
       radial-gradient(120% 130% at 0% 0%, hsl(var(--primary) / 0.04) 0%, transparent 56%),
-      linear-gradient(168deg, hsl(var(--surface-elevated) / 0.94) 0%, hsl(var(--surface) / 0.86) 100%);
+      linear-gradient(168deg, hsl(var(--surface)) 0%, hsl(var(--surface-elevated)) 100%);
   }
   :root.light:not([data-visual-mode="neon"]) .bg-primary {
-    box-shadow: 0 1px 0 rgba(255,255,255,0.42), 0 8px 20px -12px hsl(var(--primary) / 0.45);
+    box-shadow: 0 1px 0 rgba(255,255,255,0.42), 0 8px 20px -12px hsl(var(--primary) / 0.55);
   }
+  /* Make divider/dotted borders carry their weight on white. */
+  :root.light .divide-border\/50 > * + * { border-color: hsl(var(--border) / 0.85); }
 }
 
 @media (prefers-reduced-data: reduce) {

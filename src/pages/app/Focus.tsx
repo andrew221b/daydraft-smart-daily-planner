@@ -289,7 +289,7 @@ export default function Focus() {
             completedAtMs,
           );
         } catch {
-          patch.actual_minutes = 1;
+          patch.actual_minutes = null;
         }
       }
     } else {
@@ -307,11 +307,11 @@ export default function Focus() {
               planDate || todayDateStr(),
               block.start_time,
               completedAtMs,
-            ).catch(() => 1));
+            ).catch(() => null));
         }
       } catch {
         const fromArm = minutesFromFocusArmSeconds(actualSec);
-        patch.actual_minutes = fromArm ?? 1;
+        patch.actual_minutes = fromArm ?? null;
       }
     }
     const { error } = await supabase.from("blocks").update(patch as never).eq("id", block.id);

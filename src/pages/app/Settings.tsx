@@ -15,7 +15,7 @@ import { isSimulateProUiAllowed, writeDevSimulatePro } from "@/lib/devEntitlemen
 import { Sheet, SheetContent, SheetHeader, SheetTitle, SheetDescription } from "@/components/ui/sheet";
 import { UpgradeSheet } from "@/components/app/UpgradeSheet";
 import { ProFeatureHighlights } from "@/components/app/ProFeatureHighlights";
-import { enablePush, disablePush, pushSupported } from "@/lib/push";
+import { enablePush, disablePush, pushAvailability, pushAvailabilityCopy } from "@/lib/push";
 import { useTour, TOUR_TODAY } from "@/components/app/Tour";
 import { VisualMode, useVisualMode } from "@/lib/visualMode";
 
@@ -32,6 +32,8 @@ export default function Settings() {
   const [proSheetOpen, setProSheetOpen] = useState(false);
   const [calConnecting, setCalConnecting] = useState(false);
   const [visualMode, setVisualMode] = useVisualMode();
+  const [pushState] = useState(() => pushAvailability());
+  const pushReady = pushState === "ok";
   useEffect(() => { if (profile) setName(profile.display_name || ""); }, [profile?.id]);
 
   useEffect(() => {
@@ -73,9 +75,13 @@ export default function Settings() {
 
   const togglePush = async (v: boolean) => {
     if (!user) return;
+    if (v && !pushReady) {
+      // Don't toast — the inline helper under the row already explains why and
+      // what to do. Toasting on every tap is noise.
+      return;
+    }
     try {
       if (v) {
-        if (!pushSupported()) { toast.error("Notifications not supported on this device"); return; }
         await enablePush(user.id);
         update({ notifications_enabled: true });
         toast.success("Notifications enabled");
@@ -181,12 +187,35 @@ export default function Settings() {
           {/* 4. Notifications + Calendar — connected channels */}
           <Section title="Connections">
             <div className="rounded-[14px] border border-soft surface-card backdrop-blur-sm divide-y divide-border/50 overflow-hidden">
-              <div className="flex items-center justify-between px-4 py-3">
-                <div className="flex items-center gap-3">
-                  <Bell className="h-4 w-4 text-secondary-fg" />
-                  <div className="text-[14px]">Daily nudges</div>
+              <div className="px-4 py-3">
+                <div className="flex items-center justify-between">
+                  <div className="flex items-center gap-3 min-w-0">
+                    <Bell className={`h-4 w-4 ${pushReady ? "text-secondary-fg" : "text-secondary-fg/55"}`} />
+                    <div className="min-w-0">
+                      <div className={`text-[14px] ${pushReady ? "" : "text-foreground/70"}`}>Daily nudges</div>
+                      {pushReady && (
+                        <div className="text-[11px] text-secondary-fg/75 mt-0.5">
+                          Gentle pings as your day unfolds.
+                        </div>
+                      )}
+                    </div>
+                  </div>
+                  <Switch
+                    checked={pushReady && !!profile?.notifications_enabled}
+                    disabled={!pushReady}
+                    onCheckedChange={togglePush}
+                  />
                 </div>
-                <Switch checked={!!profile?.notifications_enabled} onCheckedChange={togglePush} />
+                {!pushReady && (
+                  <div className="mt-2.5 rounded-[10px] border border-primary/20 bg-primary/[0.06] px-3 py-2.5">
+                    <div className="text-[12px] font-medium text-foreground/90 leading-snug">
+                      {pushAvailabilityCopy[pushState].title}
+                    </div>
+                    <p className="text-[11.5px] text-secondary-fg mt-1 leading-relaxed">
+                      {pushAvailabilityCopy[pushState].body}
+                    </p>
+                  </div>
+                )}
               </div>
               <button onClick={connectCalendar}
                 className="w-full flex items-center justify-between px-4 py-3 pressable hover:bg-surface-elevated">
@@ -291,12 +320,19 @@ const ProCard = ({ entitlement, isPro, subscriptionPro, devSimulatePro, planQuot
     : tier === "pro" ? "Pro"
     : tier === "trial" ? `Trial · ${entitlement?.daysLeftInTrial}d left`
     : "Free";
-  const lowFreeDays = !isPro && Number.isFinite(planQuotaRemaining) && planQuotaRemaining <= 2;
+  const isOverQuota = !isPro && Number.isFinite(planQuotaRemaining) && planQuotaRemaining <= 0;
+  const lowFreeDays = !isPro && !isOverQuota && Number.isFinite(planQuotaRemaining) && planQuotaRemaining <= 2;
+  // Visual cap: never show "7 of 5" — the over-quota state has its own message below.
+  const displayUsed = !isPro && Number.isFinite(planQuotaLimit) ? Math.min(planQuotaUsed, planQuotaLimit) : planQuotaUsed;
 
   return (
     <div
       className={`rounded-[18px] border backdrop-blur-sm p-4 shadow-card surface-accent ${
-        lowFreeDays ? "border-primary/50 ring-1 ring-primary/15" : "border-accent"
+        isOverQuota
+          ? "border-primary/60 ring-1 ring-primary/20"
+          : lowFreeDays
+            ? "border-primary/50 ring-1 ring-primary/15"
+            : "border-accent"
       }`}
     >
       <div className="flex items-center gap-1.5">
@@ -304,16 +340,20 @@ const ProCard = ({ entitlement, isPro, subscriptionPro, devSimulatePro, planQuot
         <span className="text-[10px] font-semibold text-primary uppercase tracking-[0.14em]">{badge}</span>
       </div>
       <div className="text-[15px] font-display font-semibold mt-2 text-foreground leading-tight">
-        {isPro ? "You're on Pro" : "Make planning unlimited"}
+        {isPro ? "You're on Pro" : isOverQuota ? "Free trial used up" : "Make planning unlimited"}
       </div>
       <div className="text-[13px] mt-1 text-secondary-fg leading-relaxed">
         {isPro
           ? "Calendar sync, pattern-aware AI, and every premium feature stay on."
-          : `${planQuotaUsed} of ${planQuotaLimit} free planning days used — then AI planning pauses until you upgrade.`}
+          : isOverQuota
+            ? `You've used all ${planQuotaLimit} free planning days. New plans are paused — upgrade to keep going.`
+            : `${displayUsed} of ${planQuotaLimit} free planning days used — then new plans are paused until you upgrade.`}
       </div>
       {!isPro && lowFreeDays && (
         <p className="text-[12px] font-medium text-primary mt-2 leading-snug">
-          Only {planQuotaRemaining} free planning day{planQuotaRemaining === 1 ? "" : "s"} left. Upgrade so a busy week never blocks the next.
+          {planQuotaRemaining === 1
+            ? "Just 1 free planning day left. Upgrade so a busy week never blocks the next."
+            : `Only ${planQuotaRemaining} free planning days left. Upgrade so a busy week never blocks the next.`}
         </p>
       )}
       {!isPro && onOpenDetails && (
@@ -326,9 +366,9 @@ const ProCard = ({ entitlement, isPro, subscriptionPro, devSimulatePro, planQuot
           What&apos;s included · Full list
         </button>
       )}
-      {!isPro && (
+      {!isPro && !isOverQuota && (
         <p className="text-[11px] text-secondary-fg mt-2.5 leading-relaxed">
-          Each calendar day you run <strong className="text-foreground font-medium">Generate plan</strong> counts once. Re-planning the same day is free.
+          Each calendar day with tasks counts once. Re-planning or adding more tasks to the same day is free.
         </p>
       )}
       {!isPro && (

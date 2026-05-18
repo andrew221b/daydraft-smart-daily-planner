@@ -55,8 +55,8 @@ export const useEntitlement = () => {
     });
 
     // Free trial = 5 distinct planning days, lifetime (not rolling).
-    // Only days that actually have schedule blocks count — empty plan rows
-    // (failed generation, partial writes) must not burn the trial.
+    // ANY day with tasks counts — whether AI-generated or manually added.
+    // Empty plan rows (failed generation, no blocks) don't burn the trial.
     const { data: plans } = await supabase
       .from("plans")
       .select("date, blocks(id)")
