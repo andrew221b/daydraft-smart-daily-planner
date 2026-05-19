@@ -466,7 +466,7 @@ export default function DayView() {
     setBulkStep("review");
   };
 
-  const addBulkRows = async (rows: { title: string; duration: number }[]) => {
+  const addBulkRows = async (rows: { title: string; duration: number; start_time?: string }[]) => {
     if (planMutating || !user) return;
     const clean = rows.filter((t) => t.title.trim());
     if (!clean.length) {
