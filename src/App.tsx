@@ -77,6 +77,14 @@ const queryClient = new QueryClient({
   },
 });
 
+// Sticky onboarded flag written by useProfile. Read here as a fallback so a
+// missing or transiently-failed profile fetch for a previously-onboarded user
+// cannot bounce them back to /onboarding (the source of the redirect loop).
+const readOnboardedFlag = (uid: string | undefined): boolean => {
+  if (!uid) return false;
+  try { return localStorage.getItem(`dd_onboarded_uid_${uid}`) === "1"; } catch { return false; }
+};
+
 const RequireAuth = ({ children }: { children: JSX.Element }) => {
   const { user, loading } = useAuth();
   const { profile, loading: pLoading } = useProfile();
@@ -85,8 +93,11 @@ const RequireAuth = ({ children }: { children: JSX.Element }) => {
   if (!user) return <Navigate to="/auth" replace state={{ from: loc }} />;
   const onOnboardingRoute = loc.pathname === "/onboarding" || loc.pathname === "/onboarding/";
   // Treat unknown profile state as "onboarding not resolved" to avoid letting
-  // authenticated users into app routes before profile/onboarding is known.
-  const onboardingResolved = profile?.onboarded === true;
+  // authenticated users into app routes before profile/onboarding is known —
+  // unless this uid was already flagged as onboarded locally, in which case
+  // trust the flag and skip the bounce.
+  const onboardingResolved =
+    profile?.onboarded === true || readOnboardedFlag(user.id);
   if (!onboardingResolved && !onOnboardingRoute) return <Navigate to="/onboarding" replace />;
   if (onboardingResolved && onOnboardingRoute) return <Navigate to="/home" replace />;
   return children;

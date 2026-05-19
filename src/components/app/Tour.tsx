@@ -107,9 +107,13 @@ export function TourProvider({ children }: { children: ReactNode }) {
 
   const start: Ctx["start"] = useCallback((f, opts) => {
     if (!opts?.force && profile?.tour_seen?.[f.key]) return;
+    // Idempotent: if the same flow is already running (started by a previous
+    // call), don't reset stepIndex back to 0. Without this, the auto-start
+    // effect in consumers (Home) could rewind the user every time it re-ran.
+    if (flow?.key === f.key && !opts?.force) return;
     setFlow(f);
     setStepIndex(0);
-  }, [profile?.tour_seen]);
+  }, [profile?.tour_seen, flow?.key]);
 
   const resetAll = useCallback(async () => {
     await update({ tour_seen: {} } as any);

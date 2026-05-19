@@ -32,8 +32,14 @@ export default function Auth() {
     // Only send the user straight to /today when we're confident they're
     // already onboarded. For fresh sign-ups the profile row might not have
     // propagated yet (trigger race or Lovable preview slowness) — onboarding
-    // upserts on commit, so routing there first is the safe default.
-    const onboarded = profile?.onboarded === true;
+    // upserts on commit, so routing there first is the safe default. The
+    // sticky localStorage flag also counts as onboarded so a flaky profile
+    // fetch can't re-route a returning user through onboarding.
+    let stickyOnboarded = false;
+    try {
+      stickyOnboarded = localStorage.getItem(`dd_onboarded_uid_${user.id}`) === "1";
+    } catch { /* ignore */ }
+    const onboarded = profile?.onboarded === true || stickyOnboarded;
     nav(onboarded ? "/today" : "/onboarding", { replace: true });
   }, [loading, nav, profile?.onboarded, profileLoading, user]);
 

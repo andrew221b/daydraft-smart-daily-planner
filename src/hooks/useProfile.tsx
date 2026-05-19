@@ -1,4 +1,4 @@
-import { createContext, useContext, useEffect, useState, ReactNode } from "react";
+import { createContext, useContext, useEffect, useMemo, useRef, useState, ReactNode } from "react";
 import { supabase } from "@/integrations/supabase/client";
 import { useAuth } from "./useAuth";
 
@@ -34,10 +34,28 @@ type ProfileCtx = {
 
 const Ctx = createContext<ProfileCtx | null>(null);
 
+// Once a user has been seen as onboarded, persist the fact so a flaky profile
+// fetch (or a partial-row server response from `.update().select()` that omits
+// `onboarded`) can never bounce them back through onboarding. The flag is
+// per-user so signing into a different unonboarded account still routes
+// correctly.
+const ONBOARDED_FLAG_PREFIX = "dd_onboarded_uid_";
+const readOnboardedFlag = (uid: string): boolean => {
+  try { return localStorage.getItem(`${ONBOARDED_FLAG_PREFIX}${uid}`) === "1"; } catch { return false; }
+};
+const writeOnboardedFlag = (uid: string): void => {
+  try { localStorage.setItem(`${ONBOARDED_FLAG_PREFIX}${uid}`, "1"); } catch { /* ignore */ }
+};
+
 export function ProfileProvider({ children }: { children: ReactNode }) {
   const { user } = useAuth();
   const [profile, setProfile] = useState<Profile | null>(null);
   const [loading, setLoading] = useState(true);
+  // In-session sticky onboarded tracker. Combined with the localStorage flag
+  // above this acts as a one-way ratchet: once the user has been observed as
+  // onboarded, we never report them as un-onboarded again for this uid until
+  // they sign out.
+  const onboardedSessionRef = useRef<Set<string>>(new Set());
 
   // Hard cap so the app never sits on the loader forever. If Supabase is
   // slow / unreachable (Lovable preview's iframe, flaky network, blocked
@@ -92,6 +110,16 @@ export function ProfileProvider({ children }: { children: ReactNode }) {
   };
   useEffect(() => { refresh(); }, [user?.id]);
 
+  // Record the sticky flag whenever we see an onboarded profile, so that
+  // a later partial response from `.update().select()` (which may omit
+  // `onboarded` or return a stale snapshot) can't roll the user back.
+  useEffect(() => {
+    if (user?.id && profile?.onboarded === true) {
+      onboardedSessionRef.current.add(user.id);
+      writeOnboardedFlag(user.id);
+    }
+  }, [user?.id, profile?.onboarded]);
+
   const update = async (patch: Partial<Profile>) => {
     if (!user) return;
     const { data, error } = await supabase
@@ -101,21 +129,37 @@ export function ProfileProvider({ children }: { children: ReactNode }) {
       .select()
       .maybeSingle();
     if (error) throw error;
-    // Always reconcile local state. Some environments (RLS edge cases, native
-    // WebView replays) return null from .maybeSingle() on UPDATE even when the
-    // row was written. Without merging the patch, callers like Onboarding
-    // would navigate to /home while the local `onboarded` flag was still false,
-    // and RequireAuth would bounce them back to /onboarding in a loop.
-    setProfile((prev) =>
-      data
-        ? (data as Profile)
-        : prev
-          ? ({ ...prev, ...(patch as object) } as Profile)
-          : ({ id: user.id, ...(patch as object) } as Profile),
-    );
+    // Merge: patch always wins over the server snapshot. Without this, a
+    // tour_seen / notifications_enabled update could overwrite the just-set
+    // `onboarded: true` with a stale `false` from the returned row and
+    // bounce the user back to /onboarding mid-session.
+    setProfile((prev) => {
+      const base = (data as Profile | null) ?? prev ?? ({ id: user.id } as Profile);
+      return { ...(base as Profile), ...(patch as object) } as Profile;
+    });
   };
 
-  return <Ctx.Provider value={{ profile, loading, refresh, update }}>{children}</Ctx.Provider>;
+  // Expose a profile that respects the sticky onboarded ratchet. Reading
+  // localStorage on every render is cheap and keeps the value stable across
+  // unmounts (HMR, refresh after sign-in).
+  const stickyProfile = useMemo<Profile | null>(() => {
+    if (!profile || !user?.id) return profile;
+    if (profile.onboarded === true) return profile;
+    const sticky =
+      onboardedSessionRef.current.has(user.id) || readOnboardedFlag(user.id);
+    return sticky ? { ...profile, onboarded: true } : profile;
+  }, [profile, user?.id]);
+
+  // Hydrate the session ref from localStorage when the active user changes,
+  // so the sticky ratchet survives a fresh app load (refresh, native cold
+  // start) without waiting for a successful profile fetch to re-confirm.
+  useEffect(() => {
+    if (user?.id && readOnboardedFlag(user.id)) {
+      onboardedSessionRef.current.add(user.id);
+    }
+  }, [user?.id]);
+
+  return <Ctx.Provider value={{ profile: stickyProfile, loading, refresh, update }}>{children}</Ctx.Provider>;
 }
 
 export const useProfile = (): ProfileCtx => {
