@@ -72,7 +72,9 @@ export const SortableBlock = ({
       ref={setNodeRef}
       style={style}
       data-tour={tourSpotlight ? "dayview-block" : undefined}
-      className={`group cursor-pointer tappable app-card px-3 py-3.5 shadow-none ${
+      className={`group cursor-pointer tappable app-card rounded-[20px] px-3.5 py-3.5 shadow-sm ${
+        trackingActive ? "ring-[1.5px] ring-primary/40 bg-primary/[0.04] shadow-[0_0_32px_hsl(var(--primary)/0.12)]" : ""
+      } ${
         isUserTaskDone(block) && block.kind === "task" ? "opacity-80" : ""
       } ${
         !isCal && block.overlap_ok ? "border-l-[3px] border-l-primary/45" : ""
@@ -227,7 +229,7 @@ export const SortableBlock = ({
               e.stopPropagation();
               onToggleComplete?.(block);
             }}
-            className="h-8 w-8 rounded-full bg-success flex items-center justify-center shrink-0 pressable shadow-[0_2px_8px_-2px_hsl(var(--success)/0.5)]"
+            className="h-8 w-8 rounded-full bg-success flex items-center justify-center shrink-0 pressable shadow-[0_4px_14px_-2px_hsl(var(--success)/0.55)] ring-1 ring-white/20"
             aria-label="Mark as not done"
           >
             <Check className="h-4 w-4 text-success-foreground" strokeWidth={3} />
@@ -241,7 +243,7 @@ export const SortableBlock = ({
               e.stopPropagation();
               onToggleComplete?.(block);
             }}
-            className="h-8 w-8 rounded-full border-[1.5px] border-border/50 shrink-0 pressable hover:border-primary/50 hover:bg-primary/6 transition-colors"
+            className="h-8 w-8 rounded-full border-[1.5px] border-border/60 shrink-0 pressable hover:border-primary/60 hover:bg-primary/10 shadow-[inset_0_2px_6px_rgba(0,0,0,0.06)] transition-all"
             aria-label="Mark done"
           />
         )}

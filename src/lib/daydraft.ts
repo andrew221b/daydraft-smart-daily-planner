@@ -32,12 +32,12 @@ export interface Block {
   resolved_at?: string | null;
 }
 
-export const timeToMinutes = (hhmm: string) => {
+const timeToMinutes = (hhmm: string) => {
   const [h, m] = String(hhmm || "00:00").split(":").map(Number);
   return (Number.isFinite(h) ? h : 0) * 60 + (Number.isFinite(m) ? m : 0);
 };
 
-export const minutesToHHMM = (mins: number) =>
+const minutesToHHMM = (mins: number) =>
   `${String(Math.floor(mins / 60)).padStart(2, "0")}:${String(Math.max(0, mins % 60)).padStart(2, "0")}`;
 
 /** Local wall-clock instant for YYYY-MM-DD + HH:mm on the user's calendar. */

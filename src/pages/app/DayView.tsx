@@ -6,9 +6,9 @@ import { useAuth } from "@/hooks/useAuth";
 import { supabase } from "@/integrations/supabase/client";
 import {
   Block, fmtTime, todayDateStr, parseDateStr, friendlyDateFor, isFutureDateStr, isUserTask, isOpenUserTask, isUserTaskDone, inferScheduleBlockType, packLinearSchedule,
-  blockSlotEndHHMM, timeToMinutes, minutesToHHMM,
+  blockSlotEndHHMM,
 } from "@/lib/daydraft";
-import { ChevronLeft, ChevronRight, Play, CalendarDays, Trash2, Bell, BellOff, MoreHorizontal, Clock, Timer, MapPin, Copy, Sparkles, ListPlus, Wand2, ArrowRightCircle } from "lucide-react";
+import { ChevronLeft, ChevronRight, Play, CalendarDays, Trash2, Bell, BellOff, MoreHorizontal, Clock, Timer, MapPin, Copy, Sparkles, ListPlus, Wand2, ArrowRightCircle, Loader2 } from "lucide-react";
 import { DayPickerSheet } from "@/components/app/DayPickerSheet";
 import { Button } from "@/components/ui/button";
 import { DndContext, closestCenter, PointerSensor, TouchSensor, useSensor, useSensors, DragEndEvent, DragStartEvent } from "@dnd-kit/core";
@@ -84,7 +84,9 @@ export default function DayView() {
   const [bulkRows, setBulkRows] = useState<{ title: string; duration: number; start_time?: string }[]>([]);
   const [bulkStep, setBulkStep] = useState<"input" | "review">("input");
   const [bulkDurationEditIndex, setBulkDurationEditIndex] = useState<number | null>(null);
-  const [bulkStartEditIndex, setBulkStartEditIndex] = useState<number | null>(null);
+  const [bulkStartTimeEditIndex, setBulkStartTimeEditIndex] = useState<number | null>(null);
+  const [bulkStartTimeDraft, setBulkStartTimeDraft] = useState<string>("09:00");
+  const [bulkAiLoading, setBulkAiLoading] = useState(false);
   const [confirmDeletePlan, setConfirmDeletePlan] = useState(false);
   const [moreOpen, setMoreOpen] = useState(false);
   const [tappedBlock, setTappedBlock] = useState<ExBlock | null>(null);
@@ -440,29 +442,7 @@ export default function DayView() {
       toast.error("Write at least one task");
       return;
     }
-    // Seed each row with a sequential start time so the user can see and
-    // adjust both Start and Duration before approving the plan.
-    const todayStr = todayDateStr();
-    const lastExistingEnd = blocks.length
-      ? blocks.reduce(
-          (acc, b) => Math.max(acc, timeToMinutes(b.start_time) + Number(b.duration_min || 0)),
-          0,
-        )
-      : null;
-    const baseStartMin =
-      lastExistingEnd != null
-        ? lastExistingEnd
-        : viewDate === todayStr
-          ? new Date().getHours() * 60 + new Date().getMinutes()
-          : 9 * 60;
-    let cursor = baseStartMin;
-    setBulkRows(
-      titles.map((title) => {
-        const start_time = minutesToHHMM(cursor);
-        cursor += 30;
-        return { title, duration: 30, start_time };
-      }),
-    );
+    setBulkRows(titles.map((title) => ({ title, duration: 30 })));
     setBulkStep("review");
   };
 
@@ -493,34 +473,19 @@ export default function DayView() {
       const planId = await ensurePlanId();
       if (!planId) return;
       const startPos = blocks.length;
-      // Sequential cursor that respects per-row pinned start times. If a row
-      // has a user-chosen start_time, use it and advance the cursor; otherwise
-      // place it right after the previous draft (or the last existing block).
+      // Start packing from current time (today) or 09:00 (future days).
       const todayStr = todayDateStr();
-      const lastExistingEnd = blocks.length
-        ? blocks.reduce(
-            (acc, b) => Math.max(acc, timeToMinutes(b.start_time) + Number(b.duration_min || 0)),
-            0,
-          )
-        : null;
-      const defaultStartMin =
-        lastExistingEnd != null
-          ? lastExistingEnd
-          : viewDate === todayStr
-            ? new Date().getHours() * 60 + new Date().getMinutes()
-            : 9 * 60;
-      let cursor = defaultStartMin;
+      const startHHMM = viewDate === todayStr
+        ? `${String(new Date().getHours()).padStart(2, "0")}:${String(new Date().getMinutes()).padStart(2, "0")}`
+        : "09:00";
       const draftBlocks: ExBlock[] = clean.map((task, i) => {
         const id = crypto.randomUUID();
         const duration = Math.max(5, task.duration || 30);
-        const pinnedMin = task.start_time ? timeToMinutes(task.start_time) : null;
-        const startMin = pinnedMin != null ? pinnedMin : cursor;
-        cursor = startMin + duration;
         return {
           id,
           plan_id: planId,
           user_id: user.id,
-          start_time: minutesToHHMM(startMin),
+          start_time: task.start_time || startHHMM,
           duration_min: duration,
           estimated_minutes: duration,
           actual_minutes: null,
@@ -532,8 +497,7 @@ export default function DayView() {
           position: startPos + i,
         };
       });
-      // Combine existing + drafts; keep drafts' pinned times intact.
-      const packed = [...blocks, ...draftBlocks];
+      const packed = packLinearSchedule([...blocks, ...draftBlocks]);
       setBlocks(packed);
       setComposerOpen(false);
       setBulkInput("");
@@ -694,6 +658,56 @@ export default function DayView() {
     } finally {
       setReplanning(false);
       setPlanMutating(false);
+    }
+  };
+
+  const autoScheduleBulkRows = async () => {
+    if (bulkRows.length === 0 || !user || bulkAiLoading) return;
+    setBulkAiLoading(true);
+    try {
+      const nowHM = `${String(now.getHours()).padStart(2,"0")}:${String(now.getMinutes()).padStart(2,"0")}`;
+      const startHHMM = viewDate === todayDateStr() ? nowHM : "09:00";
+      const tz = profile?.timezone || Intl.DateTimeFormat().resolvedOptions().timeZone;
+      const { data, error } = await supabase.functions.invoke("generate-plan", {
+        body: {
+          raw_input: bulkRows.map(r => r.title).join("\n"),
+          energy_preference: profile?.energy_preference || "morning",
+          name: profile?.display_name,
+          mode: "plan",
+          start_time: startHHMM,
+          plan_date: viewDate,
+          now_iso: new Date().toISOString(),
+          timezone: tz,
+          active_hours_start: (profile as any)?.active_hours_start || "09:00",
+          active_hours_end: (profile as any)?.active_hours_end || "22:00",
+          ai_tone: (profile as any)?.ai_tone || "professional",
+          ai_tone_custom: (profile as any)?.ai_tone_custom || null,
+          ai_planning_rules: (profile as any)?.ai_planning_rules || "",
+        },
+      });
+      if (error) throw error;
+      if (data?.error) throw new Error(data.error);
+
+      if (data?.blocks && Array.isArray(data.blocks)) {
+        const scheduled = data.blocks;
+        const newRows = bulkRows.map((row, i) => {
+          const aiBlock = scheduled[i];
+          if (aiBlock) {
+            return {
+              title: aiBlock.title || row.title,
+              duration: aiBlock.duration_min || row.duration,
+              start_time: aiBlock.start_time,
+            };
+          }
+          return row;
+        });
+        setBulkRows(newRows);
+        haptics.notify("success");
+      }
+    } catch (e: any) {
+      toast.error(e.message || "Failed to auto-schedule tasks");
+    } finally {
+      setBulkAiLoading(false);
     }
   };
 
@@ -982,20 +996,24 @@ export default function DayView() {
         className="min-h-0 flex-1 overflow-y-auto overscroll-y-contain px-6 pb-[calc(96px+env(safe-area-inset-bottom))] [-webkit-overflow-scrolling:touch] pt-8"
       >
         {planMissing && (
-          <div className="rounded-[24px] border border-dashed border-border/45 bg-muted/[0.04] px-6 py-12 text-center">
-            <div className="h-12 w-12 rounded-2xl bg-primary/10 border border-primary/20 flex items-center justify-center mx-auto mb-4">
-              <CalendarDays className="h-6 w-6 text-primary/80" />
+          <div className="rounded-[28px] border border-border/30 bg-card/35 px-6 py-12 text-center hero-glass shadow-card relative overflow-hidden">
+            {/* Soft decorative background circles inside the empty card */}
+            <div className="absolute -top-12 -left-12 h-28 w-28 rounded-full bg-primary/8 blur-xl pointer-events-none" />
+            <div className="absolute -bottom-12 -right-12 h-28 w-28 rounded-full bg-primary-glow/8 blur-xl pointer-events-none" />
+            
+            <div className="h-12 w-12 rounded-2xl bg-gradient-primary flex items-center justify-center mx-auto mb-4 border border-primary/25 shadow-[0_4px_16px_hsl(var(--primary)/0.2)]">
+              <CalendarDays className="h-5 w-5 text-primary-foreground" />
             </div>
-            <div className="text-[16px] font-semibold text-foreground tracking-tight">
+            <div className="text-[17px] font-semibold text-foreground tracking-tight">
               {isToday ? "Empty day" : friendlyDateFor(parseDateStr(viewDate))}
             </div>
-            <p className="text-[13px] text-secondary-fg/75 mt-2 leading-relaxed max-w-[260px] mx-auto">
+            <p className="text-[13px] text-secondary-fg/80 mt-2 leading-relaxed max-w-[260px] mx-auto">
               Add your tasks — type them out, paste a list, or let AI plan your day.
             </p>
-            <div className="mt-6 flex flex-col gap-2">
+            <div className="mt-7 flex flex-col gap-2.5 max-w-[240px] mx-auto relative z-10">
               <Button
                 onClick={() => setComposerOpen(true)}
-                className="h-12 rounded-2xl bg-primary hover:bg-primary/92 text-primary-foreground text-[14px] font-semibold pressable w-full"
+                className="h-12 rounded-[16px] bg-gradient-primary hover:opacity-95 text-primary-foreground text-[14px] font-semibold pressable w-full shadow-[0_6px_20px_hsl(var(--primary)/0.25)] border border-primary/20"
               >
                 <ListPlus className="h-4 w-4 mr-1.5" /> Add tasks
               </Button>
@@ -1006,9 +1024,9 @@ export default function DayView() {
                   setAskAiContext("I have an empty day. Ask me one useful question that helps me decide what to add, without creating a schedule for me.");
                   setAskAiOpen(true);
                 }}
-                className="h-11 rounded-2xl border-primary/25 bg-primary/10 text-primary text-[13px] font-medium pressable w-full"
+                className="h-11 rounded-[16px] border border-border/40 bg-white/[0.04] dark:bg-white/[0.05] text-foreground/90 hover:bg-white/[0.08] text-[13px] font-semibold pressable w-full transition-colors"
               >
-                <Wand2 className="h-4 w-4 mr-1.5" /> Ask AI
+                <Wand2 className="h-4 w-4 mr-1.5 text-primary" /> Ask AI
               </Button>
             </div>
           </div>
@@ -1287,59 +1305,64 @@ export default function DayView() {
               </div>
             ) : (
               <div className="space-y-3 pb-4">
-                <p className="text-[11px] text-secondary-fg leading-relaxed">
-                  Tap <span className="text-foreground font-medium">Start</span> or <span className="text-foreground font-medium">Duration</span> on any task to adjust.
-                </p>
-                <div className="space-y-2 max-h-[45vh] overflow-y-auto pr-1">
+                <div className="flex items-start justify-between px-1">
+                  <p className="text-[12px] text-secondary-fg leading-relaxed max-w-[65%]">
+                    Review your tasks. Tap time or duration to adjust.
+                  </p>
+                  <Button
+                    onClick={() => void autoScheduleBulkRows()}
+                    disabled={bulkAiLoading || planMutating}
+                    size="sm"
+                    className="h-8 rounded-full bg-primary/10 text-primary border border-primary/25 text-[12px] font-medium pressable shrink-0"
+                  >
+                    {bulkAiLoading ? <Loader2 className="h-3.5 w-3.5 mr-1.5 animate-spin" /> : <Sparkles className="h-3.5 w-3.5 mr-1.5" />}
+                    Auto-schedule
+                  </Button>
+                </div>
+                <div className="space-y-2.5 max-h-[48vh] overflow-y-auto pr-1 pb-2 pt-1">
                   {bulkRows.map((row, i) => (
-                    <div key={i} className="rounded-2xl border border-border/35 bg-card/70 px-3 py-2.5">
+                    <div key={i} className="flex flex-col gap-2 rounded-[20px] border border-border/40 bg-surface-card px-4 py-3.5 shadow-sm">
                       <div className="flex items-center gap-2">
                         <input
                           value={row.title}
                           onChange={(e) => setBulkRows((rs) => rs.map((r, idx) => idx === i ? { ...r, title: e.target.value } : r))}
-                          placeholder="Task name"
-                          className="flex-1 h-8 px-0 bg-transparent border-0 text-[14px] font-medium text-foreground focus:outline-none placeholder:text-secondary-fg/50"
+                          className="flex-1 h-8 px-0 bg-transparent border-0 text-[15px] font-semibold text-foreground focus:outline-none placeholder:text-secondary-fg/50"
                         />
                         <button type="button" onClick={() => setBulkRows((rs) => rs.filter((_, idx) => idx !== i))}
-                          className="h-7 w-7 grid place-items-center rounded-full text-secondary-fg/60 hover:text-destructive hover:bg-destructive/10 pressable transition-colors" aria-label="Remove"
+                          className="h-8 w-8 grid place-items-center rounded-full text-secondary-fg/50 hover:text-destructive hover:bg-destructive/10 pressable transition-colors shrink-0" aria-label="Remove"
                         >
-                          <Trash2 className="h-3.5 w-3.5" />
+                          <Trash2 className="h-4 w-4" />
                         </button>
                       </div>
-                      <div className="mt-2 flex items-center gap-2">
-                        <button
-                          type="button"
-                          onClick={() => setBulkStartEditIndex(i)}
-                          className="h-8 flex-1 inline-flex items-center justify-center gap-1.5 rounded-xl border border-border/45 bg-muted/25 px-2.5 text-[12px] font-medium text-foreground/85 pressable hover:border-primary/45 hover:text-foreground transition-colors"
+                      <div className="flex flex-wrap items-center gap-2 mt-0.5">
+                        <button type="button" onClick={() => {
+                            setBulkStartTimeDraft(row.start_time || "09:00");
+                            setBulkStartTimeEditIndex(i);
+                          }}
+                          className="flex items-center gap-1.5 h-8 px-3 rounded-full border border-border/45 bg-muted/40 text-[12.5px] font-medium text-secondary-fg hover:text-foreground pressable transition-colors"
                         >
-                          <Clock className="h-3.5 w-3.5 text-primary/80" />
-                          <span className="text-secondary-fg/80">Start</span>
-                          <span className="tabular-nums font-semibold">{row.start_time ? fmtTime(row.start_time) : "—"}</span>
+                          <Clock className="h-3.5 w-3.5 opacity-70" />
+                          {row.start_time ? fmtTime(row.start_time) : "Set time"}
                         </button>
-                        <button
-                          type="button"
-                          onClick={() => setBulkDurationEditIndex(i)}
-                          className="h-8 flex-1 inline-flex items-center justify-center gap-1.5 rounded-xl border border-border/45 bg-muted/25 px-2.5 text-[12px] font-medium text-foreground/85 pressable hover:border-primary/45 hover:text-foreground transition-colors"
+                        <button type="button" onClick={() => setBulkDurationEditIndex(i)}
+                          className="flex items-center gap-1.5 h-8 px-3 rounded-full border border-border/45 bg-muted/40 text-[12.5px] font-medium tabular-nums text-secondary-fg hover:text-foreground pressable transition-colors"
                         >
-                          <Timer className="h-3.5 w-3.5 text-primary/80" />
-                          <span className="text-secondary-fg/80">Duration</span>
-                          <span className="tabular-nums font-semibold">
-                            {row.duration < 60 ? `${row.duration}m` : `${Math.floor(row.duration / 60)}h${row.duration % 60 ? ` ${row.duration % 60}m` : ""}`}
-                          </span>
+                          <Timer className="h-3.5 w-3.5 opacity-70" />
+                          {row.duration < 60 ? `${row.duration}m` : `${Math.floor(row.duration / 60)}h${row.duration % 60 ? ` ${row.duration % 60}m` : ""}`}
                         </button>
                       </div>
                     </div>
                   ))}
                   {bulkRows.length === 0 && (
-                    <p className="text-center text-[12px] text-secondary-fg py-4">No tasks left.</p>
+                    <p className="text-center text-[13px] text-secondary-fg py-10 bg-muted/20 rounded-[20px] border border-dashed border-border/45 mx-1">No tasks left.</p>
                   )}
                 </div>
-                <div className="flex items-center gap-2">
-                  <Button variant="outline" onClick={() => setBulkStep("input")} disabled={planMutating} className="h-11 rounded-2xl border-soft text-[13px]">
+                <div className="flex items-center gap-2 pt-3 border-t border-border/30 px-1">
+                  <Button variant="outline" onClick={() => setBulkStep("input")} disabled={planMutating} className="h-12 rounded-2xl border-soft text-[14px]">
                     Back
                   </Button>
                   <Button onClick={() => void addBulkRows(bulkRows)} disabled={planMutating || bulkRows.length === 0}
-                    className="flex-1 h-11 rounded-2xl bg-primary hover:bg-primary/92 text-primary-foreground font-medium pressable"
+                    className="flex-1 h-12 rounded-2xl bg-primary hover:bg-primary/92 text-primary-foreground font-semibold pressable"
                   >
                     Add {bulkRows.length} {bulkRows.length === 1 ? "task" : "tasks"}
                   </Button>
@@ -1715,25 +1738,48 @@ export default function DayView() {
         title="Task duration"
       />
 
-      <Sheet open={bulkStartEditIndex !== null} onOpenChange={(v) => !v && setBulkStartEditIndex(null)}>
-        <SheetContent side="bottom" className="rounded-t-[28px] border-border/45 bg-popover pb-8">
+      <Sheet open={bulkStartTimeEditIndex !== null} onOpenChange={(v) => !v && setBulkStartTimeEditIndex(null)}>
+        <SheetContent side="bottom" className="rounded-t-[28px] border-border/45 bg-popover">
           <SheetHeader className="text-left mb-3">
-            <SheetTitle className="text-[16px]">Start time</SheetTitle>
+            <SheetTitle className="text-[16px]">Set task time</SheetTitle>
           </SheetHeader>
           <input
             type="time"
-            value={bulkStartEditIndex !== null ? (bulkRows[bulkStartEditIndex]?.start_time || "09:00") : "09:00"}
-            onChange={(e) => {
-              const index = bulkStartEditIndex;
-              if (index === null) return;
-              const v = e.target.value;
-              setBulkRows((rows) => rows.map((r, i) => i === index ? { ...r, start_time: v } : r));
-            }}
+            value={bulkStartTimeDraft}
+            onChange={(e) => setBulkStartTimeDraft(e.target.value)}
             className="w-full h-12 px-3 rounded-lg bg-card border border-soft text-[16px] text-foreground focus:outline-none focus:border-primary/50 focus:ring-2 focus:ring-primary/15"
           />
-          <Button onClick={() => setBulkStartEditIndex(null)} className="w-full mt-4 h-11 rounded-xl bg-primary hover:bg-primary/92 text-primary-foreground font-medium">
-            Done
-          </Button>
+          <div className="mt-4 flex gap-2">
+            <Button
+              variant="outline"
+              className="flex-1"
+              onClick={() => {
+                const i = bulkStartTimeEditIndex;
+                if (i !== null) {
+                  setBulkRows((rs) => rs.map((r, idx) => idx === i ? { ...r, start_time: undefined } : r));
+                }
+                setBulkStartTimeEditIndex(null);
+              }}
+            >
+              Clear time
+            </Button>
+            <Button
+              className="flex-1 bg-primary text-primary-foreground hover:bg-primary/90"
+              onClick={() => {
+                const i = bulkStartTimeEditIndex;
+                if (i !== null) {
+                  if (!/^\d{2}:\d{2}$/.test(bulkStartTimeDraft)) {
+                    toast.error("Pick a valid time");
+                    return;
+                  }
+                  setBulkRows((rs) => rs.map((r, idx) => idx === i ? { ...r, start_time: bulkStartTimeDraft } : r));
+                }
+                setBulkStartTimeEditIndex(null);
+              }}
+            >
+              Save
+            </Button>
+          </div>
         </SheetContent>
       </Sheet>
 

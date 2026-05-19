@@ -568,7 +568,6 @@ export default function Focus() {
                       : "radial-gradient(circle, hsl(var(--primary)/0.08) 0%, transparent 65%)",
                   }}
                 />
-                {/* Progress ring */}
                 <svg className="absolute inset-0 w-full h-full -rotate-90" viewBox="0 0 240 240">
                   {/* Track */}
                   <circle cx="120" cy="120" r={RING_R} fill="none" stroke="hsl(var(--border)/0.2)" strokeWidth="9" />
@@ -581,6 +580,7 @@ export default function Focus() {
                     strokeLinecap="round"
                     strokeDasharray={`${RING_CIRC} ${RING_CIRC}`}
                     strokeDashoffset={RING_CIRC * (1 - progressRatio)}
+                    className={isOverTime ? "focus-timer-overtime" : "focus-timer-ring-active"}
                     style={{ transition: "stroke-dashoffset 0.9s cubic-bezier(0.4,0,0.2,1), stroke 0.4s ease" }}
                   />
                 </svg>

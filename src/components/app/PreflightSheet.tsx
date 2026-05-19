@@ -99,35 +99,36 @@ export const PreflightSheet = ({
             <button
               key={key}
               onClick={() => toggle(key)}
-              className={`w-full flex items-center gap-3 px-4 py-3 rounded-[14px] border pressable transition-colors backdrop-blur-sm ${
+              className={`w-full flex items-center gap-3 px-4 py-3.5 rounded-[18px] border pressable transition-all backdrop-blur-md ${
                 checks[key]
-                  ? "border-accent surface-accent"
-                  : "border-soft surface-card"
+                  ? "border-accent surface-accent shadow-[0_4px_16px_hsl(var(--primary)/0.08)]"
+                  : "border-soft surface-card hover:bg-card/90"
               }`}
             >
-              <div className={`h-9 w-9 rounded-full flex items-center justify-center shrink-0 ${
-                checks[key] ? "bg-primary text-primary-foreground" : "bg-surface-elevated text-secondary-fg"
+              <div className={`h-9 w-9 rounded-full flex items-center justify-center shrink-0 transition-transform duration-300 ${
+                checks[key]
+                  ? "bg-primary text-primary-foreground scale-[1.08] shadow-[0_4px_12px_hsl(var(--primary)/0.4)]"
+                  : "bg-surface-elevated text-secondary-fg scale-100"
               }`}>
                 {checks[key] ? <Check className="h-4 w-4" strokeWidth={3} /> : <Icon className="h-4 w-4" />}
               </div>
-              <span className="text-sm font-medium text-left flex-1">{label}</span>
+              <span className="text-sm font-semibold text-left flex-1 text-foreground">{label}</span>
             </button>
           ))}
         </div>
         <div className="mt-5 space-y-2 pb-2">
           <Button
             onClick={startWithPref}
-            className="w-full h-12 rounded-[14px] bg-primary hover:bg-primary/92 text-primary-foreground font-medium pressable shadow-card"
-           
+            className="w-full h-12 rounded-[16px] bg-gradient-primary hover:bg-primary/92 text-primary-foreground font-semibold pressable shadow-card border border-primary/20"
           >
             {allChecked ? "Let's go" : "Start anyway"}
           </Button>
           <button
             type="button"
             onClick={() => setHideForever(v => !v)}
-            className="w-full inline-flex items-center justify-center gap-1.5 text-secondary-fg text-xs py-1 hover:text-foreground"
+            className="w-full inline-flex items-center justify-center gap-1.5 text-secondary-fg text-xs py-1.5 hover:text-foreground font-medium"
           >
-            <EyeOff className="h-3 w-3" />
+            <EyeOff className="h-3.5 w-3.5" />
             {hideForever ? "Won't show again" : "Don't show this again"}
           </button>
           <button

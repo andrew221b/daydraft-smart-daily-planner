@@ -196,10 +196,10 @@ export function HomeTrackerHero({ onOpenDetails }: { onOpenDetails: () => void }
   return (
     <section
       data-tour="hero-tracker"
-      className={`relative overflow-hidden rounded-[28px] border px-5 pt-6 pb-5 transition-[border-color,background-color] duration-500 ${
+      className={`relative overflow-hidden rounded-[28px] hero-glass border px-5 pt-6 pb-5 transition-all duration-500 ${
         active
-          ? "tracker-hero-clock border-[color-mix(in_srgb,var(--hero-accent)_42%,hsl(var(--border)/0.4))] bg-card/30"
-          : "border-border/35 bg-card/40"
+          ? "tracker-hero-clock border-[color-mix(in_srgb,var(--hero-accent)_45%,hsl(var(--border)/0.5))]"
+          : "border-border/35"
       }`}
       style={{ "--hero-accent": accent } as CSSProperties}
     >
@@ -277,7 +277,7 @@ export function HomeTrackerHero({ onOpenDetails }: { onOpenDetails: () => void }
                   haptics.tap();
                   openCategoryPicker();
                 }}
-                className="gleam mt-4 inline-flex items-center gap-2 rounded-full bg-primary text-primary-foreground px-8 py-3.5 text-[14px] font-semibold pressable shadow-[0_10px_28px_-12px_hsl(var(--primary)/0.6)]"
+                className="gleam mt-4 inline-flex items-center gap-2 rounded-full bg-gradient-primary text-primary-foreground px-8 py-3.5 text-[14px] font-semibold pressable shadow-[0_10px_28px_-12px_hsl(var(--primary)/0.6)] border border-primary/20"
               >
                 <Play className="h-3.5 w-3.5" fill="currentColor" />
                 Start tracking
@@ -296,8 +296,8 @@ export function HomeTrackerHero({ onOpenDetails }: { onOpenDetails: () => void }
                 onClick={() => { haptics.selection(); setSelectedCategoryId(c.id); }}
                 className={`shrink-0 inline-flex items-center gap-1.5 rounded-full border py-1.5 pl-2 pr-3 text-[12px] font-medium transition-colors pressable ${
                   selectedCategoryId === c.id
-                    ? "border-primary/60 bg-primary/15 text-foreground ring-1 ring-primary/20"
-                    : "border-border/40 bg-background/50 text-foreground/90 hover:bg-background/80"
+                    ? "border-primary/50 bg-primary/12 text-primary-foreground ring-[1.5px] ring-primary/20"
+                    : "border-border/35 bg-white/[0.04] dark:bg-white/[0.05] text-foreground/80 hover:bg-white/[0.08]"
                 }`}
               >
                 <span className="h-1.5 w-1.5 rounded-full" style={{ background: c.color }} />

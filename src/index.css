@@ -1,3 +1,5 @@
+@import url('https://fonts.googleapis.com/css2?family=Outfit:wght@400;500;600;700&display=swap');
+
 @tailwind base;
 @tailwind components;
 @tailwind utilities;
@@ -53,9 +55,9 @@ body.dd-dnd-scroll-lock {
 
     --radius: 1.125rem;
 
-    --shadow-card: 0 1px 0 rgba(255,255,255,0.07), 0 10px 36px rgba(0,0,0,0.48);
+    --shadow-card: 0 1px 0 rgba(255,255,255,0.07), 0 12px 42px -4px rgba(0,0,0,0.52);
     --shadow-card-inset: inset 1px 1px 0 rgba(255,255,255,0.12), inset -1px -1px 0 rgba(0,0,0,0.2);
-    --shadow-elevated: 0 20px 56px rgba(6,8,26,0.62), 0 6px 22px rgba(12,16,42,0.35);
+    --shadow-elevated: 0 24px 64px -8px rgba(6,8,26,0.72), 0 8px 26px -4px rgba(12,16,42,0.45);
     --shadow-glow: 0 0 0 4px hsl(var(--primary) / 0.22);
     --shadow-tab: 0 16px 56px -14px rgba(4,8,28,0.62), inset 0 1px 0 rgba(255,255,255,0.1);
     --gradient-primary: linear-gradient(132deg, hsl(var(--primary)) 0%, hsl(var(--primary-glow)) 100%);
@@ -65,15 +67,15 @@ body.dd-dnd-scroll-lock {
     --motion-section-in-ms: 220ms;
     --motion-glow-breathe-s: 20s;
     --motion-tab-indicator-s: 7s;
-    --glass-blur: 24px;
-    --glass-saturate: 1.4;
-    --hero-glass-blur: 32px;
-    --hero-glass-saturate: 1.4;
+    --glass-blur: 32px;
+    --glass-saturate: 1.6;
+    --hero-glass-blur: 40px;
+    --hero-glass-saturate: 1.6;
   }
 
   /* Light mode — premium "paper" palette with measurable elevation steps. */
   :root.light {
-    --background: 240 18% 97%;          /* iOS Grouped Background #F2F2F7 */
+    --background: 210 20% 97.5%;          /* Soft clean off-white F4F6F8 */
     --foreground: 0 0% 0%;              /* iOS Label */
     --surface: 0 0% 100%;               /* #FFFFFF */
     --surface-elevated: 0 0% 100%;
@@ -84,9 +86,9 @@ body.dd-dnd-scroll-lock {
     --primary: 211 100% 50%;            /* Apple System Blue #007AFF */
     --primary-foreground: 0 0% 100%;
     --primary-glow: 253 100% 58%;       /* Apple System Indigo #5856D6 */
-    --secondary: 214 30% 92%;
+    --secondary: 210 20% 95%;
     --secondary-foreground: 224 30% 18%;
-    --muted: 214 26% 91%;
+    --muted: 210 18% 94%;
     --muted-foreground: 222 18% 34%;    /* secondary text ≥ 6.8:1 on bg */
     --accent: 200 96% 38%;
     --accent-foreground: 0 0% 100%;
@@ -94,50 +96,50 @@ body.dd-dnd-scroll-lock {
     --success-foreground: 0 0% 100%;
     --destructive: 3 78% 44%;
     --destructive-foreground: 0 0% 100%;
-    --border: 215 22% 74%;              /* visible hairline */
-    --input: 215 22% 74%;
+    --border: 210 18% 91%;              /* clean, soft hairline */
+    --input: 210 18% 91%;
     --ring: 200 96% 38%;
     --type-deep: 200 96% 38%;
     --type-comm: 24 84% 42%;
     --type-routine: 230 22% 40%;
-    --shadow-card: 0 1px 0 rgba(255,255,255,0.85), 0 8px 22px -10px rgba(0,0,0,0.12), 0 1px 3px rgba(0,0,0,0.04);
-    --shadow-card-inset: inset 1px 1px 0 rgba(255,255,255,0.95), inset -1px -1px 0 rgba(0,0,0,0.04);
-    --shadow-elevated: 0 16px 38px -14px rgba(18,28,56,0.22), 0 4px 14px -4px rgba(18,28,56,0.12);
-    --shadow-tab: 0 10px 32px -14px rgba(18,28,56,0.22), inset 0 1px 0 rgba(255,255,255,0.96);
-    --gradient-glow: radial-gradient(56% 40% at 50% -6%, hsl(var(--primary) / 0.14), transparent 70%);
-    --gradient-floor: radial-gradient(ellipse 72% 44% at 50% 100%, hsl(var(--primary-glow) / 0.08), transparent 70%);
-    --glass-blur: 20px;
-    --glass-saturate: 1.2;
-    --hero-glass-blur: 24px;
-    --hero-glass-saturate: 1.2;
+    --shadow-card: 0 1px 0 rgba(255,255,255,0.9), 0 8px 24px -6px rgba(18,28,56,0.08), 0 1px 3px rgba(18,28,56,0.03);
+    --shadow-card-inset: inset 1px 1px 0 rgba(255,255,255,1), inset -1px -1px 0 rgba(0,0,0,0.02);
+    --shadow-elevated: 0 20px 40px -10px rgba(18,28,56,0.12), 0 4px 12px -2px rgba(18,28,56,0.06);
+    --shadow-tab: 0 12px 36px -16px rgba(18,28,56,0.14), inset 0 1px 0 rgba(255,255,255,0.98);
+    --gradient-glow: radial-gradient(56% 40% at 50% -6%, hsl(var(--primary) / 0.08), transparent 72%);
+    --gradient-floor: radial-gradient(ellipse 72% 44% at 50% 100%, hsl(var(--primary-glow) / 0.04), transparent 72%);
+    --glass-blur: 28px;
+    --glass-saturate: 1.4;
+    --hero-glass-blur: 36px;
+    --hero-glass-saturate: 1.4;
   }
 
   :root[data-visual-mode="neon"] {
-    --primary: 184 100% 66%;
-    --primary-glow: 300 100% 74%;
-    --accent: 280 94% 70%;
-    --background: 239 36% 8%;
-    --surface: 236 30% 11%;
-    --surface-elevated: 235 27% 14%;
-    --border: 247 30% 36%;
-    --shadow-card: 0 1px 0 rgba(255,255,255,0.08), 0 12px 38px rgba(5,8,28,0.6);
-    --shadow-elevated: 0 20px 58px rgba(5,8,30,0.72), 0 6px 24px rgba(12,18,42,0.42);
-    --shadow-glow: 0 0 0 4px hsl(var(--primary) / 0.34), 0 0 32px hsl(var(--primary-glow) / 0.42);
-    --gradient-glow: radial-gradient(72% 56% at 50% -10%, hsl(var(--primary) / 0.4), transparent 72%);
-    --gradient-floor: radial-gradient(ellipse 82% 56% at 50% 100%, hsl(var(--primary-glow) / 0.28), transparent 66%);
+    --primary: 180 100% 50%;            /* Pure Neon Cyan #00F2FE */
+    --primary-glow: 320 100% 65%;       /* Neon Hot Pink / Magenta */
+    --accent: 280 100% 65%;             /* Neon Violet */
+    --background: 240 40% 6.5%;         /* Deep obsidian midnight #0A0B14 */
+    --surface: 240 35% 9%;              /* Dark glassmorphic surface #0F101A */
+    --surface-elevated: 240 32% 12%;    /* #141624 */
+    --border: 260 50% 28%;              /* Glowing violet hairline border */
+    --shadow-card: 0 1px 0 rgba(255,255,255,0.06), 0 16px 44px rgba(5,8,28,0.7);
+    --shadow-elevated: 0 24px 64px rgba(5,8,30,0.85), 0 8px 28px rgba(12,18,42,0.5);
+    --shadow-glow: 0 0 0 4px hsl(var(--primary) / 0.28), 0 0 32px hsl(var(--primary-glow) / 0.38);
+    --gradient-glow: radial-gradient(72% 56% at 50% -10%, hsl(var(--primary) / 0.36), transparent 72%);
+    --gradient-floor: radial-gradient(ellipse 82% 56% at 50% 100%, hsl(var(--primary-glow) / 0.24), transparent 66%);
     --motion-page-switch-ms: 260ms;
     --motion-section-in-ms: 230ms;
-    --motion-glow-breathe-s: 16s;
-    --motion-tab-indicator-s: 6s;
-    --glass-blur: 16px;
-    --glass-saturate: 1.14;
-    --hero-glass-blur: 18px;
-    --hero-glass-saturate: 1.16;
+    --motion-glow-breathe-s: 14s;
+    --motion-tab-indicator-s: 5s;
+    --glass-blur: 28px;
+    --glass-saturate: 1.4;
+    --hero-glass-blur: 32px;
+    --hero-glass-saturate: 1.4;
   }
 
   /* Light + Neon gets its own clean, high-contrast palette (not dark neon). */
   :root.light[data-visual-mode="neon"] {
-    --background: 210 44% 98%;
+    --background: 210 40% 98%;          /* Luminous clean neon bg */
     --foreground: 226 34% 14%;
     --surface: 0 0% 100%;
     --surface-elevated: 206 42% 97%;
@@ -146,33 +148,33 @@ body.dd-dnd-scroll-lock {
     --popover: 0 0% 100%;
     --popover-foreground: 226 34% 14%;
 
-    --primary: 193 96% 50%;
-    --primary-foreground: 217 42% 13%;
-    --primary-glow: 271 90% 62%;
-    --accent: 271 90% 62%;
+    --primary: 195 100% 45%;            /* Rich glowing cyan (readable) */
+    --primary-foreground: 0 0% 100%;
+    --primary-glow: 275 100% 60%;       /* Neon purple */
+    --accent: 275 100% 60%;
     --accent-foreground: 0 0% 100%;
 
-    --secondary: 205 40% 95%;
+    --secondary: 205 32% 96%;
     --secondary-foreground: 224 26% 20%;
-    --muted: 204 34% 94%;
+    --muted: 204 28% 95%;
     --muted-foreground: 220 14% 43%;
 
-    --border: 214 34% 82%;
-    --input: 214 32% 84%;
-    --ring: 193 96% 50%;
+    --border: 214 30% 91%;
+    --input: 214 30% 91%;
+    --ring: 195 100% 45%;
 
-    --shadow-card: 0 1px 0 rgba(255,255,255,0.82), 0 10px 24px rgba(18,28,56,0.08);
-    --shadow-card-inset: inset 0 1px 0 rgba(255,255,255,0.92);
-    --shadow-elevated: 0 16px 38px rgba(18,28,56,0.11), 0 3px 10px rgba(18,28,56,0.08);
-    --shadow-glow: 0 0 0 3px hsl(var(--primary) / 0.2), 0 0 22px hsl(var(--primary-glow) / 0.15);
-    --shadow-tab: 0 10px 32px -12px rgba(18,28,56,0.14), inset 0 1px 0 rgba(255,255,255,0.95);
-    --gradient-glow: radial-gradient(58% 40% at 50% -6%, hsl(var(--primary) / 0.16), transparent 72%);
-    --gradient-floor: radial-gradient(ellipse 70% 44% at 50% 100%, hsl(var(--primary-glow) / 0.09), transparent 70%);
+    --shadow-card: 0 1px 0 rgba(255,255,255,0.9), 0 8px 24px rgba(18,28,56,0.04);
+    --shadow-card-inset: inset 0 1px 0 rgba(255,255,255,0.94);
+    --shadow-elevated: 0 16px 36px rgba(18,28,56,0.06), 0 4px 12px rgba(18,28,56,0.03);
+    --shadow-glow: 0 0 0 3px hsl(var(--primary) / 0.18), 0 0 24px hsl(var(--primary-glow) / 0.12);
+    --shadow-tab: 0 10px 32px -12px rgba(18,28,56,0.12), inset 0 1px 0 rgba(255,255,255,0.96);
+    --gradient-glow: radial-gradient(64% 48% at 50% -8%, hsl(var(--primary) / 0.1), transparent 75%);
+    --gradient-floor: radial-gradient(ellipse 75% 48% at 50% 100%, hsl(var(--primary-glow) / 0.08), transparent 75%);
 
-    --glass-blur: 14px;
-    --glass-saturate: 1.08;
-    --hero-glass-blur: 16px;
-    --hero-glass-saturate: 1.1;
+    --glass-blur: 24px;
+    --glass-saturate: 1.35;
+    --hero-glass-blur: 28px;
+    --hero-glass-saturate: 1.35;
   }
 }
 
@@ -180,6 +182,22 @@ body.dd-dnd-scroll-lock {
   * { @apply border-border; }
   html, body, #root { height: 100%; }
   html { -webkit-text-size-adjust: 100%; }
+  
+  /* Custom premium scrollbar for lists */
+  ::-webkit-scrollbar {
+    width: 6px;
+    height: 6px;
+  }
+  ::-webkit-scrollbar-track {
+    background: transparent;
+  }
+  ::-webkit-scrollbar-thumb {
+    background: hsl(var(--border) / 0.45);
+    border-radius: 99px;
+  }
+  ::-webkit-scrollbar-thumb:hover {
+    background: hsl(var(--border) / 0.8);
+  }
   body {
     @apply bg-background text-foreground antialiased;
     font-family: -apple-system, BlinkMacSystemFont, "SF Pro Text", system-ui, sans-serif;
@@ -211,16 +229,16 @@ body.dd-dnd-scroll-lock {
     color: hsl(var(--foreground));
   }
   h1, h2, h3, h4, h5 {
-    font-family: -apple-system, BlinkMacSystemFont, "SF Pro Display", system-ui, sans-serif;
-    letter-spacing: -0.04em;
+    font-family: "Outfit", -apple-system, BlinkMacSystemFont, "SF Pro Display", system-ui, sans-serif;
+    letter-spacing: -0.03em;
     font-weight: 600;
   }
 }
 
 @layer utilities {
-  .font-display { font-family: -apple-system, BlinkMacSystemFont, "SF Pro Display", system-ui, sans-serif; letter-spacing: -0.04em; }
+  .font-display { font-family: "Outfit", -apple-system, BlinkMacSystemFont, "SF Pro Display", system-ui, sans-serif; letter-spacing: -0.03em; }
   .font-mono-sf { font-family: "JetBrains Mono", "SF Mono", ui-monospace, Menlo, monospace; }
-  .type-title { font-family: -apple-system, BlinkMacSystemFont, "SF Pro Display", system-ui, sans-serif; font-size: 1.7rem; line-height: 1.1; letter-spacing: -0.04em; font-weight: 600; }
+  .type-title { font-family: "Outfit", -apple-system, BlinkMacSystemFont, "SF Pro Display", system-ui, sans-serif; font-size: 1.7rem; line-height: 1.1; letter-spacing: -0.03em; font-weight: 600; }
   .type-section { font-size: 0.74rem; font-weight: 600; letter-spacing: 0.12em; text-transform: uppercase; color: hsl(var(--muted-foreground) / 0.88); }
   .type-body { font-size: 0.875rem; line-height: 1.45; color: hsl(var(--foreground)); }
   .type-meta { font-size: 0.72rem; line-height: 1.35; color: hsl(var(--muted-foreground)); }
@@ -251,7 +269,7 @@ body.dd-dnd-scroll-lock {
      Mobile-first: no `:hover` dependency. */
   .pressable {
     transition:
-      transform 220ms cubic-bezier(0.28, 0.84, 0.42, 1),
+      transform 280ms cubic-bezier(0.28, 0.84, 0.42, 1),
       background-color 180ms ease,
       border-color 180ms ease,
       opacity 180ms ease,
@@ -259,8 +277,8 @@ body.dd-dnd-scroll-lock {
     -webkit-tap-highlight-color: transparent;
   }
   .pressable:active {
-    transform: scale(0.96);
-    transition-duration: 80ms;
+    transform: scale(0.95);
+    transition-duration: 100ms;
     transition-timing-function: cubic-bezier(0.28, 0.84, 0.42, 1);
   }
 
@@ -269,7 +287,7 @@ body.dd-dnd-scroll-lock {
      than buttons so they don't feel mushy, plus a faint dim. */
   .tappable {
     transition:
-      transform 260ms cubic-bezier(0.34, 1.56, 0.64, 1),
+      transform 340ms cubic-bezier(0.34, 1.56, 0.64, 1),
       filter 180ms ease,
       background-color 180ms ease,
       border-color 180ms ease;
@@ -277,9 +295,9 @@ body.dd-dnd-scroll-lock {
     will-change: transform;
   }
   .tappable:active {
-    transform: scale(0.985);
-    filter: brightness(0.97);
-    transition-duration: 80ms;
+    transform: scale(0.975);
+    filter: brightness(0.96);
+    transition-duration: 100ms;
     transition-timing-function: cubic-bezier(0.4, 0, 0.6, 1);
   }
 
@@ -584,19 +602,28 @@ body.dd-dnd-scroll-lock {
   /** Ambient layers behind the app column (Shell) */
   .shell-glow-top {
     background: var(--gradient-glow);
+    mix-blend-mode: screen;
   }
   .shell-glow-floor {
     background: var(--gradient-floor);
     opacity: 0.72;
+    mix-blend-mode: screen;
   }
 
   @media (prefers-reduced-motion: no-preference) {
     .shell-glow-breathe {
-      animation: shellGlowBreathe var(--motion-glow-breathe-s) ease-in-out infinite;
+      animation:
+        shellGlowBreathe var(--motion-glow-breathe-s) ease-in-out infinite,
+        auroraDrift 28s ease-in-out infinite alternate;
     }
     @keyframes shellGlowBreathe {
-      0%, 100% { opacity: 0.88; }
-      50% { opacity: 1; }
+      0%, 100% { opacity: 0.82; filter: brightness(0.95); }
+      50% { opacity: 0.98; filter: brightness(1.08); }
+    }
+    @keyframes auroraDrift {
+      0% { transform: translate(0, 0) scale(1); }
+      50% { transform: translate(-10px, 12px) scale(1.08); }
+      100% { transform: translate(12px, -8px) scale(0.95); }
     }
   }
 
@@ -768,6 +795,22 @@ body.dd-dnd-scroll-lock {
     50% {
       box-shadow: 0 18px 52px -22px color-mix(in srgb, var(--tracker-accent, hsl(var(--primary))) 55%, transparent);
     }
+  }
+
+  /* Focus timer ring effects */
+  .focus-timer-ring-active {
+    animation: ringShimmer 6s linear infinite;
+  }
+  .focus-timer-overtime {
+    animation: warningPulse 1.8s ease-in-out infinite;
+  }
+  @keyframes ringShimmer {
+    0%, 100% { stroke-opacity: 0.92; filter: drop-shadow(0 0 2px hsl(var(--primary) / 0.4)); }
+    50% { stroke-opacity: 1; filter: drop-shadow(0 0 8px hsl(var(--primary) / 0.8)); }
+  }
+  @keyframes warningPulse {
+    0%, 100% { stroke: hsl(var(--destructive)); filter: drop-shadow(0 0 2px hsl(var(--destructive) / 0.4)); }
+    50% { stroke: hsl(var(--destructive) / 0.82); filter: drop-shadow(0 0 10px hsl(var(--destructive) / 0.85)); }
   }
 
   .tracker-time-glow {

@@ -82,7 +82,7 @@ export function AskAiSheet({
                   key={p}
                   type="button"
                   onClick={() => setInput(p)}
-                  className="w-full text-left px-3.5 py-2.5 rounded-2xl border border-border/40 bg-card/30 text-[13px] text-foreground/90 hover:bg-muted/40 pressable"
+                  className="w-full text-left px-3.5 py-2.5 rounded-2xl border border-border/40 bg-white/[0.03] dark:bg-white/[0.04] text-[13px] text-foreground/90 hover:bg-white/[0.08] pressable transition-colors"
                 >
                   {p}
                 </button>
@@ -92,10 +92,10 @@ export function AskAiSheet({
           {messages.map((m, i) => (
             <div
               key={i}
-              className={`max-w-[88%] rounded-2xl px-3.5 py-2.5 text-[13px] leading-relaxed whitespace-pre-wrap ${
+              className={`max-w-[88%] rounded-[20px] px-3.5 py-2.5 text-[13px] leading-relaxed whitespace-pre-wrap ${
                 m.role === "user"
-                  ? "ml-auto bg-primary text-primary-foreground"
-                  : "bg-muted/50 text-foreground/95"
+                  ? "ml-auto bg-gradient-primary text-primary-foreground shadow-[0_4px_12px_hsl(var(--primary)/0.25)] border border-primary/20"
+                  : "bg-surface-card border border-border/30 text-foreground/95"
               }`}
             >
               {m.content}
@@ -103,12 +103,12 @@ export function AskAiSheet({
           ))}
           {loading && (
             <div className="flex items-center gap-2 text-[12px] text-secondary-fg/80">
-              <Loader2 className="h-3.5 w-3.5 animate-spin" /> Thinking…
+              <Loader2 className="h-3.5 w-3.5 animate-spin text-primary" /> Thinking…
             </div>
           )}
         </div>
 
-        <div className="shrink-0 px-4 pb-4 pt-2 border-t border-border/30 bg-background/60">
+        <div className="shrink-0 px-4 pb-4 pt-2 border-t border-border/30 bg-background/60 backdrop-blur-md">
           <div className="flex items-end gap-2">
             <Textarea
               value={input}
@@ -121,12 +121,12 @@ export function AskAiSheet({
               }}
               placeholder="Ask anything about your day…"
               rows={1}
-              className="resize-none min-h-[40px] max-h-32 rounded-xl bg-card border-border/40 text-[13px]"
+              className="resize-none min-h-[40px] max-h-32 rounded-xl bg-card border-border/40 text-[13px] focus:ring-1 focus:ring-primary/25 placeholder:text-secondary-fg/50"
             />
             <Button
               onClick={() => void send()}
               disabled={loading || !input.trim()}
-              className="h-10 w-10 p-0 rounded-xl shrink-0"
+              className="h-10 w-10 p-0 rounded-xl bg-gradient-primary text-primary-foreground hover:opacity-95 shadow-[0_4px_12px_hsl(var(--primary)/0.25)] pressable shrink-0"
               aria-label="Send"
             >
               <Send className="h-4 w-4" />

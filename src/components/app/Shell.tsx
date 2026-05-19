@@ -53,7 +53,7 @@ export const Shell = ({
       aria-hidden
     />
     <div
-      className="pointer-events-none fixed inset-x-0 bottom-0 h-[min(300px,42vh)] z-0 shell-glow-floor"
+      className="pointer-events-none fixed inset-x-0 bottom-0 h-[min(300px,42vh)] z-0 shell-glow-floor shell-glow-breathe"
       aria-hidden
     />
     <div className="relative z-10 w-full max-w-[440px] min-h-screen flex flex-col px-1.5">

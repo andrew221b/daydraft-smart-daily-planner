@@ -56,14 +56,14 @@ export const TabBar = () => {
       style={{ paddingBottom: "max(env(safe-area-inset-bottom), 10px)" }}
     >
       <div
-        className="rounded-[26px] border border-border/55 bg-background/85 shadow-[0_12px_40px_-16px_rgb(0,0,0,0.2)] backdrop-blur-2xl dark:border-border/50 dark:bg-background/82 dark:shadow-[0_12px_36px_-14px_rgb(0,0,0,0.48)] dark:ring-1 dark:ring-white/[0.06]"
-        style={{ WebkitBackdropFilter: "blur(28px)", backdropFilter: "blur(28px)" }}
+        className="rounded-[26px] border border-border/55 bg-background/70 shadow-[0_16px_48px_-12px_rgb(0,0,0,0.25)] backdrop-blur-3xl dark:border-border/40 dark:bg-background/65 dark:shadow-[0_16px_48px_-12px_rgb(0,0,0,0.6)] dark:ring-1 dark:ring-white/[0.08]"
+        style={{ WebkitBackdropFilter: "blur(36px)", backdropFilter: "blur(36px)" }}
       >
         <div className="p-1.5">
           <div className="relative isolate flex min-h-[48px] gap-1.5">
             <span
               aria-hidden
-              className="pointer-events-none absolute inset-y-0 z-0 rounded-2xl bg-primary/[0.12] ring-1 ring-inset ring-primary/20 transition-[left,width] duration-[260ms] will-change-[left,width] dark:bg-primary/[0.14] dark:ring-primary/[0.26]"
+              className="pointer-events-none absolute inset-y-0 z-0 rounded-2xl bg-primary/[0.12] ring-1 ring-inset ring-primary/20 transition-[left,width] duration-[320ms] will-change-[left,width] dark:bg-primary/[0.14] dark:ring-primary/[0.26]"
               style={indicatorStyle}
             />
             {tabs.map((it, idx) => (
@@ -108,7 +108,7 @@ function TabItem({
       />
       <span
         className={`max-w-full truncate px-0.5 text-center text-[10px] font-semibold leading-tight tracking-wide transition-[opacity,letter-spacing] duration-200 ${
-          highlighted ? "opacity-100 tracking-[0.01em]" : "opacity-[0.78]"
+          highlighted ? "opacity-100 tracking-[0.01em]" : "opacity-[0.6]"
         }`}
       >
         {label}
