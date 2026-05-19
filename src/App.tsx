@@ -22,8 +22,13 @@ import Terms from "./pages/legal/Terms";
  * longer exists on the CDN (after a deploy) recovers by reloading once,
  * instead of leaving the user on the "Importing a module script failed"
  * error boundary screen.
+ *
+ * IMPORTANT: gate the reload by a timestamp, not by a flag-cleared-on-load.
+ * Clearing on `window.load` causes an infinite reload loop whenever the chunk
+ * failure is persistent (e.g. preview env, offline, blocked CDN).
  */
-const RELOAD_FLAG = "dd_chunk_reload_attempted";
+const RELOAD_KEY = "dd_chunk_reload_at";
+const RELOAD_COOLDOWN_MS = 60_000;
 function lazyWithReload<T extends { default: ComponentType<any> }>(
   factory: () => Promise<T>
 ) {
@@ -34,11 +39,11 @@ function lazyWithReload<T extends { default: ComponentType<any> }>(
         /Importing a module script failed|Failed to fetch dynamically imported module|ChunkLoadError|Loading chunk/i.test(msg);
       if (isChunkErr && typeof window !== "undefined") {
         try {
-          if (!sessionStorage.getItem(RELOAD_FLAG)) {
-            sessionStorage.setItem(RELOAD_FLAG, "1");
+          const last = Number(sessionStorage.getItem(RELOAD_KEY) || 0);
+          const now = Date.now();
+          if (!last || now - last > RELOAD_COOLDOWN_MS) {
+            sessionStorage.setItem(RELOAD_KEY, String(now));
             window.location.reload();
-            // Return a never-resolving promise so Suspense keeps the fallback
-            // until the reload kicks in.
             return new Promise(() => {}) as Promise<T>;
           }
         } catch {
@@ -48,13 +53,6 @@ function lazyWithReload<T extends { default: ComponentType<any> }>(
       throw err;
     })
   );
-}
-
-if (typeof window !== "undefined") {
-  // Clear the reload flag once the new bundle loads successfully.
-  window.addEventListener("load", () => {
-    try { sessionStorage.removeItem(RELOAD_FLAG); } catch { /* ignore */ }
-  });
 }
 
 const Home = lazyWithReload(() => import("./pages/app/Home"));
