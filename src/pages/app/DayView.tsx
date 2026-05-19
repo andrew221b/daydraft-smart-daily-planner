@@ -81,9 +81,10 @@ export default function DayView() {
   const dayScrollRef = useRef<HTMLDivElement>(null);
   const [composerOpen, setComposerOpen] = useState(false);
   const [bulkInput, setBulkInput] = useState("");
-  const [bulkRows, setBulkRows] = useState<{ title: string; duration: number }[]>([]);
+  const [bulkRows, setBulkRows] = useState<{ title: string; duration: number; start_time?: string }[]>([]);
   const [bulkStep, setBulkStep] = useState<"input" | "review">("input");
   const [bulkDurationEditIndex, setBulkDurationEditIndex] = useState<number | null>(null);
+  const [bulkStartEditIndex, setBulkStartEditIndex] = useState<number | null>(null);
   const [confirmDeletePlan, setConfirmDeletePlan] = useState(false);
   const [moreOpen, setMoreOpen] = useState(false);
   const [tappedBlock, setTappedBlock] = useState<ExBlock | null>(null);
