@@ -493,19 +493,34 @@ export default function DayView() {
       const planId = await ensurePlanId();
       if (!planId) return;
       const startPos = blocks.length;
-      // Start packing from current time (today) or 09:00 (future days).
+      // Sequential cursor that respects per-row pinned start times. If a row
+      // has a user-chosen start_time, use it and advance the cursor; otherwise
+      // place it right after the previous draft (or the last existing block).
       const todayStr = todayDateStr();
-      const startHHMM = viewDate === todayStr
-        ? `${String(new Date().getHours()).padStart(2, "0")}:${String(new Date().getMinutes()).padStart(2, "0")}`
-        : "09:00";
+      const lastExistingEnd = blocks.length
+        ? blocks.reduce(
+            (acc, b) => Math.max(acc, timeToMinutes(b.start_time) + Number(b.duration_min || 0)),
+            0,
+          )
+        : null;
+      const defaultStartMin =
+        lastExistingEnd != null
+          ? lastExistingEnd
+          : viewDate === todayStr
+            ? new Date().getHours() * 60 + new Date().getMinutes()
+            : 9 * 60;
+      let cursor = defaultStartMin;
       const draftBlocks: ExBlock[] = clean.map((task, i) => {
         const id = crypto.randomUUID();
         const duration = Math.max(5, task.duration || 30);
+        const pinnedMin = task.start_time ? timeToMinutes(task.start_time) : null;
+        const startMin = pinnedMin != null ? pinnedMin : cursor;
+        cursor = startMin + duration;
         return {
           id,
           plan_id: planId,
           user_id: user.id,
-          start_time: startHHMM,
+          start_time: minutesToHHMM(startMin),
           duration_min: duration,
           estimated_minutes: duration,
           actual_minutes: null,
@@ -517,7 +532,8 @@ export default function DayView() {
           position: startPos + i,
         };
       });
-      const packed = packLinearSchedule([...blocks, ...draftBlocks]);
+      // Combine existing + drafts; keep drafts' pinned times intact.
+      const packed = [...blocks, ...draftBlocks];
       setBlocks(packed);
       setComposerOpen(false);
       setBulkInput("");
