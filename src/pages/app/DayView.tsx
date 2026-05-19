@@ -6,7 +6,7 @@ import { useAuth } from "@/hooks/useAuth";
 import { supabase } from "@/integrations/supabase/client";
 import {
   Block, fmtTime, todayDateStr, parseDateStr, friendlyDateFor, isFutureDateStr, isUserTask, isOpenUserTask, isUserTaskDone, inferScheduleBlockType, packLinearSchedule,
-  blockSlotEndHHMM,
+  blockSlotEndHHMM, timeToMinutes, minutesToHHMM,
 } from "@/lib/daydraft";
 import { ChevronLeft, ChevronRight, Play, CalendarDays, Trash2, Bell, BellOff, MoreHorizontal, Clock, Timer, MapPin, Copy, Sparkles, ListPlus, Wand2, ArrowRightCircle } from "lucide-react";
 import { DayPickerSheet } from "@/components/app/DayPickerSheet";
