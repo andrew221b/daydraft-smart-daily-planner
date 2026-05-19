@@ -1715,6 +1715,28 @@ export default function DayView() {
         title="Task duration"
       />
 
+      <Sheet open={bulkStartEditIndex !== null} onOpenChange={(v) => !v && setBulkStartEditIndex(null)}>
+        <SheetContent side="bottom" className="rounded-t-[28px] border-border/45 bg-popover pb-8">
+          <SheetHeader className="text-left mb-3">
+            <SheetTitle className="text-[16px]">Start time</SheetTitle>
+          </SheetHeader>
+          <input
+            type="time"
+            value={bulkStartEditIndex !== null ? (bulkRows[bulkStartEditIndex]?.start_time || "09:00") : "09:00"}
+            onChange={(e) => {
+              const index = bulkStartEditIndex;
+              if (index === null) return;
+              const v = e.target.value;
+              setBulkRows((rows) => rows.map((r, i) => i === index ? { ...r, start_time: v } : r));
+            }}
+            className="w-full h-12 px-3 rounded-lg bg-card border border-soft text-[16px] text-foreground focus:outline-none focus:border-primary/50 focus:ring-2 focus:ring-primary/15"
+          />
+          <Button onClick={() => setBulkStartEditIndex(null)} className="w-full mt-4 h-11 rounded-xl bg-primary hover:bg-primary/92 text-primary-foreground font-medium">
+            Done
+          </Button>
+        </SheetContent>
+      </Sheet>
+
       <Sheet open={!!startTimeEditId} onOpenChange={(v) => !v && setStartTimeEditId(null)}>
         <SheetContent side="bottom" className="rounded-t-[28px] border-border/45 bg-popover">
           <SheetHeader className="text-left mb-3">
