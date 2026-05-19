@@ -440,7 +440,29 @@ export default function DayView() {
       toast.error("Write at least one task");
       return;
     }
-    setBulkRows(titles.map((title) => ({ title, duration: 30 })));
+    // Seed each row with a sequential start time so the user can see and
+    // adjust both Start and Duration before approving the plan.
+    const todayStr = todayDateStr();
+    const lastExistingEnd = blocks.length
+      ? blocks.reduce(
+          (acc, b) => Math.max(acc, timeToMinutes(b.start_time) + Number(b.duration_min || 0)),
+          0,
+        )
+      : null;
+    const baseStartMin =
+      lastExistingEnd != null
+        ? lastExistingEnd
+        : viewDate === todayStr
+          ? new Date().getHours() * 60 + new Date().getMinutes()
+          : 9 * 60;
+    let cursor = baseStartMin;
+    setBulkRows(
+      titles.map((title) => {
+        const start_time = minutesToHHMM(cursor);
+        cursor += 30;
+        return { title, duration: 30, start_time };
+      }),
+    );
     setBulkStep("review");
   };
 
