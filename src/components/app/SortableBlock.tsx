@@ -132,22 +132,46 @@ export const SortableBlock = ({
           className="flex min-w-0 flex-1 cursor-pointer items-center gap-3"
           onClick={() => onTap?.(block)}
         >
-        {onTapTime && !block.is_calendar_event ? (
-          <button
-            type="button"
-            onPointerDown={(e) => e.stopPropagation()}
-            onClick={(e) => { e.stopPropagation(); onTapTime?.(block); }}
-            className="shrink-0 h-6 px-1.5 inline-flex items-center justify-center text-secondary-fg/85 text-[10.5px] font-mono-sf tabular-nums pressable hover:text-foreground transition-colors rounded-md"
-            aria-label="Change start time"
-            title="Change start time"
-          >
-            {fmtTime(block.start_time)}
-          </button>
-        ) : (
-          <div className="shrink-0 h-6 px-1.5 inline-flex items-center justify-center text-secondary-fg/70 text-[10.5px] font-mono-sf tabular-nums">
-            {fmtTime(block.start_time)}
-          </div>
-        )}
+        {/*
+          Hide the planned start time for tasks that have already resolved
+          (done / missed / skipped). The slot time on the left used to keep
+          showing the original schedule even after the task ended, which
+          read as "still scheduled at 22:14" — misleading. The status row
+          below the title already carries the meaningful timestamp
+          ("Done 16:18", "Missed · 18:22"). We render an invisible
+          placeholder of the same width so the stripe + title stay aligned
+          with the still-active rows above.
+        */}
+        {(() => {
+          const isTerminal =
+            block.kind === "task" && !isCal && (
+              isUserTaskDone(block) ||
+              block.resolution === "skipped" ||
+              block.resolution === "missed"
+            );
+          if (isTerminal) {
+            return <div className="shrink-0 h-6 w-[40px]" aria-hidden />;
+          }
+          if (onTapTime && !block.is_calendar_event) {
+            return (
+              <button
+                type="button"
+                onPointerDown={(e) => e.stopPropagation()}
+                onClick={(e) => { e.stopPropagation(); onTapTime?.(block); }}
+                className="shrink-0 h-6 px-1.5 inline-flex items-center justify-center text-secondary-fg/85 text-[10.5px] font-mono-sf tabular-nums pressable hover:text-foreground transition-colors rounded-md"
+                aria-label="Change start time"
+                title="Change start time"
+              >
+                {fmtTime(block.start_time)}
+              </button>
+            );
+          }
+          return (
+            <div className="shrink-0 h-6 px-1.5 inline-flex items-center justify-center text-secondary-fg/70 text-[10.5px] font-mono-sf tabular-nums">
+              {fmtTime(block.start_time)}
+            </div>
+          );
+        })()}
         <div className="w-[4px] h-8 rounded-full shrink-0" style={{ background: stripeColor }} />
         <div className="flex-1 min-w-0">
           <div className={`leading-tight flex items-center gap-1.5 min-w-0 ${rhythmType === "rest" ? "text-[12.5px]" : "text-[14px] font-medium"} ${isUserTaskDone(block) && block.kind === "task" ? "text-foreground/65" : "text-foreground"}`}>
