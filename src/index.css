@@ -63,7 +63,7 @@ body.dd-dnd-scroll-lock {
     --gradient-primary: linear-gradient(132deg, hsl(var(--primary)) 0%, hsl(var(--primary-glow)) 100%);
     --gradient-glow: radial-gradient(62% 46% at 50% -8%, hsl(var(--primary) / 0.2), transparent 72%);
     --gradient-floor: radial-gradient(ellipse 76% 50% at 50% 100%, hsl(var(--primary-glow) / 0.16), transparent 68%);
-    --motion-page-switch-ms: 300ms;
+    --motion-page-switch-ms: 360ms;
     --motion-section-in-ms: 220ms;
     --motion-glow-breathe-s: 20s;
     --motion-tab-indicator-s: 7s;
@@ -489,34 +489,31 @@ body.dd-dnd-scroll-lock {
   }
   @keyframes fadeIn { from { opacity: 0 } to { opacity: 1 } }
   
-  /* ─── Page transition types (iOS Tahoe physics) ───────────────── */
-  .page-transition-tab {
-    animation: iosTabFade 260ms cubic-bezier(0.16, 1, 0.3, 1) both;
-    will-change: opacity, transform;
-  }
-  @keyframes iosTabFade {
-    from { opacity: 0; transform: scale(0.99) translateZ(0); }
-    to { opacity: 1; transform: scale(1) translateZ(0); }
-  }
-
-  .page-transition-push {
-    animation: iosPagePush 380ms cubic-bezier(0.16, 1, 0.3, 1) both;
-    will-change: opacity, transform;
-  }
-  @keyframes iosPagePush {
-    from { opacity: 0; transform: translateX(32px) translateZ(0); }
-    to { opacity: 1; transform: translateX(0) translateZ(0); }
-  }
-
-  .page-switch-right { --switch-x: 24px; }
-  .page-switch-luxe {
-    animation: pageSwitchLuxe var(--motion-page-switch-ms) cubic-bezier(0.16, 1, 0.3, 1) both;
+  /* ─── Page transitions — iOS UIKit nav-stack physics ───────────
+     Three flavours so navigation reads directionally:
+       • TAB    — cross-fade only (UITabBarController never slides).
+       • PUSH   — incoming page slides in from the right (drill-in,
+                  e.g. tap a task to open Focus).
+       • POP    — incoming page slides in from the left (back-button,
+                  iOS swipe-from-left-edge gesture, or any history
+                  pop). Mirrors the visual cue you'd see on iOS where
+                  the previous screen comes back from the left rail.
+     The single keyframe drives all three via a `--switch-x` token,
+     so the curve, opacity, and duration stay consistent across
+     directions and only the slide axis flips. */
+  .page-transition-tab  { --switch-x: 0;     --switch-scale: 0.99; }
+  .page-transition-push { --switch-x: 56px;  --switch-scale: 0.992; }
+  .page-transition-pop  { --switch-x: -56px; --switch-scale: 0.992; }
+  .page-transition-tab,
+  .page-transition-push,
+  .page-transition-pop {
+    animation: pageSwitchLuxe var(--motion-page-switch-ms) cubic-bezier(0.32, 0.72, 0, 1) both;
     will-change: transform, opacity;
   }
   @keyframes pageSwitchLuxe {
     from {
       opacity: 0;
-      transform: translateX(var(--switch-x, 0)) translateY(4px) scale(0.994) translateZ(0);
+      transform: translateX(var(--switch-x, 0)) translateY(2px) scale(var(--switch-scale, 0.994)) translateZ(0);
     }
     to {
       opacity: 1;
@@ -1122,7 +1119,9 @@ body.dd-dnd-scroll-lock {
 @media (prefers-reduced-motion: reduce) {
   .page-enter,
   .fade-in,
-  .page-switch-luxe,
+  .page-transition-tab,
+  .page-transition-push,
+  .page-transition-pop,
   .animate-in,
   .shimmer,
   .dot-bounce > span,
