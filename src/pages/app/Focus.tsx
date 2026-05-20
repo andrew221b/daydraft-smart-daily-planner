@@ -18,6 +18,7 @@ import {
 } from "@/components/ui/popover";
 import { haptics } from "@/lib/haptics";
 import { PreflightSheet } from "@/components/app/PreflightSheet";
+import { TickingNumber } from "@/components/app/TickingNumber";
 import { getAssignedCategoryId, clearAssignedCategoryId } from "@/lib/blockCategory";
 import { getCalmMode, setCalmMode } from "@/lib/calmMode";
 import { isAiFlagEnabled, trackAiEvent } from "@/lib/aiRuntime";
@@ -597,8 +598,8 @@ export default function Focus() {
                       "elapsed"
                     )}
                   </div>
-                  <div className={`text-[46px] font-mono-sf font-semibold tabular-nums leading-none mt-1.5 ${isOverTime ? "text-destructive" : "text-foreground"}`}>
-                    {fmtHMS(ringElapsedSec)}
+                  <div className={`text-[46px] font-mono-sf font-semibold tabular-nums leading-none mt-1.5 overflow-hidden ${isOverTime ? "text-destructive" : "text-foreground"}`}>
+                    <TickingNumber value={fmtHMS(ringElapsedSec)} />
                   </div>
                   <div className="text-[12px] text-secondary-fg/60 mt-2">
                     of {fmtDur(block.duration_min)}

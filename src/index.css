@@ -524,6 +524,48 @@ body.dd-dnd-scroll-lock {
     0% { transform: scale(0.4); opacity: 0; }
     100% { transform: scale(1); opacity: 1; }
   }
+
+  /* ─── Row-level complete: satisfying check tap ──────────────────
+     The completion circle springs in like checkPop but in a smaller,
+     row-appropriate envelope (slightly overshoots, then settles).
+     Paired with an outward ripple from the circle's centre on tap so
+     the hit gives clear, premium feedback. */
+  .row-check-pop {
+    animation: rowCheckPop 380ms cubic-bezier(0.34, 1.56, 0.64, 1) both;
+  }
+  @keyframes rowCheckPop {
+    0%   { transform: scale(0.55); opacity: 0; }
+    65%  { transform: scale(1.12); opacity: 1; }
+    100% { transform: scale(1); opacity: 1; }
+  }
+  .ripple-burst {
+    position: absolute; inset: 0;
+    border-radius: 9999px;
+    pointer-events: none;
+    animation: rippleBurst 520ms cubic-bezier(0.22, 1, 0.36, 1) both;
+  }
+  @keyframes rippleBurst {
+    0%   { box-shadow: 0 0 0 0 hsl(var(--success) / 0.55); opacity: 1; }
+    100% { box-shadow: 0 0 0 18px hsl(var(--success) / 0); opacity: 0; }
+  }
+  @media (prefers-reduced-motion: reduce) {
+    .row-check-pop, .ripple-burst { animation: none; }
+  }
+
+  /* ─── Number tick — odometer-light for live counters ────────────
+     Subtle vertical flip + fade on each digit change. Cheap (transform
+     only, no JS lib), and on `tabular-nums` containers the layout is
+     stable so it reads like a real odometer. Wrap the *changing* value
+     in a `key`'d span so React remounts the digit on change. */
+  .tick-digit { display: inline-block; animation: tickDigit 280ms cubic-bezier(0.22, 1, 0.36, 1) both; }
+  @keyframes tickDigit {
+    0%   { transform: translateY(-44%); opacity: 0; }
+    55%  { opacity: 1; }
+    100% { transform: translateY(0); opacity: 1; }
+  }
+  @media (prefers-reduced-motion: reduce) {
+    .tick-digit { animation: none; }
+  }
   .shimmer {
     background: linear-gradient(90deg, hsl(var(--surface)) 0%, hsl(var(--surface-elevated)) 50%, hsl(var(--surface)) 100%);
     background-size: 200% 100%;

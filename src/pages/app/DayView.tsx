@@ -1037,7 +1037,7 @@ export default function DayView() {
             <div className="absolute -top-12 -left-12 h-28 w-28 rounded-full bg-primary/8 blur-xl pointer-events-none" />
             <div className="absolute -bottom-12 -right-12 h-28 w-28 rounded-full bg-primary-glow/8 blur-xl pointer-events-none" />
             
-            <div className="h-12 w-12 rounded-2xl bg-gradient-primary flex items-center justify-center mx-auto mb-4 border border-primary/25 shadow-[0_4px_16px_hsl(var(--primary)/0.2)]">
+            <div className="h-12 w-12 rounded-2xl bg-gradient-primary flex items-center justify-center mx-auto mb-4 border border-primary/25 shadow-[0_4px_16px_hsl(var(--primary)/0.2)] breathe">
               <CalendarDays className="h-5 w-5 text-primary-foreground" />
             </div>
             <div className="text-[17px] font-semibold text-foreground tracking-tight">
@@ -1116,7 +1116,7 @@ export default function DayView() {
                     })}
                     {blocks.length === 0 && (
                       <div className="text-center py-14 px-6 fade-in">
-                        <div className="mx-auto mb-4 h-12 w-12 rounded-2xl border border-soft surface-card flex items-center justify-center">
+                        <div className="mx-auto mb-4 h-12 w-12 rounded-2xl border border-soft surface-card flex items-center justify-center breathe">
                           <ListPlus className="h-5 w-5 text-secondary-fg/70" aria-hidden />
                         </div>
                         <p className="text-[15px] font-medium text-foreground/95">Nothing scheduled yet</p>

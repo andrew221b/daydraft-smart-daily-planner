@@ -20,8 +20,10 @@ const SheetOverlay = React.forwardRef<
   <SheetPrimitive.Overlay
     className={cn(
       // Softer scrim than pure black/80 — closer to iOS sheet behaviour where
-      // the background dims but stays legible. Fade timed with the sheet itself.
-      "fixed inset-0 z-50 bg-black/55 backdrop-blur-[2px] data-[state=open]:animate-in data-[state=closed]:animate-out data-[state=closed]:fade-out-0 data-[state=open]:fade-in-0 data-[state=open]:duration-[300ms] data-[state=closed]:duration-[220ms]",
+      // the background dims but stays legible. Faster fade-in (the scrim is
+      // there before the sheet lands), slightly delayed fade-out so the
+      // backdrop doesn't disappear before the sheet finishes sliding off.
+      "fixed inset-0 z-50 bg-black/55 backdrop-blur-[2px] data-[state=open]:animate-in data-[state=closed]:animate-out data-[state=closed]:fade-out-0 data-[state=open]:fade-in-0 data-[state=open]:duration-[220ms] data-[state=closed]:duration-[240ms]",
       className,
     )}
     {...props}
@@ -31,9 +33,11 @@ const SheetOverlay = React.forwardRef<
 SheetOverlay.displayName = SheetPrimitive.Overlay.displayName;
 
 const sheetVariants = cva(
-  // iOS 26 motion: tight spring on open (380ms, slight overshoot via cubic),
-  // smoother ease on close (260ms). Override tailwind-animate's default ease.
-  "fixed z-50 gap-4 bg-background p-6 shadow-lg data-[state=open]:animate-in data-[state=closed]:animate-out data-[state=open]:duration-[380ms] data-[state=closed]:duration-[260ms] data-[state=open]:[animation-timing-function:cubic-bezier(0.22,1,0.36,1)] data-[state=closed]:[animation-timing-function:cubic-bezier(0.4,0,0.6,1)]",
+  // iOS-native motion: the open curve mirrors UIKit's `defaultDamped` spring
+  // approximation — a confident decel that lands soft, with barely a hint of
+  // overshoot. Close is shorter and slightly more linear at the start so the
+  // user feels the dismiss the instant their finger leaves.
+  "fixed z-50 gap-4 bg-background p-6 shadow-lg data-[state=open]:animate-in data-[state=closed]:animate-out data-[state=open]:duration-[420ms] data-[state=closed]:duration-[260ms] data-[state=open]:[animation-timing-function:cubic-bezier(0.32,0.72,0,1)] data-[state=closed]:[animation-timing-function:cubic-bezier(0.4,0,0.4,1)] will-change-transform",
   {
     variants: {
       side: {

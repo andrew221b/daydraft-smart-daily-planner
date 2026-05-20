@@ -1,4 +1,5 @@
 import type React from "react";
+import { useState } from "react";
 import { useSortable } from "@dnd-kit/sortable";
 import { CSS } from "@dnd-kit/utilities";
 import { Block, fmtTime, inferScheduleBlockType, isOpenUserTask, isUserTaskDone } from "@/lib/daydraft";
@@ -266,30 +267,14 @@ export const SortableBlock = ({
         ) : block.kind === "task" && !isCal && block.resolution === "missed" ? (
           <div className="h-6 w-6 rounded-full border border-destructive/35 bg-destructive/10 shrink-0" title="Missed" aria-hidden />
         ) : isUserTaskDone(block) || (block.completed && block.kind !== "task") ? (
-          <button
-            type="button"
-            data-tour={tourSpotlight ? "dayview-complete" : undefined}
-            onPointerDown={(e) => e.stopPropagation()}
-            onClick={(e) => {
-              e.stopPropagation();
-              onToggleComplete?.(block);
-            }}
-            className="h-8 w-8 rounded-full bg-success flex items-center justify-center shrink-0 pressable shadow-[0_4px_14px_-2px_hsl(var(--success)/0.55)] ring-1 ring-white/20"
-            aria-label="Mark as not done"
-          >
-            <Check className="h-4 w-4 text-success-foreground" strokeWidth={3} />
-          </button>
+          <CompleteCircleDone
+            tourSpotlight={tourSpotlight}
+            onToggle={() => onToggleComplete?.(block)}
+          />
         ) : (
-          <button
-            type="button"
-            data-tour={tourSpotlight ? "dayview-complete" : undefined}
-            onPointerDown={(e) => e.stopPropagation()}
-            onClick={(e) => {
-              e.stopPropagation();
-              onToggleComplete?.(block);
-            }}
-            className="h-8 w-8 rounded-full border-[1.5px] border-border/60 shrink-0 pressable hover:border-primary/60 hover:bg-primary/10 shadow-[inset_0_2px_6px_rgba(0,0,0,0.06)] transition-all"
-            aria-label="Mark done"
+          <CompleteCircleEmpty
+            tourSpotlight={tourSpotlight}
+            onToggle={() => onToggleComplete?.(block)}
           />
         )}
         </div>
@@ -297,3 +282,72 @@ export const SortableBlock = ({
     </div>
   );
 };
+
+/**
+ * Empty completion circle. On tap, fires a quick radial ripple from the
+ * circle's own footprint before handing off to the parent — the ripple
+ * is what makes the "I tapped done" moment feel reactive even before the
+ * server roundtrip lands and flips the row to its done state.
+ */
+function CompleteCircleEmpty({
+  tourSpotlight,
+  onToggle,
+}: {
+  tourSpotlight?: boolean;
+  onToggle: () => void;
+}) {
+  const [rippling, setRippling] = useState(false);
+  return (
+    <button
+      type="button"
+      data-tour={tourSpotlight ? "dayview-complete" : undefined}
+      onPointerDown={(e) => e.stopPropagation()}
+      onClick={(e) => {
+        e.stopPropagation();
+        setRippling(false);
+        // Force-restart the keyframe by toggling off-then-on in the next frame.
+        requestAnimationFrame(() => setRippling(true));
+        onToggle();
+      }}
+      className="relative h-8 w-8 rounded-full border-[1.5px] border-border/60 shrink-0 pressable hover:border-primary/60 hover:bg-primary/10 shadow-[inset_0_2px_6px_rgba(0,0,0,0.06)] transition-all"
+      aria-label="Mark done"
+    >
+      {rippling && (
+        <span
+          className="ripple-burst"
+          onAnimationEnd={() => setRippling(false)}
+          aria-hidden
+        />
+      )}
+    </button>
+  );
+}
+
+/**
+ * Filled "done" circle. Springs the check icon in on mount so the
+ * transition from empty → done feels like a real iOS gesture (the icon
+ * pops, the circle settles).
+ */
+function CompleteCircleDone({
+  tourSpotlight,
+  onToggle,
+}: {
+  tourSpotlight?: boolean;
+  onToggle: () => void;
+}) {
+  return (
+    <button
+      type="button"
+      data-tour={tourSpotlight ? "dayview-complete" : undefined}
+      onPointerDown={(e) => e.stopPropagation()}
+      onClick={(e) => {
+        e.stopPropagation();
+        onToggle();
+      }}
+      className="relative h-8 w-8 rounded-full bg-success flex items-center justify-center shrink-0 pressable shadow-[0_4px_14px_-2px_hsl(var(--success)/0.55)] ring-1 ring-white/20"
+      aria-label="Mark as not done"
+    >
+      <Check className="h-4 w-4 text-success-foreground row-check-pop" strokeWidth={3} />
+    </button>
+  );
+}
