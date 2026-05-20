@@ -40,6 +40,12 @@ import { formatPlanAsPlainText, copyTextToClipboard } from "@/lib/planTextExport
 import { fetchDayPlan, planDashboardQueryKey, planDayQueryKey } from "@/lib/planQueries";
 import { applyAutoMissedBlocks } from "@/lib/blockResolution";
 import { resolveActualMinutesOnComplete, wallMinutesFromSlotStart } from "@/lib/blockActualTime";
+import {
+  getAssignedCategoryId,
+  setAssignedCategoryId,
+  clearAssignedCategoryId,
+  pruneAssignedCategories,
+} from "@/lib/blockCategory";
 import { useCalmMode } from "@/lib/calmMode";
 import { useEntitlement } from "@/hooks/useEntitlement";
 import { UpgradeSheet } from "@/components/app/UpgradeSheet";
@@ -110,6 +116,10 @@ export default function DayView() {
   const [calmMode] = useCalmMode();
   const { isPro, overQuota, planQuotaLimit, refresh: refreshEntitlement } = useEntitlement();
   const tracker = useTimeTracker();
+  // Bumped whenever we touch the per-block category assignment in localStorage
+  // so the category pill on the Plan row re-derives. localStorage doesn't fire
+  // React renders on its own.
+  const [, setAssignedCatTick] = useState(0);
   const [trackPickerBlock, setTrackPickerBlock] = useState<ExBlock | null>(null);
   const [newCatName, setNewCatName] = useState("");
   const [addingCategory, setAddingCategory] = useState(false);
@@ -157,17 +167,22 @@ export default function DayView() {
     setTappedBlock(null);
   };
 
-  const startTrackingForBlock = async (categoryId: string, block: ExBlock) => {
-    if (tracker.active) {
-      // already running — if it's not on this block, stop and switch silently
-      if (tracker.active.block_id !== block.id) await tracker.stop();
-      else { setTrackPickerBlock(null); return; }
-    }
-    await tracker.start(categoryId, { source: "plan", blockId: block.id, note: block.title });
-    haptics.notify("success");
+  /**
+   * "Track" on a Plan row now *earmarks* the category for the block — no
+   * timer starts. The tracker only begins ticking once the user opens
+   * Focus on that block, matching the user's mental model (assign here,
+   * track when actually working).
+   */
+  const assignCategoryToBlock = (categoryId: string, block: ExBlock) => {
+    setAssignedCategoryId(block.id, categoryId);
+    // Bump local re-render of category pills.
+    setAssignedCatTick((n) => n + 1);
+    haptics.selection();
     setTrackPickerBlock(null);
-    toast.success(`Tracking "${block.title}"`, {
-      action: { label: "Open", onClick: () => nav(`/focus/${block.id}`) },
+    const cat = tracker.categories.find((c) => c.id === categoryId);
+    toast.success(`Category set: ${cat?.name || "Tracked"}`, {
+      description: "Timer starts when you open Focus on this task.",
+      action: { label: "Open Focus", onClick: () => nav(`/focus/${block.id}`) },
     });
   };
 
@@ -177,7 +192,7 @@ export default function DayView() {
     haptics.notify("success");
   };
 
-  const handleAddCategoryAndStart = async () => {
+  const handleAddCategoryAndAssign = async () => {
     const name = newCatName.trim();
     if (!name || !trackPickerBlock || addingCategory) return;
     setAddingCategory(true);
@@ -185,7 +200,7 @@ export default function DayView() {
       const cat = await tracker.addCategory(name);
       if (cat) {
         setNewCatName("");
-        await startTrackingForBlock(cat.id, trackPickerBlock);
+        assignCategoryToBlock(cat.id, trackPickerBlock);
       }
     } finally {
       setAddingCategory(false);
@@ -217,6 +232,13 @@ export default function DayView() {
     const t = setInterval(() => setNow(new Date()), 60000);
     return () => clearInterval(t);
   }, []);
+
+  // Drop localStorage tracker-category records for blocks that no longer
+  // exist (deleted from a different device, plan reset, etc).
+  useEffect(() => {
+    if (!blocks.length) return;
+    pruneAssignedCategories(blocks.map((b) => b.id));
+  }, [blocks.length]);
 
   const copyDayOutline = async () => {
     if (!blocks.length) return;
@@ -272,6 +294,7 @@ export default function DayView() {
     haptics.impact("light");
     try {
       await supabase.from("blocks").delete().eq("id", id);
+      clearAssignedCategoryId(id);
       if (plan && next.length === 0) {
         await supabase.from("plans").delete().eq("id", plan.id);
         setBlocks([]);
@@ -1052,13 +1075,19 @@ export default function DayView() {
               >
                 <SortableContext items={blocks.map((b) => b.id)} strategy={verticalListSortingStrategy}>
                   <div className="touch-pan-y space-y-2.5 enter-stagger">
-                    {blocks.map((b) => (
+                    {blocks.map((b) => {
+                      const assignedId = getAssignedCategoryId(b.id);
+                      const assignedCat = assignedId
+                        ? tracker.categories.find((c) => c.id === assignedId) || null
+                        : null;
+                      return (
                       <SortableBlock
                         key={b.id}
                         block={b}
                         editing={false}
                         tourSpotlight={spotlightId === b.id}
                         trackingActive={!!tracker.active && tracker.active.block_id === b.id}
+                        assignedCategory={assignedCat}
                         onTap={(blk) => setTappedBlock(blk)}
                         onTapTime={(blk) => {
                           if (blk?.is_calendar_event) return;
@@ -1077,7 +1106,8 @@ export default function DayView() {
                           void stopTrackingForBlock(blk);
                         }}
                       />
-                    ))}
+                      );
+                    })}
                     {blocks.length === 0 && (
                       <div className="text-center py-14 px-6 fade-in">
                         <div className="mx-auto mb-4 h-12 w-12 rounded-2xl border border-soft surface-card flex items-center justify-center">
@@ -1620,12 +1650,14 @@ export default function DayView() {
         futureDays={28}
       />
 
-      {/* Category picker — opens when user taps "Track" on a row. */}
+      {/* Category picker — opens when user taps "Track" on a row.
+          Note: picking a category *earmarks* it for this block; the timer
+          only starts later, when the user opens Focus on this task. */}
       <Sheet open={!!trackPickerBlock} onOpenChange={(v) => { if (!v) { setTrackPickerBlock(null); setNewCatName(""); } }}>
         <SheetContent side="bottom" className="rounded-t-[28px] border-border/45 bg-popover max-h-[85vh] overflow-y-auto">
           <SheetHeader className="text-left">
             <SheetTitle className="flex items-center gap-2 text-[16px]">
-              <Play className="h-4 w-4 text-primary" fill="currentColor" /> Track time
+              <Play className="h-4 w-4 text-primary" fill="currentColor" /> Tracker category
             </SheetTitle>
           </SheetHeader>
           {trackPickerBlock && (
@@ -1633,15 +1665,36 @@ export default function DayView() {
               <div>
                 <div className="text-[14px] font-medium text-foreground leading-tight">{trackPickerBlock.title}</div>
                 <div className="text-[11.5px] text-secondary-fg mt-1">
-                  Pick a category — the timer starts now and links time to this task.
+                  Pick a category. Time only starts counting when you open Focus on this task.
                 </div>
               </div>
 
-              {tracker.active && tracker.active.block_id !== trackPickerBlock.id && (
-                <div className="rounded-[12px] border border-amber-500/30 bg-amber-500/[0.08] px-3 py-2 text-[12px] text-foreground/85">
-                  A timer is already running on another task. Starting will stop the previous one.
-                </div>
-              )}
+              {(() => {
+                const currentAssigned = getAssignedCategoryId(trackPickerBlock.id);
+                if (!currentAssigned) return null;
+                return (
+                  <div className="flex items-center justify-between rounded-[12px] border border-soft bg-card/60 px-3 py-2 text-[12px]">
+                    <span className="text-secondary-fg">
+                      Currently set: <span className="text-foreground font-medium">
+                        {tracker.categories.find((c) => c.id === currentAssigned)?.name || "(missing)"}
+                      </span>
+                    </span>
+                    <button
+                      type="button"
+                      onClick={() => {
+                        clearAssignedCategoryId(trackPickerBlock.id);
+                        setAssignedCatTick((n) => n + 1);
+                        haptics.selection();
+                        setTrackPickerBlock(null);
+                        toast("Category cleared");
+                      }}
+                      className="text-destructive font-medium pressable"
+                    >
+                      Clear
+                    </button>
+                  </div>
+                );
+              })()}
 
               {tracker.categories.length > 0 ? (
                 <div className="grid grid-cols-2 gap-2">
@@ -1649,7 +1702,7 @@ export default function DayView() {
                     <button
                       key={c.id}
                       type="button"
-                      onClick={() => void startTrackingForBlock(c.id, trackPickerBlock)}
+                      onClick={() => assignCategoryToBlock(c.id, trackPickerBlock)}
                       className="flex items-center gap-2.5 rounded-2xl border border-soft surface-card px-3 py-3 pressable hover:border-primary/40 transition-colors text-left"
                     >
                       <span
@@ -1663,7 +1716,7 @@ export default function DayView() {
                 </div>
               ) : (
                 <p className="text-[12px] text-secondary-fg">
-                  No categories yet — create one to start tracking.
+                  No categories yet — create one below.
                 </p>
               )}
 
@@ -1677,18 +1730,18 @@ export default function DayView() {
                     value={newCatName}
                     onChange={(e) => setNewCatName(e.target.value)}
                     onKeyDown={(e) => {
-                      if (e.key === "Enter") { e.preventDefault(); void handleAddCategoryAndStart(); }
+                      if (e.key === "Enter") { e.preventDefault(); void handleAddCategoryAndAssign(); }
                     }}
                     placeholder="e.g. Deep work, Client A, Chores"
                     className="flex-1 h-11 rounded-xl border border-soft bg-background/40 px-3 text-[14px] text-foreground placeholder:text-secondary-fg/55 focus:outline-none focus:border-primary/45 focus:ring-2 focus:ring-primary/15"
                   />
                   <Button
                     type="button"
-                    onClick={() => void handleAddCategoryAndStart()}
+                    onClick={() => void handleAddCategoryAndAssign()}
                     disabled={!newCatName.trim() || addingCategory}
                     className="h-11 rounded-xl bg-primary hover:bg-primary/92 text-primary-foreground text-[13px] font-semibold px-4 pressable"
                   >
-                    Start
+                    Add
                   </Button>
                 </div>
               </div>

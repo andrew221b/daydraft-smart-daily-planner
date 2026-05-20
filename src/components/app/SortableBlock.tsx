@@ -4,7 +4,7 @@ import { Block, fmtTime, inferScheduleBlockType, isOpenUserTask, isUserTaskDone 
 import { Check, Calendar, Layers, GripVertical, Sparkles, Play, Square } from "lucide-react";
 
 export const SortableBlock = ({
-  block, editing, onTap, onTapTime, onToggleComplete, onStartTrack, onStopTrack, trackingActive, tourSpotlight,
+  block, editing, onTap, onTapTime, onToggleComplete, onStartTrack, onStopTrack, trackingActive, assignedCategory, tourSpotlight,
 }: {
   block: Block & {
     ai_reasoning?: string | null;
@@ -26,6 +26,8 @@ export const SortableBlock = ({
   onStopTrack?: (b: any) => void;
   /** True if the live timer is currently running on this block. */
   trackingActive?: boolean;
+  /** Category the user has earmarked for this block (not yet ticking). */
+  assignedCategory?: { id: string; name: string; color: string } | null;
   /** First visible row — tour hotspot only on one element. */
   tourSpotlight?: boolean;
 }) => {
@@ -184,15 +186,21 @@ export const SortableBlock = ({
                   : "On track vs plan"}
             </div>
           )}
-          {trackingActive && (
+          {trackingActive ? (
             <div className="mt-1 inline-flex items-center gap-1.5 rounded-full bg-success/15 text-success border border-success/25 px-2 py-0.5 text-[10.5px] font-medium leading-none">
               <span className="h-1.5 w-1.5 rounded-full bg-success animate-pulse" />
               Tracking now
             </div>
-          )}
+          ) : assignedCategory ? (
+            <div className="mt-1 inline-flex items-center gap-1.5 rounded-full border border-border/45 bg-card/60 px-2 py-0.5 text-[10.5px] font-medium leading-none text-foreground/80">
+              <span className="h-1.5 w-1.5 rounded-full" style={{ background: assignedCategory.color }} aria-hidden />
+              {assignedCategory.name}
+            </div>
+          ) : null}
         </div>
         {onStartTrack && !isCal && block.kind === "task" && isOpenUserTask(block) && (
           trackingActive ? (
+            // Live timer running on this block — keep the stop affordance.
             <button
               type="button"
               onPointerDown={(e) => e.stopPropagation()}
@@ -203,14 +211,29 @@ export const SortableBlock = ({
             >
               <Square className="h-3 w-3" fill="currentColor" /> Stop
             </button>
+          ) : assignedCategory ? (
+            // Category earmarked — tap to change/clear; tracker starts when the
+            // user enters Focus on this block, not here.
+            <button
+              type="button"
+              onPointerDown={(e) => e.stopPropagation()}
+              onClick={(e) => { e.stopPropagation(); onStartTrack?.(block); }}
+              className="shrink-0 h-8 rounded-full border border-soft bg-card/70 inline-flex items-center justify-center gap-1.5 px-2.5 text-[11px] font-medium text-foreground/85 pressable hover:border-primary/35 transition-colors"
+              aria-label="Change tracker category"
+              title="Change tracker category"
+            >
+              <span className="h-2 w-2 rounded-full" style={{ background: assignedCategory.color }} aria-hidden />
+              Change
+            </button>
           ) : (
+            // No category yet — tapping just earmarks one (no timer starts).
             <button
               type="button"
               onPointerDown={(e) => e.stopPropagation()}
               onClick={(e) => { e.stopPropagation(); onStartTrack?.(block); }}
               className="shrink-0 h-8 rounded-full border border-primary/35 bg-primary/10 text-primary inline-flex items-center justify-center gap-1 px-2.5 text-[11px] font-medium pressable hover:bg-primary/15 hover:border-primary/55 transition-colors"
-              aria-label="Start tracking this task"
-              title="Track time on this task"
+              aria-label="Assign a tracker category to this task"
+              title="Pick a tracker category for this task"
             >
               <Play className="h-3 w-3" fill="currentColor" /> Track
             </button>

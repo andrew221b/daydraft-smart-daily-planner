@@ -1,9 +1,9 @@
 import { useEffect, useRef, useState } from "react";
 import { useNavigate, useParams, useSearchParams } from "react-router-dom";
 import { supabase } from "@/integrations/supabase/client";
-import { Block, todayDateStr, wallMsOnPlanDay, blockSlotEndHHMM, addMinutesToWallClock, fmtTime, isOpenUserTask } from "@/lib/daydraft";
+import { Block, todayDateStr, wallMsOnPlanDay, blockSlotEndHHMM, fmtTime, isOpenUserTask } from "@/lib/daydraft";
 import { minutesFromFocusArmSeconds, resolveActualMinutesOnComplete } from "@/lib/blockActualTime";
-import { Check, Plus, Sparkles, MapPin, ExternalLink, Loader2, Lightbulb, Copy, Phone, CalendarPlus, Mail, Timer, Square, X, ShieldAlert } from "lucide-react";
+import { Check, Sparkles, MapPin, ExternalLink, Loader2, Lightbulb, Copy, Phone, CalendarPlus, Mail, Timer, Square, X, ShieldAlert } from "lucide-react";
 import { useAuth } from "@/hooks/useAuth";
 import { useProfile } from "@/hooks/useProfile";
 import { mapsUrl } from "@/lib/maps";
@@ -18,6 +18,7 @@ import {
 } from "@/components/ui/popover";
 import { haptics } from "@/lib/haptics";
 import { PreflightSheet } from "@/components/app/PreflightSheet";
+import { getAssignedCategoryId, clearAssignedCategoryId } from "@/lib/blockCategory";
 import { getCalmMode, setCalmMode } from "@/lib/calmMode";
 import { isAiFlagEnabled, trackAiEvent } from "@/lib/aiRuntime";
 import { useEntitlement } from "@/hooks/useEntitlement";
@@ -60,8 +61,8 @@ export default function Focus() {
   const [helpOpen, setHelpOpen] = useState(false);
   const [preflightOpen, setPreflightOpen] = useState(false);
   const [armed, setArmed] = useState(false);
-  const [extended, setExtended] = useState(false);
   const startedHereRef = useRef(false);
+  const autoStartedRef = useRef(false);
   const [confirmSkipOpen, setConfirmSkipOpen] = useState(false);
   const [confirmCancelOpen, setConfirmCancelOpen] = useState(false);
   const [runtimeReason, setRuntimeReason] = useState<"stuck" | "skip" | "overtime" | null>(null);
@@ -70,6 +71,10 @@ export default function Focus() {
   const actualStartMsRef = useRef<number | null>(null);
   const [catPickerOpen, setCatPickerOpen] = useState(false);
   const [newFocusCatName, setNewFocusCatName] = useState("");
+  // Set when the user explicitly chooses "focus without tracking" for this
+  // block. Suppresses the tracker prompt for the rest of the session, so the
+  // big ring keeps counting plain elapsed without nagging.
+  const [trackerSkipped, setTrackerSkipped] = useState(false);
   /** Plan calendar day (YYYY-MM-DD) — for recap / back navigation off the default "today". */
   const [planDate, setPlanDate] = useState<string | null>(null);
   const [searchParams] = useSearchParams();
@@ -105,9 +110,9 @@ export default function Focus() {
     setNext(null);
     windowWallRef.current = { startMs: 0, endMs: 0 };
     setShowCheck(false);
-    setExtended(false);
-    setExtendedMin(0);
     setArmed(false);
+    setTrackerSkipped(false);
+    autoStartedRef.current = false;
     setHelp(null);
     setHelpOpen(false);
     setHelpError(null);
@@ -167,40 +172,27 @@ export default function Focus() {
     }
   }, [armed]);
 
+  // Auto-start the tracker the moment the focus session arms IF the user
+  // already earmarked a category for this block on the Plan screen. If
+  // they didn't, we leave tracking off and a prompt below offers a choice
+  // ("pick category" / "focus without tracking").
+  useEffect(() => {
+    if (!armed || !block || autoStartedRef.current) return;
+    if (tracking) return; // a timer is already running — don't double-start
+    const assignedId = getAssignedCategoryId(block.id);
+    if (!assignedId) return;
+    const cat = categories.find((c) => c.id === assignedId);
+    if (!cat) return;
+    autoStartedRef.current = true;
+    startedHereRef.current = true;
+    void startTracking(cat.id, { source: "focus", blockId: block.id, note: block.title });
+  }, [armed, block?.id, categories, tracking, startTracking]);
+
   useEffect(() => {
     if (!armed || !block) return;
     const id = window.setInterval(() => setSessionTick((n) => n + 1), 1000);
     return () => clearInterval(id);
   }, [armed, block?.id]);
-
-  const EXTEND_CAP_MIN = 60; // hard cap on cumulative extensions per block
-  const [extendedMin, setExtendedMin] = useState(0);
-  const extendFiveMin = () => {
-    if (extendedMin + 5 > EXTEND_CAP_MIN) {
-      toast("You have already extended this block by 60 minutes. Wrap up or complete it.", { duration: 3500 });
-      return;
-    }
-    windowWallRef.current.endMs += 5 * 60 * 1000;
-    setExtendedMin((m) => m + 5);
-    setExtended(true);
-    haptics.tap();
-    void (async () => {
-      if (!block || !user) return;
-      const pd = planDate || todayDateStr();
-      const newDur = block.duration_min + 5;
-      const newEnd = addMinutesToWallClock(pd, blockSlotEndHHMM(block), 5);
-      try {
-        await supabase
-          .from("blocks")
-          .update({ duration_min: newDur, slot_end_time: newEnd })
-          .eq("id", block.id);
-        setBlock({ ...block, duration_min: newDur, slot_end_time: newEnd });
-      } catch {
-        toast.error("Could not extend window on the server");
-      }
-    })();
-    toast.success(`+5 min · ${extendedMin + 5}/${EXTEND_CAP_MIN}m extended`);
-  };
 
   useEffect(() => {
     trackingRef.current = tracking;
@@ -414,14 +406,19 @@ export default function Focus() {
     : 0;
   const oneThingElapsedSec = focusElapsedSec;
   const trackingThisBlock = !!(tracking && block && tracking.block_id === block.id);
+  // The big ring should reflect the *tracker* when it's actually attributing
+  // time to a category. With no tracker running, it falls back to a plain
+  // wall-clock since-arm count (which doesn't persist to time_entries).
+  const ringElapsedSec = trackingThisBlock ? elapsedSec : focusElapsedSec;
+  const assignedCatIdForBlock = block ? getAssignedCategoryId(block.id) : null;
   const fmtDur = (m: number) =>
     m < 60 ? `${m}m` : `${Math.floor(m / 60)}h${m % 60 ? ` ${m % 60}m` : ""}`;
 
   const RING_R = 100;
   const RING_CIRC = 2 * Math.PI * RING_R;
   const plannedSec = block.duration_min * 60;
-  const progressRatio = plannedSec > 0 ? Math.min(1, focusElapsedSec / plannedSec) : 0;
-  const isOverTime = focusElapsedSec > 0 && focusElapsedSec > plannedSec;
+  const progressRatio = plannedSec > 0 ? Math.min(1, ringElapsedSec / plannedSec) : 0;
+  const isOverTime = ringElapsedSec > 0 && ringElapsedSec > plannedSec;
 
   if (oneThingMode) {
     return (
@@ -584,13 +581,24 @@ export default function Focus() {
                     style={{ transition: "stroke-dashoffset 0.9s cubic-bezier(0.4,0,0.2,1), stroke 0.4s ease" }}
                   />
                 </svg>
-                {/* Center content */}
+                {/* Center content — shows tracker time when a category is
+                    attributing the session; otherwise a plain since-arm
+                    elapsed (no time_entry is created). */}
                 <div className="absolute inset-0 flex flex-col items-center justify-center">
-                  <div className="text-[10px] font-semibold uppercase tracking-[0.16em] text-secondary-fg/55">
-                    {isOverTime ? "overtime" : "elapsed"}
+                  <div className="text-[10px] font-semibold uppercase tracking-[0.16em] text-secondary-fg/55 inline-flex items-center gap-1">
+                    {trackingThisBlock && trackingCat ? (
+                      <>
+                        <span className="h-1.5 w-1.5 rounded-full animate-pulse" style={{ background: trackingCat.color }} aria-hidden />
+                        {trackingCat.name}
+                      </>
+                    ) : isOverTime ? (
+                      "overtime"
+                    ) : (
+                      "elapsed"
+                    )}
                   </div>
                   <div className={`text-[46px] font-mono-sf font-semibold tabular-nums leading-none mt-1.5 ${isOverTime ? "text-destructive" : "text-foreground"}`}>
-                    {fmtHMS(focusElapsedSec)}
+                    {fmtHMS(ringElapsedSec)}
                   </div>
                   <div className="text-[12px] text-secondary-fg/60 mt-2">
                     of {fmtDur(block.duration_min)}
@@ -599,22 +607,17 @@ export default function Focus() {
               </>
             )}
           </div>
-          {/* Tracking pill below ring */}
+          {/* Stop-tracking control (only when a tracker is actually running on
+              this block — the ring already shows the category + elapsed, so
+              we just need a discreet stop affordance). */}
           {armed && trackingThisBlock && trackingCat && (
-            <div className="mt-5 text-center">
-              <div className="inline-flex items-center gap-1.5 rounded-full border border-border/35 bg-card/60 px-3 py-1">
-                <span className="h-1.5 w-1.5 rounded-full animate-pulse" style={{ background: trackingCat.color }} />
-                <span className="text-[12px] font-medium text-foreground/85">{trackingCat.name}</span>
-                <span className="font-mono-sf tabular-nums text-[12px] text-secondary-fg ml-1">{fmtHMS(elapsedSec)}</span>
-              </div>
-              <button
-                type="button"
-                onClick={() => { stopTracking(); startedHereRef.current = false; }}
-                className="mt-2 flex items-center gap-1 mx-auto rounded-full border border-soft bg-background/70 px-3 py-1.5 text-[11px] font-medium text-secondary-fg pressable hover:text-foreground"
-              >
-                <Square className="h-3 w-3" /> Stop tracking
-              </button>
-            </div>
+            <button
+              type="button"
+              onClick={() => { stopTracking(); startedHereRef.current = false; }}
+              className="mt-5 flex items-center gap-1 mx-auto rounded-full border border-soft bg-background/70 px-3 py-1.5 text-[11px] font-medium text-secondary-fg pressable hover:text-foreground"
+            >
+              <Square className="h-3 w-3" /> Stop tracking
+            </button>
           )}
         </div>
 
@@ -627,28 +630,102 @@ export default function Focus() {
             <Check className="h-5 w-5 shrink-0" strokeWidth={2.75} />
             Done
           </button>
-          <div className="grid grid-cols-2 gap-2">
-            <button
-              type="button"
-              onClick={extendFiveMin}
-              className="flex h-11 items-center justify-center gap-1.5 rounded-xl border border-border/45 bg-card/80 text-[13px] font-medium text-secondary-fg pressable hover:text-foreground transition-colors"
-            >
-              <Plus className="h-3.5 w-3.5" strokeWidth={2.25} /> +5 min
-            </button>
-            <button
-              type="button"
-              onClick={() => setConfirmSkipOpen(true)}
-              className="flex h-11 items-center justify-center rounded-xl border border-border/45 bg-card/80 text-[13px] font-medium text-secondary-fg pressable hover:text-foreground transition-colors"
-            >
-              Skip
-            </button>
-          </div>
+          <button
+            type="button"
+            onClick={() => setConfirmSkipOpen(true)}
+            className="w-full flex h-11 items-center justify-center rounded-xl border border-border/45 bg-card/80 text-[13px] font-medium text-secondary-fg pressable hover:text-foreground transition-colors"
+          >
+            Skip
+          </button>
         </div>
-        {!trackingThisBlock && armed && (
+        {/* Decision prompt when this block has no tracker category yet and
+            the user hasn't opted out for this session. Two clear paths so
+            the user is never silently un-tracked. */}
+        {!trackingThisBlock && armed && !assignedCatIdForBlock && !trackerSkipped && (
+          <div className="mt-5 w-full max-w-[320px] rounded-[18px] border border-border/45 bg-card/70 backdrop-blur-sm px-4 py-3.5 space-y-2.5">
+            <div className="flex items-start gap-2.5">
+              <Timer className="h-4 w-4 text-primary mt-0.5 shrink-0" />
+              <div className="text-[12.5px] leading-snug text-foreground/90">
+                Track this block's time? Pick a category to log it, or focus without saving.
+              </div>
+            </div>
+            <div className="grid grid-cols-2 gap-2">
+              <Popover open={catPickerOpen} onOpenChange={(o) => { setCatPickerOpen(o); if (!o) setNewFocusCatName(""); }}>
+                <PopoverTrigger asChild>
+                  <button className="h-10 rounded-[12px] bg-primary/12 border border-primary/35 text-primary text-[12.5px] font-semibold pressable hover:bg-primary/18 transition-colors">
+                    Pick category
+                  </button>
+                </PopoverTrigger>
+                <PopoverContent className="w-[min(20rem,calc(100vw-2rem))] p-3" align="center">
+                  <div className="text-[10px] uppercase tracking-wider text-secondary-fg px-1 pb-2">Pick a category</div>
+                  <div className="max-h-48 space-y-0.5 overflow-y-auto pr-0.5">
+                    {categories.map((c) => (
+                      <button
+                        key={c.id}
+                        type="button"
+                        onClick={() => {
+                          startedHereRef.current = true;
+                          void startTracking(c.id, { source: "focus", blockId: block.id, note: block.title });
+                          setCatPickerOpen(false);
+                        }}
+                        className="flex w-full items-center gap-2 rounded-lg px-2 py-2 text-left text-sm text-foreground pressable hover:bg-muted"
+                      >
+                        <span className="h-2.5 w-2.5 shrink-0 rounded-full" style={{ background: c.color }} />
+                        <span className="flex-1 truncate">{c.name}</span>
+                      </button>
+                    ))}
+                    {categories.length === 0 && (
+                      <p className="px-1 py-2 text-[12px] leading-snug text-secondary-fg">No categories yet. Create one below.</p>
+                    )}
+                  </div>
+                  <form
+                    className="mt-3 flex flex-col gap-2 border-t border-border/40 pt-3"
+                    onSubmit={async (e) => {
+                      e.preventDefault();
+                      const name = newFocusCatName.trim();
+                      if (!name) return;
+                      const c = await addCategory(name);
+                      if (!c) return;
+                      startedHereRef.current = true;
+                      await startTracking(c.id, { source: "focus", blockId: block.id, note: block.title });
+                      setNewFocusCatName("");
+                      setCatPickerOpen(false);
+                    }}
+                  >
+                    <Input
+                      value={newFocusCatName}
+                      onChange={(e) => setNewFocusCatName(e.target.value)}
+                      placeholder="New category name"
+                      className="h-10 text-[13px]"
+                    />
+                    <button
+                      type="submit"
+                      disabled={!newFocusCatName.trim()}
+                      className="h-10 w-full rounded-xl bg-primary text-[13px] font-semibold text-primary-foreground pressable disabled:opacity-45"
+                    >
+                      Add and start
+                    </button>
+                  </form>
+                </PopoverContent>
+              </Popover>
+              <button
+                type="button"
+                onClick={() => { setTrackerSkipped(true); haptics.selection(); }}
+                className="h-10 rounded-[12px] border border-border/45 bg-background/60 text-secondary-fg text-[12.5px] font-medium pressable hover:text-foreground transition-colors"
+              >
+                Focus without tracking
+              </button>
+            </div>
+          </div>
+        )}
+
+        {/* Quiet "add tracker" button after the user opted to skip — non-blocking,
+            in case they change their mind mid-session. */}
+        {!trackingThisBlock && armed && !assignedCatIdForBlock && trackerSkipped && (
           <Popover open={catPickerOpen} onOpenChange={(o) => { setCatPickerOpen(o); if (!o) setNewFocusCatName(""); }}>
             <PopoverTrigger asChild>
-              <button className="mt-3 inline-flex items-center gap-1.5 px-4 py-2 rounded-full border border-border/45 bg-card/60 text-[12px] font-medium text-secondary-fg hover:text-foreground hover:border-border/65 pressable transition-colors">
-                <Timer className="h-3.5 w-3.5" /> {categories.length ? "Track time" : "Set up tracking"}
+              <button className="mt-5 inline-flex items-center gap-1.5 px-4 py-2 rounded-full border border-border/45 bg-card/60 text-[12px] font-medium text-secondary-fg hover:text-foreground hover:border-border/65 pressable transition-colors">
+                <Timer className="h-3.5 w-3.5" /> Start tracking
               </button>
             </PopoverTrigger>
             <PopoverContent className="w-[min(20rem,calc(100vw-2rem))] p-3" align="center">
