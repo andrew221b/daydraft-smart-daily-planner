@@ -269,17 +269,18 @@ body.dd-dnd-scroll-lock {
      Mobile-first: no `:hover` dependency. */
   .pressable {
     transition:
-      transform 280ms cubic-bezier(0.28, 0.84, 0.42, 1),
-      background-color 180ms ease,
-      border-color 180ms ease,
-      opacity 180ms ease,
-      filter 180ms ease;
+      transform 380ms cubic-bezier(0.25, 0.8, 0.25, 1.4),
+      background-color 200ms ease,
+      border-color 200ms ease,
+      opacity 200ms ease,
+      filter 200ms ease,
+      box-shadow 200ms ease;
     -webkit-tap-highlight-color: transparent;
+    will-change: transform;
   }
   .pressable:active {
-    transform: scale(0.95);
-    transition-duration: 100ms;
-    transition-timing-function: cubic-bezier(0.28, 0.84, 0.42, 1);
+    transform: scale(0.94);
+    transition: transform 90ms cubic-bezier(0.25, 1, 0.5, 1);
   }
 
   /* ─── Tappable card/row ──────────────────────────────────────────
@@ -287,18 +288,18 @@ body.dd-dnd-scroll-lock {
      than buttons so they don't feel mushy, plus a faint dim. */
   .tappable {
     transition:
-      transform 340ms cubic-bezier(0.34, 1.56, 0.64, 1),
-      filter 180ms ease,
-      background-color 180ms ease,
-      border-color 180ms ease;
+      transform 420ms cubic-bezier(0.25, 0.8, 0.25, 1.3),
+      filter 200ms ease,
+      background-color 200ms ease,
+      border-color 200ms ease,
+      box-shadow 200ms ease;
     -webkit-tap-highlight-color: transparent;
     will-change: transform;
   }
   .tappable:active {
-    transform: scale(0.975);
+    transform: scale(0.97);
     filter: brightness(0.96);
-    transition-duration: 100ms;
-    transition-timing-function: cubic-bezier(0.4, 0, 0.6, 1);
+    transition: transform 90ms cubic-bezier(0.25, 1, 0.5, 1);
   }
 
   /* ─── Drag-lifted card ───────────────────────────────────────────
@@ -474,41 +475,66 @@ body.dd-dnd-scroll-lock {
   }
   .calm-divider { border-bottom: 1px solid hsl(var(--border)); }
 
-  .page-enter { animation: pageEnter 320ms cubic-bezier(0.22, 1, 0.36, 1) both; }
+  .page-enter {
+    animation: pageEnter 320ms cubic-bezier(0.16, 1, 0.3, 1) both;
+    will-change: transform, opacity;
+  }
   @keyframes pageEnter {
-    from { opacity: 0; transform: translateY(6px); }
-    to { opacity: 1; transform: translateY(0); }
+    from { opacity: 0; transform: translateY(8px) translateZ(0); }
+    to { opacity: 1; transform: translateY(0) translateZ(0); }
   }
-  .fade-in { animation: fadeIn 240ms cubic-bezier(0.22, 1, 0.36, 1) both; }
+  .fade-in {
+    animation: fadeIn 240ms cubic-bezier(0.16, 1, 0.3, 1) both;
+    will-change: opacity;
+  }
   @keyframes fadeIn { from { opacity: 0 } to { opacity: 1 } }
-  .page-switch-luxe {
-    animation: pageSwitchLuxe var(--motion-page-switch-ms) cubic-bezier(0.22, 1, 0.36, 1) both;
+  
+  /* ─── Page transition types (iOS Tahoe physics) ───────────────── */
+  .page-transition-tab {
+    animation: iosTabFade 260ms cubic-bezier(0.16, 1, 0.3, 1) both;
+    will-change: opacity, transform;
   }
-  /* Drill-down (push) — incoming page slides in from the right. Mobile-tuned:
-     starts at 24px so the gesture reads as "pushed onto the stack". */
+  @keyframes iosTabFade {
+    from { opacity: 0; transform: scale(0.99) translateZ(0); }
+    to { opacity: 1; transform: scale(1) translateZ(0); }
+  }
+
+  .page-transition-push {
+    animation: iosPagePush 380ms cubic-bezier(0.16, 1, 0.3, 1) both;
+    will-change: opacity, transform;
+  }
+  @keyframes iosPagePush {
+    from { opacity: 0; transform: translateX(32px) translateZ(0); }
+    to { opacity: 1; transform: translateX(0) translateZ(0); }
+  }
+
   .page-switch-right { --switch-x: 24px; }
   .page-switch-luxe {
-    animation: pageSwitchLuxe var(--motion-page-switch-ms) cubic-bezier(0.22, 1, 0.36, 1) both;
+    animation: pageSwitchLuxe var(--motion-page-switch-ms) cubic-bezier(0.16, 1, 0.3, 1) both;
+    will-change: transform, opacity;
   }
-  /* Avoid filter: blur — WKWebView promotes a full compositor layer each frame (janky on iPhone). */
   @keyframes pageSwitchLuxe {
     from {
       opacity: 0;
-      transform: translateX(var(--switch-x, 0)) translateY(4px) scale(0.994);
+      transform: translateX(var(--switch-x, 0)) translateY(4px) scale(0.994) translateZ(0);
     }
     to {
       opacity: 1;
-      transform: translateX(0) translateY(0) scale(1);
+      transform: translateX(0) translateY(0) scale(1) translateZ(0);
     }
   }
-  .section-switch-stagger > * { animation: sectionIn var(--motion-section-in-ms) cubic-bezier(0.22, 1, 0.36, 1) both; }
+  
+  .section-switch-stagger > * {
+    animation: sectionIn var(--motion-section-in-ms) cubic-bezier(0.16, 1, 0.3, 1) both;
+    will-change: transform, opacity;
+  }
   .section-switch-stagger > *:nth-child(1) { animation-delay: 30ms; }
   .section-switch-stagger > *:nth-child(2) { animation-delay: 80ms; }
   .section-switch-stagger > *:nth-child(3) { animation-delay: 130ms; }
   .section-switch-stagger > *:nth-child(4) { animation-delay: 180ms; }
   @keyframes sectionIn {
-    from { opacity: 0; transform: translateY(8px); }
-    to { opacity: 1; transform: translateY(0); }
+    from { opacity: 0; transform: translateY(12px) translateZ(0); }
+    to { opacity: 1; transform: translateY(0) translateZ(0); }
   }
 
   /* Legacy blob — kept as no-op so old imports don't crash */
@@ -519,10 +545,13 @@ body.dd-dnd-scroll-lock {
     0%,100% { box-shadow: 0 0 0 0 hsl(var(--primary) / 0.4); }
     50% { box-shadow: 0 0 0 14px hsl(var(--primary) / 0); }
   }
-  .check-pop { animation: checkPop 420ms cubic-bezier(0.34, 1.56, 0.64, 1) both; }
+  .check-pop {
+    animation: checkPop 420ms cubic-bezier(0.34, 1.56, 0.64, 1) both;
+    will-change: transform, opacity;
+  }
   @keyframes checkPop {
-    0% { transform: scale(0.4); opacity: 0; }
-    100% { transform: scale(1); opacity: 1; }
+    from { transform: scale(0.4) translateZ(0); opacity: 0; }
+    to { transform: scale(1) translateZ(0); opacity: 1; }
   }
 
   /* ─── Row-level complete: satisfying check tap ──────────────────
@@ -532,21 +561,25 @@ body.dd-dnd-scroll-lock {
      the hit gives clear, premium feedback. */
   .row-check-pop {
     animation: rowCheckPop 380ms cubic-bezier(0.34, 1.56, 0.64, 1) both;
+    will-change: transform, opacity;
   }
   @keyframes rowCheckPop {
-    0%   { transform: scale(0.55); opacity: 0; }
-    65%  { transform: scale(1.12); opacity: 1; }
-    100% { transform: scale(1); opacity: 1; }
+    0%   { transform: scale(0.55) translateZ(0); opacity: 0; }
+    65%  { transform: scale(1.12) translateZ(0); opacity: 1; }
+    100% { transform: scale(1) translateZ(0); opacity: 1; }
   }
   .ripple-burst {
-    position: absolute; inset: 0;
+    position: absolute;
+    inset: -1px;
     border-radius: 9999px;
+    border: 2px solid hsl(var(--success));
     pointer-events: none;
-    animation: rippleBurst 520ms cubic-bezier(0.22, 1, 0.36, 1) both;
+    will-change: transform, opacity;
+    animation: rippleBurst 480ms cubic-bezier(0.16, 1, 0.3, 1) both;
   }
   @keyframes rippleBurst {
-    0%   { box-shadow: 0 0 0 0 hsl(var(--success) / 0.55); opacity: 1; }
-    100% { box-shadow: 0 0 0 18px hsl(var(--success) / 0); opacity: 0; }
+    0%   { transform: scale(0.85) translateZ(0); opacity: 0.95; }
+    100% { transform: scale(1.65) translateZ(0); opacity: 0; }
   }
   @media (prefers-reduced-motion: reduce) {
     .row-check-pop, .ripple-burst { animation: none; }
@@ -556,8 +589,15 @@ body.dd-dnd-scroll-lock {
      Subtle vertical flip + fade on each digit change. Cheap (transform
      only, no JS lib), and on `tabular-nums` containers the layout is
      stable so it reads like a real odometer. Wrap the *changing* value
-     in a `key`'d span so React remounts the digit on change. */
-  .tick-digit { display: inline-block; animation: tickDigit 280ms cubic-bezier(0.22, 1, 0.36, 1) both; }
+     in a `key`'d span so React remounts the digit on change.
+     `will-change` hint lets the browser hoist the digits onto their own
+     compositor layer so the ticker doesn't repaint surrounding glyphs. */
+  .tick-digit {
+    display: inline-block;
+    animation: tickDigit 280ms cubic-bezier(0.22, 1, 0.36, 1) both;
+    will-change: transform, opacity;
+    backface-visibility: hidden;
+  }
   @keyframes tickDigit {
     0%   { transform: translateY(-44%); opacity: 0; }
     55%  { opacity: 1; }
@@ -565,6 +605,39 @@ body.dd-dnd-scroll-lock {
   }
   @media (prefers-reduced-motion: reduce) {
     .tick-digit { animation: none; }
+  }
+
+  /* ─── Chat bubble entrance ──────────────────────────────────────
+     Each new reply slides up + fades in over 280ms — closer to iMessage
+     "blip-in" than a plain mount. Per-bubble (no global stagger) so
+     existing bubbles don't re-animate when a new one lands. */
+  .bubble-in {
+    animation: bubbleIn 280ms cubic-bezier(0.22, 1, 0.36, 1) both;
+    will-change: transform, opacity;
+  }
+  @keyframes bubbleIn {
+    0%   { transform: translateY(10px) scale(0.96); opacity: 0; }
+    65%  { opacity: 1; }
+    100% { transform: translateY(0) scale(1); opacity: 1; }
+  }
+  @media (prefers-reduced-motion: reduce) {
+    .bubble-in { animation: none; }
+  }
+
+  /* ─── Empty-state fade ──────────────────────────────────────────
+     Used on "No tracked time" / "Empty day" cards so they don't snap
+     in along with the rest of the layout. Slower than a typical fade
+     so it feels deliberate instead of jittery, paired with the breathe
+     animation on inner icons for ambient life. */
+  .empty-state-fade {
+    animation: emptyStateFade 520ms cubic-bezier(0.22, 1, 0.36, 1) both;
+  }
+  @keyframes emptyStateFade {
+    0%   { opacity: 0; transform: translateY(4px); }
+    100% { opacity: 1; transform: translateY(0); }
+  }
+  @media (prefers-reduced-motion: reduce) {
+    .empty-state-fade { animation: none; }
   }
   .shimmer {
     background: linear-gradient(90deg, hsl(var(--surface)) 0%, hsl(var(--surface-elevated)) 50%, hsl(var(--surface)) 100%);
@@ -816,6 +889,19 @@ body.dd-dnd-scroll-lock {
   /* Idle: no rotating wash — it read as muddy “unknown” motion. */
   .tracker-hero-luxe {
     isolation: isolate;
+    position: relative;
+  }
+  .tracker-hero-luxe::before {
+    content: "";
+    position: absolute;
+    inset: 0;
+    border-radius: inherit;
+    z-index: -1;
+    opacity: 0;
+    pointer-events: none;
+    box-shadow: 0 18px 52px -22px color-mix(in srgb, var(--tracker-accent, hsl(var(--primary))) 75%, transparent);
+    transition: opacity 300ms ease;
+    will-change: opacity, transform;
   }
   .tracker-hero-luxe::after {
     content: "";
@@ -829,7 +915,8 @@ body.dd-dnd-scroll-lock {
   }
 
   /* Running: thin orbital ring in the category color + soft outer glow (readable “live”). */
-  .tracker-hero-luxe.tracker-hero--running {
+  .tracker-hero-luxe.tracker-hero--running::before {
+    opacity: 1;
     animation: trackerHeroLivingGlow 3.4s ease-in-out infinite;
   }
   .tracker-hero-luxe.tracker-hero--running::after {
@@ -850,19 +937,15 @@ body.dd-dnd-scroll-lock {
     mask: linear-gradient(#fff 0 0) content-box, linear-gradient(#fff 0 0);
     mask-composite: exclude;
     animation: trackerHeroRingSpin 4.8s linear infinite;
+    will-change: transform;
   }
   @keyframes trackerHeroRingSpin {
     from { transform: rotate(0deg); }
     to { transform: rotate(360deg); }
   }
   @keyframes trackerHeroLivingGlow {
-    0%,
-    100% {
-      box-shadow: 0 14px 44px -26px color-mix(in srgb, var(--tracker-accent, hsl(var(--primary))) 36%, transparent);
-    }
-    50% {
-      box-shadow: 0 18px 52px -22px color-mix(in srgb, var(--tracker-accent, hsl(var(--primary))) 55%, transparent);
-    }
+    0%, 100% { transform: scale(0.985); opacity: 0.65; }
+    50% { transform: scale(1.02); opacity: 1; }
   }
 
   /* Focus timer ring effects */

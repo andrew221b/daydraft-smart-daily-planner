@@ -135,7 +135,10 @@ export function AskAiSheet({
           {messages.map((m, i) => (
             <div
               key={i}
-              className={`max-w-[88%] rounded-[20px] px-3.5 py-2.5 text-[13px] leading-relaxed whitespace-pre-wrap ${
+              // Slide-up + fade in per bubble so new replies land organically
+              // instead of snapping into place. tailwind-animate utilities
+              // already drive the keyframes; we just stage them per bubble.
+              className={`bubble-in max-w-[88%] rounded-[20px] px-3.5 py-2.5 text-[13px] leading-relaxed whitespace-pre-wrap ${
                 m.role === "user"
                   ? "ml-auto bg-gradient-primary text-primary-foreground shadow-[0_4px_12px_hsl(var(--primary)/0.25)] border border-primary/20"
                   : "bg-surface-card border border-border/30 text-foreground/95"

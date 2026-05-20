@@ -11,6 +11,7 @@ import { mergeCategoryPayment, paymentDetailsHasContent, type CategoryBillingRow
 import { toast } from "sonner";
 import { useEntitlement } from "@/hooks/useEntitlement";
 import { UpgradeSheet } from "@/components/app/UpgradeSheet";
+import { TickingNumber } from "@/components/app/TickingNumber";
 
 type Period = "day" | "week" | "month";
 
@@ -369,13 +370,15 @@ export default function Reports() {
               Total tracked
             </p>
             <div className="mt-1.5 flex items-end justify-between gap-3">
-              <p className="font-display text-[40px] font-semibold tabular-nums leading-none">
-                {fmtHM(totalSec)}
+              <p className="font-display text-[40px] font-semibold tabular-nums leading-none overflow-hidden">
+                <TickingNumber value={fmtHM(totalSec)} />
               </p>
               {totalEarnings > 0 && (
                 <div className="text-right">
                   <p className="text-[10px] font-semibold uppercase tracking-[0.16em] text-secondary-fg/70">Estimated pay</p>
-                  <p className="font-display text-[22px] font-semibold tabular-nums text-primary">{fmtMoney(totalEarnings, byCategory[0]?.currency || "USD")}</p>
+                  <p className="font-display text-[22px] font-semibold tabular-nums text-primary overflow-hidden">
+                    <TickingNumber value={fmtMoney(totalEarnings, byCategory[0]?.currency || "USD")} />
+                  </p>
                 </div>
               )}
             </div>
@@ -415,7 +418,7 @@ export default function Reports() {
                   />
                 ))}
               </div>
-              <ul className="space-y-2">
+              <ul className="space-y-2 enter-stagger">
                 {categoryGroups.map((group) => {
                   const isOpen = expandedCategoryIds.has(group.id);
                   const pct = totalSec > 0 ? group.sec / totalSec : 0;

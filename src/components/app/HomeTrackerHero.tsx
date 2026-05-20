@@ -197,7 +197,7 @@ export function HomeTrackerHero({ onOpenDetails }: { onOpenDetails: () => void }
   return (
     <section
       data-tour="hero-tracker"
-      className={`relative overflow-hidden rounded-[28px] hero-glass border px-5 pt-6 pb-5 transition-all duration-500 ${
+      className={`relative overflow-hidden rounded-[28px] hero-glass border px-5 pt-6 pb-5 transition-[border-color,background-color,box-shadow,transform] duration-500 ease-out ${
         active
           ? "tracker-hero-clock border-[color-mix(in_srgb,var(--hero-accent)_45%,hsl(var(--border)/0.5))]"
           : "border-border/35"

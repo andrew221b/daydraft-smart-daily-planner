@@ -991,7 +991,7 @@ export default function DayView() {
             </div>
             <div className="h-1.5 rounded-full bg-muted/50 overflow-hidden">
               <div
-                className="h-full rounded-full bg-primary transition-all duration-700 ease-out"
+                className="h-full rounded-full bg-primary transition-[width] duration-700 ease-out"
                 style={{ width: totalTasks ? `${(doneTasks / totalTasks) * 100}%` : "0%" }}
               />
             </div>
@@ -1032,7 +1032,7 @@ export default function DayView() {
         className="min-h-0 flex-1 overflow-y-auto overscroll-y-contain px-6 pb-[calc(96px+env(safe-area-inset-bottom))] [-webkit-overflow-scrolling:touch] pt-8"
       >
         {planMissing && (
-          <div className="rounded-[28px] border border-border/30 bg-card/35 px-6 py-12 text-center hero-glass shadow-card relative overflow-hidden">
+          <div className="rounded-[28px] border border-border/30 bg-card/35 px-6 py-12 text-center hero-glass shadow-card relative overflow-hidden empty-state-fade">
             {/* Soft decorative background circles inside the empty card */}
             <div className="absolute -top-12 -left-12 h-28 w-28 rounded-full bg-primary/8 blur-xl pointer-events-none" />
             <div className="absolute -bottom-12 -right-12 h-28 w-28 rounded-full bg-primary-glow/8 blur-xl pointer-events-none" />
@@ -1115,7 +1115,7 @@ export default function DayView() {
                       );
                     })}
                     {blocks.length === 0 && (
-                      <div className="text-center py-14 px-6 fade-in">
+                      <div className="text-center py-14 px-6 empty-state-fade">
                         <div className="mx-auto mb-4 h-12 w-12 rounded-2xl border border-soft surface-card flex items-center justify-center breathe">
                           <ListPlus className="h-5 w-5 text-secondary-fg/70" aria-hidden />
                         </div>

@@ -19,9 +19,9 @@ export const Shell = ({
   //   • Top-level tabs cross-fade with the lightest horizontal drift.
   //   • Drill-down pages (focus, planning) slide in from the right —
   //     matches iOS navigation-stack push semantics on a phone.
-  const pageSwitchClass = pathname.startsWith("/focus") || pathname.startsWith("/today/plan")
-    ? "page-switch-luxe page-switch-right"
-    : "page-switch-luxe";
+  const pageTransitionClass = pathname.startsWith("/focus") || pathname.startsWith("/today/plan")
+    ? "page-transition-push"
+    : "page-transition-tab";
 
   // Warm lazy route chunks after first paint — same module paths as App.tsx lazy().
   useEffect(() => {
@@ -63,7 +63,7 @@ export const Shell = ({
         aria-hidden
       />
       <main
-        className={`flex min-h-0 flex-1 flex-col ${hideTabBar ? "" : "pb-32"} page-enter ${pageSwitchClass}`}
+        className={`flex min-h-0 flex-1 flex-col ${hideTabBar ? "" : "pb-32"} ${pageTransitionClass}`}
       >
         {children}
       </main>

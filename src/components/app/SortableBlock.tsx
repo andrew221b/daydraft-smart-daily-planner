@@ -309,7 +309,7 @@ function CompleteCircleEmpty({
         requestAnimationFrame(() => setRippling(true));
         onToggle();
       }}
-      className="relative h-8 w-8 rounded-full border-[1.5px] border-border/60 shrink-0 pressable hover:border-primary/60 hover:bg-primary/10 shadow-[inset_0_2px_6px_rgba(0,0,0,0.06)] transition-all"
+      className="relative h-8 w-8 rounded-full border-[1.5px] border-border/60 shrink-0 pressable hover:border-primary/60 hover:bg-primary/10 shadow-[inset_0_2px_6px_rgba(0,0,0,0.06)] transition-[border-color,background-color,box-shadow,transform]"
       aria-label="Mark done"
     >
       {rippling && (

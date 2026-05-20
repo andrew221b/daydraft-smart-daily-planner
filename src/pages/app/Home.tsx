@@ -160,7 +160,7 @@ export default function Home() {
               </div>
               <div className="h-1.5 rounded-full bg-muted/55 overflow-hidden">
                 <div
-                  className="h-full rounded-full bg-primary/90 transition-all duration-700 ease-out"
+                  className="h-full rounded-full bg-primary/90 transition-[width] duration-700 ease-out"
                   style={{ width: `${(doneTasks / userTasks.length) * 100}%` }}
                 />
               </div>

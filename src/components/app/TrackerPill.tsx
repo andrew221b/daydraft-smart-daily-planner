@@ -645,7 +645,7 @@ function TrackerInner({ embedded = false, onClose }: { embedded?: boolean; onClo
             {/* Hero stopwatch — premium, centered */}
             <div className="px-5 pt-5">
               <div
-                className={`relative overflow-hidden rounded-[16px] border p-5 transition-all duration-500 backdrop-blur-sm tracker-hero-luxe ${
+                className={`relative overflow-hidden rounded-[16px] border p-5 transition-[border-color,background-color,box-shadow,transform] duration-500 backdrop-blur-sm tracker-hero-luxe ${
                   active && activeCat
                     ? "tracker-hero--running border-transparent surface-card shadow-card"
                     : "border-soft surface-card"
@@ -708,7 +708,7 @@ function TrackerInner({ embedded = false, onClose }: { embedded?: boolean; onClo
                         <span className="h-2 w-2 rounded-full shrink-0" style={{ background: x.cat!.color }} />
                         <span className="w-20 truncate text-foreground">{x.cat!.name}</span>
                         <div className="flex-1 h-1.5 rounded-full bg-muted overflow-hidden">
-                          <div className="h-full rounded-full transition-all" style={{ width: `${pct}%`, background: x.cat!.color }} />
+                          <div className="h-full rounded-full transition-[width] duration-300 ease-out" style={{ width: `${pct}%`, background: x.cat!.color }} />
                         </div>
                         <span className="font-mono tabular-nums text-secondary-fg w-12 text-right">{fmtHM(x.sec)}</span>
                       </div>
@@ -723,9 +723,9 @@ function TrackerInner({ embedded = false, onClose }: { embedded?: boolean; onClo
 
             {/* Empty state when no entries today and no active */}
             {!active && todayByCat.length === 0 && categories.length > 0 && (
-              <div className="px-5 pt-4">
+              <div className="px-5 pt-4 empty-state-fade">
                 <div className="rounded-[18px] border border-dashed border-soft surface-soft backdrop-blur-sm px-4 py-5 text-center">
-                  <div className="mx-auto h-10 w-10 rounded-full bg-muted flex items-center justify-center mb-2">
+                  <div className="mx-auto h-10 w-10 rounded-full bg-muted flex items-center justify-center mb-2 breathe">
                     <Clock className="h-4 w-4 text-secondary-fg" />
                   </div>
                   <div className="text-[13px] font-medium">No time tracked today</div>
@@ -734,7 +734,7 @@ function TrackerInner({ embedded = false, onClose }: { embedded?: boolean; onClo
               </div>
             )}
 
-            <div className="px-4 py-4 space-y-2">
+            <div className="px-4 py-4 space-y-2 enter-stagger">
               {visibleCategories.map(c => {
                 const isActive = active?.category_id === c.id;
                 const isOpen = selectedCat === c.id;
@@ -744,7 +744,7 @@ function TrackerInner({ embedded = false, onClose }: { embedded?: boolean; onClo
                 const earned = rate > 0 ? (periodSec / 3600) * rate : 0;
                 return (
                   <SwipeRow key={c.id} disabled={c.is_default || isActive || editingCat === c.id} onDelete={() => setConfirmDeleteCat(c.id)}>
-                  <div className={`rounded-[16px] border transition-all duration-300 shadow-card tracker-category-luxe ${isActive ? "border-accent surface-accent ring-2 ring-primary/12 ring-offset-2 ring-offset-background" : "border-soft surface-card"} overflow-hidden backdrop-blur-sm`}>
+                  <div className={`rounded-[16px] border transition-[border-color,background-color,box-shadow,transform] duration-300 shadow-card tracker-category-luxe ${isActive ? "border-accent surface-accent ring-2 ring-primary/12 ring-offset-2 ring-offset-background" : "border-soft surface-card"} overflow-hidden backdrop-blur-sm`}>
                     <div className="flex items-center gap-2 px-3 py-2.5">
                       {editingCat === c.id ? (
                         <form
@@ -1104,7 +1104,7 @@ function TrackerInner({ embedded = false, onClose }: { embedded?: boolean; onClo
                           </span>
                           <div className="h-[52px] w-full flex items-end justify-center">
                             <div
-                              className={`w-[88%] max-w-[36px] rounded-md transition-all ${
+                              className={`w-[88%] max-w-[36px] rounded-md transition-[height,background-color,box-shadow,transform] duration-300 ease-out ${
                                 isSelected
                                   ? "bg-primary shadow-sm"
                                   : d.total > 0
@@ -1229,7 +1229,7 @@ function TrackerInner({ embedded = false, onClose }: { embedded?: boolean; onClo
                       aria-label={title}
                       aria-pressed={isSelected}
                       onClick={() => setSelectedDay(isSelected ? null : c.key)}
-                      className={`aspect-square min-h-[2.5rem] rounded-lg flex flex-col items-center justify-center gap-0.5 pressable transition-all text-center px-0.5 ${
+                      className={`aspect-square min-h-[2.5rem] rounded-lg flex flex-col items-center justify-center gap-0.5 pressable transition-[background-color,color,box-shadow,transform] duration-200 text-center px-0.5 ${
                         isSelected ? "ring-2 ring-primary ring-offset-2 ring-offset-background z-[1]" : ""
                       } ${isToday && !isSelected ? "ring-1 ring-primary/50" : ""}`}
                       style={{

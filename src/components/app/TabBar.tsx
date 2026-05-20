@@ -45,7 +45,7 @@ export const TabBar = () => {
   const pillWidthCalc = `(100% - ${totalGapPx}px) / ${n}`;
   const indicatorStyle = {
     width: `calc(${pillWidthCalc})`,
-    left: `calc(${activeIdx} * ((${pillWidthCalc}) + ${TAB_GAP_PX}px))`,
+    transform: `translateX(calc(${activeIdx} * (100% + ${TAB_GAP_PX}px))) translateZ(0)`,
     // iOS 26 indicator: tight springy slide with the slightest overshoot.
     transitionTimingFunction: "cubic-bezier(0.34, 1.4, 0.64, 1)",
   } as const;
@@ -63,7 +63,7 @@ export const TabBar = () => {
           <div className="relative isolate flex min-h-[48px] gap-1.5">
             <span
               aria-hidden
-              className="pointer-events-none absolute inset-y-0 z-0 rounded-2xl bg-primary/[0.12] ring-1 ring-inset ring-primary/20 transition-[left,width] duration-[320ms] will-change-[left,width] dark:bg-primary/[0.14] dark:ring-primary/[0.26]"
+              className="pointer-events-none absolute inset-y-0 left-0 z-0 rounded-2xl bg-primary/[0.12] ring-1 ring-inset ring-primary/20 transition-transform duration-[320ms] will-change-transform dark:bg-primary/[0.14] dark:ring-primary/[0.26]"
               style={indicatorStyle}
             />
             {tabs.map((it, idx) => (
