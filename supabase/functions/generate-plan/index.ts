@@ -56,8 +56,11 @@ serve(async (req) => {
     };
     // Only flag clearly broken fragments — short titles like "Gym" or "Email Sarah"
     // are valid; the old "< 4 words" rule blocked normal plans constantly.
+    // Note: `wordCount < 1` (i.e. empty line) is the only word-count rule;
+    // the previous `< 2` incorrectly flagged single-word titles like "gym"
+    // even though the comment above explicitly allowed them.
     const isLikelyIncomplete = (line: string) => {
-      if (wordCount(line) < 2) return true;
+      if (wordCount(line) < 1) return true;
       if (endsWithDanglingWord(line)) return true;
       if (/[,:;/\-]\s*$/.test(line)) return true;
       return false;

@@ -46,7 +46,7 @@ import { UpgradeSheet } from "@/components/app/UpgradeSheet";
 import { setDndBodyScrollLock } from "@/lib/dndScrollLock";
 import { AskAiSheet } from "@/components/app/AskAiSheet";
 import { Textarea } from "@/components/ui/textarea";
-import { parseBulkTasks } from "@/lib/taskSplitter";
+import { parseBulkTasks, extractDurationFromTitle } from "@/lib/taskSplitter";
 import { useTimeTracker } from "@/hooks/useTimeTracker";
 
 type ExBlock = Block & {
@@ -442,7 +442,14 @@ export default function DayView() {
       toast.error("Write at least one task");
       return;
     }
-    setBulkRows(titles.map((title) => ({ title, duration: 30 })));
+    // Pull "5 hours" / "30 min" / "1h 15m" out of each title up-front so the
+    // review sheet shows the real duration the user typed instead of a flat
+    // 30m default they have to re-edit by hand.
+    const rows = titles.map((rawTitle) => {
+      const { title, duration } = extractDurationFromTitle(rawTitle);
+      return { title: title || rawTitle, duration: duration ?? 30 };
+    });
+    setBulkRows(rows);
     setBulkStep("review");
   };
 

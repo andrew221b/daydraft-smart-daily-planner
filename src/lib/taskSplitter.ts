@@ -41,6 +41,68 @@ function splitByRepeatedStarters(part: string): string[] {
     .filter(Boolean);
 }
 
+/**
+ * Pull a duration ("5 hours", "30 min", "1h 15m", "пол часа") out of a task
+ * title and return the cleaned title + minutes. Returns duration=null when
+ * the title doesn't carry a duration so the caller can fall back to a
+ * default. Conservative — only matches obvious patterns so we don't strip
+ * real content like "30 min walk".
+ */
+export function extractDurationFromTitle(rawTitle: string): { title: string; duration: number | null } {
+  const original = rawTitle;
+  let minutes = 0;
+  let matched = false;
+
+  // Pattern: <num> h/hr/hrs/hour/hours/ч/час/часа/часов (+ optional decimals)
+  const hourRe = /(\d+(?:[.,]\d+)?)\s*(?:hours?|hrs?|h|часов|часа|час|ч)\b/gi;
+  // Pattern: <num> m/min/mins/minute/minutes/мин/минут
+  const minuteRe = /(\d+)\s*(?:minutes?|mins?|minute|m|минут[ауы]?|мин)\b/gi;
+
+  let m: RegExpExecArray | null;
+  while ((m = hourRe.exec(original)) !== null) {
+    const val = parseFloat(m[1].replace(",", "."));
+    if (Number.isFinite(val) && val > 0 && val <= 24) {
+      minutes += Math.round(val * 60);
+      matched = true;
+    }
+  }
+  while ((m = minuteRe.exec(original)) !== null) {
+    const val = parseInt(m[1], 10);
+    if (Number.isFinite(val) && val > 0 && val <= 600) {
+      minutes += val;
+      matched = true;
+    }
+  }
+
+  // Common natural-language fragments
+  const lower = original.toLowerCase();
+  if (!matched) {
+    if (/\bhalf an hour\b|\bhalf hour\b|пол\s*часа/.test(lower)) { minutes += 30; matched = true; }
+    else if (/quarter (?:of an )?hour|четверть\s*часа/.test(lower)) { minutes += 15; matched = true; }
+  }
+
+  if (!matched || minutes <= 0) {
+    return { title: cleanupTitle(original), duration: null };
+  }
+
+  // Strip the matched duration fragments from the title so the row reads cleanly.
+  const cleanedTitle = cleanupTitle(
+    original
+      .replace(hourRe, " ")
+      .replace(minuteRe, " ")
+      .replace(/\bhalf an hour\b|\bhalf hour\b|пол\s*часа/gi, " ")
+      .replace(/quarter (?:of an )?hour|четверть\s*часа/gi, " ")
+      // Trailing connectors left behind ("for", "за", "на").
+      .replace(/\s+(?:for|за|на)\s*$/i, " ")
+      .replace(/\s+/g, " ")
+      .trim()
+  );
+
+  // Sanity cap (24h) — protect downstream packers from absurd values.
+  const capped = Math.min(minutes, 24 * 60);
+  return { title: cleanedTitle || cleanupTitle(original), duration: capped };
+}
+
 export function parseBulkTasks(input: string): string[] {
   const normalized = input
     .replace(/[\u2018\u2019]/g, "'")
