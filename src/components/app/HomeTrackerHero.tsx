@@ -230,11 +230,22 @@ export function HomeTrackerHero({ onOpenDetails }: { onOpenDetails: () => void }
                   {activeCat.name}
                 </span>
               </div>
-              <div
-                className="mt-3 font-display text-[3.4rem] font-semibold tabular-nums leading-none tracking-[-0.04em] text-foreground breathe"
-                style={{ textShadow: `0 0 26px color-mix(in srgb, ${accent} 28%, transparent), 0 0 48px color-mix(in srgb, ${accent} 14%, transparent)` }}
-              >
-                {fmtHMS(elapsedSec)}
+              {/*
+                Wrapper holds the breathing scale so it doesn't deform the
+                text inside. The previous markup put `breathe` AND a layered
+                text-shadow (26px + 48px blurs) on the same element — iOS
+                Capacitor WebView allocates a fixed-bounds compositor layer
+                for the shadow, and the scale animation made the rectangular
+                edge of that layer visible behind the digits. Splitting them
+                + dropping the shadow (the tracker-hero-clock conic sweep
+                behind the whole card already provides the category-tinted
+                ambient glow) makes the timer read as crisp numerals on a
+                quietly-pulsing surface, not text inside a faint box.
+              */}
+              <div className="mt-3 breathe">
+                <div className="font-display text-[3.4rem] font-semibold tabular-nums leading-none tracking-[-0.04em] text-foreground">
+                  {fmtHMS(elapsedSec)}
+                </div>
               </div>
               <button
                 type="button"
