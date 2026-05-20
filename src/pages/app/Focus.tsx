@@ -19,7 +19,7 @@ import {
 import { haptics } from "@/lib/haptics";
 import { PreflightSheet } from "@/components/app/PreflightSheet";
 import { TickingNumber } from "@/components/app/TickingNumber";
-import { getAssignedCategoryId, clearAssignedCategoryId } from "@/lib/blockCategory";
+import { getAssignedCategoryId } from "@/lib/blockCategory";
 import { getCalmMode, setCalmMode } from "@/lib/calmMode";
 import { isAiFlagEnabled, trackAiEvent } from "@/lib/aiRuntime";
 import { useEntitlement } from "@/hooks/useEntitlement";

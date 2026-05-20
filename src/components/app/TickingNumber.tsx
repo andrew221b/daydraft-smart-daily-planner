@@ -24,15 +24,19 @@ export function TickingNumber({
   value: string;
   className?: string;
 }) {
+  // Defensive: callers should pass a string, but a passing through of
+  // `null` / `undefined` (e.g. from a formatter returning `?? ""`) used
+  // to crash on `.split` here. Coerce so the component never throws.
+  const safe = value == null ? "" : String(value);
   // Per-character generation counters. Bumping a counter keys the span,
   // which forces React to remount it — re-running the CSS animation.
-  const [gens, setGens] = useState<number[]>(() => value.split("").map(() => 0));
-  const prevRef = useRef(value);
+  const [gens, setGens] = useState<number[]>(() => safe.split("").map(() => 0));
+  const prevRef = useRef(safe);
 
   useEffect(() => {
     const prev = prevRef.current;
-    if (value === prev) return;
-    const next = value.split("");
+    if (safe === prev) return;
+    const next = safe.split("");
     const prevArr = prev.split("");
     setGens((old) =>
       next.map((ch, i) => {
@@ -43,12 +47,12 @@ export function TickingNumber({
         return same ? old[i] : old[i] + 1;
       }),
     );
-    prevRef.current = value;
-  }, [value]);
+    prevRef.current = safe;
+  }, [safe]);
 
   return (
-    <span className={className} aria-label={value} role="text">
-      {value.split("").map((ch, i) => (
+    <span className={className} aria-label={safe} role="text">
+      {safe.split("").map((ch, i) => (
         // Wrap in a positioned span so the per-character animation doesn't
         // shift the baseline. Non-numeric separators (":", " ", "h", "m")
         // animate too — that's deliberate when, say, "59m" rolls to "1h".
