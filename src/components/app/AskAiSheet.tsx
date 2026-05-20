@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { Sheet, SheetContent, SheetHeader, SheetTitle } from "@/components/ui/sheet";
 import { Button } from "@/components/ui/button";
 import { Textarea } from "@/components/ui/textarea";
@@ -8,14 +8,22 @@ import { toast } from "sonner";
 
 type Msg = { role: "user" | "assistant"; content: string };
 
+/**
+ * `seedContext` is a hidden hint that frames the conversation for the AI
+ * (e.g. "the user is looking at an empty day"). It is NOT shown in the
+ * textarea — earlier versions dumped this raw instruction into the input,
+ * which looked like a weird half-written prompt to the user.
+ */
 export function AskAiSheet({
   open,
   onOpenChange,
   initialPrompt,
+  seedContext,
 }: {
   open: boolean;
   onOpenChange: (v: boolean) => void;
   initialPrompt?: string | null;
+  seedContext?: string | null;
 }) {
   const [messages, setMessages] = useState<Msg[]>([]);
   const [input, setInput] = useState("");
@@ -25,9 +33,9 @@ export function AskAiSheet({
   useEffect(() => {
     if (open) {
       setInput(initialPrompt || "");
-      if (!initialPrompt) setMessages([]);
+      setMessages([]);
     }
-  }, [open, initialPrompt]);
+  }, [open, initialPrompt, seedContext]);
 
   useEffect(() => {
     scrollerRef.current?.scrollTo({ top: 99999, behavior: "smooth" });
@@ -41,8 +49,13 @@ export function AskAiSheet({
     setInput("");
     setLoading(true);
     try {
+      // Inject the seed context as a hidden first user turn so the
+      // assistant has framing without exposing the meta-prompt to the user.
+      const payload: Msg[] = seedContext
+        ? [{ role: "user", content: `Context for the conversation (not shown to user): ${seedContext}` }, ...next]
+        : next;
       const { data, error } = await supabase.functions.invoke("ai-assist", {
-        body: { messages: next },
+        body: { messages: payload },
       });
       if (error) throw error;
       if (data?.error) throw new Error(data.error);
@@ -56,11 +69,32 @@ export function AskAiSheet({
     }
   };
 
-  const quickPrompts = [
-    "How should I order my tasks today?",
-    "Estimate time for: ",
-    "Break this task into steps: ",
-  ];
+  // Contextual quick prompts. We pick a small set based on the seed context
+  // so the suggestions feel relevant to whatever the user just tapped.
+  const quickPrompts = useMemo<{ label: string; prompt: string; send?: boolean }[]>(() => {
+    const ctx = (seedContext || "").toLowerCase();
+    if (ctx.includes("empty day")) {
+      return [
+        { label: "Help me decide what to focus on today", prompt: "Ask me 2-3 quick questions to help me decide what to focus on today.", send: true },
+        { label: "Suggest a balanced day structure", prompt: "Suggest a balanced shape for a productive day (deep work, breaks, admin) without scheduling anything for me.", send: true },
+        { label: "How do I avoid overcommitting?", prompt: "How do I pick a realistic number of tasks for one day without overcommitting?", send: true },
+      ];
+    }
+    if (ctx.includes("this task")) {
+      return [
+        { label: "Estimate realistic time", prompt: "Give a realistic time estimate for this task and explain the assumption in one line.", send: true },
+        { label: "Break it into 3-5 steps", prompt: "Break this task into 3-5 concrete, ordered steps I can check off.", send: true },
+        { label: "Best time of day for it", prompt: "When in the day is this task usually best to do, and why?", send: true },
+      ];
+    }
+    // Default: looking at an existing plan
+    return [
+      { label: "Spot one weak spot in my day", prompt: "Look at my current day and point out one weak spot or risk — just advice, don't change anything.", send: true },
+      { label: "Where should I add a break?", prompt: "Where in my current day would a short break help most, and why?", send: true },
+      { label: "Estimate time for…", prompt: "Estimate time for: " },
+      { label: "Break a task into steps…", prompt: "Break this task into steps: " },
+    ];
+  }, [seedContext]);
 
   return (
     <Sheet open={open} onOpenChange={onOpenChange}>
@@ -76,15 +110,24 @@ export function AskAiSheet({
 
         <div ref={scrollerRef} className="min-h-0 flex-1 overflow-y-auto px-5 pb-3 space-y-3">
           {messages.length === 0 && !loading && (
-            <div className="space-y-2 pt-2">
+            <div className="space-y-2.5 pt-1">
+              <p className="text-[11px] uppercase tracking-wider text-secondary-fg/70 font-medium px-1">
+                Try one of these
+              </p>
               {quickPrompts.map((p) => (
                 <button
-                  key={p}
+                  key={p.label}
                   type="button"
-                  onClick={() => setInput(p)}
-                  className="w-full text-left px-3.5 py-2.5 rounded-2xl border border-border/40 bg-white/[0.03] dark:bg-white/[0.04] text-[13px] text-foreground/90 hover:bg-white/[0.08] pressable transition-colors"
+                  onClick={() => {
+                    if (p.send) {
+                      void send(p.prompt);
+                    } else {
+                      setInput(p.prompt);
+                    }
+                  }}
+                  className="w-full text-left px-3.5 py-3 rounded-2xl border border-border/40 bg-white/[0.03] dark:bg-white/[0.04] text-[13px] text-foreground/95 hover:bg-white/[0.08] pressable transition-colors"
                 >
-                  {p}
+                  {p.label}
                 </button>
               ))}
             </div>
