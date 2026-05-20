@@ -9,7 +9,6 @@ import { useEntitlement } from "@/hooks/useEntitlement";
 import { UpgradeSheet } from "@/components/app/UpgradeSheet";
 import { categoryBillingToDraft } from "@/lib/categoryBilling";
 import { haptics } from "@/lib/haptics";
-import { TickingNumber } from "@/components/app/TickingNumber";
 import { toast } from "sonner";
 
 /**
@@ -232,10 +231,10 @@ export function HomeTrackerHero({ onOpenDetails }: { onOpenDetails: () => void }
                 </span>
               </div>
               <div
-                className="mt-3 font-display text-[3.4rem] font-semibold tabular-nums leading-none tracking-[-0.04em] text-foreground breathe overflow-hidden"
+                className="mt-3 font-display text-[3.4rem] font-semibold tabular-nums leading-none tracking-[-0.04em] text-foreground breathe"
                 style={{ textShadow: `0 0 26px color-mix(in srgb, ${accent} 28%, transparent), 0 0 48px color-mix(in srgb, ${accent} 14%, transparent)` }}
               >
-                <TickingNumber value={fmtHMS(elapsedSec)} />
+                {fmtHMS(elapsedSec)}
               </div>
               <button
                 type="button"
@@ -259,8 +258,8 @@ export function HomeTrackerHero({ onOpenDetails }: { onOpenDetails: () => void }
           ) : (
             <>
               <span className="text-[11px] font-medium text-secondary-fg/70">Tracked today</span>
-              <div className="mt-1 font-display text-[3.4rem] font-semibold tabular-nums leading-none tracking-[-0.04em] text-foreground overflow-hidden">
-                <TickingNumber value={fmtHM(todayTotalSec)} />
+              <div className="mt-1 font-display text-[3.4rem] font-semibold tabular-nums leading-none tracking-[-0.04em] text-foreground">
+                {fmtHM(todayTotalSec)}
               </div>
               <button
                 type="button"
