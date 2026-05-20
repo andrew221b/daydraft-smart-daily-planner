@@ -27,7 +27,13 @@ const applyTheme = (theme: Theme): "light" | "dark" => {
 export const ThemeProvider = ({ children }: { children: ReactNode }) => {
   const [theme, setThemeState] = useState<Theme>(() => {
     if (typeof window === "undefined") return "system";
-    return (localStorage.getItem(STORAGE_KEY) as Theme) || "system";
+    // Safari private browsing throws on every localStorage read; fall back
+    // to "system" so the app still mounts.
+    try {
+      return (localStorage.getItem(STORAGE_KEY) as Theme) || "system";
+    } catch {
+      return "system";
+    }
   });
   const [resolved, setResolved] = useState<"light" | "dark">("dark");
 
@@ -55,7 +61,7 @@ export const ThemeProvider = ({ children }: { children: ReactNode }) => {
 
   const setTheme = (t: Theme) => {
     setThemeState(t);
-    localStorage.setItem(STORAGE_KEY, t);
+    try { localStorage.setItem(STORAGE_KEY, t); } catch { /* private mode / quota */ }
     supabase.auth.getSession().then(({ data }) => {
       if (data.session?.user) {
         supabase.from("profiles").update({ theme: t } as any).eq("id", data.session.user.id).then(() => {});

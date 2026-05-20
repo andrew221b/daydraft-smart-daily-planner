@@ -27,7 +27,9 @@ export const getStoredPasskey = (): StoredPasskey | null => {
   try { return JSON.parse(localStorage.getItem(STORAGE_KEY) || "null"); } catch { return null; }
 };
 
-export const clearStoredPasskey = () => localStorage.removeItem(STORAGE_KEY);
+export const clearStoredPasskey = () => {
+  try { localStorage.removeItem(STORAGE_KEY); } catch { /* private mode */ }
+};
 
 export async function enrollPasskey(opts: { userId: string; userEmail: string; userName: string }) {
   if (!passkeySupported()) throw new Error("Passkeys not supported on this device");
@@ -49,7 +51,13 @@ export async function enrollPasskey(opts: { userId: string; userEmail: string; u
   })) as PublicKeyCredential | null;
   if (!cred) throw new Error("Could not create passkey");
   const stored: StoredPasskey = { credentialId: bufToB64(cred.rawId), userEmail: opts.userEmail };
-  localStorage.setItem(STORAGE_KEY, JSON.stringify(stored));
+  try {
+    localStorage.setItem(STORAGE_KEY, JSON.stringify(stored));
+  } catch {
+    // Private mode / quota — surface as a recoverable error so the caller
+    // can show a useful toast rather than crashing the enrollment flow.
+    throw new Error("Couldn't save passkey to this browser (storage blocked).");
+  }
   return stored;
 }
 

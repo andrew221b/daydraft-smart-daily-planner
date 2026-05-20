@@ -1,5 +1,8 @@
-import jsPDF from "jspdf";
-import autoTable from "jspdf-autotable";
+// jspdf + jspdf-autotable (and their transitive html2canvas dep) total
+// ~850KB raw / ~200KB gzipped. Importing them eagerly bloats the Reports
+// chunk for everyone — including users who never tap "Export PDF".
+// They're loaded lazily inside `downloadReportPdf` instead.
+import type { jsPDF as JsPdfType, jsPDFOptions } from "jspdf";
 
 export type ReportCategoryRow = {
   name: string;
@@ -167,8 +170,15 @@ function hexToRgb(hex: string): [number, number, number] {
   return [120, 120, 120];
 }
 
-export function downloadReportPdf(report: ReportPayload) {
-  const doc = new jsPDF({ unit: "pt", format: "a4" });
+export async function downloadReportPdf(report: ReportPayload) {
+  // Lazy-load the heavyweight PDF deps. Vite splits these into a
+  // separate chunk that only ships when the user actually exports.
+  const [{ default: jsPDF }, { default: autoTable }] = await Promise.all([
+    import("jspdf"),
+    import("jspdf-autotable"),
+  ]);
+  // Cast options so TS picks up the same shape after the type-only import above.
+  const doc: JsPdfType = new jsPDF({ unit: "pt", format: "a4" } as jsPDFOptions);
   const pageW = doc.internal.pageSize.getWidth();
   const pageH = doc.internal.pageSize.getHeight();
   const margin = 40;

@@ -318,14 +318,16 @@ export default function Reports() {
     };
   };
 
-  const onExport = (kind: "pdf" | "csv", categoryIds?: string[], scopeLabel?: string) => {
+  const onExport = async (kind: "pdf" | "csv", categoryIds?: string[], scopeLabel?: string) => {
     if (!isPro) {
       setUpgradeOpen(true);
       return;
     }
     const payload = buildPayload(categoryIds, scopeLabel || "All categories");
     try {
-      if (kind === "pdf") downloadReportPdf(payload);
+      // PDF deps (jspdf + jspdf-autotable + html2canvas) are loaded lazily
+      // inside downloadReportPdf — first export may take ~1s on a cold cache.
+      if (kind === "pdf") await downloadReportPdf(payload);
       else downloadReportCsv(payload);
       if (!payload.entries.length) toast("Exported an empty report — no entries in this period");
     } catch (e: any) {
