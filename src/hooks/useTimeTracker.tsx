@@ -194,13 +194,53 @@ export function TimeTrackerProvider({ children }: { children: ReactNode }) {
   }, [user?.id, refresh]);
 
   // tick for elapsed display
+  //
+  // Two refinements vs the naive setInterval(1000):
+  //   1. Pause when the tab is hidden. The browser already throttles
+  //      background timers, but explicitly clearing the interval frees
+  //      a React state update + render cycle every second the user
+  //      isn't looking. Re-sync the elapsed value on `visibilitychange`
+  //      so the moment they come back the display is correct, no jump.
+  //   2. Align to wall-clock seconds — schedule the first tick on the
+  //      next second boundary so multiple timer displays don't drift
+  //      apart by sub-second amounts.
   useEffect(() => {
     if (tickRef.current) clearInterval(tickRef.current);
     if (!active) { setElapsedSec(0); return; }
-    const update = () => setElapsedSec(Math.floor((Date.now() - new Date(active.started_at).getTime()) / 1000));
-    update();
-    tickRef.current = window.setInterval(update, 1000);
-    return () => { if (tickRef.current) clearInterval(tickRef.current); };
+    const started = new Date(active.started_at).getTime();
+    const update = () => setElapsedSec(Math.floor((Date.now() - started) / 1000));
+
+    let alignmentTimer: ReturnType<typeof setTimeout> | null = null;
+
+    const startInterval = () => {
+      if (tickRef.current) clearInterval(tickRef.current);
+      update();
+      // Align to the next whole-second boundary so the digit flips
+      // exactly when the wall clock does.
+      const msToNextSec = 1000 - (Date.now() % 1000);
+      alignmentTimer = setTimeout(() => {
+        update();
+        tickRef.current = window.setInterval(update, 1000);
+      }, msToNextSec);
+    };
+
+    const stopInterval = () => {
+      if (alignmentTimer) { clearTimeout(alignmentTimer); alignmentTimer = null; }
+      if (tickRef.current) { clearInterval(tickRef.current); tickRef.current = null; }
+    };
+
+    const onVisibility = () => {
+      if (document.hidden) stopInterval();
+      else startInterval();
+    };
+
+    if (!document.hidden) startInterval();
+    document.addEventListener("visibilitychange", onVisibility);
+
+    return () => {
+      stopInterval();
+      document.removeEventListener("visibilitychange", onVisibility);
+    };
   }, [active?.id, active?.started_at]);
 
   // warn if closing while running

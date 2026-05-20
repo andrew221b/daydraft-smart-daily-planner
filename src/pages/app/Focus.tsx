@@ -190,8 +190,27 @@ export default function Focus() {
 
   useEffect(() => {
     if (!armed || !block) return;
-    const id = window.setInterval(() => setSessionTick((n) => n + 1), 1000);
-    return () => clearInterval(id);
+    // Per-second re-render to drive the big ring countdown — pause it
+    // when the tab is hidden so we don't burn renders the user can't
+    // see. visibilitychange re-syncs when they come back.
+    let id: number | null = null;
+    const start = () => {
+      if (id !== null) return;
+      id = window.setInterval(() => setSessionTick((n) => n + 1), 1000);
+    };
+    const stop = () => {
+      if (id !== null) { clearInterval(id); id = null; }
+    };
+    const onVisibility = () => {
+      if (document.hidden) stop();
+      else { setSessionTick((n) => n + 1); start(); }
+    };
+    if (!document.hidden) start();
+    document.addEventListener("visibilitychange", onVisibility);
+    return () => {
+      stop();
+      document.removeEventListener("visibilitychange", onVisibility);
+    };
   }, [armed, block?.id]);
 
   useEffect(() => {

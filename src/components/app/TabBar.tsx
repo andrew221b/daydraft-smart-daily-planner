@@ -63,8 +63,12 @@ export const TabBar = () => {
       style={{ paddingBottom: "max(env(safe-area-inset-bottom), 10px)" }}
     >
       <div
-        className="rounded-[26px] border border-border/55 bg-background/70 shadow-[0_16px_48px_-12px_rgb(0,0,0,0.25)] backdrop-blur-3xl dark:border-border/40 dark:bg-background/65 dark:shadow-[0_16px_48px_-12px_rgb(0,0,0,0.6)] dark:ring-1 dark:ring-white/[0.08]"
-        style={{ WebkitBackdropFilter: "blur(36px)", backdropFilter: "blur(36px)" }}
+        // backdrop-blur is the single most expensive thing iOS WebView
+        // recomputes every frame. 24px reads almost identical to 64px
+        // at a fraction of the GPU cost; bumped the background opacity
+        // a touch (70→78%) to keep the surface legible with less blur.
+        className="rounded-[26px] border border-border/55 bg-background/78 shadow-[0_16px_48px_-12px_rgb(0,0,0,0.25)] backdrop-blur-xl dark:border-border/40 dark:bg-background/72 dark:shadow-[0_16px_48px_-12px_rgb(0,0,0,0.6)] dark:ring-1 dark:ring-white/[0.08]"
+        style={{ WebkitBackdropFilter: "blur(24px)", backdropFilter: "blur(24px)" }}
       >
         <div className="p-1.5">
           <div className="relative isolate flex min-h-[48px] gap-1.5">

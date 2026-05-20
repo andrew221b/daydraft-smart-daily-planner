@@ -749,19 +749,20 @@ body.dd-dnd-scroll-lock {
   }
 
   @media (prefers-reduced-motion: no-preference) {
+    /* Single opacity-only animation. The previous setup stacked
+       `shellGlowBreathe` (opacity + brightness filter) with
+       `auroraDrift` (translate + scale) on the same fixed-positioned
+       full-viewport element. `filter` forces compositing of the
+       element + everything underneath it, and `scale` on a 220px-tall
+       fixed element triggers continual repaints on iOS Capacitor
+       WebView. Dropping both in favour of pure opacity makes the
+       breathing GPU-accelerated and effectively free. */
     .shell-glow-breathe {
-      animation:
-        shellGlowBreathe var(--motion-glow-breathe-s) ease-in-out infinite,
-        auroraDrift 28s ease-in-out infinite alternate;
+      animation: shellGlowBreathe var(--motion-glow-breathe-s) ease-in-out infinite;
     }
     @keyframes shellGlowBreathe {
-      0%, 100% { opacity: 0.82; filter: brightness(0.95); }
-      50% { opacity: 0.98; filter: brightness(1.08); }
-    }
-    @keyframes auroraDrift {
-      0% { transform: translate(0, 0) scale(1); }
-      50% { transform: translate(-10px, 12px) scale(1.08); }
-      100% { transform: translate(12px, -8px) scale(0.95); }
+      0%, 100% { opacity: 0.78; }
+      50% { opacity: 0.96; }
     }
   }
 
