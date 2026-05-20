@@ -1,5 +1,10 @@
-import { useLocation } from "react-router-dom";
+import { Navigate, useLocation } from "react-router-dom";
 import { useEffect } from "react";
+
+// Known top-level app sections. If we somehow land on /focus/<stale-id> or
+// /today?... and the router still matched "*", redirect home instead of
+// trapping the user on a dead 404 screen (e.g. after a long timer stops).
+const APP_PREFIXES = ["/today", "/focus", "/tracker", "/reports", "/settings", "/home", "/onboarding"];
 
 const NotFound = () => {
   const location = useLocation();
@@ -7,6 +12,10 @@ const NotFound = () => {
   useEffect(() => {
     console.error("404 Error: User attempted to access non-existent route:", location.pathname);
   }, [location.pathname]);
+
+  if (APP_PREFIXES.some((p) => location.pathname === p || location.pathname.startsWith(p + "/"))) {
+    return <Navigate to="/home" replace />;
+  }
 
   return (
     <div className="flex min-h-screen items-center justify-center bg-background px-6">

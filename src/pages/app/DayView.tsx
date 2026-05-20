@@ -1583,7 +1583,7 @@ export default function DayView() {
         </SheetContent>
       </Sheet>
       <UpgradeSheet open={upgradeOpen} onOpenChange={setUpgradeOpen} reason="feature" />
-      <AskAiSheet open={askAiOpen} onOpenChange={setAskAiOpen} initialPrompt={askAiContext} />
+      <AskAiSheet open={askAiOpen} onOpenChange={setAskAiOpen} seedContext={askAiContext} />
 
       <DayPickerSheet
         open={!!dayPickerIntent}

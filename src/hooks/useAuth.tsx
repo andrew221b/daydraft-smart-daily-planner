@@ -28,17 +28,23 @@ export const AuthProvider = ({ children }: { children: ReactNode }) => {
 
     const loadInitialSession = async () => {
       try {
-        // Keep preview resilient: if backend/auth is unreachable (or returns 4xx like 412),
-        // we still render as "signed out" instead of freezing on a blank loading screen.
+        // Keep preview resilient: if backend/auth is unreachable, we still
+        // release the loading shell instead of freezing. IMPORTANT: a slow
+        // network must NOT be treated as "signed out" — that's how users get
+        // kicked back to /auth mid-session. If the initial call times out,
+        // we just stop blocking the UI; `onAuthStateChange` will hydrate the
+        // session once the network call eventually resolves.
         const result = await Promise.race([
           supabase.auth.getSession(),
-          new Promise<never>((_, reject) => setTimeout(() => reject(new Error("auth_init_timeout")), 4000)),
+          new Promise<{ data: { session: Session | null } } | null>((resolve) =>
+            setTimeout(() => resolve(null), 10_000),
+          ),
         ]);
         if (!mounted) return;
-        setSession(result.data.session);
+        if (result) setSession(result.data.session);
       } catch {
-        if (!mounted) return;
-        setSession(null);
+        // Network/auth error: leave session untouched (likely null on first
+        // load anyway). Do not force a sign-out.
       } finally {
         if (mounted) setLoading(false);
       }
