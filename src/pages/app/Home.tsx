@@ -138,7 +138,7 @@ export default function Home() {
           {/* Today's plan progress */}
           {userTasks.length > 0 && (
             <div
-              className="mt-3 app-card px-4 py-4 cursor-pointer tappable"
+              className="mt-4 app-card px-4 py-4 cursor-pointer tappable"
               onClick={() => nav("/today")}
               role="button"
               tabIndex={0}
@@ -178,7 +178,7 @@ export default function Home() {
 
           {/* Today categories breakdown — minimal, only if data */}
           {breakdown.length > 0 && (
-            <div className="mt-3 app-card px-4 py-3.5">
+            <div className="mt-4 app-card px-4 py-3.5">
               <div className="flex items-center justify-between mb-3">
                 <span className="eyebrow">Time tracked today</span>
                 <span className="text-[11px] tabular-nums text-secondary-fg/55 font-medium">

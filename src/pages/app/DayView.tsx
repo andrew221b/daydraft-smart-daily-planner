@@ -916,7 +916,7 @@ export default function DayView() {
         }}
       >
       <div className="flex min-h-0 flex-1 flex-col">
-      <div className="shrink-0 px-6 pt-12 pb-2">
+      <div className="shrink-0 px-5 pt-12 pb-2">
         <div className="app-card px-2 py-2.5 flex items-center gap-1">
           <button
             type="button"
@@ -1029,7 +1029,7 @@ export default function DayView() {
 
       <div
         ref={dayScrollRef}
-        className="min-h-0 flex-1 overflow-y-auto overscroll-y-contain px-6 pb-[calc(96px+env(safe-area-inset-bottom))] [-webkit-overflow-scrolling:touch] pt-8"
+        className="min-h-0 flex-1 overflow-y-auto overscroll-y-contain px-5 pb-[calc(96px+env(safe-area-inset-bottom))] [-webkit-overflow-scrolling:touch] pt-8"
       >
         {planMissing && (
           <div className="rounded-[28px] border border-border/30 bg-card/35 px-6 py-12 text-center hero-glass shadow-card relative overflow-hidden empty-state-fade">

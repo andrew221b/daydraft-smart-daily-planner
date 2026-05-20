@@ -116,7 +116,7 @@ export default function Settings() {
 
   return (
     <Shell>
-      <div className="px-6 pt-12">
+      <div className="px-5 pt-12">
         <p className="eyebrow">Account</p>
         <h1 className="type-title mt-2 text-balance">Settings</h1>
 
