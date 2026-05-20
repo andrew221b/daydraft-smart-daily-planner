@@ -96,7 +96,32 @@ export default function Auth() {
     }
   };
 
+  // Lovable's OAuth broker (oauth.lovable.app) refuses to round-trip when the
+  // calling origin isn't a real app host — e.g. when this page is loaded
+  // inside the Lovable IDE preview where `window.location.origin` is the
+  // bare `https://lovable.dev`. The user-facing symptoms were:
+  //   1. "Authorization failed — State verification failed (invalid_request)"
+  //      on oauth.lovable.app (broker rejects the unknown origin)
+  //   2. A plain "not found" on lovable.dev/ (broker redirects back but the
+  //      target path isn't served).
+  // Block the click pre-emptively in that environment so the user gets a
+  // clear hint instead of a dead-end. The deployed app URL still works.
+  const oauthBlockedReason = (() => {
+    if (typeof window === "undefined") return null;
+    try {
+      const host = window.location.hostname;
+      if (host === "lovable.dev" || host.endsWith(".lovable.dev")) {
+        return "Google / Apple sign-in only works on the published app URL — not inside the Lovable preview. Use email & password here, or open the live app to use OAuth.";
+      }
+    } catch { /* ignore */ }
+    return null;
+  })();
+
   const oauth = async (provider: "google" | "apple") => {
+    if (oauthBlockedReason) {
+      toast(oauthBlockedReason, { duration: 6000 });
+      return;
+    }
     setBusy(true);
     try {
       const result = await lovable.auth.signInWithOAuth(provider, { redirect_uri: window.location.origin });
@@ -148,11 +173,13 @@ export default function Auth() {
             <>
               <div className="mt-8 space-y-2">
                 <button onClick={() => oauth("google")} disabled={busy}
-                  className="w-full h-12 rounded-[14px] app-card py-0 text-foreground hover:border-primary/20 pressable text-sm font-medium inline-flex items-center justify-center gap-2">
+                  className={`w-full h-12 rounded-[14px] app-card py-0 text-foreground hover:border-primary/20 pressable text-sm font-medium inline-flex items-center justify-center gap-2 ${oauthBlockedReason ? "opacity-55" : ""}`}
+                  title={oauthBlockedReason || undefined}>
                   <GoogleIcon /> Continue with Google
                 </button>
                 <button onClick={() => oauth("apple")} disabled={busy}
-                  className="w-full h-12 rounded-[14px] bg-foreground text-background hover:opacity-90 pressable text-sm font-medium inline-flex items-center justify-center gap-2 shadow-card">
+                  className={`w-full h-12 rounded-[14px] bg-foreground text-background hover:opacity-90 pressable text-sm font-medium inline-flex items-center justify-center gap-2 shadow-card ${oauthBlockedReason ? "opacity-55" : ""}`}
+                  title={oauthBlockedReason || undefined}>
                   <AppleIcon /> Continue with Apple
                 </button>
                 {canUsePasskey && (
@@ -160,6 +187,11 @@ export default function Auth() {
                     className="w-full h-12 rounded-[14px] border border-accent surface-accent backdrop-blur-sm text-primary hover:bg-primary/[0.07] pressable text-sm font-medium inline-flex items-center justify-center gap-2">
                     <Fingerprint className="h-4 w-4" /> Use Face ID / fingerprint
                   </button>
+                )}
+                {oauthBlockedReason && (
+                  <p className="text-[11px] leading-snug text-secondary-fg/85 px-1 pt-1">
+                    {oauthBlockedReason}
+                  </p>
                 )}
               </div>
               <div className="my-6 flex items-center gap-3 text-[10px] font-semibold uppercase tracking-[0.12em] text-secondary-fg">
