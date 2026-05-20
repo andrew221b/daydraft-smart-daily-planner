@@ -1,12 +1,13 @@
 import { useEffect, useMemo, useState } from "react";
 import { Sheet, SheetContent, SheetHeader, SheetTitle } from "@/components/ui/sheet";
-import { Button } from "@/components/ui/button";
+import { ChevronRight, Clock, Coffee, Sparkles } from "lucide-react";
 import { useAuth } from "@/hooks/useAuth";
 import { useEntitlement } from "@/hooks/useEntitlement";
 import { supabase } from "@/integrations/supabase/client";
 import { isUserTask, isOpenUserTask, todayDateStr } from "@/lib/daydraft";
 import { useQueryClient } from "@tanstack/react-query";
 import { planDashboardQueryKey, planDayQueryKey } from "@/lib/planQueries";
+import { haptics } from "@/lib/haptics";
 import { toast } from "sonner";
 
 type BlockLite = {
@@ -147,23 +148,61 @@ export function TimerRescheduleSheet() {
 
   if (!isPro || !hasData) return null;
 
+  const endedTitle = ended?.title?.trim() || "your last task";
+  const shortTitle = endedTitle.length > 40 ? `${endedTitle.slice(0, 37)}…` : endedTitle;
+  const overByMin = ended
+    ? Math.round((ended.actual_minutes ?? 0) - (ended.estimated_minutes ?? ended.duration_min))
+    : 0;
+
   return (
     <Sheet open={open} onOpenChange={setOpen}>
-      <SheetContent side="bottom" className="rounded-t-2xl border-soft bg-popover">
-        <SheetHeader className="text-left mb-3">
-          <SheetTitle className="text-[16px]">Quick reschedule?</SheetTitle>
+      <SheetContent
+        side="bottom"
+        className="rounded-t-[28px] border-border/45 bg-popover px-5 pt-5 pb-7"
+      >
+        <SheetHeader className="text-left mb-1 space-y-1.5">
+          <div className="inline-flex items-center gap-1.5 text-[10px] font-semibold uppercase tracking-[0.14em] text-primary/85">
+            <Sparkles className="h-3 w-3" /> AI suggestion
+          </div>
+          <SheetTitle className="text-[18px] font-semibold tracking-tight">
+            Adjust the rest of your day?
+          </SheetTitle>
+          <p className="text-[12.5px] leading-snug text-secondary-fg">
+            "{shortTitle}" ran {overByMin > 0 ? `${overByMin}m over` : "long"}. Pick a fix
+            or keep the plan as it was.
+          </p>
         </SheetHeader>
-        <div className="space-y-2">
-          {options.slice(0, 2).map((opt, i) => (
-            <Button key={i} variant="outline" className="w-full h-11 rounded-xl border-soft justify-start" onClick={() => void applyOption(opt)}>
-              {opt.label}
-            </Button>
-          ))}
-          <Button variant="ghost" className="w-full h-10 text-secondary-fg" onClick={() => setOpen(false)}>
+        <div className="mt-4 space-y-2">
+          {options.slice(0, 2).map((opt, i) => {
+            const Icon = opt.action.type === "shorten_next_break" ? Coffee : Clock;
+            return (
+              <button
+                key={i}
+                type="button"
+                onClick={() => { haptics.selection(); void applyOption(opt); }}
+                className="group w-full text-left flex items-start gap-3 rounded-[18px] border border-border/40 bg-surface-card/70 hover:border-primary/35 hover:bg-primary/[0.04] pressable px-4 py-3.5 transition-colors"
+              >
+                <span className="mt-0.5 grid place-items-center h-9 w-9 rounded-full bg-primary/10 text-primary shrink-0">
+                  <Icon className="h-4 w-4" />
+                </span>
+                <span className="flex-1 text-[13.5px] leading-[1.45] text-foreground/95 whitespace-normal break-words">
+                  {opt.label}
+                </span>
+                <ChevronRight className="h-4 w-4 text-secondary-fg/55 shrink-0 mt-2.5 transition-transform group-hover:translate-x-0.5" />
+              </button>
+            );
+          })}
+          <button
+            type="button"
+            onClick={() => { haptics.selection(); setOpen(false); }}
+            className="w-full h-11 mt-1 text-[13px] text-secondary-fg hover:text-foreground transition-colors pressable rounded-[14px]"
+          >
             Keep original plan
-          </Button>
+          </button>
         </div>
-        {loading && <div className="mt-2 text-[11px] text-secondary-fg">Preparing options…</div>}
+        {loading && (
+          <div className="mt-3 text-[11px] text-secondary-fg text-center">Preparing options…</div>
+        )}
       </SheetContent>
     </Sheet>
   );
