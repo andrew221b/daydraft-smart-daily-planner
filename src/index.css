@@ -301,6 +301,32 @@ body.dd-dnd-scroll-lock {
     transition-timing-function: cubic-bezier(0.4, 0, 0.6, 1);
   }
 
+  /* ─── Drag-lifted card ───────────────────────────────────────────
+     Applied to a sortable row while it's being dragged (paired with
+     dnd-kit's `isDragging`). Suppresses the .tappable :active
+     compression so the row doesn't fight the lift, and disables hover
+     filters that would otherwise pulse the dragged card. */
+  .tappable.is-dragging,
+  .tappable.is-dragging:active {
+    transform: none;
+    filter: none;
+    transition: none;
+  }
+  /* Subtle pulse on the lifted card to make the floating state feel
+     alive. Inline transform / shadow set by JS handle the lift itself;
+     this just brightens the border. */
+  .is-dragging {
+    will-change: transform, box-shadow;
+  }
+  @keyframes dd-lift-glow {
+    0%, 100% { filter: brightness(1); }
+    50% { filter: brightness(1.05); }
+  }
+  .is-dragging { animation: dd-lift-glow 1.6s ease-in-out infinite; }
+  @media (prefers-reduced-motion: reduce) {
+    .is-dragging { animation: none; }
+  }
+
   /* ─── iOS list row ───────────────────────────────────────────────
      Tap and the background flashes a neutral gray, like UITableView. */
   .ios-row {

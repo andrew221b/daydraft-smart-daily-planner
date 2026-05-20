@@ -1,3 +1,4 @@
+import type React from "react";
 import { useSortable } from "@dnd-kit/sortable";
 import { CSS } from "@dnd-kit/utilities";
 import { Block, fmtTime, inferScheduleBlockType, isOpenUserTask, isUserTaskDone } from "@/lib/daydraft";
@@ -37,10 +38,22 @@ export const SortableBlock = ({
     id: block.id,
     disabled: sortableDisabled,
   });
-  const style = {
-    transform: CSS.Transform.toString(transform),
-    transition,
-    opacity: isDragging ? 0.6 : 1,
+  // Compose the dnd-kit transform with our own scale/lift while dragging.
+  // The iOS-style cue: the card grows slightly, lifts on a real shadow,
+  // and floats above its neighbours (z-index). Non-dragging rows keep
+  // dnd-kit's own transition so they rearrange smoothly underneath.
+  const baseTransform = CSS.Transform.toString(transform) || "";
+  const style: React.CSSProperties = {
+    transform: isDragging ? `${baseTransform} scale(1.025)` : baseTransform,
+    transition: isDragging
+      ? "transform 160ms cubic-bezier(0.34,1.56,0.64,1), box-shadow 200ms ease"
+      : transition,
+    boxShadow: isDragging
+      ? "0 24px 56px -16px hsl(0 0% 0% / 0.55), 0 0 0 1px hsl(var(--primary) / 0.35)"
+      : undefined,
+    zIndex: isDragging ? 30 : undefined,
+    opacity: isDragging ? 0.98 : 1,
+    touchAction: sortableDisabled ? undefined : "manipulation",
   };
   const isCal = block.is_calendar_event;
   const rhythmType = inferScheduleBlockType(block);
@@ -74,7 +87,15 @@ export const SortableBlock = ({
       ref={setNodeRef}
       style={style}
       data-tour={tourSpotlight ? "dayview-block" : undefined}
+      // dnd-kit attributes + listeners are spread on the whole card so a
+      // long-press anywhere on the row lifts it (matching iOS "edit mode"
+      // home-screen behavior). The activation delay (220ms) means quick
+      // taps still pass through to onClick handlers below.
+      {...(sortableDisabled ? {} : attributes)}
+      {...(sortableDisabled ? {} : listeners)}
       className={`group cursor-pointer tappable app-card rounded-[20px] px-3.5 py-3.5 shadow-sm ${
+        isDragging ? "is-dragging" : ""
+      } ${
         trackingActive ? "ring-[1.5px] ring-primary/40 bg-primary/[0.04] shadow-[0_0_32px_hsl(var(--primary)/0.12)]" : ""
       } ${
         isUserTaskDone(block) && block.kind === "task" ? "opacity-80" : ""
@@ -92,16 +113,17 @@ export const SortableBlock = ({
     >
       <div className="flex items-center gap-2">
         {!sortableDisabled ? (
-          <button
-            type="button"
-            {...attributes}
-            {...listeners}
-            onClick={(e) => e.stopPropagation()}
-            className="touch-none shrink-0 flex h-9 w-8 items-center justify-center rounded-lg text-secondary-fg/70 hover:bg-muted/50 pressable cursor-grab active:cursor-grabbing"
-            aria-label="Drag to reorder"
+          // Decorative-only handle — the press target is the whole row.
+          // The icon brightens during drag so the user gets visual
+          // confirmation they're moving it.
+          <div
+            className={`shrink-0 flex h-9 w-8 items-center justify-center rounded-lg pointer-events-none transition-colors ${
+              isDragging ? "text-primary" : "text-secondary-fg/55"
+            }`}
+            aria-hidden
           >
             <GripVertical className="h-4 w-4" />
-          </button>
+          </div>
         ) : (
           <div className="w-8 shrink-0" aria-hidden />
         )}

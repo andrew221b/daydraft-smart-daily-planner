@@ -596,11 +596,17 @@ export default function DayView() {
 
   const handleDragStart = (_e: DragStartEvent) => {
     setDndBodyScrollLock(true);
+    // iOS-style "lift" feedback the instant the drag activates. The card's
+    // CSS scale + shadow run alongside; this pairs the visual cue with a
+    // tactile one so the long-press feels responsive instead of silent.
+    haptics.impact("medium");
   };
 
   const onDragEnd = (e: DragEndEvent) => {
     setDndBodyScrollLock(false);
     const { active, over } = e;
+    // Soft "settle" tap on drop, regardless of whether the position changed.
+    haptics.impact("light");
     if (!over || active.id === over.id) return;
     const oldIdx = blocks.findIndex(b => b.id === active.id);
     const newIdx = blocks.findIndex(b => b.id === over.id);
