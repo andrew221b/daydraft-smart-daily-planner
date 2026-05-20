@@ -4,11 +4,18 @@ import { BarChart3, CalendarDays, Settings as SettingsIcon, Timer } from "lucide
 import { haptics } from "@/lib/haptics";
 import type { LucideIcon } from "lucide-react";
 
+// Each tab carries a `prefetch` thunk that imports the matching route
+// chunk on first touch. Vite returns the same promise for repeat
+// imports, so calling it on every tap is a no-op once the chunk is
+// cached. The effect is that the user's finger-down event kicks the
+// download *before* the click commits — eliminating the lazy-load
+// spinner on tab switches for users whose Shell prefetch hasn't yet
+// completed (slow phones, throttled connections, cold app start).
 const tabs = [
-  { to: "/home", icon: Timer, label: "Track", tour: "tab-home" },
-  { to: "/today", icon: CalendarDays, label: "Plan", tour: "tab-today" },
-  { to: "/reports", icon: BarChart3, label: "Reports", tour: "tab-reports" },
-  { to: "/settings", icon: SettingsIcon, label: "Settings", tour: "tab-settings" },
+  { to: "/home", icon: Timer, label: "Track", tour: "tab-home", prefetch: () => import("@/pages/app/Home") },
+  { to: "/today", icon: CalendarDays, label: "Plan", tour: "tab-today", prefetch: () => import("@/pages/app/DayView") },
+  { to: "/reports", icon: BarChart3, label: "Reports", tour: "tab-reports", prefetch: () => import("@/pages/app/Reports") },
+  { to: "/settings", icon: SettingsIcon, label: "Settings", tour: "tab-settings", prefetch: () => import("@/pages/app/Settings") },
 ] as const;
 
 /** Must match Tailwind gap-1.5 (6px). */
@@ -67,7 +74,15 @@ export const TabBar = () => {
               style={indicatorStyle}
             />
             {tabs.map((it, idx) => (
-              <TabItem key={it.to} {...it} highlighted={activeIdx === idx} />
+              <TabItem
+                key={it.to}
+                to={it.to}
+                icon={it.icon}
+                label={it.label}
+                tour={it.tour}
+                prefetch={it.prefetch}
+                highlighted={activeIdx === idx}
+              />
             ))}
           </div>
         </div>
@@ -81,18 +96,28 @@ function TabItem({
   icon: Icon,
   label,
   tour,
+  prefetch,
   highlighted,
 }: {
   to: string;
   icon: LucideIcon;
   label: string;
   tour: string;
+  prefetch: () => Promise<unknown>;
   highlighted: boolean;
 }) {
+  // Kick the route chunk download the moment the user's finger touches
+  // the tab — gives Vite a head start so by the time the click commits
+  // the chunk is ready. `pointerdown` covers both touch and mouse;
+  // touchstart on legacy iOS Safari is a belt-and-braces fallback.
+  const warmRoute = () => { void prefetch(); };
   return (
     <NavLink
       to={to}
       data-tour={tour}
+      onPointerDown={warmRoute}
+      onTouchStart={warmRoute}
+      onFocus={warmRoute}
       className={`relative z-[1] flex min-h-[46px] flex-1 flex-col items-center justify-center gap-0.5 rounded-xl py-1.5 pressable transition-colors duration-200 ease-out ${
         highlighted ? "text-primary" : "text-secondary-fg hover:text-foreground/80"
       }`}

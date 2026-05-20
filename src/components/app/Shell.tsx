@@ -23,27 +23,23 @@ export const Shell = ({
     ? "page-transition-push"
     : "page-transition-tab";
 
-  // Warm lazy route chunks after first paint — same module paths as App.tsx lazy().
+  // Warm every lazy route chunk shortly after the current page paints.
+  // The previous implementation used `requestIdleCallback` with a 5000ms
+  // timeout — on slow phones the prefetch could land *after* the user
+  // tapped another tab, so they'd hit the lazy-load spinner every time.
+  // 150ms after mount is short enough that the chunks usually arrive
+  // before the first tab switch, long enough that the current page's
+  // queries and layout still get the network window to themselves.
   useEffect(() => {
-    const prefetchNeighbors = () => {
+    const t = setTimeout(() => {
       void import("@/pages/app/DayView");
       void import("@/pages/app/Focus");
       void import("@/pages/app/Home");
       void import("@/pages/app/Tracker");
       void import("@/pages/app/Reports");
       void import("@/pages/app/Settings");
-    };
-    let idleHandle: ReturnType<typeof requestIdleCallback> | undefined;
-    let t: ReturnType<typeof setTimeout> | undefined;
-    if (typeof requestIdleCallback !== "undefined") {
-      idleHandle = requestIdleCallback(prefetchNeighbors, { timeout: 5000 });
-    } else {
-      t = setTimeout(prefetchNeighbors, 350);
-    }
-    return () => {
-      if (idleHandle !== undefined) cancelIdleCallback(idleHandle);
-      if (t !== undefined) clearTimeout(t);
-    };
+    }, 150);
+    return () => clearTimeout(t);
   }, []);
 
   return (
