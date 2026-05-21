@@ -1,6 +1,6 @@
 import { lazy, Suspense, type ComponentType, type ReactNode } from "react";
 import { Capacitor } from "@capacitor/core";
-import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
+import { keepPreviousData, QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { BrowserRouter, Navigate, Route, Routes, useLocation } from "react-router-dom";
 import { Toaster as Sonner } from "@/components/ui/sonner";
 import { TooltipProvider } from "@/components/ui/tooltip";
@@ -12,6 +12,7 @@ import { TourProvider } from "@/components/app/Tour";
 import { TimeTrackerProvider } from "@/hooks/useTimeTracker";
 import { PageFallback } from "@/components/app/PageFallback";
 import { RouteErrorBoundary } from "@/components/app/RouteErrorBoundary";
+import { EagerPrefetcher } from "@/components/app/EagerPrefetcher";
 import ForgotPassword from "./pages/app/ForgotPassword";
 import ResetPassword from "./pages/app/ResetPassword";
 import Privacy from "./pages/legal/Privacy";
@@ -69,10 +70,18 @@ const queryClient = new QueryClient({
   defaultOptions: {
     queries: {
       staleTime: 30_000,
-      gcTime: 10 * 60_000,
+      // Bumped from 10m to 30m so a user who hops between tabs over a long
+      // session keeps reading from cache instead of paying repeat round-trips
+      // once the page unmounts.
+      gcTime: 30 * 60_000,
       retry: 1,
       // Native WebView "focus" events are noisy; refetching every tab return causes jank.
       refetchOnWindowFocus: !Capacitor.isNativePlatform(),
+      // While a stale query refetches in the background, hand consumers the
+      // previous successful result instead of `undefined`. This is the single
+      // most visible change for tab switches: pages render with last-seen
+      // content on first paint instead of flashing the empty state.
+      placeholderData: keepPreviousData,
     },
   },
 });
@@ -131,6 +140,7 @@ const App = () => (
         <ProfileProvider>
         <TourProvider>
         <TimeTrackerProvider>
+          <EagerPrefetcher />
           <Routes>
             <Route path="/" element={<RootRedirect />} />
             <Route path="/auth" element={<SuspenseRoute><Auth /></SuspenseRoute>} />

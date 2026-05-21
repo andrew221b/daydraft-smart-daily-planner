@@ -1,16 +1,18 @@
 import { useEffect, useMemo, useRef, useState } from "react";
+import { keepPreviousData, useQuery } from "@tanstack/react-query";
 import { Play, Pause, Plus, Check, Trash2, ChevronLeft, ChevronRight, Download, ChevronDown, Lock, Pencil, X, Hourglass, Clock, SlidersHorizontal, ListTodo } from "lucide-react";
 import { categoryBillingToDraft } from "@/lib/categoryBilling";
 import { useTimeTracker, useTimeTrackerElapsed, fmtHMS, fmtHM, TimeCategory } from "@/hooks/useTimeTracker";
 import { Sheet, SheetContent, SheetHeader, SheetTitle, SheetDescription } from "@/components/ui/sheet";
 import { Input } from "@/components/ui/input";
-import { supabase } from "@/integrations/supabase/client";
 import { useAuth } from "@/hooks/useAuth";
 import { toast } from "sonner";
 import jsPDF from "jspdf";
 import autoTable from "jspdf-autotable";
 import { useEntitlement } from "@/hooks/useEntitlement";
 import { Block, isUserTask, todayDateStr } from "@/lib/daydraft";
+import { fetchPlanDashboard, planDashboardQueryKey } from "@/lib/planQueries";
+import { fetchRollingEntries, rollingEntriesQueryKey } from "@/lib/timeEntriesQuery";
 import { UpgradeSheet } from "@/components/app/UpgradeSheet";
 import {
   AlertDialog,
@@ -110,7 +112,6 @@ function TrackerInner({ embedded = false, onClose }: { embedded?: boolean; onClo
   const [editingName, setEditingName] = useState("");
   const [editingRate, setEditingRate] = useState("");
   const [tab, setTab] = useState<Tab>("today");
-  const [entries, setEntries] = useState<Entry[]>([]);
   const [monthCursor, setMonthCursor] = useState(() => { const d = new Date(); d.setDate(1); d.setHours(0,0,0,0); return d; });
   const [selectedDay, setSelectedDay] = useState<string | null>(null);
   const [selectedCat, setSelectedCat] = useState<string | null>(null);
@@ -120,7 +121,7 @@ function TrackerInner({ embedded = false, onClose }: { embedded?: boolean; onClo
   const [nowSec, setNowSec] = useState<number>(() => Date.now());
   const simpleMode = false;
   const [showAllCategories, setShowAllCategories] = useState(false);
-  const [todayPlanBlocks, setTodayPlanBlocks] = useState<Block[]>([]);
+
   const [stopBusy, setStopBusy] = useState(false);
   const [categoryBusyId, setCategoryBusyId] = useState<string | null>(null);
   const [paymentDetails, setPaymentDetails] = useState<PaymentDetailsDraft>(emptyPaymentDetails);
@@ -131,22 +132,17 @@ function TrackerInner({ embedded = false, onClose }: { embedded?: boolean; onClo
 
   const activeCat = categories.find(c => c.id === active?.category_id);
   const catMap = useMemo(() => new Map(categories.map(c => [c.id, c])), [categories]);
-  // Load 60 days of entries (covers week + month views). Re-fetches when the
-  // active session changes or the running session ticks past a minute so the
-  // breakdowns stay live. Previously this depended on a non-existent `open`
-  // var (legacy from the bottom-sheet implementation), so the page rendered
-  // with empty stats until you started/stopped a timer.
-  useEffect(() => {
-    if (!user) return;
-    const since = new Date(); since.setDate(since.getDate() - 60); since.setHours(0,0,0,0);
-    supabase
-      .from("time_entries")
-      .select("id,category_id,started_at,ended_at,note,block_id")
-      .eq("user_id", user.id)
-      .gte("started_at", since.toISOString())
-      .order("started_at", { ascending: false })
-      .then(({ data }) => setEntries((data || []) as Entry[]));
-  }, [user?.id, active?.id, todayTotalSec]);
+  // Entries are pulled from the shared rolling-entries cache — same source as
+  // Home, Reports, and the home tracker hero. Switching to /tracker after any
+  // of those have visited reads from cache instead of refetching.
+  const { data: entries = [] } = useQuery({
+    queryKey: rollingEntriesQueryKey(user?.id),
+    queryFn: () => fetchRollingEntries(user!.id),
+    enabled: !!user?.id,
+    staleTime: 60_000,
+    gcTime: 30 * 60_000,
+    placeholderData: keepPreviousData,
+  });
 
   useEffect(() => {
     if (!editingCat) {
@@ -158,34 +154,16 @@ function TrackerInner({ embedded = false, onClose }: { embedded?: boolean; onClo
     setPaymentDetails(categoryBillingToDraft(cat));
   }, [editingCat, categories]);
 
-  useEffect(() => {
-    if (!user) return;
-    let cancelled = false;
-    (async () => {
-      try {
-        const today = todayDateStr();
-        const { data: plan } = await supabase
-          .from("plans")
-          .select("id")
-          .eq("user_id", user.id)
-          .eq("date", today)
-          .maybeSingle();
-        if (!plan?.id) {
-          if (!cancelled) setTodayPlanBlocks([]);
-          return;
-        }
-        const { data: bs } = await supabase
-          .from("blocks")
-          .select("*")
-          .eq("plan_id", plan.id)
-          .order("position");
-        if (!cancelled) setTodayPlanBlocks((bs || []) as Block[]);
-      } catch {
-        /* ignore */
-      }
-    })();
-    return () => { cancelled = true; };
-  }, [user?.id, active?.id]);
+  const todayDate = todayDateStr();
+  const { data: todayPlanData } = useQuery({
+    queryKey: planDashboardQueryKey(user?.id ?? "", todayDate),
+    queryFn: () => fetchPlanDashboard(user!.id, todayDate),
+    enabled: !!user?.id,
+    staleTime: 30_000,
+    gcTime: 30 * 60_000,
+    placeholderData: keepPreviousData,
+  });
+  const todayPlanBlocks: Block[] = (todayPlanData?.planBlocks as Block[]) || [];
 
   // ----- Aggregations -----
   useEffect(() => {

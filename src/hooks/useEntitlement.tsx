@@ -1,4 +1,5 @@
-import { useEffect, useState, useCallback } from "react";
+import { useCallback, useEffect, useState } from "react";
+import { keepPreviousData, useQuery, useQueryClient } from "@tanstack/react-query";
 import { supabase } from "@/integrations/supabase/client";
 import { useAuth } from "./useAuth";
 import { isSimulateProUiAllowed, readDevSimulatePro } from "@/lib/devEntitlement";
@@ -19,15 +20,55 @@ export const FREE_PLAN_QUOTA = 5; // total free planning days, lifetime
 const computeTier = (status: string, trialEndsAt: string | null): Tier => {
   if (status === "active") return "pro";
   if (status === "trialing" && trialEndsAt && new Date(trialEndsAt) > new Date()) return "trial";
-  // expired / canceled / refunded / past_due / free → free tier
   return "free";
 };
 
+export const entitlementQueryKey = (userId: string | undefined) =>
+  ["entitlement", userId ?? ""] as const;
+
+type EntitlementSnapshot = {
+  ent: Entitlement | null;
+  planQuotaUsed: number;
+};
+
+/**
+ * Single shared fetch backing every `useEntitlement` consumer (paywall sheets,
+ * Reports, Settings, DayView, Focus, HomeTrackerHero, TrackerPill, etc.). Before
+ * this was a per-mount hook that re-ran two Supabase round-trips on every page
+ * navigation; with React Query the result is cached and de-duplicated across
+ * the tree.
+ */
+async function fetchEntitlement(userId: string): Promise<EntitlementSnapshot> {
+  const [subRes, plansRes] = await Promise.all([
+    supabase.from("subscriptions").select("*").eq("user_id", userId).maybeSingle(),
+    supabase.from("plans").select("date, blocks(id)").eq("user_id", userId),
+  ]);
+  const sub = subRes.data;
+  const status = sub?.status ?? "free";
+  const trialEndsAt = sub?.trial_ends_at ?? null;
+  const tier = computeTier(status, trialEndsAt);
+  const daysLeftInTrial = trialEndsAt
+    ? Math.max(0, Math.ceil((new Date(trialEndsAt).getTime() - Date.now()) / 86400000))
+    : null;
+  const ent: Entitlement = {
+    tier,
+    status,
+    plan: sub?.plan ?? null,
+    trialEndsAt,
+    daysLeftInTrial,
+    currentPeriodEnd: sub?.current_period_end ?? null,
+  };
+  const uniq = new Set(
+    (plansRes.data || [])
+      .filter((p: { blocks?: { id: string }[] | null }) => Array.isArray(p.blocks) && p.blocks.length > 0)
+      .map((p: { date: string }) => p.date),
+  );
+  return { ent, planQuotaUsed: uniq.size };
+}
+
 export const useEntitlement = () => {
   const { user } = useAuth();
-  const [ent, setEnt] = useState<Entitlement | null>(null);
-  const [planQuotaUsed, setPlanQuotaUsed] = useState(0);
-  const [loading, setLoading] = useState(true);
+  const queryClient = useQueryClient();
   const [devSimulatePro, setDevSimulatePro] = useState(() =>
     isSimulateProUiAllowed() ? readDevSimulatePro() : false,
   );
@@ -39,39 +80,22 @@ export const useEntitlement = () => {
     return () => window.removeEventListener("dd-dev-simulate-pro", on);
   }, []);
 
+  const { data, isLoading } = useQuery({
+    queryKey: entitlementQueryKey(user?.id),
+    queryFn: () => fetchEntitlement(user!.id),
+    enabled: !!user?.id,
+    staleTime: 5 * 60_000,
+    gcTime: 30 * 60_000,
+    placeholderData: keepPreviousData,
+  });
+
   const refresh = useCallback(async () => {
-    if (!user) { setEnt(null); setLoading(false); return; }
-    const { data: sub } = await supabase.from("subscriptions").select("*").eq("user_id", user.id).maybeSingle();
-    const status = sub?.status ?? "free";
-    const trialEndsAt = sub?.trial_ends_at ?? null;
-    const tier = computeTier(status, trialEndsAt);
-    const daysLeftInTrial = trialEndsAt
-      ? Math.max(0, Math.ceil((new Date(trialEndsAt).getTime() - Date.now()) / 86400000))
-      : null;
-    setEnt({
-      tier, status, plan: sub?.plan ?? null,
-      trialEndsAt, daysLeftInTrial,
-      currentPeriodEnd: sub?.current_period_end ?? null,
-    });
+    if (!user?.id) return;
+    await queryClient.invalidateQueries({ queryKey: entitlementQueryKey(user.id) });
+  }, [user?.id, queryClient]);
 
-    // Free trial = 5 distinct planning days, lifetime (not rolling).
-    // ANY day with tasks counts — whether AI-generated or manually added.
-    // Empty plan rows (failed generation, no blocks) don't burn the trial.
-    const { data: plans } = await supabase
-      .from("plans")
-      .select("date, blocks(id)")
-      .eq("user_id", user.id);
-    const uniq = new Set(
-      (plans || [])
-        .filter((p: { blocks?: { id: string }[] | null }) => Array.isArray(p.blocks) && p.blocks.length > 0)
-        .map((p: { date: string }) => p.date),
-    );
-    setPlanQuotaUsed(uniq.size);
-    setLoading(false);
-  }, [user?.id]);
-
-  useEffect(() => { refresh(); }, [refresh]);
-
+  const ent = data?.ent ?? null;
+  const planQuotaUsed = data?.planQuotaUsed ?? 0;
   const subscriptionPro = ent?.tier === "pro" || ent?.tier === "trial";
   const isPro = subscriptionPro || devSimulatePro;
   const planQuotaLimit = isPro ? Infinity : FREE_PLAN_QUOTA;
@@ -80,7 +104,7 @@ export const useEntitlement = () => {
 
   return {
     entitlement: ent,
-    loading,
+    loading: !!user?.id && isLoading,
     isPro,
     devSimulatePro,
     subscriptionPro,
@@ -92,6 +116,8 @@ export const useEntitlement = () => {
   };
 };
 
+export { fetchEntitlement };
+
 /**
  * Provider-agnostic checkout entry-point. Wired later to App Store / Stripe / Paddle
  * via the same interface — no UI changes required.
@@ -100,7 +126,5 @@ export const startCheckout = async (
   _plan: "monthly" | "annual",
   opts?: { onUnavailable?: () => void }
 ) => {
-  // Stub for now. Real flow will call an edge function that returns a checkout URL
-  // (or invoke a native StoreKit bridge inside Capacitor).
   opts?.onUnavailable?.();
 };

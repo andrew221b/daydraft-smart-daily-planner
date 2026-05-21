@@ -1,5 +1,5 @@
 import { useEffect, useMemo } from "react";
-import { useQuery, useQueryClient } from "@tanstack/react-query";
+import { keepPreviousData, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useLocation, useNavigate, useSearchParams } from "react-router-dom";
 import { Shell } from "@/components/app/Shell";
 import { HomeTrackerHero } from "@/components/app/HomeTrackerHero";
@@ -12,7 +12,12 @@ import { fetchPlanDashboard, planDashboardQueryKey } from "@/lib/planQueries";
 import { supabase } from "@/integrations/supabase/client";
 import { applyAutoMissedBlocks } from "@/lib/blockResolution";
 import { greetingFor, getTone } from "@/lib/tone";
-import { fmtHM, useTimeTracker } from "@/hooks/useTimeTracker";
+import { fmtHM, useTimeTracker, useTimeTrackerElapsed } from "@/hooks/useTimeTracker";
+import {
+  fetchRollingEntries,
+  filterEntriesByRange,
+  rollingEntriesQueryKey,
+} from "@/lib/timeEntriesQuery";
 
 /** Tracker is the hero. */
 export default function Home() {
@@ -45,6 +50,7 @@ export default function Home() {
     queryFn: () => fetchPlanDashboard(user!.id, viewDate),
     enabled: !!user?.id,
     staleTime: 30_000,
+    placeholderData: keepPreviousData,
   });
   const blocks = planData?.planBlocks ?? [];
 
@@ -74,49 +80,50 @@ export default function Home() {
   const greeting = greetingFor(tone, profile?.display_name);
   const firstName = profile?.display_name?.split(" ")[0];
 
-  // Today's category breakdown — minimal, only when there is data
-  const { data: todayEntries } = useQuery({
-    queryKey: ["today-entries", user?.id, viewDate],
+  // Today's category breakdown reads from the shared rolling-entries cache —
+  // no Home-only fetch. Reports, Tracker, and useTimeTracker all draw from the
+  // same query, so the data is already warm by the time Home mounts.
+  const { data: rollingEntries } = useQuery({
+    queryKey: rollingEntriesQueryKey(user?.id),
+    queryFn: () => fetchRollingEntries(user!.id),
     enabled: !!user?.id,
-    staleTime: 30_000,
-    queryFn: async () => {
-      const start = new Date(); start.setHours(0,0,0,0);
-      const { data } = await supabase
-        .from("time_entries")
-        .select("category_id, started_at, ended_at")
-        .eq("user_id", user!.id)
-        .gte("started_at", start.toISOString());
-      return data ?? [];
-    },
+    staleTime: 60_000,
+    gcTime: 30 * 60_000,
+    placeholderData: keepPreviousData,
   });
+  // Subscribe to elapsed ticks so live timer contribution to today's totals
+  // re-renders each second.
+  useTimeTrackerElapsed();
 
   const userTasks = useMemo(() => blocks.filter(isUserTask), [blocks]);
   const doneTasks = useMemo(() => userTasks.filter((b) => isUserTaskDone(b)).length, [userTasks]);
   const nextTask = useMemo(() => blocks.find((b) => isUserTask(b) && isOpenUserTask(b)), [blocks]);
 
   const breakdown = useMemo(() => {
-    if (!todayEntries?.length) return [];
+    if (!rollingEntries?.length) return [];
     const dayStart = new Date(); dayStart.setHours(0,0,0,0);
+    const dayEnd = new Date(dayStart.getTime() + 86_400_000);
     const ds = dayStart.getTime();
-    const de = ds + 86_400_000;
+    const de = dayEnd.getTime();
+    const todays = filterEntriesByRange(rollingEntries, { from: dayStart, to: dayEnd });
     const now = Date.now();
     const map = new Map<string, number>();
     let total = 0;
-    todayEntries.forEach((e: any) => {
+    for (const e of todays) {
       const s = Math.max(new Date(e.started_at).getTime(), ds);
       const en = Math.min(e.ended_at ? new Date(e.ended_at).getTime() : now, de);
       const sec = Math.max(0, (en - s) / 1000);
-      if (sec <= 0 || !e.category_id) return;
+      if (sec <= 0 || !e.category_id) continue;
       total += sec;
       map.set(e.category_id, (map.get(e.category_id) || 0) + sec);
-    });
+    }
     const catMap = new Map(categories.map((c) => [c.id, c]));
     return Array.from(map.entries())
       .map(([id, sec]) => ({ cat: catMap.get(id), sec, pct: total > 0 ? sec / total : 0 }))
       .filter((r) => r.cat)
       .sort((a, b) => b.sec - a.sec)
       .slice(0, 5);
-  }, [todayEntries, categories]);
+  }, [rollingEntries, categories]);
 
   return (
     <Shell>
