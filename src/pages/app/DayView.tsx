@@ -1904,6 +1904,7 @@ export default function DayView() {
           </div>
         </SheetContent>
       </Sheet>
+    </>
   );
 }
 
