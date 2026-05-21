@@ -3,6 +3,7 @@ import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { useNavigate, useSearchParams } from "react-router-dom";
 import { useAuth } from "@/hooks/useAuth";
 import { supabase } from "@/integrations/supabase/client";
+import { invokeAiCached } from "@/lib/aiCache";
 import {
   Block, fmtTime, todayDateStr, parseDateStr, friendlyDateFor, isFutureDateStr, isUserTask, isOpenUserTask, isUserTaskDone, inferScheduleBlockType, packLinearSchedule,
   blockSlotEndHHMM,
@@ -53,6 +54,7 @@ import { AskAiSheet } from "@/components/app/AskAiSheet";
 import { Textarea } from "@/components/ui/textarea";
 import { parseBulkTasks, extractDurationFromTitle } from "@/lib/taskSplitter";
 import { useTimeTracker } from "@/hooks/useTimeTracker";
+import { useTabVisible } from "@/components/app/PersistentTabs";
 
 type ExBlock = Block & {
   ai_reasoning?: string | null;
@@ -227,10 +229,17 @@ export default function DayView() {
     return () => clearTimeout(t);
   }, [blocks.length > 0]);
 
+  // `now` only drives the "is this block currently running?" highlight on
+  // the timeline — there's no point ticking it while DayView's tab isn't
+  // visible. PersistentTabs keeps the tree alive, but the interval can
+  // sleep until the user comes back.
+  const dayTabVisible = useTabVisible();
   useEffect(() => {
+    if (!dayTabVisible) return;
+    setNow(new Date()); // re-sync on return so the highlight is fresh
     const t = setInterval(() => setNow(new Date()), 60000);
     return () => clearInterval(t);
-  }, []);
+  }, [dayTabVisible]);
 
   // Drop localStorage tracker-category records for blocks that no longer
   // exist (deleted from a different device, plan reset, etc).
@@ -632,8 +641,9 @@ export default function DayView() {
       const remaining = blocks.filter((b) => isUserTask(b) && isOpenUserTask(b));
       const nowHM = `${String(now.getHours()).padStart(2,"0")}:${String(now.getMinutes()).padStart(2,"0")}`;
       const tz = profile?.timezone || Intl.DateTimeFormat().resolvedOptions().timeZone;
-      const { data, error } = await supabase.functions.invoke("generate-plan", {
-        body: {
+      const { data, error } = await invokeAiCached<any>(
+        "generate-plan",
+        {
           raw_input: remaining.map(b => `${b.title} (${b.duration_min}m)`).join("\n"),
           energy_preference: profile?.energy_preference || "morning",
           name: profile?.display_name,
@@ -648,7 +658,8 @@ export default function DayView() {
           ai_tone_custom: (profile as any)?.ai_tone_custom || null,
           ai_planning_rules: (profile as any)?.ai_planning_rules || "",
         },
-      });
+        { ttlMs: 0, timeoutMs: 60_000 },
+      );
       if (error) throw error;
       if (data?.code === "INCOMPLETE_TASKS_NEED_CLARIFICATION") {
         throw new Error(data.error || "Please clarify incomplete tasks before re-planning.");
@@ -703,8 +714,9 @@ export default function DayView() {
       const nowHM = `${String(now.getHours()).padStart(2,"0")}:${String(now.getMinutes()).padStart(2,"0")}`;
       const startHHMM = viewDate === todayDateStr() ? nowHM : "09:00";
       const tz = profile?.timezone || Intl.DateTimeFormat().resolvedOptions().timeZone;
-      const { data, error } = await supabase.functions.invoke("generate-plan", {
-        body: {
+      const { data, error } = await invokeAiCached<any>(
+        "generate-plan",
+        {
           raw_input: bulkRows.map(r => r.title).join("\n"),
           energy_preference: profile?.energy_preference || "morning",
           name: profile?.display_name,
@@ -719,7 +731,8 @@ export default function DayView() {
           ai_tone_custom: (profile as any)?.ai_tone_custom || null,
           ai_planning_rules: (profile as any)?.ai_planning_rules || "",
         },
-      });
+        { ttlMs: 0, timeoutMs: 60_000 },
+      );
       if (error) throw error;
       if (data?.error) throw new Error(data.error);
 

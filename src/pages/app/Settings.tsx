@@ -17,6 +17,7 @@ import { ProFeatureHighlights } from "@/components/app/ProFeatureHighlights";
 import { enablePush, disablePush, pushAvailability, pushAvailabilityCopy } from "@/lib/push";
 import { useTour, TOUR_TODAY } from "@/components/app/Tour";
 import { VisualMode, useVisualMode } from "@/lib/visualMode";
+import { PerfDebugPanel } from "@/components/app/PerfDebugPanel";
 
 export default function Settings() {
   const { profile, update } = useProfile();
@@ -33,6 +34,14 @@ export default function Settings() {
   const [visualMode, setVisualMode] = useVisualMode();
   const [pushState] = useState(() => pushAvailability());
   const pushReady = pushState === "ok";
+  // Hidden developer panel — tap the version label 10× in 3s to open.
+  const [versionTaps, setVersionTaps] = useState(0);
+  const [perfPanelOpen, setPerfPanelOpen] = useState(false);
+  useEffect(() => {
+    if (versionTaps === 0) return;
+    const id = window.setTimeout(() => setVersionTaps(0), 3000);
+    return () => window.clearTimeout(id);
+  }, [versionTaps]);
   useEffect(() => { if (profile) setName(profile.display_name || ""); }, [profile?.id]);
 
   useEffect(() => {
@@ -278,7 +287,24 @@ export default function Settings() {
             Sign out
           </Button>
 
-          <p className="text-center text-[11px] text-secondary-fg pt-1">DayDraft · v1.0</p>
+          <button
+            type="button"
+            onClick={() => {
+              setVersionTaps((n) => {
+                const next = n + 1;
+                if (next >= 10) {
+                  setPerfPanelOpen(true);
+                  return 0;
+                }
+                return next;
+              });
+            }}
+            className="block w-full text-center text-[11px] text-secondary-fg pt-1 select-none"
+            aria-label="App version"
+          >
+            DayDraft · v1.0
+          </button>
+          <PerfDebugPanel open={perfPanelOpen} onOpenChange={setPerfPanelOpen} />
         </div>
       </div>
       <Sheet open={proSheetOpen} onOpenChange={setProSheetOpen}>

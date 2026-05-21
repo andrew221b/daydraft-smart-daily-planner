@@ -1,7 +1,7 @@
-import { lazy, Suspense, type ComponentType, type ReactNode } from "react";
+import { Suspense, type ReactNode } from "react";
 import { Capacitor } from "@capacitor/core";
 import { keepPreviousData, QueryClient, QueryClientProvider } from "@tanstack/react-query";
-import { BrowserRouter, Navigate, Outlet, Route, Routes, useLocation } from "react-router-dom";
+import { BrowserRouter, Navigate, Route, Routes, useLocation } from "react-router-dom";
 import { Toaster as Sonner } from "@/components/ui/sonner";
 import { TooltipProvider } from "@/components/ui/tooltip";
 import NotFound from "./pages/NotFound";
@@ -14,55 +14,18 @@ import { PageFallback } from "@/components/app/PageFallback";
 import { RouteErrorBoundary } from "@/components/app/RouteErrorBoundary";
 import { EagerPrefetcher } from "@/components/app/EagerPrefetcher";
 import { Shell } from "@/components/app/Shell";
+import { PersistentTabs } from "@/components/app/PersistentTabs";
+import { lazyWithReload } from "@/lib/lazyWithReload";
 import ForgotPassword from "./pages/app/ForgotPassword";
 import ResetPassword from "./pages/app/ResetPassword";
 import Privacy from "./pages/legal/Privacy";
 import Terms from "./pages/legal/Terms";
 
-/**
- * Wraps lazy() so a stale browser tab that references a chunk hash which no
- * longer exists on the CDN (after a deploy) recovers by reloading once,
- * instead of leaving the user on the "Importing a module script failed"
- * error boundary screen.
- *
- * IMPORTANT: gate the reload by a timestamp, not by a flag-cleared-on-load.
- * Clearing on `window.load` causes an infinite reload loop whenever the chunk
- * failure is persistent (e.g. preview env, offline, blocked CDN).
- */
-const RELOAD_KEY = "dd_chunk_reload_at";
-const RELOAD_COOLDOWN_MS = 60_000;
-function lazyWithReload<T extends { default: ComponentType<any> }>(
-  factory: () => Promise<T>
-) {
-  return lazy(() =>
-    factory().catch((err) => {
-      const msg = String(err?.message || err || "");
-      const isChunkErr =
-        /Importing a module script failed|Failed to fetch dynamically imported module|ChunkLoadError|Loading chunk/i.test(msg);
-      if (isChunkErr && typeof window !== "undefined") {
-        try {
-          const last = Number(sessionStorage.getItem(RELOAD_KEY) || 0);
-          const now = Date.now();
-          if (!last || now - last > RELOAD_COOLDOWN_MS) {
-            sessionStorage.setItem(RELOAD_KEY, String(now));
-            window.location.reload();
-            return new Promise(() => {}) as Promise<T>;
-          }
-        } catch {
-          // ignore storage errors and fall through to re-throw
-        }
-      }
-      throw err;
-    })
-  );
-}
-
-const Home = lazyWithReload(() => import("./pages/app/Home"));
-const Tracker = lazyWithReload(() => import("./pages/app/Tracker"));
-const DayView = lazyWithReload(() => import("./pages/app/DayView"));
+// Drill-in pages (Focus) and the auth / onboarding / legal pages still mount
+// the classic React.lazy way. Tab pages (Home, DayView, Tracker, Reports,
+// Settings) are loaded inside <PersistentTabs />, which keeps them alive
+// across tab switches instead of remounting on each route change.
 const Focus = lazyWithReload(() => import("./pages/app/Focus"));
-const Reports = lazyWithReload(() => import("./pages/app/Reports"));
-const Settings = lazyWithReload(() => import("./pages/app/Settings"));
 const Onboarding = lazyWithReload(() => import("./pages/app/Onboarding"));
 const Auth = lazyWithReload(() => import("./pages/app/Auth"));
 const DeleteAccount = lazyWithReload(() => import("./pages/legal/DeleteAccount"));
@@ -133,28 +96,16 @@ function SuspenseRoute({ children }: { children: ReactNode }) {
 }
 
 /**
- * Tab-route Suspense: render `null` instead of the full-screen PageFallback
- * while a route chunk streams in. Combined with eager chunk prefetch in
- * EagerPrefetcher + the TabBar pointerdown warm-up, the chunk is virtually
- * always cached by tap time — so a `null` fallback shows nothing perceivable
- * and avoids the loader flash that made tab switches feel slow.
+ * Tab-route layout: mounts Shell + the persistent tab pages once and keeps
+ * them alive across tab switches. Switching from /home to /reports doesn't
+ * unmount Home anymore — it just toggles which tree is visible. That kills
+ * the remaining tab-switch flicker (state preserved, data instant from
+ * cache, no Suspense fallback) and matches how UITabBarController works.
  */
-function TabSuspenseRoute({ children }: { children: ReactNode }) {
-  return (
-    <RouteErrorBoundary>
-      <Suspense fallback={null}>{children}</Suspense>
-    </RouteErrorBoundary>
-  );
-}
-
-// Tab-route layout: mounts Shell (TabBar, glow, prefetch effect) once and
-// keeps it stable across tab switches. Only the inner content remounts,
-// which eliminates the heavy Shell rebuild + fallback flash that made
-// tab navigation feel sluggish.
 const ShellLayout = () => (
   <RequireAuth>
     <Shell>
-      <Outlet />
+      <PersistentTabs />
     </Shell>
   </RequireAuth>
 );
@@ -175,13 +126,19 @@ const App = () => (
             <Route path="/forgot-password" element={<ForgotPassword />} />
             <Route path="/reset-password" element={<ResetPassword />} />
             <Route path="/onboarding" element={<RequireAuth><SuspenseRoute><Onboarding /></SuspenseRoute></RequireAuth>} />
+            {/*
+              Tab routes share a single ShellLayout. PersistentTabs reads the
+              pathname directly to decide which tab's tree is visible, so the
+              individual route elements only exist to make React Router match
+              the parent layout — they intentionally render nothing.
+            */}
             <Route element={<ShellLayout />}>
-              <Route path="/home" element={<TabSuspenseRoute><Home /></TabSuspenseRoute>} />
-              <Route path="/today" element={<TabSuspenseRoute><DayView /></TabSuspenseRoute>} />
-              <Route path="/today/plan" element={<TabSuspenseRoute><DayView /></TabSuspenseRoute>} />
-              <Route path="/tracker" element={<TabSuspenseRoute><Tracker /></TabSuspenseRoute>} />
-              <Route path="/reports" element={<TabSuspenseRoute><Reports /></TabSuspenseRoute>} />
-              <Route path="/settings" element={<TabSuspenseRoute><Settings /></TabSuspenseRoute>} />
+              <Route path="/home" element={null} />
+              <Route path="/today" element={null} />
+              <Route path="/today/plan" element={null} />
+              <Route path="/tracker" element={null} />
+              <Route path="/reports" element={null} />
+              <Route path="/settings" element={null} />
             </Route>
             <Route path="/today/planning" element={<Navigate to="/today/plan" replace />} />
             <Route path="/focus/:blockId" element={<RequireAuth><SuspenseRoute><Focus /></SuspenseRoute></RequireAuth>} />

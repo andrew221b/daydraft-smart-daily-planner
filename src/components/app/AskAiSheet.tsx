@@ -3,7 +3,7 @@ import { Sheet, SheetContent, SheetHeader, SheetTitle } from "@/components/ui/sh
 import { Button } from "@/components/ui/button";
 import { Textarea } from "@/components/ui/textarea";
 import { Sparkles, Send, Loader2 } from "lucide-react";
-import { supabase } from "@/integrations/supabase/client";
+import { invokeAiCached } from "@/lib/aiCache";
 import { toast } from "sonner";
 
 type Msg = { role: "user" | "assistant"; content: string };
@@ -54,9 +54,13 @@ export function AskAiSheet({
       const payload: Msg[] = seedContext
         ? [{ role: "user", content: `Context for the conversation (not shown to user): ${seedContext}` }, ...next]
         : next;
-      const { data, error } = await supabase.functions.invoke("ai-assist", {
-        body: { messages: payload },
-      });
+      const { data, error } = await invokeAiCached<{ reply?: string; error?: string }>(
+        "ai-assist",
+        { messages: payload },
+        // Conversational turns shouldn't be cached — but in-flight dedup
+        // still protects against double-tap submits.
+        { ttlMs: 0, timeoutMs: 45_000 },
+      );
       if (error) throw error;
       if (data?.error) throw new Error(data.error);
       const reply = String(data?.reply || "").trim();

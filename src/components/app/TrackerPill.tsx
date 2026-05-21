@@ -2,7 +2,8 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import { keepPreviousData, useQuery } from "@tanstack/react-query";
 import { Play, Pause, Plus, Check, Trash2, ChevronLeft, ChevronRight, Download, ChevronDown, Lock, Pencil, X, Hourglass, Clock, SlidersHorizontal, ListTodo } from "lucide-react";
 import { categoryBillingToDraft } from "@/lib/categoryBilling";
-import { useTimeTracker, useTimeTrackerElapsed, fmtHMS, fmtHM, TimeCategory } from "@/hooks/useTimeTracker";
+import { useTimeTracker, getElapsedSec, fmtHMS, fmtHM, TimeCategory } from "@/hooks/useTimeTracker";
+import { LiveElapsed } from "@/components/app/LiveElapsed";
 import { Sheet, SheetContent, SheetHeader, SheetTitle, SheetDescription } from "@/components/ui/sheet";
 import { Input } from "@/components/ui/input";
 import { useAuth } from "@/hooks/useAuth";
@@ -13,6 +14,7 @@ import { useEntitlement } from "@/hooks/useEntitlement";
 import { Block, isUserTask, todayDateStr } from "@/lib/daydraft";
 import { fetchPlanDashboard, planDashboardQueryKey } from "@/lib/planQueries";
 import { fetchRollingEntries, rollingEntriesQueryKey } from "@/lib/timeEntriesQuery";
+import { useTabVisible } from "@/components/app/PersistentTabs";
 import { UpgradeSheet } from "@/components/app/UpgradeSheet";
 import {
   AlertDialog,
@@ -104,7 +106,10 @@ function clipDuration(e: Entry, dayStart: number, dayEnd: number, now: number) {
 function TrackerInner({ embedded = false, onClose }: { embedded?: boolean; onClose?: () => void }) {
   const { user } = useAuth();
   const { active, categories, start, stop, switchCategory, deleteCategory, renameCategory, updateCategoryRate, updateCategoryBilling, addCategory, addManualEntry, todayTotalSec } = useTimeTracker();
-  const elapsedSec = useTimeTrackerElapsed();
+  // todayTotalSec re-derives once a minute via the provider; no need to
+  // subscribe to the elapsed heartbeat here. The big HH:MM:SS digits below
+  // are rendered via <LiveElapsed>, which writes to the DOM directly and
+  // never re-renders this component.
   const { isPro } = useEntitlement();
   const [upgradeOpen, setUpgradeOpen] = useState(false);
   const [newName, setNewName] = useState("");
@@ -166,10 +171,16 @@ function TrackerInner({ embedded = false, onClose }: { embedded?: boolean; onClo
   const todayPlanBlocks: Block[] = (todayPlanData?.planBlocks as Block[]) || [];
 
   // ----- Aggregations -----
+  // `nowSec` drives the live duration of any still-running entry in the
+  // tracker grid. While the Tracker tab is hidden the grid isn't on screen
+  // so the tick is wasted re-renders — pause it.
+  const trackerTabVisible = useTabVisible();
   useEffect(() => {
+    if (!trackerTabVisible) return;
+    setNowSec(Date.now()); // re-sync on return
     const id = window.setInterval(() => setNowSec(Date.now()), 30_000);
     return () => window.clearInterval(id);
-  }, []);
+  }, [trackerTabVisible]);
 
   useEffect(() => {
     try {
@@ -359,7 +370,9 @@ function TrackerInner({ embedded = false, onClose }: { embedded?: boolean; onClo
   // Smart stop: if running session is < 60s, confirm (likely accidental tap).
   const handleStop = async () => {
     if (stopBusy) return;
-    if (active && elapsedSec < 60) {
+    // Read the live (un-rendered) elapsed seconds directly from the store —
+    // bypassing the minute-resolution React state.
+    if (active && getElapsedSec() < 60) {
       const ok = window.confirm("Stop after less than a minute? This session will still be saved.");
       if (!ok) return;
     }
@@ -646,9 +659,10 @@ function TrackerInner({ embedded = false, onClose }: { embedded?: boolean; onClo
                       </span>
                       <span className="text-[10px] font-semibold uppercase tracking-[0.18em] text-secondary-fg">Now tracking</span>
                     </div>
-                    <div className="font-display tabular-nums text-[44px] font-semibold leading-none tracking-tight tracker-time-glow tracker-time-glow--live">
-                      {fmtHMS(elapsedSec)}
-                    </div>
+                    <LiveElapsed
+                      format={fmtHMS}
+                      className="font-display tabular-nums text-[44px] font-semibold leading-none tracking-tight tracker-time-glow tracker-time-glow--live"
+                    />
                     <div className="text-[14px] font-medium text-subtle truncate max-w-full">
                       {activeCat.name}
                     </div>

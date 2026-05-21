@@ -4,6 +4,7 @@ import { ChevronRight, Clock, Coffee, Sparkles } from "lucide-react";
 import { useAuth } from "@/hooks/useAuth";
 import { useEntitlement } from "@/hooks/useEntitlement";
 import { supabase } from "@/integrations/supabase/client";
+import { invokeAiCached } from "@/lib/aiCache";
 import { isUserTask, isOpenUserTask, todayDateStr } from "@/lib/daydraft";
 import { useQueryClient } from "@tanstack/react-query";
 import { planDashboardQueryKey, planDayQueryKey } from "@/lib/planQueries";
@@ -90,7 +91,11 @@ export function TimerRescheduleSheet() {
             .map((x) => ({ title: x.title, estimated_minutes: x.estimated_minutes ?? x.duration_min })),
           current_time: new Date().toTimeString().slice(0, 5),
         };
-        const { data, error } = await supabase.functions.invoke("micro-reschedule-options", { body: payload });
+        const { data, error } = await invokeAiCached<{ options?: Opt[] }>(
+          "micro-reschedule-options",
+          payload,
+          { ttlMs: 0, timeoutMs: 30_000 },
+        );
         if (error || !data?.options?.length) return;
         setEnded(endedBlock);
         setRemaining(rem);

@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState } from "react";
 import { useNavigate, useParams, useSearchParams } from "react-router-dom";
 import { supabase } from "@/integrations/supabase/client";
+import { invokeAiCached } from "@/lib/aiCache";
 import { Block, todayDateStr, wallMsOnPlanDay, blockSlotEndHHMM, fmtTime, isOpenUserTask } from "@/lib/daydraft";
 import { minutesFromFocusArmSeconds, resolveActualMinutesOnComplete } from "@/lib/blockActualTime";
 import { Check, Sparkles, MapPin, ExternalLink, Loader2, Lightbulb, Copy, Phone, CalendarPlus, Mail, Timer, Square, X, ShieldAlert } from "lucide-react";
@@ -8,7 +9,7 @@ import { useAuth } from "@/hooks/useAuth";
 import { useProfile } from "@/hooks/useProfile";
 import { mapsUrl } from "@/lib/maps";
 import { toast } from "sonner";
-import { useTimeTracker, useTimeTrackerElapsed, fmtHMS } from "@/hooks/useTimeTracker";
+import { useTimeTracker, getElapsedSec, fmtHMS } from "@/hooks/useTimeTracker";
 import { Input } from "@/components/ui/input";
 import { getTone, t as toneCopy } from "@/lib/tone";
 import {
@@ -48,7 +49,9 @@ export default function Focus() {
   const { profile } = useProfile();
   const tone = getTone(profile as any);
   const { active: tracking, start: startTracking, stop: stopTracking, categories, addCategory, refresh: refreshTracker } = useTimeTracker();
-  const elapsedSec = useTimeTrackerElapsed();
+  // Read elapsed seconds synchronously each render. `sessionTick` (below)
+  // drives the once-per-second re-render that keeps this value fresh.
+  const elapsedSec = getElapsedSec();
   const [block, setBlock] = useState<any | null>(null);
   const [next, setNext] = useState<Block | null>(null);
   const windowWallRef = useRef({ startMs: 0, endMs: 0 });
@@ -237,8 +240,11 @@ export default function Focus() {
     setHelpError(null);
     trackAiEvent("ai_focus_help_used", { reason: reason || "manual", block_type: block.type });
     try {
-      const { data, error } = await supabase.functions.invoke("task-assistant", {
-        body: {
+      // task-assistant on the same block + reason is cacheable for the whole
+      // session — the inputs don't change while the user is in Focus.
+      const { data, error } = await invokeAiCached<AIHelp>(
+        "task-assistant",
+        {
           title: block.title,
           type: block.type,
           location: block.location,
@@ -248,7 +254,8 @@ export default function Focus() {
           ai_planning_rules: (profile as any)?.ai_planning_rules || "",
           runtime_reason: reason || null,
         },
-      });
+        { ttlMs: 30 * 60_000, timeoutMs: 45_000 },
+      );
       if (error) throw error;
       setHelp(data as AIHelp);
     } catch (e: any) {

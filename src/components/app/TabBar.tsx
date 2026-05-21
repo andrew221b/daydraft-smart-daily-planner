@@ -1,4 +1,4 @@
-import { useEffect, useRef } from "react";
+import { memo, useEffect, useRef } from "react";
 import { NavLink, useLocation } from "react-router-dom";
 import { BarChart3, CalendarDays, Settings as SettingsIcon, Timer } from "lucide-react";
 import { haptics } from "@/lib/haptics";
@@ -59,8 +59,15 @@ export const TabBar = () => {
 
   return (
     <nav
-      className="fixed bottom-0 left-1/2 z-40 w-[min(calc(100vw-24px),424px)] -translate-x-1/2 px-px"
-      style={{ paddingBottom: "max(env(safe-area-inset-bottom), 10px)" }}
+      // `--keyboard-inset` is updated by `attachVisualViewportInset` whenever
+      // the iOS soft keyboard opens/closes. Translating the bar up by that
+      // amount keeps it above the keyboard instead of being hidden behind it.
+      className="fixed bottom-0 left-1/2 z-40 w-[min(calc(100vw-24px),424px)] px-px"
+      style={{
+        paddingBottom: "max(env(safe-area-inset-bottom), 10px)",
+        transform: "translateX(-50%) translateY(calc(-1 * var(--keyboard-inset, 0px)))",
+        transition: "transform 220ms cubic-bezier(0.32, 0.72, 0, 1)",
+      }}
     >
       <div
         // backdrop-blur is the single most expensive thing iOS WebView
@@ -95,7 +102,7 @@ export const TabBar = () => {
   );
 };
 
-function TabItem({
+const TabItem = memo(function TabItem({
   to,
   icon: Icon,
   label,
@@ -144,4 +151,4 @@ function TabItem({
       </span>
     </NavLink>
   );
-}
+});

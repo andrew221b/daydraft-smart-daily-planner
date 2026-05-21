@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useRef, useState, type CSSProperties, type FormEvent } from "react";
 import { Check, Play, Square, Plus, Search, ChevronDown, Wallet } from "lucide-react";
-import { useTimeTracker, useTimeTrackerElapsed, fmtHMS, fmtHM } from "@/hooks/useTimeTracker";
+import { useTimeTracker, fmtHMS, fmtHM } from "@/hooks/useTimeTracker";
+import { LiveElapsed } from "@/components/app/LiveElapsed";
 import { Sheet, SheetContent, SheetHeader, SheetTitle } from "@/components/ui/sheet";
 import { Input } from "@/components/ui/input";
 import { Button } from "@/components/ui/button";
@@ -72,7 +73,8 @@ export function HomeTrackerHero({ onOpenDetails }: { onOpenDetails: () => void }
     updateCategoryRate,
     updateCategoryBilling,
   } = useTimeTracker();
-  const elapsedSec = useTimeTrackerElapsed();
+  // The live HH:MM:SS digits are rendered via <LiveElapsed> below — that
+  // component writes textContent directly without re-rendering this tree.
   const activeCat = categories.find((c) => c.id === active?.category_id);
   const [pickerOpen, setPickerOpen] = useState(false);
   const [selectedCategoryId, setSelectedCategoryId] = useState<string | null>(null);
@@ -255,9 +257,10 @@ export function HomeTrackerHero({ onOpenDetails }: { onOpenDetails: () => void }
                 quietly-pulsing surface, not text inside a faint box.
               */}
               <div className="mt-3 breathe">
-                <div className="font-display text-[3.4rem] font-semibold tabular-nums leading-none tracking-[-0.04em] text-foreground">
-                  {fmtHMS(elapsedSec)}
-                </div>
+                <LiveElapsed
+                  format={fmtHMS}
+                  className="font-display text-[3.4rem] font-semibold tabular-nums leading-none tracking-[-0.04em] text-foreground block"
+                />
               </div>
               <button
                 type="button"

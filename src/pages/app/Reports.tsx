@@ -1,10 +1,13 @@
-import { useMemo, useState } from "react";
+import { lazy, Suspense, useMemo, useState } from "react";
 import { keepPreviousData, useQuery } from "@tanstack/react-query";
 import { useAuth } from "@/hooks/useAuth";
 import { supabase } from "@/integrations/supabase/client";
 import { Button } from "@/components/ui/button";
 import { BarChart3, ChevronDown, Download, FileText } from "lucide-react";
-import { Area, AreaChart, ResponsiveContainer, Tooltip, XAxis } from "recharts";
+
+// Recharts is its own ~100kB chunk. Lazy-load it so the Reports first paint
+// shows headline numbers + the per-day list while the chart streams in.
+const ReportsTrendChart = lazy(() => import("@/components/app/ReportsTrendChart"));
 import {
   downloadReportCsv,
   downloadReportPdf,
@@ -528,38 +531,9 @@ export default function Reports() {
                 Daily trend
               </p>
               <div className="h-32 -mx-2">
-                <ResponsiveContainer width="100%" height="100%">
-                  <AreaChart data={perDay} margin={{ top: 8, right: 8, left: 8, bottom: 0 }}>
-                    <defs>
-                      <linearGradient id="trendFill" x1="0" y1="0" x2="0" y2="1">
-                        <stop offset="0%" stopColor="hsl(var(--primary))" stopOpacity={0.35} />
-                        <stop offset="100%" stopColor="hsl(var(--primary))" stopOpacity={0} />
-                      </linearGradient>
-                    </defs>
-                    <XAxis
-                      dataKey="day"
-                      tick={{ fontSize: 10, fill: "hsl(var(--muted-foreground))" }}
-                      tickLine={false}
-                      axisLine={false}
-                    />
-                    <Tooltip
-                      contentStyle={{
-                        background: "hsl(var(--popover))",
-                        border: "1px solid hsl(var(--border))",
-                        borderRadius: 8,
-                        fontSize: 12,
-                      }}
-                      formatter={(v: any) => [`${v}h`, "Tracked"]}
-                    />
-                    <Area
-                      type="monotone"
-                      dataKey="hours"
-                      stroke="hsl(var(--primary))"
-                      strokeWidth={2}
-                      fill="url(#trendFill)"
-                    />
-                  </AreaChart>
-                </ResponsiveContainer>
+                <Suspense fallback={<div className="h-full w-full rounded-xl shimmer opacity-60" />}>
+                  <ReportsTrendChart perDay={perDay} />
+                </Suspense>
               </div>
             </section>
           )}

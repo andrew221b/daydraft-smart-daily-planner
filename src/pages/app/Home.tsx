@@ -17,6 +17,7 @@ import {
   filterEntriesByRange,
   rollingEntriesQueryKey,
 } from "@/lib/timeEntriesQuery";
+import { useTabVisible } from "@/components/app/PersistentTabs";
 
 /** Tracker is the hero. */
 export default function Home() {
@@ -53,8 +54,13 @@ export default function Home() {
   });
   const blocks = planData?.planBlocks ?? [];
 
+  // Pause the missed-block poll while this tab isn't on screen. Background
+  // tabs in a native app don't keep hitting the network — this matches that
+  // behavior so we don't pay a Supabase round-trip every 60s while the user
+  // is on Reports / Settings / Tracker.
+  const tabVisible = useTabVisible();
   useEffect(() => {
-    if (!user?.id) return;
+    if (!user?.id || !tabVisible) return;
     let alive = true;
     const run = async () => {
       const d = await fetchPlanDashboard(user.id, viewDate);
@@ -68,7 +74,7 @@ export default function Home() {
       alive = false;
       clearInterval(id);
     };
-  }, [user?.id, viewDate, queryClient]);
+  }, [user?.id, viewDate, queryClient, tabVisible]);
 
   const onRefresh = async () => {
     if (!user?.id) return;

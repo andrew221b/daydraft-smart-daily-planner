@@ -1,11 +1,11 @@
 import type React from "react";
-import { useState } from "react";
+import { memo, useState } from "react";
 import { useSortable } from "@dnd-kit/sortable";
 import { CSS } from "@dnd-kit/utilities";
 import { Block, fmtTime, inferScheduleBlockType, isOpenUserTask, isUserTaskDone } from "@/lib/daydraft";
 import { Check, Calendar, Layers, GripVertical, Sparkles, Play, Square } from "lucide-react";
 
-export const SortableBlock = ({
+const SortableBlockInner = ({
   block, editing, onTap, onTapTime, onToggleComplete, onStartTrack, onStopTrack, trackingActive, assignedCategory, tourSpotlight,
 }: {
   block: Block & {
@@ -94,7 +94,7 @@ export const SortableBlock = ({
       // taps still pass through to onClick handlers below.
       {...(sortableDisabled ? {} : attributes)}
       {...(sortableDisabled ? {} : listeners)}
-      className={`group cursor-pointer tappable app-card rounded-[20px] px-3.5 py-3.5 shadow-sm ${
+      className={`group cursor-pointer tappable app-card rounded-[20px] px-3.5 py-3.5 shadow-sm list-row-contain ${
         isDragging ? "is-dragging" : ""
       } ${
         trackingActive ? "ring-[1.5px] ring-primary/40 bg-primary/[0.04] shadow-[0_0_32px_hsl(var(--primary)/0.12)]" : ""
@@ -306,6 +306,14 @@ export const SortableBlock = ({
     </div>
   );
 };
+
+/**
+ * Memoized so a render of the parent DayView (very common — any state
+ * change up there) doesn't cascade into a re-render of every block row.
+ * The block list is one of the largest trees in the app; this is the
+ * single most impactful memo on the screen.
+ */
+export const SortableBlock = memo(SortableBlockInner);
 
 /**
  * Empty completion circle. On tap, fires a quick radial ripple from the

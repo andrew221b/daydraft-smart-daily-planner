@@ -1,0 +1,200 @@
+import { supabase } from "@/integrations/supabase/client";
+import {
+  recordAiCacheHit,
+  recordAiCacheMiss,
+  recordAiCall,
+} from "./perfMonitor";
+
+/**
+ * Cached + deduplicated invocation wrapper for our Supabase Edge Functions.
+ *
+ *   const { data, error } = await invokeAiCached("generate-plan", payload, {
+ *     ttlMs: 60_000,             // memoize identical requests for 60s
+ *     persistMs: 7 * 86_400_000, // also persist to localStorage for 7 days
+ *     cacheKey: ...,             // override the auto-derived key if needed
+ *   });
+ *
+ * Three layers:
+ *
+ *   1. In-flight deduplication. If the same payload is in flight already,
+ *      hand back the same Promise. Saves a roundtrip on double-tap and on
+ *      transient duplicate calls from race conditions.
+ *
+ *   2. In-memory TTL cache. Identical requests within `ttlMs` return the
+ *      cached response. Stays warm across tab switches but resets on
+ *      reload.
+ *
+ *   3. Optional persistent layer (localStorage) with its own TTL. Use this
+ *      for outputs that are stable across reloads — weekly digests,
+ *      monthly reports, PDF narratives.
+ *
+ * All durations are tracked via perfMonitor so the debug panel can show
+ * cache hit ratio + p95 call duration.
+ */
+
+type InvokeResult<T = unknown> = {
+  data: T | null;
+  error: { message: string; [k: string]: unknown } | null;
+};
+
+type CacheEntry<T = unknown> = {
+  data: T;
+  expiresAt: number;
+};
+
+type Options = {
+  /** In-memory cache lifetime. 0 disables the memory layer. */
+  ttlMs?: number;
+  /** Persistent (localStorage) cache lifetime. 0 disables persistence. */
+  persistMs?: number;
+  /** Override the auto-derived cache key. */
+  cacheKey?: string;
+  /** Per-call timeout — aborts the request when exceeded. */
+  timeoutMs?: number;
+};
+
+const DEFAULT_TTL_MS = 30_000;
+const memCache = new Map<string, CacheEntry>();
+const inflight = new Map<string, Promise<InvokeResult<unknown>>>();
+
+const PERSIST_PREFIX = "dd_ai_cache:";
+
+function djb2(input: string): string {
+  let h = 5381;
+  for (let i = 0; i < input.length; i++) h = ((h << 5) + h + input.charCodeAt(i)) | 0;
+  return Math.abs(h).toString(36);
+}
+
+function stableStringify(value: unknown): string {
+  if (value === null || typeof value !== "object") return JSON.stringify(value);
+  if (Array.isArray(value)) return `[${value.map(stableStringify).join(",")}]`;
+  const keys = Object.keys(value as Record<string, unknown>).sort();
+  return `{${keys.map((k) => `${JSON.stringify(k)}:${stableStringify((value as any)[k])}`).join(",")}}`;
+}
+
+function deriveKey(name: string, body: unknown): string {
+  return `${name}:${djb2(stableStringify(body))}`;
+}
+
+function readPersistent<T>(key: string): T | null {
+  try {
+    const raw = localStorage.getItem(PERSIST_PREFIX + key);
+    if (!raw) return null;
+    const parsed = JSON.parse(raw) as CacheEntry<T>;
+    if (!parsed || typeof parsed !== "object") return null;
+    if (parsed.expiresAt < Date.now()) {
+      localStorage.removeItem(PERSIST_PREFIX + key);
+      return null;
+    }
+    return parsed.data;
+  } catch {
+    return null;
+  }
+}
+
+function writePersistent<T>(key: string, data: T, ttlMs: number): void {
+  try {
+    const entry: CacheEntry<T> = { data, expiresAt: Date.now() + ttlMs };
+    localStorage.setItem(PERSIST_PREFIX + key, JSON.stringify(entry));
+  } catch {
+    /* quota exceeded — best effort */
+  }
+}
+
+export async function invokeAiCached<T = unknown>(
+  name: string,
+  body: unknown,
+  options: Options = {},
+): Promise<InvokeResult<T>> {
+  const ttlMs = options.ttlMs ?? DEFAULT_TTL_MS;
+  const persistMs = options.persistMs ?? 0;
+  const key = options.cacheKey ?? deriveKey(name, body);
+
+  // 1. memory layer
+  if (ttlMs > 0) {
+    const hit = memCache.get(key);
+    if (hit && hit.expiresAt > Date.now()) {
+      recordAiCacheHit(name);
+      return { data: hit.data as T, error: null };
+    }
+  }
+
+  // 2. persistent layer
+  if (persistMs > 0) {
+    const persisted = readPersistent<T>(key);
+    if (persisted !== null) {
+      recordAiCacheHit(name);
+      // promote to memory cache so subsequent hits skip JSON.parse
+      memCache.set(key, { data: persisted, expiresAt: Date.now() + Math.min(ttlMs || persistMs, persistMs) });
+      return { data: persisted, error: null };
+    }
+  }
+
+  // 3. dedup in-flight
+  const existing = inflight.get(key);
+  if (existing) {
+    recordAiCacheHit(name);
+    return existing as Promise<InvokeResult<T>>;
+  }
+
+  recordAiCacheMiss(name);
+  const started = typeof performance !== "undefined" ? performance.now() : Date.now();
+
+  const runner = (async (): Promise<InvokeResult<T>> => {
+    let controller: AbortController | null = null;
+    let timeoutId: ReturnType<typeof setTimeout> | null = null;
+    if (options.timeoutMs && options.timeoutMs > 0) {
+      controller = new AbortController();
+      timeoutId = setTimeout(() => controller?.abort(), options.timeoutMs);
+    }
+    try {
+      const invokeOpts: Record<string, unknown> = { body };
+      if (controller) invokeOpts.signal = controller.signal;
+      const { data, error } = await supabase.functions.invoke(name, invokeOpts as { body: unknown });
+      if (error) return { data: null, error };
+      if (data != null) {
+        if (ttlMs > 0) memCache.set(key, { data, expiresAt: Date.now() + ttlMs });
+        if (persistMs > 0) writePersistent(key, data, persistMs);
+      }
+      return { data: data as T, error: null };
+    } catch (e) {
+      return { data: null, error: { message: e instanceof Error ? e.message : String(e) } };
+    } finally {
+      if (timeoutId) clearTimeout(timeoutId);
+      const ended = typeof performance !== "undefined" ? performance.now() : Date.now();
+      recordAiCall(name, ended - started);
+      inflight.delete(key);
+    }
+  })();
+
+  inflight.set(key, runner as Promise<InvokeResult<unknown>>);
+  return runner;
+}
+
+/** Forget a specific cache entry (or all entries when `name` is omitted). */
+export function invalidateAiCache(name?: string): void {
+  if (!name) {
+    memCache.clear();
+    try {
+      const keys: string[] = [];
+      for (let i = 0; i < localStorage.length; i++) {
+        const k = localStorage.key(i);
+        if (k && k.startsWith(PERSIST_PREFIX)) keys.push(k);
+      }
+      keys.forEach((k) => localStorage.removeItem(k));
+    } catch { /* ignore */ }
+    return;
+  }
+  for (const k of Array.from(memCache.keys())) {
+    if (k.startsWith(name + ":")) memCache.delete(k);
+  }
+  try {
+    const prefix = PERSIST_PREFIX + name + ":";
+    const keys: string[] = [];
+    for (let i = 0; i < localStorage.length; i++) {
+      const k = localStorage.key(i);
+      if (k && k.startsWith(prefix)) keys.push(k);
+    }
+    keys.forEach((k) => localStorage.removeItem(k));
+  } catch { /* ignore */ }
+}

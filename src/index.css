@@ -182,6 +182,18 @@ body.dd-dnd-scroll-lock {
   * { @apply border-border; }
   html, body, #root { height: 100%; }
   html { -webkit-text-size-adjust: 100%; }
+
+  /*
+   * iOS Safari `100vh` bug — the address bar overlays the bottom 64px or so,
+   * cutting content. Switch the screen-sized layout containers to the
+   * dynamic viewport unit (`dvh`) which shrinks when the chrome appears and
+   * grows when it retracts. Browsers that don't support `dvh` keep the old
+   * `vh` value automatically because the second declaration is ignored.
+   */
+  @supports (height: 100dvh) {
+    .min-h-screen { min-height: 100dvh; }
+    .h-screen { height: 100dvh; }
+  }
   
   /* Custom premium scrollbar for lists */
   ::-webkit-scrollbar {
@@ -657,6 +669,31 @@ body.dd-dnd-scroll-lock {
   }
   .no-scrollbar::-webkit-scrollbar { display: none; }
   .no-scrollbar { -ms-overflow-style: none; scrollbar-width: none; }
+
+  /*
+   * Layout / paint isolation for list items.
+   *
+   * `contain: content` tells the browser that an element's layout, paint, and
+   * style effects are scoped to itself. When one row changes, neighbouring
+   * rows skip layout+paint. Use on the *row* (not the list container).
+   *
+   * `content-visibility: auto` is the heavier hammer — the browser skips
+   * rendering entirely for off-screen rows, only paying when they scroll
+   * into view. Falls back to plain rendering in browsers without support.
+   * `contain-intrinsic-size` gives the browser a placeholder height so the
+   * scrollbar doesn't jitter.
+   */
+  .list-row-contain {
+    contain: content;
+  }
+  .list-row-cv {
+    content-visibility: auto;
+    contain-intrinsic-size: auto 96px;
+  }
+  .list-row-cv-tall {
+    content-visibility: auto;
+    contain-intrinsic-size: auto 160px;
+  }
 
   /* Soft section eyebrow */
   .eyebrow {

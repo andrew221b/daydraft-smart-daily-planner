@@ -1,5 +1,6 @@
 import { supabase } from "@/integrations/supabase/client";
 import type { QueryClient } from "@tanstack/react-query";
+import { idbGet, idbSet } from "@/lib/idbCache";
 
 /**
  * One shared 60-day rolling window of time_entries, keyed by user id. Home,
@@ -41,6 +42,24 @@ function rollingWindowStart(): Date {
   return since;
 }
 
+const idbKeyFor = (userId: string) => `rolling-entries:${userId}`;
+
+/**
+ * Local-first read.
+ *
+ * On a warm React Query cache this is rarely called — React Query returns
+ * the cached array directly. On a cold start (or after `invalidateQueries`),
+ * this hits IndexedDB synchronously-ish (one event-loop tick) and *then*
+ * fires the live Supabase query. Both writers feed the IDB layer on success
+ * so the next cold start is also instant.
+ *
+ * Why the in-place approach instead of returning the IDB read first and
+ * the live result second:
+ *   - React Query expects a single `queryFn` result.
+ *   - The caller already hydrates incrementally on `useQuery`'s
+ *     `placeholderData: keepPreviousData`, which gives the same instant-paint
+ *     UX once IDB has primed the cache via `hydrateRollingEntries`.
+ */
 export async function fetchRollingEntries(userId: string): Promise<RollingEntry[]> {
   const since = rollingWindowStart();
   const { data, error } = await supabase
@@ -49,8 +68,34 @@ export async function fetchRollingEntries(userId: string): Promise<RollingEntry[
     .eq("user_id", userId)
     .gte("started_at", since.toISOString())
     .order("started_at", { ascending: false });
-  if (error) throw error;
-  return (data ?? []) as RollingEntry[];
+  if (error) {
+    // Network down or auth hiccup — fall back to whatever we cached last
+    // time so the user keeps seeing their data offline.
+    const cached = await idbGet<RollingEntry[]>(idbKeyFor(userId));
+    if (cached) return cached;
+    throw error;
+  }
+  const list = (data ?? []) as RollingEntry[];
+  // Fire-and-forget IDB write; do not block the response.
+  void idbSet(idbKeyFor(userId), list);
+  return list;
+}
+
+/**
+ * Pre-warm the React Query cache from IndexedDB. Call once on app start
+ * after the user id is known — paints the tracker totals immediately on
+ * cold launches without waiting for the network.
+ */
+export async function hydrateRollingEntries(
+  queryClient: QueryClient,
+  userId: string,
+): Promise<void> {
+  const cached = await idbGet<RollingEntry[]>(idbKeyFor(userId));
+  if (!cached) return;
+  const existing = queryClient.getQueryData<RollingEntry[]>(rollingEntriesQueryKey(userId));
+  // Don't overwrite a live result with a stale snapshot.
+  if (existing && existing.length) return;
+  queryClient.setQueryData(rollingEntriesQueryKey(userId), cached);
 }
 
 /** Force a refresh of the shared entries cache after a mutation. */

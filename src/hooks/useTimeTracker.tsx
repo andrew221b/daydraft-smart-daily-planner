@@ -13,12 +13,51 @@ import { billingDraftToCategoryUpdate } from "@/lib/categoryBilling";
 import { supabase } from "@/integrations/supabase/client";
 import {
   fetchRollingEntries,
+  hydrateRollingEntries,
   invalidateRollingEntries,
   rollingEntriesQueryKey,
   type RollingEntry,
 } from "@/lib/timeEntriesQuery";
 import { useAuth } from "./useAuth";
 import { toast } from "sonner";
+import { recordTimerDrift } from "@/lib/perfMonitor";
+
+/* ─────────────────────────────────────────────────────────────────────────
+ * Live elapsed pub/sub.
+ *
+ * The per-second tick used to be a `useState(elapsedSec)` that re-rendered
+ * the whole provider (and every consumer) once a second. That was the single
+ * biggest source of jank — the running timer screen re-rendered ~60 times
+ * over a Pomodoro for no visual reason beyond "the digits changed."
+ *
+ * Now: a singleton store with subscribe/get/set semantics. The display
+ * component (`LiveElapsed`) writes the formatted seconds directly into the
+ * DOM via `textContent`. Other consumers (totals, ring fills) can still read
+ * `elapsedMin` from the React context — that updates only on minute
+ * boundaries, which is the granularity those derived values care about.
+ * ──────────────────────────────────────────────────────────────────────── */
+let elapsedSecValue = 0;
+const elapsedListeners = new Set<(sec: number) => void>();
+
+export function getElapsedSec(): number {
+  return elapsedSecValue;
+}
+
+export function subscribeElapsed(listener: (sec: number) => void): () => void {
+  elapsedListeners.add(listener);
+  return () => {
+    elapsedListeners.delete(listener);
+  };
+}
+
+function emitElapsed(sec: number): void {
+  elapsedSecValue = sec;
+  // Snapshot to a small array first so a listener that unsubscribes mid-loop
+  // doesn't mutate the live Set we're iterating.
+  for (const l of Array.from(elapsedListeners)) {
+    try { l(sec); } catch { /* listener failures must not crash the tick */ }
+  }
+}
 
 export type TimeCategory = {
   id: string;
@@ -98,7 +137,8 @@ type Ctx = {
 };
 
 const TimeTrackerCtx = createContext<Ctx | null>(null);
-const TimeTrackerElapsedCtx = createContext(0);
+/** Minute-resolution heartbeat. Drives `fmtHM` totals that only change once a minute. */
+const TimeTrackerElapsedMinCtx = createContext(0);
 
 const PALETTE = ["#6366f1", "#ec4899", "#f59e0b", "#10b981", "#06b6d4", "#8b5cf6", "#ef4444"];
 
@@ -176,8 +216,13 @@ function sumEntryDurations(
 export function TimeTrackerProvider({ children }: { children: ReactNode }) {
   const { user } = useAuth();
   const queryClient = useQueryClient();
-  const [elapsedSec, setElapsedSec] = useState(0);
-  const tickRef = useRef<number | null>(null);
+  // Minute-resolution heartbeat used to recompute today/week totals.
+  // The per-second tick lives outside React (see emitElapsed above) so the
+  // running timer never causes a re-render.
+  const [elapsedMin, setElapsedMin] = useState(0);
+  const workerRef = useRef<Worker | null>(null);
+  const fallbackTickRef = useRef<number | null>(null);
+  const alignmentRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   const userId = user?.id;
   const enabled = !!userId;
@@ -200,6 +245,14 @@ export function TimeTrackerProvider({ children }: { children: ReactNode }) {
     placeholderData: keepPreviousData,
   });
 
+  // Local-first hydration. On cold launch (or after the gc'd cache clears
+  // overnight), prime the React Query cache from IndexedDB before the live
+  // fetch lands so totals paint instantly. Runs once per user-id change.
+  useEffect(() => {
+    if (!userId) return;
+    void hydrateRollingEntries(queryClient, userId);
+  }, [userId, queryClient]);
+
   const entriesQuery = useQuery({
     queryKey: rollingEntriesQueryKey(userId),
     queryFn: () => fetchRollingEntries(userId!),
@@ -219,7 +272,9 @@ export function TimeTrackerProvider({ children }: { children: ReactNode }) {
 
   // Derive totals from the shared rolling entries. When a timer is running the
   // active entry already has a null ended_at, so sumEntryDurations counts the
-  // live elapsed window automatically (re-derived whenever elapsedSec ticks).
+  // live elapsed window automatically. `elapsedMin` is the minute-resolution
+  // heartbeat that re-derives `now`; once-a-minute is the right cadence for
+  // `fmtHM` totals (h+m only — sub-minute changes wouldn't be visible).
   const { todayTotalSec, weekTotalSec } = useMemo(() => {
     const now = Date.now();
     const startOfToday = new Date();
@@ -231,54 +286,113 @@ export function TimeTrackerProvider({ children }: { children: ReactNode }) {
       todayTotalSec: sumEntryDurations(entries, startOfToday.getTime(), now, now),
       weekTotalSec: sumEntryDurations(entries, startOfWeek.getTime(), now, now),
     };
-    // `elapsedSec` is the heartbeat that re-derives `now` while a timer is
-    // running, so the totals tick once a second without a network round-trip.
-  }, [entries, elapsedSec]);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [entries, elapsedMin]);
 
-  // Elapsed tick — pause when hidden, align to wall-clock seconds.
+  // Timer tick. Runs in a Web Worker so the cadence survives tab throttling /
+  // background phone screen, and so it never schedules React work on the main
+  // thread. The worker posts {elapsedSec} once a second; we forward to the
+  // subscribers (LiveElapsed components write straight to the DOM) and only
+  // touch React state on minute boundaries.
   useEffect(() => {
-    if (tickRef.current) clearInterval(tickRef.current);
-    if (!active) {
-      setElapsedSec(0);
-      return;
-    }
+    // Stop any prior tick.
+    const stopFallback = () => {
+      if (fallbackTickRef.current != null) {
+        clearInterval(fallbackTickRef.current);
+        fallbackTickRef.current = null;
+      }
+      if (alignmentRef.current != null) {
+        clearTimeout(alignmentRef.current);
+        alignmentRef.current = null;
+      }
+    };
+    const stopWorker = () => {
+      if (workerRef.current) {
+        try { workerRef.current.postMessage({ type: "stop" }); } catch { /* ignore */ }
+      }
+    };
+    stopFallback();
+    stopWorker();
+    emitElapsed(0);
+    setElapsedMin(0);
+    if (!active) return;
+
     const started = new Date(active.started_at).getTime();
-    const update = () => setElapsedSec(Math.floor((Date.now() - started) / 1000));
+    let lastMin = -1;
 
-    let alignmentTimer: ReturnType<typeof setTimeout> | null = null;
+    const handleTick = (sec: number) => {
+      emitElapsed(sec);
+      const min = Math.floor(sec / 60);
+      if (min !== lastMin) {
+        lastMin = min;
+        setElapsedMin(min);
+      }
+    };
 
-    const startInterval = () => {
-      if (tickRef.current) clearInterval(tickRef.current);
+    // Try the worker first; fall back to a main-thread interval if the
+    // environment can't spawn workers (older WebViews, some test runners).
+    let usingWorker = false;
+    try {
+      if (typeof Worker !== "undefined") {
+        const worker = new Worker(
+          new URL("@/workers/timer.worker.ts", import.meta.url),
+          { type: "module" },
+        );
+        worker.onmessage = (e: MessageEvent) => {
+          const msg = e.data;
+          if (!msg) return;
+          if (msg.type === "tick") {
+            handleTick(msg.elapsedSec as number);
+          } else if (msg.type === "drift") {
+            recordTimerDrift(msg.drift as number);
+            // Resync from system clock on large drift.
+            worker.postMessage({ type: "start", startedAtMs: started });
+          }
+        };
+        worker.postMessage({ type: "start", startedAtMs: started });
+        workerRef.current = worker;
+        usingWorker = true;
+      }
+    } catch {
+      usingWorker = false;
+    }
+
+    if (!usingWorker) {
+      const update = () => {
+        handleTick(Math.max(0, Math.floor((Date.now() - started) / 1000)));
+      };
       update();
       const msToNextSec = 1000 - (Date.now() % 1000);
-      alignmentTimer = setTimeout(() => {
+      alignmentRef.current = setTimeout(() => {
         update();
-        tickRef.current = window.setInterval(update, 1000);
+        fallbackTickRef.current = window.setInterval(update, 1000);
       }, msToNextSec);
-    };
+    }
 
-    const stopInterval = () => {
-      if (alignmentTimer) {
-        clearTimeout(alignmentTimer);
-        alignmentTimer = null;
-      }
-      if (tickRef.current) {
-        clearInterval(tickRef.current);
-        tickRef.current = null;
-      }
-    };
-
+    // When the tab comes back to the foreground after a long sleep, the
+    // worker will already be in sync (it's not throttled), but we ping it to
+    // get an immediate update on the DOM so the digits don't lag a second.
     const onVisibility = () => {
-      if (document.hidden) stopInterval();
-      else startInterval();
+      if (!document.hidden) {
+        if (workerRef.current) {
+          try { workerRef.current.postMessage({ type: "ping" }); } catch { /* ignore */ }
+        } else {
+          // Main-thread fallback: recompute now in case the interval was
+          // throttled while hidden.
+          handleTick(Math.max(0, Math.floor((Date.now() - started) / 1000)));
+        }
+      }
     };
-
-    if (!document.hidden) startInterval();
     document.addEventListener("visibilitychange", onVisibility);
 
     return () => {
-      stopInterval();
       document.removeEventListener("visibilitychange", onVisibility);
+      stopFallback();
+      if (workerRef.current) {
+        try { workerRef.current.postMessage({ type: "stop" }); } catch { /* ignore */ }
+        workerRef.current.terminate();
+        workerRef.current = null;
+      }
     };
   }, [active?.id, active?.started_at]);
 
@@ -687,9 +801,9 @@ export function TimeTrackerProvider({ children }: { children: ReactNode }) {
   );
 
   return (
-    <TimeTrackerElapsedCtx.Provider value={elapsedSec}>
+    <TimeTrackerElapsedMinCtx.Provider value={elapsedMin}>
       <TimeTrackerCtx.Provider value={value}>{children}</TimeTrackerCtx.Provider>
-    </TimeTrackerElapsedCtx.Provider>
+    </TimeTrackerElapsedMinCtx.Provider>
   );
 }
 
@@ -699,8 +813,17 @@ export function useTimeTracker() {
   return ctx;
 }
 
+/**
+ * Back-compat hook. Used to re-render once a second; now re-renders once a
+ * minute. Suitable for `fmtHM`-style derivations. Pages that need
+ * second-level updates should use `<LiveElapsed format={...} />` or
+ * subscribe via `subscribeElapsed` directly — those do NOT trigger React
+ * renders.
+ */
 export function useTimeTrackerElapsed() {
-  return useContext(TimeTrackerElapsedCtx);
+  // Returns minute-aligned seconds so consumers that pass this into
+  // fmtHM/fmtHMS-like formatters still see a number that grows over time.
+  return useContext(TimeTrackerElapsedMinCtx) * 60;
 }
 
 export const fmtHMS = (s: number) => {
