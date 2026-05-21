@@ -907,6 +907,7 @@ export default function DayView() {
   );
 
   return (
+    <>
     <PullToRefresh
         scrollContainerRef={dayScrollRef}
         onRefresh={async () => {
