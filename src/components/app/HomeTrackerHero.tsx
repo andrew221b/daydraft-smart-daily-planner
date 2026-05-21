@@ -45,7 +45,19 @@ const currencyOptions = [
   "USDT", "USDC", "DAI", "EURC", "BTC", "ETH", "SOL", "BNB", "TON", "TRX", "MATIC", "LTC", "XRP", "ADA", "DOGE",
 ];
 
-const paymentMethodOptions = ["", "Bank transfer", "IBAN", "Wise", "PayPal", "Stripe link", "USDT", "USDC", "Crypto wallet", "Other"];
+const paymentMethodOptions = ["", "Bank transfer", "IBAN", "Wise", "PayPal", "Stripe link", "Crypto wallet", "Other"];
+
+/**
+ * Earlier builds listed "USDT" and "USDC" as payment methods, which conflated
+ * stablecoins (currencies — they already live in the Currency dropdown) with
+ * rails. The list has been cleaned up to rails only. Keep any legacy saved
+ * value visible in the dropdown so a user still sees their previous choice
+ * and can pick the new "Crypto wallet" rail without the select going blank.
+ */
+function paymentMethodOptionsFor(current: string): string[] {
+  if (!current || paymentMethodOptions.includes(current)) return paymentMethodOptions;
+  return [...paymentMethodOptions, current];
+}
 
 export function HomeTrackerHero({ onOpenDetails }: { onOpenDetails: () => void }) {
   const { isPro } = useEntitlement();
@@ -399,7 +411,7 @@ export function HomeTrackerHero({ onOpenDetails }: { onOpenDetails: () => void }
                     onChange={(e) => setDraftPaymentMethod(e.target.value)}
                     className="h-9 w-full rounded-xl border border-border/40 bg-card/40 px-2 text-[12px] text-foreground outline-none focus:border-primary/50"
                   >
-                    {paymentMethodOptions.map((method) => <option key={method || "blank"} value={method}>{method || "Not set"}</option>)}
+                    {paymentMethodOptionsFor(draftPaymentMethod).map((method) => <option key={method || "blank"} value={method}>{method || "Not set"}</option>)}
                   </select>
                 </label>
                 <div className="flex gap-2">
@@ -547,7 +559,7 @@ export function HomeTrackerHero({ onOpenDetails }: { onOpenDetails: () => void }
                   onChange={(e) => setPaymentDetails((p) => ({ ...p, payment_method: e.target.value }))}
                   className="h-10 w-full rounded-xl border border-border/45 bg-card px-2 text-[12px] text-foreground outline-none focus:border-primary/50"
                 >
-                  {paymentMethodOptions.map((method) => <option key={method || "blank"} value={method}>{method || "Not set"}</option>)}
+                  {paymentMethodOptionsFor(paymentDetails.payment_method).map((method) => <option key={method || "blank"} value={method}>{method || "Not set"}</option>)}
                 </select>
               </label>
             </div>
