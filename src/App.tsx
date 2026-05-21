@@ -132,6 +132,21 @@ function SuspenseRoute({ children }: { children: ReactNode }) {
   );
 }
 
+/**
+ * Tab-route Suspense: render `null` instead of the full-screen PageFallback
+ * while a route chunk streams in. Combined with eager chunk prefetch in
+ * EagerPrefetcher + the TabBar pointerdown warm-up, the chunk is virtually
+ * always cached by tap time — so a `null` fallback shows nothing perceivable
+ * and avoids the loader flash that made tab switches feel slow.
+ */
+function TabSuspenseRoute({ children }: { children: ReactNode }) {
+  return (
+    <RouteErrorBoundary>
+      <Suspense fallback={null}>{children}</Suspense>
+    </RouteErrorBoundary>
+  );
+}
+
 // Tab-route layout: mounts Shell (TabBar, glow, prefetch effect) once and
 // keeps it stable across tab switches. Only the inner content remounts,
 // which eliminates the heavy Shell rebuild + fallback flash that made
@@ -161,12 +176,12 @@ const App = () => (
             <Route path="/reset-password" element={<ResetPassword />} />
             <Route path="/onboarding" element={<RequireAuth><SuspenseRoute><Onboarding /></SuspenseRoute></RequireAuth>} />
             <Route element={<ShellLayout />}>
-              <Route path="/home" element={<SuspenseRoute><Home /></SuspenseRoute>} />
-              <Route path="/today" element={<SuspenseRoute><DayView /></SuspenseRoute>} />
-              <Route path="/today/plan" element={<SuspenseRoute><DayView /></SuspenseRoute>} />
-              <Route path="/tracker" element={<SuspenseRoute><Tracker /></SuspenseRoute>} />
-              <Route path="/reports" element={<SuspenseRoute><Reports /></SuspenseRoute>} />
-              <Route path="/settings" element={<SuspenseRoute><Settings /></SuspenseRoute>} />
+              <Route path="/home" element={<TabSuspenseRoute><Home /></TabSuspenseRoute>} />
+              <Route path="/today" element={<TabSuspenseRoute><DayView /></TabSuspenseRoute>} />
+              <Route path="/today/plan" element={<TabSuspenseRoute><DayView /></TabSuspenseRoute>} />
+              <Route path="/tracker" element={<TabSuspenseRoute><Tracker /></TabSuspenseRoute>} />
+              <Route path="/reports" element={<TabSuspenseRoute><Reports /></TabSuspenseRoute>} />
+              <Route path="/settings" element={<TabSuspenseRoute><Settings /></TabSuspenseRoute>} />
             </Route>
             <Route path="/today/planning" element={<Navigate to="/today/plan" replace />} />
             <Route path="/focus/:blockId" element={<RequireAuth><SuspenseRoute><Focus /></SuspenseRoute></RequireAuth>} />
