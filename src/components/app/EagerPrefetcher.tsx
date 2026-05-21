@@ -30,6 +30,21 @@ export function EagerPrefetcher() {
   const queryClient = useQueryClient();
   const seededForRef = useRef<string | null>(null);
 
+  // Preload every tab-route chunk the moment the module mounts (before auth
+  // even resolves). The browser is otherwise idle on the auth screen / first
+  // paint, so this is a pure win — by the time the user is on /home and taps
+  // a tab, the chunk for that tab is already in memory and the
+  // `Suspense fallback={null}` path renders the new page on the same frame
+  // with no perceived loading.
+  useEffect(() => {
+    void import("@/pages/app/Home");
+    void import("@/pages/app/DayView");
+    void import("@/pages/app/Tracker");
+    void import("@/pages/app/Reports");
+    void import("@/pages/app/Settings");
+    void import("@/pages/app/Focus");
+  }, []);
+
   useEffect(() => {
     if (loading || !user?.id) return;
     if (seededForRef.current === user.id) return;

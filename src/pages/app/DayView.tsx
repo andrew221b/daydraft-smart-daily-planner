@@ -1069,8 +1069,8 @@ export default function DayView() {
 
         {!planMissing && (
           <>
-            {loading && <SkeletonBlock count={4} />}
-            {!loading && (
+            {loading && blocks.length === 0 && <SkeletonBlock count={4} />}
+            {(!loading || blocks.length > 0) && (
               <DndContext
                 sensors={sensors}
                 collisionDetection={closestCenter}

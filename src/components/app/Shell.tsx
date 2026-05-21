@@ -36,24 +36,9 @@ export const Shell = ({
         ? "page-transition-push"
         : "page-transition-tab";
 
-  // Warm every lazy route chunk shortly after the current page paints.
-  // The previous implementation used `requestIdleCallback` with a 5000ms
-  // timeout — on slow phones the prefetch could land *after* the user
-  // tapped another tab, so they'd hit the lazy-load spinner every time.
-  // 150ms after mount is short enough that the chunks usually arrive
-  // before the first tab switch, long enough that the current page's
-  // queries and layout still get the network window to themselves.
-  useEffect(() => {
-    const t = setTimeout(() => {
-      void import("@/pages/app/DayView");
-      void import("@/pages/app/Focus");
-      void import("@/pages/app/Home");
-      void import("@/pages/app/Tracker");
-      void import("@/pages/app/Reports");
-      void import("@/pages/app/Settings");
-    }, 150);
-    return () => clearTimeout(t);
-  }, []);
+  // Route chunks are eagerly preloaded by <EagerPrefetcher /> at app mount,
+  // so no Shell-level prefetch is needed here. Kept intentionally empty to
+  // make the dependency obvious to future readers.
 
   return (
   <div className="min-h-screen w-full bg-background flex justify-center">
