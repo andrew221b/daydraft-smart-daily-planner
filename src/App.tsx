@@ -1,7 +1,7 @@
 import { lazy, Suspense, type ComponentType, type ReactNode } from "react";
 import { Capacitor } from "@capacitor/core";
 import { keepPreviousData, QueryClient, QueryClientProvider } from "@tanstack/react-query";
-import { BrowserRouter, Navigate, Route, Routes, useLocation } from "react-router-dom";
+import { BrowserRouter, Navigate, Outlet, Route, Routes, useLocation } from "react-router-dom";
 import { Toaster as Sonner } from "@/components/ui/sonner";
 import { TooltipProvider } from "@/components/ui/tooltip";
 import NotFound from "./pages/NotFound";
@@ -13,6 +13,7 @@ import { TimeTrackerProvider } from "@/hooks/useTimeTracker";
 import { PageFallback } from "@/components/app/PageFallback";
 import { RouteErrorBoundary } from "@/components/app/RouteErrorBoundary";
 import { EagerPrefetcher } from "@/components/app/EagerPrefetcher";
+import { Shell } from "@/components/app/Shell";
 import ForgotPassword from "./pages/app/ForgotPassword";
 import ResetPassword from "./pages/app/ResetPassword";
 import Privacy from "./pages/legal/Privacy";
@@ -131,6 +132,18 @@ function SuspenseRoute({ children }: { children: ReactNode }) {
   );
 }
 
+// Tab-route layout: mounts Shell (TabBar, glow, prefetch effect) once and
+// keeps it stable across tab switches. Only the inner content remounts,
+// which eliminates the heavy Shell rebuild + fallback flash that made
+// tab navigation feel sluggish.
+const ShellLayout = () => (
+  <RequireAuth>
+    <Shell>
+      <Outlet />
+    </Shell>
+  </RequireAuth>
+);
+
 const App = () => (
   <QueryClientProvider client={queryClient}>
     <TooltipProvider>
@@ -147,18 +160,20 @@ const App = () => (
             <Route path="/forgot-password" element={<ForgotPassword />} />
             <Route path="/reset-password" element={<ResetPassword />} />
             <Route path="/onboarding" element={<RequireAuth><SuspenseRoute><Onboarding /></SuspenseRoute></RequireAuth>} />
-            <Route path="/home" element={<RequireAuth><SuspenseRoute><Home /></SuspenseRoute></RequireAuth>} />
-            <Route path="/today" element={<RequireAuth><SuspenseRoute><DayView /></SuspenseRoute></RequireAuth>} />
+            <Route element={<ShellLayout />}>
+              <Route path="/home" element={<SuspenseRoute><Home /></SuspenseRoute>} />
+              <Route path="/today" element={<SuspenseRoute><DayView /></SuspenseRoute>} />
+              <Route path="/today/plan" element={<SuspenseRoute><DayView /></SuspenseRoute>} />
+              <Route path="/tracker" element={<SuspenseRoute><Tracker /></SuspenseRoute>} />
+              <Route path="/reports" element={<SuspenseRoute><Reports /></SuspenseRoute>} />
+              <Route path="/settings" element={<SuspenseRoute><Settings /></SuspenseRoute>} />
+            </Route>
             <Route path="/today/planning" element={<Navigate to="/today/plan" replace />} />
-            <Route path="/today/plan" element={<RequireAuth><SuspenseRoute><DayView /></SuspenseRoute></RequireAuth>} />
             <Route path="/focus/:blockId" element={<RequireAuth><SuspenseRoute><Focus /></SuspenseRoute></RequireAuth>} />
-            <Route path="/tracker" element={<RequireAuth><SuspenseRoute><Tracker /></SuspenseRoute></RequireAuth>} />
             <Route path="/recap" element={<Navigate to="/reports" replace />} />
             <Route path="/recap/week" element={<Navigate to="/reports" replace />} />
             <Route path="/history" element={<Navigate to="/reports" replace />} />
             <Route path="/stats" element={<Navigate to="/reports" replace />} />
-            <Route path="/reports" element={<RequireAuth><SuspenseRoute><Reports /></SuspenseRoute></RequireAuth>} />
-            <Route path="/settings" element={<RequireAuth><SuspenseRoute><Settings /></SuspenseRoute></RequireAuth>} />
             <Route path="/privacy" element={<Privacy />} />
             <Route path="/terms" element={<Terms />} />
             <Route path="/settings/delete-account" element={<RequireAuth><SuspenseRoute><DeleteAccount /></SuspenseRoute></RequireAuth>} />

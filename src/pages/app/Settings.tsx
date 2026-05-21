@@ -1,4 +1,3 @@
-import { Shell } from "@/components/app/Shell";
 import { useProfile } from "@/hooks/useProfile";
 import { useAuth } from "@/hooks/useAuth";
 import { Switch } from "@/components/ui/switch";
@@ -115,7 +114,7 @@ export default function Settings() {
   };
 
   return (
-    <Shell>
+    <>
       <div className="px-5 pt-12">
         <p className="eyebrow">Account</p>
         <h1 className="type-title mt-2 text-balance">Settings</h1>
@@ -296,7 +295,7 @@ export default function Settings() {
         </SheetContent>
       </Sheet>
       <UpgradeSheet open={upgradeOpen} onOpenChange={setUpgradeOpen} reason="feature" />
-    </Shell>
+    </>
   );
 }
 

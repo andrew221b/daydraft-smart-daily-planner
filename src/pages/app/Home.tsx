@@ -1,7 +1,6 @@
 import { useEffect, useMemo } from "react";
 import { keepPreviousData, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useLocation, useNavigate, useSearchParams } from "react-router-dom";
-import { Shell } from "@/components/app/Shell";
 import { HomeTrackerHero } from "@/components/app/HomeTrackerHero";
 import { PullToRefresh } from "@/components/app/PullToRefresh";
 import { useAuth } from "@/hooks/useAuth";
@@ -126,8 +125,7 @@ export default function Home() {
   }, [rollingEntries, categories]);
 
   return (
-    <Shell>
-      <PullToRefresh onRefresh={onRefresh}>
+    <PullToRefresh onRefresh={onRefresh}>
         <div className="flex min-h-0 flex-1 flex-col px-5 pt-7 pb-6">
           {/* Greeting */}
           <header className="mb-5 shrink-0">
@@ -207,7 +205,6 @@ export default function Home() {
             </div>
           )}
         </div>
-      </PullToRefresh>
-    </Shell>
+    </PullToRefresh>
   );
 }

@@ -1,7 +1,6 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { useNavigate, useSearchParams } from "react-router-dom";
-import { Shell } from "@/components/app/Shell";
 import { useAuth } from "@/hooks/useAuth";
 import { supabase } from "@/integrations/supabase/client";
 import {
@@ -907,8 +906,8 @@ export default function DayView() {
   );
 
   return (
-    <Shell>
-      <PullToRefresh
+    <>
+    <PullToRefresh
         scrollContainerRef={dayScrollRef}
         onRefresh={async () => {
           await refetch();
@@ -1904,7 +1903,7 @@ export default function DayView() {
           </div>
         </SheetContent>
       </Sheet>
-    </Shell>
+    </>
   );
 }
 

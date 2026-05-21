@@ -23,7 +23,7 @@ const SheetOverlay = React.forwardRef<
       // the background dims but stays legible. Faster fade-in (the scrim is
       // there before the sheet lands), slightly delayed fade-out so the
       // backdrop doesn't disappear before the sheet finishes sliding off.
-      "fixed inset-0 z-50 bg-black/55 backdrop-blur-[2px] data-[state=open]:animate-in data-[state=closed]:animate-out data-[state=closed]:fade-out-0 data-[state=open]:fade-in-0 data-[state=open]:duration-[220ms] data-[state=closed]:duration-[240ms]",
+      "fixed inset-0 z-50 bg-black/55 data-[state=open]:animate-in data-[state=closed]:animate-out data-[state=closed]:fade-out-0 data-[state=open]:fade-in-0 data-[state=open]:duration-[160ms] data-[state=closed]:duration-[180ms]",
       className,
     )}
     {...props}
@@ -37,7 +37,7 @@ const sheetVariants = cva(
   // approximation — a confident decel that lands soft, with barely a hint of
   // overshoot. Close is shorter and slightly more linear at the start so the
   // user feels the dismiss the instant their finger leaves.
-  "fixed z-50 gap-4 bg-background p-6 shadow-lg data-[state=open]:animate-in data-[state=closed]:animate-out data-[state=open]:duration-[420ms] data-[state=closed]:duration-[260ms] data-[state=open]:[animation-timing-function:cubic-bezier(0.32,0.72,0,1)] data-[state=closed]:[animation-timing-function:cubic-bezier(0.4,0,0.4,1)] will-change-transform",
+  "fixed z-50 gap-4 bg-background p-6 shadow-lg data-[state=open]:animate-in data-[state=closed]:animate-out data-[state=open]:duration-[260ms] data-[state=closed]:duration-[200ms] data-[state=open]:[animation-timing-function:cubic-bezier(0.32,0.72,0,1)] data-[state=closed]:[animation-timing-function:cubic-bezier(0.4,0,0.4,1)] will-change-transform",
   {
     variants: {
       side: {

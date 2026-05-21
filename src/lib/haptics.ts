@@ -38,7 +38,7 @@ const getCapPlugin = async () => {
     // eslint-disable-next-line @typescript-eslint/ban-ts-comment
     // @ts-ignore — optional dependency; resolves only when installed.
     const mod = await import("@capacitor/haptics");
-    capPluginCache = mod?.Haptics || null;
+    capPluginCache = (mod?.Haptics as any) || null;
   } catch {
     capPluginCache = null;
   }
