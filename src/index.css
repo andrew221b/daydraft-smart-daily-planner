@@ -63,7 +63,7 @@ body.dd-dnd-scroll-lock {
     --gradient-primary: linear-gradient(132deg, hsl(var(--primary)) 0%, hsl(var(--primary-glow)) 100%);
     --gradient-glow: radial-gradient(62% 46% at 50% -8%, hsl(var(--primary) / 0.2), transparent 72%);
     --gradient-floor: radial-gradient(ellipse 76% 50% at 50% 100%, hsl(var(--primary-glow) / 0.16), transparent 68%);
-    --motion-page-switch-ms: 360ms;
+    --motion-page-switch-ms: 220ms;
     --motion-section-in-ms: 220ms;
     --motion-glow-breathe-s: 20s;
     --motion-tab-indicator-s: 7s;
@@ -127,7 +127,7 @@ body.dd-dnd-scroll-lock {
     --shadow-glow: 0 0 0 4px hsl(var(--primary) / 0.28), 0 0 32px hsl(var(--primary-glow) / 0.38);
     --gradient-glow: radial-gradient(72% 56% at 50% -10%, hsl(var(--primary) / 0.36), transparent 72%);
     --gradient-floor: radial-gradient(ellipse 82% 56% at 50% 100%, hsl(var(--primary-glow) / 0.24), transparent 66%);
-    --motion-page-switch-ms: 260ms;
+    --motion-page-switch-ms: 200ms;
     --motion-section-in-ms: 230ms;
     --motion-glow-breathe-s: 14s;
     --motion-tab-indicator-s: 5s;
