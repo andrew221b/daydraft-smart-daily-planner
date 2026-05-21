@@ -119,8 +119,7 @@ export default function Home() {
   }, [todayEntries, categories]);
 
   return (
-    <Shell>
-      <PullToRefresh onRefresh={onRefresh}>
+    <PullToRefresh onRefresh={onRefresh}>
         <div className="flex min-h-0 flex-1 flex-col px-5 pt-7 pb-6">
           {/* Greeting */}
           <header className="mb-5 shrink-0">
@@ -200,7 +199,6 @@ export default function Home() {
             </div>
           )}
         </div>
-      </PullToRefresh>
-    </Shell>
+    </PullToRefresh>
   );
 }
