@@ -907,8 +907,8 @@ export default function DayView() {
   );
 
   return (
-    <Shell>
-      <PullToRefresh
+    <>
+    <PullToRefresh
         scrollContainerRef={dayScrollRef}
         onRefresh={async () => {
           await refetch();
@@ -1904,7 +1904,7 @@ export default function DayView() {
           </div>
         </SheetContent>
       </Sheet>
-    </Shell>
+    </>
   );
 }
 

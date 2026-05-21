@@ -1,6 +1,5 @@
 import { useMemo, useState } from "react";
 import { useQuery } from "@tanstack/react-query";
-import { Shell } from "@/components/app/Shell";
 import { useAuth } from "@/hooks/useAuth";
 import { supabase } from "@/integrations/supabase/client";
 import { Button } from "@/components/ui/button";
@@ -336,7 +335,7 @@ export default function Reports() {
   };
 
   return (
-    <Shell>
+    <>
       <div className="flex min-h-0 flex-1 flex-col px-5 pt-7 pb-6">
         <header className="mb-5 shrink-0">
           <p className="text-[10px] font-semibold uppercase tracking-[0.2em] text-secondary-fg/65">
@@ -585,6 +584,6 @@ export default function Reports() {
         </div>
       </div>
       <UpgradeSheet open={upgradeOpen} onOpenChange={setUpgradeOpen} reason="feature" />
-    </Shell>
+    </>
   );
 }
