@@ -98,6 +98,29 @@ function clipDuration(e: Entry, dayStart: number, dayEnd: number, now: number) {
 }
 
 /**
+ * Pre-parsed entry shape — avoids the `new Date(...).getTime()` call inside
+ * the month aggregation loop (was firing 31 days × N entries × every
+ * render). For a heavy user with ~500 entries in the rolling 60-day window
+ * that's ~15k Date constructors per render of the month view; the parsed
+ * form drops it to N once per entries-change.
+ */
+type ParsedEntry = {
+  id: string;
+  category_id: string | null;
+  startMs: number;
+  endMs: number | null; // null = "still running" — resolve to `now` at the call site
+  note: string | null;
+  block_id?: string | null;
+};
+
+function clipParsed(p: ParsedEntry, dayStart: number, dayEnd: number, now: number): number {
+  const en = p.endMs ?? now;
+  const a = p.startMs > dayStart ? p.startMs : dayStart;
+  const b = en < dayEnd ? en : dayEnd;
+  return b > a ? (b - a) / 1000 : 0;
+}
+
+/**
  * Inner tracker UI — used by both the standalone /tracker page (TrackerView)
  * and the legacy bottom sheet (TrackerSheet). The tab bar now navigates to
  * /tracker, so the sheet is no longer mounted from the shell, but we keep
@@ -148,6 +171,22 @@ function TrackerInner({ embedded = false, onClose }: { embedded?: boolean; onClo
     gcTime: 30 * 60_000,
     placeholderData: keepPreviousData,
   });
+
+  // Parse timestamps once per `entries` change. Every aggregation loop
+  // (month grid, day breakdown, today-by-category, period totals) consumes
+  // the parsed form and skips `new Date(...).getTime()` in the hot path.
+  const parsedEntries = useMemo<ParsedEntry[]>(
+    () =>
+      entries.map((e) => ({
+        id: e.id,
+        category_id: e.category_id,
+        startMs: new Date(e.started_at).getTime(),
+        endMs: e.ended_at ? new Date(e.ended_at).getTime() : null,
+        note: e.note,
+        block_id: e.block_id ?? null,
+      })),
+    [entries],
+  );
 
   useEffect(() => {
     if (!editingCat) {
@@ -201,16 +240,16 @@ function TrackerInner({ embedded = false, onClose }: { embedded?: boolean; onClo
       const dayEnd = dayStart + DAY_MS;
       const byCat = new Map<string, number>();
       let total = 0;
-      entries.forEach(e => {
-        const d = clipDuration(e, dayStart, dayEnd, now);
+      for (const p of parsedEntries) {
+        const d = clipParsed(p, dayStart, dayEnd, now);
         if (d > 0) {
           total += d;
-          if (e.category_id) byCat.set(e.category_id, (byCat.get(e.category_id) || 0) + d);
+          if (p.category_id) byCat.set(p.category_id, (byCat.get(p.category_id) || 0) + d);
         }
-      });
+      }
       return { date: new Date(dayStart), key: ymd(new Date(dayStart)), total, byCat };
     });
-  }, [entries, now]);
+  }, [parsedEntries, now]);
 
   const weekTotal = weekDays.reduce((a, d) => a + d.total, 0);
   const weekPeakSec = Math.max(0, ...weekDays.map(d => d.total));
@@ -231,7 +270,10 @@ function TrackerInner({ embedded = false, onClose }: { embedded?: boolean; onClo
   }, [weekDays]);
   const weekAvgSec = weekTotal / 7;
 
-  // Month grid
+  // Month grid — was the hottest loop in this file. With ~500 entries in
+  // the 60-day rolling window and ~31 day cells per render this used to do
+  // ~15k `new Date(...).getTime()` calls. Now it loops over parsedEntries
+  // (already millis) and does pure numeric clipping in `clipParsed`.
   const monthCells = useMemo(() => {
     const first = new Date(monthCursor);
     const year = first.getFullYear(), month = first.getMonth();
@@ -243,11 +285,13 @@ function TrackerInner({ embedded = false, onClose }: { embedded?: boolean; onClo
       const dayStart = new Date(year, month, d).getTime();
       const dayEnd = dayStart + DAY_MS;
       let total = 0;
-      entries.forEach(e => { total += clipDuration(e, dayStart, dayEnd, now); });
+      for (const p of parsedEntries) {
+        total += clipParsed(p, dayStart, dayEnd, now);
+      }
       cells.push({ date: new Date(dayStart), key: ymd(new Date(dayStart)), total });
     }
     return cells;
-  }, [entries, monthCursor, now]);
+  }, [parsedEntries, monthCursor, now]);
 
   const monthTotal = monthCells.reduce((a, c) => a + (c?.total || 0), 0);
   const monthPeakSec = Math.max(0, ...monthCells.map(c => c?.total || 0));
@@ -263,40 +307,40 @@ function TrackerInner({ embedded = false, onClose }: { embedded?: boolean; onClo
     const byCat = new Map<string, number>();
     const items: Array<{ id: string; cat: TimeCategory | undefined; start: number; end: number; dur: number; fromPlanner: boolean }> = [];
     let total = 0;
-    entries.forEach(e => {
-      const dur = clipDuration(e, dayStart, dayEnd, now);
-      if (dur <= 0) return;
+    for (const p of parsedEntries) {
+      const dur = clipParsed(p, dayStart, dayEnd, now);
+      if (dur <= 0) continue;
       total += dur;
-      if (e.category_id) byCat.set(e.category_id, (byCat.get(e.category_id) || 0) + dur);
-      const s = Math.max(new Date(e.started_at).getTime(), dayStart);
-      const en = Math.min(e.ended_at ? new Date(e.ended_at).getTime() : now, dayEnd);
+      if (p.category_id) byCat.set(p.category_id, (byCat.get(p.category_id) || 0) + dur);
+      const s = p.startMs > dayStart ? p.startMs : dayStart;
+      const en = (p.endMs ?? now) < dayEnd ? (p.endMs ?? now) : dayEnd;
       items.push({
-        id: e.id,
-        cat: e.category_id ? catMap.get(e.category_id) : undefined,
+        id: p.id,
+        cat: p.category_id ? catMap.get(p.category_id) : undefined,
         start: s,
         end: en,
         dur,
-        fromPlanner: !!e.block_id,
+        fromPlanner: !!p.block_id,
       });
-    });
+    }
     items.sort((a, b) => a.start - b.start);
     return { date: new Date(dayStart), total, byCat, items };
-  }, [selectedDay, entries, catMap, now]);
+  }, [selectedDay, parsedEntries, catMap, now]);
 
   // Today breakdown by category
   const todayByCat = useMemo(() => {
     const dayStart = startOfDay(new Date()).getTime();
     const dayEnd = dayStart + DAY_MS;
     const byCat = new Map<string, number>();
-    entries.forEach((e) => {
-      const d = clipDuration(e, dayStart, dayEnd, now);
-      if (d > 0 && e.category_id) byCat.set(e.category_id, (byCat.get(e.category_id) || 0) + d);
-    });
+    for (const p of parsedEntries) {
+      const d = clipParsed(p, dayStart, dayEnd, now);
+      if (d > 0 && p.category_id) byCat.set(p.category_id, (byCat.get(p.category_id) || 0) + d);
+    }
     return Array.from(byCat.entries())
       .map(([id, sec]) => ({ cat: catMap.get(id), sec }))
       .filter((x) => x.cat)
       .sort((a, b) => b.sec - a.sec);
-  }, [entries, catMap, now]);
+  }, [parsedEntries, catMap, now]);
 
   // Period boundaries based on active tab (used for PDF + category drill-in)
   const period = useMemo(() => {
@@ -316,23 +360,22 @@ function TrackerInner({ embedded = false, onClose }: { embedded?: boolean; onClo
   // Per-category stats for the active period (for inline drill-in)
   const periodCatStats = useMemo(() => {
     const map = new Map<string, { sec: number; sessions: Array<{ id: string; start: number; end: number; note: string | null; fromPlanner: boolean }>; perDay: Map<string, number> }>();
-    entries.forEach(e => {
-      if (!e.category_id) return;
-      const s = new Date(e.started_at).getTime();
-      const en = e.ended_at ? new Date(e.ended_at).getTime() : now;
-      const a = Math.max(s, period.start);
-      const b = Math.min(en, period.end);
-      if (b <= a) return;
+    for (const p of parsedEntries) {
+      if (!p.category_id) continue;
+      const en = p.endMs ?? now;
+      const a = p.startMs > period.start ? p.startMs : period.start;
+      const b = en < period.end ? en : period.end;
+      if (b <= a) continue;
       const dur = (b - a) / 1000;
-      const cur = map.get(e.category_id) || { sec: 0, sessions: [], perDay: new Map() };
+      const cur = map.get(p.category_id) || { sec: 0, sessions: [], perDay: new Map() };
       cur.sec += dur;
-      cur.sessions.push({ id: e.id, start: a, end: b, note: e.note, fromPlanner: !!e.block_id });
+      cur.sessions.push({ id: p.id, start: a, end: b, note: p.note, fromPlanner: !!p.block_id });
       const dayKey = ymd(new Date(a));
       cur.perDay.set(dayKey, (cur.perDay.get(dayKey) || 0) + dur);
-      map.set(e.category_id, cur);
-    });
+      map.set(p.category_id, cur);
+    }
     return map;
-  }, [entries, period, now]);
+  }, [parsedEntries, period, now]);
 
   const headerTotalSec = tab === "today" ? todayTotalSec : tab === "week" ? weekTotal : monthTotal;
   const headerLabel =

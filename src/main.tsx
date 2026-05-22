@@ -8,6 +8,7 @@ import { RootErrorBoundary } from "@/components/app/RootErrorBoundary";
 import { attachVisualViewportInset } from "./lib/visualViewport";
 import { markTTI } from "./lib/perfMonitor";
 import { startOfflineQueueDrainer } from "./lib/offlineQueue";
+import { registerServiceWorker } from "./lib/swUpdate";
 
 try {
   applyNativeDocumentHints();
@@ -21,19 +22,9 @@ void initCapacitor();
 
 // Register the service worker on production web only — Capacitor has its
 // own native loader and dev-mode HMR doesn't play nice with SW caching.
-// We do it on `load` so the SW install doesn't compete with the first
-// paint for CPU.
-if (
-  typeof window !== "undefined" &&
-  "serviceWorker" in navigator &&
-  import.meta.env.PROD
-) {
-  window.addEventListener("load", () => {
-    navigator.serviceWorker.register("/sw.js").catch((e) => {
-      console.warn("[sw] register failed", e);
-    });
-  });
-}
+// The helper also wires up update detection (shows a toast when a new
+// deploy is available so users don't get stuck on old JS).
+registerServiceWorker();
 
 // Mark TTI once the first frame after mount has committed.
 if (typeof requestIdleCallback === "function") {

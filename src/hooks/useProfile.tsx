@@ -25,14 +25,32 @@ export interface Profile {
   ai_planning_rules?: string | null;
 }
 
-type ProfileCtx = {
+type ProfileData = {
   profile: Profile | null;
   loading: boolean;
+};
+
+type ProfileMutations = {
   refresh: () => Promise<void>;
   update: (patch: Partial<Profile>) => Promise<void>;
 };
 
-const Ctx = createContext<ProfileCtx | null>(null);
+type ProfileCtx = ProfileData & ProfileMutations;
+
+/**
+ * The profile context is split into two halves:
+ *   - DataCtx       — re-renders consumers when `profile` or `loading` changes
+ *   - MutationsCtx  — stable across the provider's lifetime; consumers of just
+ *                     `update` / `refresh` never re-render
+ *
+ * `useProfile()` is preserved as a combined back-compat hook so existing
+ * call sites work unchanged. New consumers should prefer the split hooks
+ * when they only need one half — handler-only components (Tour, Settings
+ * row toggles, Onboarding actions) can subscribe to mutations alone and
+ * skip every re-render driven by profile updates.
+ */
+const DataCtx = createContext<ProfileData | null>(null);
+const MutationsCtx = createContext<ProfileMutations | null>(null);
 
 // Once a user has been seen as onboarded, persist the fact so a flaky profile
 // fetch (or a partial-row server response from `.update().select()` that omits
@@ -159,11 +177,56 @@ export function ProfileProvider({ children }: { children: ReactNode }) {
     }
   }, [user?.id]);
 
-  return <Ctx.Provider value={{ profile: stickyProfile, loading, refresh, update }}>{children}</Ctx.Provider>;
+  // Mutations object lives in a ref-stable identity for the provider's
+  // lifetime. `refresh` and `update` close over `user` via the outer
+  // refs/state, so we don't need new function identities on each render —
+  // we just rebuild the wrapped pair when `user.id` changes.
+  const mutations = useMemo<ProfileMutations>(
+    () => ({ refresh, update }),
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [user?.id],
+  );
+  const data = useMemo<ProfileData>(
+    () => ({ profile: stickyProfile, loading }),
+    [stickyProfile, loading],
+  );
+
+  return (
+    <MutationsCtx.Provider value={mutations}>
+      <DataCtx.Provider value={data}>{children}</DataCtx.Provider>
+    </MutationsCtx.Provider>
+  );
 }
 
-export const useProfile = (): ProfileCtx => {
-  const ctx = useContext(Ctx);
-  if (!ctx) throw new Error("useProfile must be used inside ProfileProvider");
+/** Read-only profile data. Re-renders when `profile` or `loading` changes. */
+export const useProfileData = (): ProfileData => {
+  const ctx = useContext(DataCtx);
+  if (!ctx) throw new Error("useProfileData must be used inside ProfileProvider");
   return ctx;
+};
+
+/**
+ * Refresh / update handles. The provider keeps a stable identity for these
+ * across re-renders, so consumers that subscribe here do NOT re-render when
+ * profile data changes. Prefer this in components that only need to *write*
+ * to the profile.
+ */
+export const useProfileMutations = (): ProfileMutations => {
+  const ctx = useContext(MutationsCtx);
+  if (!ctx) throw new Error("useProfileMutations must be used inside ProfileProvider");
+  return ctx;
+};
+
+/**
+ * Combined data + mutations — kept for back-compat with existing call
+ * sites. New code should prefer `useProfileData` or `useProfileMutations`
+ * directly to avoid re-rendering on the half you don't care about.
+ */
+export const useProfile = (): ProfileCtx => {
+  const data = useProfileData();
+  const mut = useProfileMutations();
+  return useMemo(
+    () => ({ ...data, ...mut }),
+    [data, mut],
+  );
 };

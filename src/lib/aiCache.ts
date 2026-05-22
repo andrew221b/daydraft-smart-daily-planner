@@ -51,7 +51,44 @@ type Options = {
   cacheKey?: string;
   /** Per-call timeout — aborts the request when exceeded. */
   timeoutMs?: number;
+  /**
+   * Caller-supplied AbortSignal. When it fires we *stop waiting* for the
+   * result and return `{ data: null, error: { aborted: true } }`. The
+   * underlying network request keeps running so other in-flight observers
+   * (and the cache) still benefit — only this caller hands back early.
+   * Pass a signal tied to your component's lifecycle to prevent
+   * "set-state-after-unmount" warnings when the user navigates away
+   * mid-call.
+   */
+  signal?: AbortSignal;
 };
+
+const ABORT_ERROR = { message: "aborted", aborted: true } as const;
+
+/**
+ * Resolve with whichever happens first: the underlying promise, or the
+ * caller's signal firing. Used so an unmounted React component can stop
+ * caring about an AI response without cancelling the shared request for
+ * other consumers.
+ */
+function settleWithSignal<T>(p: Promise<InvokeResult<T>>, signal?: AbortSignal): Promise<InvokeResult<T>> {
+  if (!signal) return p;
+  if (signal.aborted) return Promise.resolve({ data: null, error: { ...ABORT_ERROR } });
+  return new Promise<InvokeResult<T>>((resolve) => {
+    let done = false;
+    const finish = (val: InvokeResult<T>) => {
+      if (done) return;
+      done = true;
+      signal.removeEventListener("abort", onAbort);
+      resolve(val);
+    };
+    const onAbort = () => finish({ data: null, error: { ...ABORT_ERROR } });
+    signal.addEventListener("abort", onAbort, { once: true });
+    p.then(finish).catch((e: unknown) => {
+      finish({ data: null, error: { message: e instanceof Error ? e.message : String(e) } });
+    });
+  });
+}
 
 const DEFAULT_TTL_MS = 30_000;
 const memCache = new Map<string, CacheEntry>();
@@ -134,7 +171,7 @@ export async function invokeAiCached<T = unknown>(
   const existing = inflight.get(key);
   if (existing) {
     recordAiCacheHit(name);
-    return existing as Promise<InvokeResult<T>>;
+    return settleWithSignal(existing as Promise<InvokeResult<T>>, options.signal);
   }
 
   recordAiCacheMiss(name);
@@ -175,7 +212,7 @@ export async function invokeAiCached<T = unknown>(
   })();
 
   inflight.set(key, runner as Promise<InvokeResult<unknown>>);
-  return runner;
+  return settleWithSignal(runner, options.signal);
 }
 
 /** Forget a specific cache entry (or all entries when `name` is omitted). */

@@ -1,6 +1,6 @@
 /* DayDraft service worker — push notifications + caching strategies. */
 
-const VERSION = "v3";
+const VERSION = "v4";
 const SHELL_CACHE = `dd-shell-${VERSION}`;
 const ASSET_CACHE = `dd-assets-${VERSION}`;
 const API_CACHE = `dd-api-${VERSION}`;
@@ -15,7 +15,16 @@ self.addEventListener("install", (event) => {
   event.waitUntil(
     caches.open(SHELL_CACHE).then((cache) => cache.addAll(SHELL_PRECACHE)).catch(() => {})
   );
-  self.skipWaiting();
+  // No auto-skipWaiting — the client prompts the user and posts
+  // `{type:"SKIP_WAITING"}` when they accept. That way we never yank a
+  // running session out from under the user mid-flow (sheet open, AI call
+  // in flight, etc.).
+});
+
+self.addEventListener("message", (event) => {
+  if (event.data && event.data.type === "SKIP_WAITING") {
+    self.skipWaiting();
+  }
 });
 
 self.addEventListener("activate", (event) => {

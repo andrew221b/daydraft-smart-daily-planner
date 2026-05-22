@@ -4,6 +4,7 @@ import { Button } from "@/components/ui/button";
 import { Textarea } from "@/components/ui/textarea";
 import { Sparkles, Send, Loader2 } from "lucide-react";
 import { invokeAiCached } from "@/lib/aiCache";
+import { useAbortOnUnmount } from "@/hooks/useAbortOnUnmount";
 import { toast } from "sonner";
 
 type Msg = { role: "user" | "assistant"; content: string };
@@ -29,6 +30,9 @@ export function AskAiSheet({
   const [input, setInput] = useState("");
   const [loading, setLoading] = useState(false);
   const scrollerRef = useRef<HTMLDivElement>(null);
+  // Aborts the in-flight AI request when the sheet closes / unmounts so we
+  // don't `setState` after unmount or surface a stale error toast.
+  const getSignal = useAbortOnUnmount();
 
   useEffect(() => {
     if (open) {
@@ -48,6 +52,7 @@ export function AskAiSheet({
     setMessages(next);
     setInput("");
     setLoading(true);
+    const signal = getSignal();
     try {
       // Inject the seed context as a hidden first user turn so the
       // assistant has framing without exposing the meta-prompt to the user.
@@ -59,17 +64,19 @@ export function AskAiSheet({
         { messages: payload },
         // Conversational turns shouldn't be cached — but in-flight dedup
         // still protects against double-tap submits.
-        { ttlMs: 0, timeoutMs: 45_000 },
+        { ttlMs: 0, timeoutMs: 45_000, signal },
       );
+      if (signal.aborted) return;
       if (error) throw error;
       if (data?.error) throw new Error(data.error);
       const reply = String(data?.reply || "").trim();
       if (!reply) throw new Error("Empty reply");
       setMessages((m) => [...m, { role: "assistant", content: reply }]);
     } catch (e: any) {
+      if (signal.aborted) return;
       toast.error(e?.message || "AI is unavailable");
     } finally {
-      setLoading(false);
+      if (!signal.aborted) setLoading(false);
     }
   };
 

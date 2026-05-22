@@ -2,6 +2,7 @@ import { useEffect, useRef, useState } from "react";
 import { useNavigate, useParams, useSearchParams } from "react-router-dom";
 import { supabase } from "@/integrations/supabase/client";
 import { invokeAiCached } from "@/lib/aiCache";
+import { useAbortOnUnmount } from "@/hooks/useAbortOnUnmount";
 import { Block, todayDateStr, wallMsOnPlanDay, blockSlotEndHHMM, fmtTime, isOpenUserTask } from "@/lib/daydraft";
 import { minutesFromFocusArmSeconds, resolveActualMinutesOnComplete } from "@/lib/blockActualTime";
 import { Check, Sparkles, MapPin, ExternalLink, Loader2, Lightbulb, Copy, Phone, CalendarPlus, Mail, Timer, Square, X, ShieldAlert } from "lucide-react";
@@ -64,6 +65,9 @@ export default function Focus() {
   const [helpOpen, setHelpOpen] = useState(false);
   const [preflightOpen, setPreflightOpen] = useState(false);
   const [armed, setArmed] = useState(false);
+  // Cancels in-flight task-assistant calls if the user leaves the Focus
+  // screen mid-request — prevents setState-after-unmount.
+  const getAbortSignal = useAbortOnUnmount();
   const startedHereRef = useRef(false);
   const autoStartedRef = useRef(false);
   const [confirmSkipOpen, setConfirmSkipOpen] = useState(false);
@@ -239,6 +243,7 @@ export default function Focus() {
     setHelpLoading(true);
     setHelpError(null);
     trackAiEvent("ai_focus_help_used", { reason: reason || "manual", block_type: block.type });
+    const signal = getAbortSignal();
     try {
       // task-assistant on the same block + reason is cacheable for the whole
       // session — the inputs don't change while the user is in Focus.
@@ -254,15 +259,17 @@ export default function Focus() {
           ai_planning_rules: (profile as any)?.ai_planning_rules || "",
           runtime_reason: reason || null,
         },
-        { ttlMs: 30 * 60_000, timeoutMs: 45_000 },
+        { ttlMs: 30 * 60_000, timeoutMs: 45_000, signal },
       );
+      if (signal.aborted) return;
       if (error) throw error;
       setHelp(data as AIHelp);
     } catch (e: any) {
+      if (signal.aborted) return;
       console.error(e);
       setHelpError(e?.message || "Unable to load AI assistant");
     } finally {
-      setHelpLoading(false);
+      if (!signal.aborted) setHelpLoading(false);
     }
   };
 

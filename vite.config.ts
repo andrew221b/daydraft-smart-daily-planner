@@ -10,9 +10,6 @@ import { componentTagger } from "lovable-tagger";
 //   • `radix`       — the handful of Radix primitives the app still uses.
 //   • `dnd`         — only DayView pulls dnd-kit; ship it once.
 //   • `query`       — @tanstack/react-query, used everywhere data is fetched.
-//   • `charts`      — recharts is ~200kB unminified; isolate so the rest of
-//                     the app doesn't pay for it on first load. Only Reports
-//                     imports it.
 //   • `pdf`         — jspdf + html2canvas are massive (400kB+) and only used
 //                     for export. Lazy-loaded at the call site; this entry
 //                     just ensures the split chunk stays stable across
@@ -26,7 +23,6 @@ const splitVendor = (id: string): string | undefined => {
   if (/[\\/]@tanstack[\\/]/.test(id)) return "query";
   if (/[\\/]@radix-ui[\\/]/.test(id)) return "radix";
   if (/[\\/]@dnd-kit[\\/]/.test(id)) return "dnd";
-  if (/[\\/]recharts[\\/]/.test(id) || /[\\/]victory-vendor[\\/]/.test(id) || /[\\/]d3-/.test(id)) return "charts";
   if (/[\\/]jspdf[\\/]/.test(id) || /[\\/]jspdf-autotable[\\/]/.test(id) || /[\\/]html2canvas[\\/]/.test(id)) return "pdf";
   if (/[\\/]date-fns[\\/]/.test(id)) return "date";
   if (/[\\/]lucide-react[\\/]/.test(id)) return "icons";

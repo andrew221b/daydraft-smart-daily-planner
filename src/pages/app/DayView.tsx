@@ -4,6 +4,7 @@ import { useNavigate, useSearchParams } from "react-router-dom";
 import { useAuth } from "@/hooks/useAuth";
 import { supabase } from "@/integrations/supabase/client";
 import { invokeAiCached } from "@/lib/aiCache";
+import { useAbortOnUnmount } from "@/hooks/useAbortOnUnmount";
 import {
   Block, fmtTime, todayDateStr, parseDateStr, friendlyDateFor, isFutureDateStr, isUserTask, isOpenUserTask, isUserTaskDone, inferScheduleBlockType, packLinearSchedule,
   blockSlotEndHHMM,
@@ -113,6 +114,9 @@ export default function DayView() {
   const [planMutating, setPlanMutating] = useState(false);
   const [askAiOpen, setAskAiOpen] = useState(false);
   const [askAiContext, setAskAiContext] = useState<string | null>(null);
+  // Cancels in-flight `generate-plan` calls when DayView unmounts so we
+  // don't try to mutate state for a page the user already left.
+  const getAiAbortSignal = useAbortOnUnmount();
   const blockOpLocksRef = useRef(new Set<string>());
   const [calmMode] = useCalmMode();
   const { isPro, overQuota, planQuotaLimit, refresh: refreshEntitlement } = useEntitlement();
@@ -637,6 +641,7 @@ export default function DayView() {
     setMoreOpen(false);
     setReplanning(true);
     setPlanMutating(true);
+    const signal = getAiAbortSignal();
     try {
       const remaining = blocks.filter((b) => isUserTask(b) && isOpenUserTask(b));
       const nowHM = `${String(now.getHours()).padStart(2,"0")}:${String(now.getMinutes()).padStart(2,"0")}`;
@@ -658,8 +663,9 @@ export default function DayView() {
           ai_tone_custom: (profile as any)?.ai_tone_custom || null,
           ai_planning_rules: (profile as any)?.ai_planning_rules || "",
         },
-        { ttlMs: 0, timeoutMs: 60_000 },
+        { ttlMs: 0, timeoutMs: 60_000, signal },
       );
+      if (signal.aborted) return;
       if (error) throw error;
       if (data?.code === "INCOMPLETE_TASKS_NEED_CLARIFICATION") {
         throw new Error(data.error || "Please clarify incomplete tasks before re-planning.");
@@ -700,16 +706,20 @@ export default function DayView() {
       await invalidatePlanCaches();
       toast.success("Re-planned");
     } catch (e: any) {
+      if (signal.aborted) return;
       toast.error(e.message || "Unable to re-plan remaining tasks");
     } finally {
-      setReplanning(false);
-      setPlanMutating(false);
+      if (!signal.aborted) {
+        setReplanning(false);
+        setPlanMutating(false);
+      }
     }
   };
 
   const autoScheduleBulkRows = async () => {
     if (bulkRows.length === 0 || !user || bulkAiLoading) return;
     setBulkAiLoading(true);
+    const signal = getAiAbortSignal();
     try {
       const nowHM = `${String(now.getHours()).padStart(2,"0")}:${String(now.getMinutes()).padStart(2,"0")}`;
       const startHHMM = viewDate === todayDateStr() ? nowHM : "09:00";
@@ -731,8 +741,9 @@ export default function DayView() {
           ai_tone_custom: (profile as any)?.ai_tone_custom || null,
           ai_planning_rules: (profile as any)?.ai_planning_rules || "",
         },
-        { ttlMs: 0, timeoutMs: 60_000 },
+        { ttlMs: 0, timeoutMs: 60_000, signal },
       );
+      if (signal.aborted) return;
       if (error) throw error;
       if (data?.error) throw new Error(data.error);
 
@@ -753,9 +764,10 @@ export default function DayView() {
         haptics.notify("success");
       }
     } catch (e: any) {
+      if (signal.aborted) return;
       toast.error(e.message || "Failed to auto-schedule tasks");
     } finally {
-      setBulkAiLoading(false);
+      if (!signal.aborted) setBulkAiLoading(false);
     }
   };
 
