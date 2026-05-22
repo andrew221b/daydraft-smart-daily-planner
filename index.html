@@ -26,6 +26,19 @@
     <meta name="twitter:card" content="summary_large_image" />
     <meta name="twitter:site" content="@Lovable" />
     <meta name="twitter:image" content="https://lovable.dev/opengraph-image-p98pqg.png" />
+
+    <!--
+      Pre-paint background. Matches the iOS LaunchScreen.storyboard's
+      systemBackgroundColor: white in light mode, near-black in dark
+      mode. Without this, the brief gap between the native splash
+      fading out and React's first paint shows the browser's default
+      white background — which flashes against a dark-mode app.
+    -->
+    <style>
+      :root { color-scheme: light dark; background-color: #f2f2f7; }
+      @media (prefers-color-scheme: dark) { :root { background-color: #0f1115; } }
+      html, body, #root { background-color: inherit; }
+    </style>
   </head>
 
   <body>
