@@ -120,6 +120,21 @@ export async function signInWithGoogleNative(): Promise<{ error?: Error | null }
 /**
  * Native Apple sign-in. Apple's system sheet handles the entire flow.
  * Identity token comes back signed by Apple; Supabase verifies it.
+ *
+ * Nonce protocol — the part you'll get wrong twice if you don't read this:
+ *   1. We generate a raw random nonce.
+ *   2. We SHA-256 it ourselves to a hex string ("hashedNonce") and pass
+ *      THAT to the plugin. The plugin sets `request.nonce = hashedNonce`.
+ *      Apple's iOS SDK embeds whatever we hand it *verbatim* in the
+ *      `nonce` claim of the id_token.
+ *   3. We pass the RAW (un-hashed) nonce to Supabase. Supabase hashes our
+ *      raw nonce server-side and compares against the id_token's nonce
+ *      claim (which is the hash). Match → session.
+ *
+ * Why both halves: if we'd passed the raw value to both, Apple would put
+ * the raw value in the id_token and Supabase would produce a hash from
+ * its own nonce param — mismatch → "passed nonce and nonce in id_token
+ * should either both exist or not". This is the exact bug we're fixing.
  */
 export async function signInWithAppleNative(): Promise<{ error?: Error | null }> {
   if (!Capacitor.isNativePlatform()) {
@@ -127,15 +142,13 @@ export async function signInWithAppleNative(): Promise<{ error?: Error | null }>
   }
   try {
     await ensureInitialized();
-    // Generate a nonce per-request — Supabase requires it for Apple to
-    // prevent token replay. The plugin SHA-256s it for Apple under the
-    // hood; we send the raw nonce to Supabase.
-    const nonce = generateNonce();
+    const rawNonce = generateNonce();
+    const hashedNonce = await sha256Hex(rawNonce);
     const res = await SocialLogin.login({
       provider: "apple",
       options: {
         scopes: ["email", "name"],
-        nonce,
+        nonce: hashedNonce,
       },
     });
     const idToken = (res as any)?.result?.idToken as string | undefined;
@@ -145,7 +158,7 @@ export async function signInWithAppleNative(): Promise<{ error?: Error | null }>
     const { error } = await supabase.auth.signInWithIdToken({
       provider: "apple",
       token: idToken,
-      nonce,
+      nonce: rawNonce,
     });
     return { error: error ?? null };
   } catch (e) {
@@ -153,10 +166,7 @@ export async function signInWithAppleNative(): Promise<{ error?: Error | null }>
   }
 }
 
-/**
- * Random URL-safe nonce. Apple requires us to hash it before passing to
- * the SDK; the SDK does that internally so here we just need entropy.
- */
+/** Random URL-safe nonce — input to SHA-256, kept raw to hand to Supabase. */
 function generateNonce(length = 32): string {
   const bytes = new Uint8Array(length);
   crypto.getRandomValues(bytes);
@@ -164,4 +174,13 @@ function generateNonce(length = 32): string {
   let out = "";
   for (const b of bytes) out += charset[b % charset.length];
   return out;
+}
+
+/** SHA-256 → lowercase hex. Used to satisfy Apple's nonce-in-id_token contract. */
+async function sha256Hex(input: string): Promise<string> {
+  const buf = new TextEncoder().encode(input);
+  const hashBuf = await crypto.subtle.digest("SHA-256", buf);
+  return Array.from(new Uint8Array(hashBuf))
+    .map((b) => b.toString(16).padStart(2, "0"))
+    .join("");
 }
