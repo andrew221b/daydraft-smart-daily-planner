@@ -210,7 +210,13 @@ export function HomeTrackerHero({ onOpenDetails }: { onOpenDetails: () => void }
   return (
     <section
       data-tour="hero-tracker"
-      className={`relative overflow-hidden rounded-[28px] hero-glass border px-5 pt-6 pb-5 transition-[border-color,background-color,box-shadow,transform] duration-500 ease-out ${
+      // `shrink-0` is critical here: this section sits inside Home's flex
+      // column inside Shell's scrollable <main>. Without it, the column's
+      // implicit shrink behaviour squeezes this card when the expanded
+      // Rate & Billing form pushes its natural height up — and combined
+      // with the `overflow-hidden` we need for the rotating conic-gradient
+      // sweep clip, the form's inputs get visually cut off.
+      className={`relative shrink-0 overflow-hidden rounded-[28px] hero-glass border px-5 pt-6 pb-5 transition-[border-color,background-color,box-shadow,transform] duration-500 ease-out ${
         active
           ? "tracker-hero-clock border-[color-mix(in_srgb,var(--hero-accent)_45%,hsl(var(--border)/0.5))]"
           : "border-border/35"
