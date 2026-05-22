@@ -1,4 +1,9 @@
-@import url('https://fonts.googleapis.com/css2?family=Outfit:wght@400;500;600;700&display=swap');
+/*
+ * Outfit (Google Fonts) removed — `font-display` / `font-display`
+ * Tailwind utilities cascade through to SF Pro Display via the
+ * font-family stacks below. This saves a synchronous Google Fonts
+ * CSS fetch at cold start (was render-blocking the entire app boot).
+ */
 
 @tailwind base;
 @tailwind components;

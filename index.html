@@ -9,9 +9,16 @@
     <meta name="description" content="Turn raw lists into focused, intelligent daily schedules. DayDraft drafts your day with AI." />
     <meta name="author" content="DayDraft" />
     <meta name="theme-color" content="#0F1115" />
-    <link rel="preconnect" href="https://fonts.googleapis.com" />
-    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
-    <link href="https://fonts.googleapis.com/css2?family=Sora:wght@500;600;700&family=Manrope:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet" />
+    <!--
+      Google Fonts removed deliberately. The font-family stacks across the
+      app already prefer `-apple-system` / "SF Pro Display" / "SF Mono"
+      (see src/index.css) — these are pre-loaded on every iOS device and
+      look more native than the previous Google substitutes (Sora,
+      Manrope, JetBrains Mono, Outfit). Dropping the synchronous CDN
+      `<link>` shaves a network round-trip off cold start, which on
+      flaky connections / first-launch-after-install was a measurable
+      chunk of the perceived "black screen" delay.
+    -->
     <link rel="manifest" href="/manifest.json" />
     <link rel="apple-touch-icon" href="/icons/icon-192.png" />
     <meta name="apple-mobile-web-app-capable" content="yes" />
@@ -28,20 +35,45 @@
     <meta name="twitter:image" content="https://lovable.dev/opengraph-image-p98pqg.png" />
 
     <!--
-      Pre-paint background. Matches the iOS LaunchScreen.storyboard's
-      systemBackgroundColor: white in light mode, near-black in dark
-      mode. Without this, the brief gap between the native splash
-      fading out and React's first paint shows the browser's default
-      white background — which flashes against a dark-mode app.
+      Boot-time visuals.
+      • Pre-paint background matches the iOS LaunchScreen.storyboard's
+        systemBackgroundColor (light: #f2f2f7, dark: #0f1115) so the
+        gap between native splash and React first paint never flashes
+        white against a dark-mode app.
+      • A centered "DayDraft" wordmark mirrors the UILabel in the
+        launch storyboard exactly — same position, same font, same
+        size, same color. When React mounts it adds `app-ready` to
+        the <body> and the wordmark fades out over 220 ms while the
+        real UI fades in underneath. The user sees one continuous
+        wordmark from icon-tap to authenticated screen.
     -->
     <style>
       :root { color-scheme: light dark; background-color: #f2f2f7; }
       @media (prefers-color-scheme: dark) { :root { background-color: #0f1115; } }
       html, body, #root { background-color: inherit; }
+      #boot-wordmark {
+        position: fixed;
+        inset: 0;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        font-family: -apple-system, BlinkMacSystemFont, "SF Pro Display", system-ui, sans-serif;
+        font-size: 32px;
+        font-weight: 600;
+        letter-spacing: -0.02em;
+        color: #000;
+        background-color: inherit;
+        z-index: 9999;
+        pointer-events: none;
+        transition: opacity 220ms cubic-bezier(0.22, 1, 0.36, 1);
+      }
+      @media (prefers-color-scheme: dark) { #boot-wordmark { color: #fff; } }
+      body.app-ready #boot-wordmark { opacity: 0; }
     </style>
   </head>
 
   <body>
+    <div id="boot-wordmark" aria-hidden="true">DayDraft</div>
     <div id="root"></div>
     <script type="module" src="/src/main.tsx"></script>
   </body>
