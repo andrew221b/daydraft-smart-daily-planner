@@ -274,7 +274,7 @@ export function HomeTrackerHero({ onOpenDetails }: { onOpenDetails: () => void }
                 <button
                   type="button"
                   onClick={() => openCategoryPicker()}
-                  className="mt-2 inline-flex items-center gap-1.5 rounded-full border border-border/45 bg-background/45 px-4 py-2 text-[12px] font-semibold text-secondary-fg/90 pressable hover:text-foreground"
+                  className="mt-2 inline-flex items-center gap-1.5 rounded-full border border-border/60 bg-foreground/[0.04] px-4 py-2 text-[12px] font-semibold text-foreground/80 pressable hover:text-foreground hover:bg-foreground/[0.07]"
                 >
                   Switch category
                   <ChevronDown className="h-3 w-3" />
@@ -320,10 +320,15 @@ export function HomeTrackerHero({ onOpenDetails }: { onOpenDetails: () => void }
                 key={c.id}
                 type="button"
                 onClick={() => { haptics.selection(); setSelectedCategoryId(c.id); }}
+                // Selected uses *tinted text on tinted bg* (the iOS pattern)
+                // — `text-primary-foreground` is white, which vanishes on the
+                // 12%-blue tint in light mode. Unselected uses a foreground
+                // tint instead of `bg-white/*` so the chip is visible on a
+                // white surface.
                 className={`shrink-0 inline-flex items-center gap-1.5 rounded-full border py-1.5 pl-2 pr-3 text-[12px] font-medium transition-colors pressable ${
                   selectedCategoryId === c.id
-                    ? "border-primary/50 bg-primary/12 text-primary-foreground ring-[1.5px] ring-primary/20"
-                    : "border-border/35 bg-white/[0.04] dark:bg-white/[0.05] text-foreground/80 hover:bg-white/[0.08]"
+                    ? "border-primary/50 bg-primary/[0.12] text-primary ring-[1.5px] ring-primary/20"
+                    : "border-border/50 bg-foreground/[0.04] text-foreground/85 hover:bg-foreground/[0.07]"
                 }`}
               >
                 <span className="h-1.5 w-1.5 rounded-full" style={{ background: c.color }} />
@@ -334,7 +339,7 @@ export function HomeTrackerHero({ onOpenDetails }: { onOpenDetails: () => void }
               <button
                 type="button"
                 onClick={() => openCategoryPicker()}
-                className="shrink-0 inline-flex items-center gap-1 rounded-full border border-border/40 bg-background/40 py-1.5 px-2.5 text-[12px] font-medium text-secondary-fg/85 hover:text-foreground pressable"
+                className="shrink-0 inline-flex items-center gap-1 rounded-full border border-border/55 bg-foreground/[0.04] py-1.5 px-2.5 text-[12px] font-medium text-foreground/75 hover:text-foreground hover:bg-foreground/[0.07] pressable"
               >
                 <ChevronDown className="h-3 w-3" />
                 More
@@ -343,7 +348,7 @@ export function HomeTrackerHero({ onOpenDetails }: { onOpenDetails: () => void }
             <button
               type="button"
               onClick={() => openCategoryPicker({ focusAdd: true })}
-              className="shrink-0 inline-flex items-center gap-1 rounded-full border border-dashed border-border/40 bg-transparent py-1.5 px-2.5 text-[12px] font-medium text-secondary-fg/80 hover:text-foreground pressable"
+              className="shrink-0 inline-flex items-center gap-1 rounded-full border border-dashed border-border/60 bg-transparent py-1.5 px-2.5 text-[12px] font-medium text-foreground/70 hover:text-foreground pressable"
             >
               <Plus className="h-3 w-3" />
               New

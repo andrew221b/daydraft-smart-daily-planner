@@ -73,32 +73,36 @@ body.dd-dnd-scroll-lock {
     --hero-glass-saturate: 1.6;
   }
 
-  /* Light mode — premium "paper" palette with measurable elevation steps. */
+  /* Light mode — premium "paper" palette tuned to iOS systemBackground /
+   * systemFill tokens. The colour values here are deliberately
+   * conservative; the visual richness comes from precise elevation steps
+   * (shadow-card / shadow-elevated) and hairline borders, not from
+   * vibrant hues. */
   :root.light {
-    --background: 210 20% 97.5%;          /* Soft clean off-white F4F6F8 */
-    --foreground: 0 0% 0%;              /* iOS Label */
-    --surface: 0 0% 100%;               /* #FFFFFF */
+    --background: 240 12% 97.6%;          /* iOS systemGroupedBackground #F2F2F7 */
+    --foreground: 0 0% 6%;                /* iOS label — slightly off-black for less retinal punch */
+    --surface: 0 0% 100%;                 /* iOS systemBackground */
     --surface-elevated: 0 0% 100%;
     --card: 0 0% 100%;
-    --card-foreground: 0 0% 0%;
+    --card-foreground: 0 0% 6%;
     --popover: 0 0% 100%;
-    --popover-foreground: 0 0% 0%;
-    --primary: 211 100% 50%;            /* Apple System Blue #007AFF */
+    --popover-foreground: 0 0% 6%;
+    --primary: 211 100% 50%;              /* Apple System Blue #007AFF */
     --primary-foreground: 0 0% 100%;
-    --primary-glow: 253 100% 58%;       /* Apple System Indigo #5856D6 */
-    --secondary: 210 20% 95%;
-    --secondary-foreground: 224 30% 18%;
-    --muted: 210 18% 94%;
-    --muted-foreground: 222 18% 34%;    /* secondary text ≥ 6.8:1 on bg */
-    --accent: 200 96% 38%;
+    --primary-glow: 253 100% 58%;         /* Apple System Indigo #5856D6 */
+    --secondary: 240 12% 95%;             /* iOS secondarySystemBackground */
+    --secondary-foreground: 240 6% 10%;
+    --muted: 240 11% 94%;
+    --muted-foreground: 240 6% 38%;       /* iOS secondaryLabel — passes WCAG AA on white */
+    --accent: 211 100% 50%;
     --accent-foreground: 0 0% 100%;
-    --success: 156 64% 30%;
+    --success: 145 63% 32%;               /* iOS systemGreen, AA on white */
     --success-foreground: 0 0% 100%;
-    --destructive: 3 78% 44%;
+    --destructive: 4 89% 50%;             /* iOS systemRed */
     --destructive-foreground: 0 0% 100%;
-    --border: 210 18% 91%;              /* clean, soft hairline */
-    --input: 210 18% 91%;
-    --ring: 200 96% 38%;
+    --border: 240 6% 88%;                 /* iOS separator — hairline on white */
+    --input: 240 6% 88%;
+    --ring: 211 100% 50%;
     --type-deep: 200 96% 38%;
     --type-comm: 24 84% 42%;
     --type-routine: 230 22% 40%;
@@ -772,6 +776,129 @@ body.dd-dnd-scroll-lock {
   }
   :root.light .border-accent {
     border-color: hsl(var(--primary) / 0.38);
+  }
+
+  /*
+   * ─── Light-mode contrast rescues ────────────────────────────────────
+   *
+   * The codebase was written dark-first, so subtle surface patterns like
+   * `bg-background/30` or `bg-white/[0.04]` are invisible on a white page.
+   * Rather than refactor every call site, we re-target those Tailwind
+   * arbitrary classes in light mode to use a *foreground* tint that
+   * actually shows up — matching the iOS UIKit pattern where secondary
+   * grouped backgrounds sit at 4–8% black on white.
+   *
+   * The classes here are arbitrary Tailwind utilities, so `\/` escapes
+   * are needed in the selector to match the `/` in the class name.
+   */
+  :root.light .bg-background\/30,
+  :root.light .bg-background\/35,
+  :root.light .bg-background\/40,
+  :root.light .bg-background\/45,
+  :root.light .bg-background\/50 {
+    background-color: hsl(var(--foreground) / 0.04) !important;
+  }
+  :root.light .bg-background\/55,
+  :root.light .bg-background\/60,
+  :root.light .bg-background\/70,
+  :root.light .bg-background\/78,
+  :root.light .bg-background\/80,
+  :root.light .bg-background\/88,
+  :root.light .bg-background\/95 {
+    background-color: hsl(var(--surface)) !important;
+  }
+  :root.light .bg-card\/30,
+  :root.light .bg-card\/35,
+  :root.light .bg-card\/40,
+  :root.light .bg-card\/50,
+  :root.light .bg-card\/60 {
+    background-color: hsl(var(--foreground) / 0.03) !important;
+  }
+  :root.light .bg-card\/70,
+  :root.light .bg-card\/80,
+  :root.light .bg-card\/90 {
+    background-color: hsl(var(--surface)) !important;
+  }
+  /*
+   * `bg-white/[0.04]` etc. read as "1px more than nothing" on dark, but as
+   * literal white-on-white in light. Swap for the same foreground tint.
+   */
+  :root.light .bg-white\/\[0\.04\],
+  :root.light .bg-white\/\[0\.05\],
+  :root.light .bg-white\/\[0\.06\],
+  :root.light .bg-white\/\[0\.08\],
+  :root.light .bg-white\/\[0\.10\] {
+    background-color: hsl(var(--foreground) / 0.05) !important;
+  }
+  :root.light .bg-white\/\[0\.12\],
+  :root.light .bg-white\/\[0\.14\],
+  :root.light .bg-white\/\[0\.16\] {
+    background-color: hsl(var(--foreground) / 0.08) !important;
+  }
+
+  /*
+   * `text-primary-foreground` is *white* in both themes. That's correct on
+   * a solid `bg-primary` button, but breaks on faint tints like
+   * `bg-primary/8` / `bg-primary/12`. In light mode, re-anchor any
+   * `text-primary-foreground` sitting on a transparent-ish primary tint to
+   * the primary blue itself — which is the iOS "filled tinted button"
+   * convention (tinted bg + tinted label).
+   *
+   * Component-level fixes are still preferred for new code, but this
+   * catches the legacy call sites we haven't audited yet.
+   */
+  :root.light .bg-primary\/8.text-primary-foreground,
+  :root.light .bg-primary\/10.text-primary-foreground,
+  :root.light .bg-primary\/12.text-primary-foreground,
+  :root.light .bg-primary\/\[0\.08\].text-primary-foreground,
+  :root.light .bg-primary\/\[0\.10\].text-primary-foreground,
+  :root.light .bg-primary\/\[0\.12\].text-primary-foreground,
+  :root.light .bg-primary\/8 .text-primary-foreground,
+  :root.light .bg-primary\/10 .text-primary-foreground,
+  :root.light .bg-primary\/12 .text-primary-foreground,
+  :root.light .bg-primary\/\[0\.08\] .text-primary-foreground,
+  :root.light .bg-primary\/\[0\.10\] .text-primary-foreground,
+  :root.light .bg-primary\/\[0\.12\] .text-primary-foreground {
+    color: hsl(var(--primary)) !important;
+  }
+
+  /*
+   * `text-secondary-fg/85` and friends combine an already-muted token with
+   * extra alpha — fine on dark, but it drops below WCAG AA on white. Lift
+   * the floor on every `/N` variant in light mode by reading from the
+   * solid muted-foreground (which already has the right contrast).
+   */
+  :root.light .text-secondary-fg\/80,
+  :root.light .text-secondary-fg\/85,
+  :root.light .text-secondary-fg\/90,
+  :root.light .text-secondary-fg\/95 {
+    color: hsl(var(--muted-foreground)) !important;
+  }
+  :root.light .text-secondary-fg\/70,
+  :root.light .text-secondary-fg\/75 {
+    color: hsl(var(--muted-foreground) / 0.92) !important;
+  }
+  :root.light .text-foreground\/65,
+  :root.light .text-foreground\/70,
+  :root.light .text-foreground\/75,
+  :root.light .text-foreground\/80,
+  :root.light .text-foreground\/85 {
+    color: hsl(var(--foreground) / 0.86) !important;
+  }
+  :root.light .text-foreground\/90,
+  :root.light .text-foreground\/95 {
+    color: hsl(var(--foreground)) !important;
+  }
+
+  /*
+   * iOS-style hairline divider — 0.5px on retina, crisp on white. Used by
+   * .calm-divider and any `border-t border-border/N` row in light mode.
+   */
+  :root.light .border-border\/30,
+  :root.light .border-border\/35,
+  :root.light .border-border\/40,
+  :root.light .border-border\/45 {
+    border-color: hsl(var(--border)) !important;
   }
 
   /** Ambient layers behind the app column (Shell) */
