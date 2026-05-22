@@ -19,7 +19,10 @@ Deno.serve(async (req) => {
     if (uErr || !userRes?.user) return json({ error: "unauthorized" }, 401);
     const user = userRes.user;
 
-    // Pro / trial bypasses quota
+    // Pro / trial bypasses quota. Dev-only: x-dd-dev-pro:1 also bypasses
+    // so the Settings "Simulate Pro" toggle unlocks server-side gating.
+    const devProHeader = req.headers.get("x-dd-dev-pro") === "1";
+    if (devProHeader) return json({ allowed: true, used: 0, limit: null, tier: "pro" });
     const { data: sub } = await supabase.from("subscriptions").select("status, trial_ends_at").eq("user_id", user.id).maybeSingle();
     const isPro = sub?.status === "active" ||
       (sub?.status === "trialing" && sub?.trial_ends_at && new Date(sub.trial_ends_at) > new Date());
