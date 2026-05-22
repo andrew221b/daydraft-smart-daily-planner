@@ -85,6 +85,18 @@ export function isNativeGoogleConfigured(): boolean {
 /**
  * Native Google sign-in. Returns the Supabase session result (same shape
  * as `supabase.auth.signInWithIdToken`).
+ *
+ * Nonce protocol — same as Apple (see `signInWithAppleNative` for the
+ * detailed explanation). Modern `GoogleSignIn` iOS SDK ALSO includes a
+ * `nonce` claim in the id_token even when one isn't requested explicitly
+ * — and Supabase, when it sees a nonce in the id_token, *requires* a
+ * matching `nonce` param on the request. Otherwise:
+ *   "passed nonce and nonce in id_token should either both exist or not"
+ *
+ * The fix: hand the plugin a SHA-256 hash of our raw nonce; the plugin
+ * forwards it to Google, Google embeds it verbatim in the id_token's
+ * nonce claim. Then we pass the raw nonce to Supabase, Supabase hashes
+ * it server-side and the two hashes match.
  */
 export async function signInWithGoogleNative(): Promise<{ error?: Error | null }> {
   if (!Capacitor.isNativePlatform()) {
@@ -95,11 +107,14 @@ export async function signInWithGoogleNative(): Promise<{ error?: Error | null }
   }
   try {
     await ensureInitialized();
+    const rawNonce = generateNonce();
+    const hashedNonce = await sha256Hex(rawNonce);
     const res = await SocialLogin.login({
       provider: "google",
       options: {
         // Request the standard set so Supabase can build a profile.
         scopes: ["email", "profile"],
+        nonce: hashedNonce,
       },
     });
     // The plugin returns `{ provider: 'google', result: { idToken, accessToken, profile, ... } }`.
@@ -110,6 +125,7 @@ export async function signInWithGoogleNative(): Promise<{ error?: Error | null }
     const { error } = await supabase.auth.signInWithIdToken({
       provider: "google",
       token: idToken,
+      nonce: rawNonce,
     });
     return { error: error ?? null };
   } catch (e) {
