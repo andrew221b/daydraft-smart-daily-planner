@@ -189,8 +189,20 @@ body.dd-dnd-scroll-lock {
 
 @layer base {
   * { @apply border-border; }
-  html, body, #root { height: 100%; }
-  html { -webkit-text-size-adjust: 100%; }
+  /*
+   * Native-feeling shell. We pin html/body to the viewport and disable
+   * scroll there so the document never bounces. The Shell component puts
+   * the actual scroll on an inner `<main>` element (overflow-y: auto,
+   * overscroll-contain) so:
+   *   - the TabBar (position: fixed bottom-0) is always anchored to the
+   *     viewport, never affected by rubber-band;
+   *   - content can't scroll past natural bounds;
+   *   - elastic bounce on the scrolling region stays inside that region
+   *     and doesn't drag siblings around — UIScrollView semantics.
+   */
+  html, body, #root { height: 100%; overflow: hidden; }
+  html { -webkit-text-size-adjust: 100%; overscroll-behavior: none; }
+  body { overscroll-behavior: none; }
 
   /*
    * iOS Safari `100vh` bug — the address bar overlays the bottom 64px or so,

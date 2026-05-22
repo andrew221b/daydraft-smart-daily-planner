@@ -2,8 +2,30 @@ import { type ReactNode, type RefObject, useRef, useState } from "react";
 import { Loader2, ArrowDown } from "lucide-react";
 import { haptics } from "@/lib/haptics";
 
-const scrollTop = (scrollContainerRef?: RefObject<HTMLElement | null>) => {
+/**
+ * Find the nearest scrolling ancestor of `el`. Walks up the DOM looking
+ * for an element whose computed `overflow-y` is `auto` or `scroll` — the
+ * one that actually moves when the user drags.
+ *
+ * Needed because the Shell now scrolls inside `<main>` instead of the
+ * body, and `window.scrollY` always reports 0 there.
+ */
+const findScrollParent = (el: HTMLElement | null): HTMLElement | null => {
+  let n: HTMLElement | null = el?.parentElement ?? null;
+  while (n) {
+    const style = window.getComputedStyle(n);
+    if (/(auto|scroll)/.test(style.overflowY)) return n;
+    n = n.parentElement;
+  }
+  return null;
+};
+
+const scrollTop = (
+  scrollContainerRef?: RefObject<HTMLElement | null>,
+  autoFound?: HTMLElement | null,
+) => {
   if (scrollContainerRef?.current) return scrollContainerRef.current.scrollTop;
+  if (autoFound) return autoFound.scrollTop;
   return typeof window !== "undefined" ? window.scrollY : 0;
 };
 
@@ -25,12 +47,20 @@ export const PullToRefresh = ({
   const [refreshing, setRefreshing] = useState(false);
   const startY = useRef<number | null>(null);
   const triggered = useRef(false);
+  const rootRef = useRef<HTMLDivElement | null>(null);
+  const autoScrollParentRef = useRef<HTMLElement | null>(null);
 
   const THRESHOLD = 70;
   const MAX = 110;
 
   const onStart = (y: number) => {
-    if (scrollTop(scrollContainerRef) > 0) return;
+    // Lazily resolve the actual scroll parent on first interaction so the
+    // ref is populated by the time we read it. The DOM might not be fully
+    // mounted at component-init time on slow first paints.
+    if (!scrollContainerRef?.current && !autoScrollParentRef.current) {
+      autoScrollParentRef.current = findScrollParent(rootRef.current);
+    }
+    if (scrollTop(scrollContainerRef, autoScrollParentRef.current) > 0) return;
     startY.current = y;
     triggered.current = false;
   };
@@ -62,6 +92,7 @@ export const PullToRefresh = ({
 
   return (
     <div
+      ref={rootRef}
       className="flex min-h-0 flex-1 flex-col"
       onTouchStart={(e) => onStart(e.touches[0].clientY)}
       onTouchMove={(e) => onMove(e.touches[0].clientY)}

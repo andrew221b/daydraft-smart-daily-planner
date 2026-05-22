@@ -1,4 +1,4 @@
-import { ReactNode } from "react";
+import type { CSSProperties, ReactNode } from "react";
 import { useLocation, useNavigationType } from "react-router-dom";
 import { TabBar } from "./TabBar";
 import { TimerRescheduleSheet } from "./TimerRescheduleSheet";
@@ -38,8 +38,25 @@ export const Shell = ({
         ? "page-transition-push"
         : "page-transition-tab";
 
+  /*
+   * Native-feeling scroll model.
+   *
+   * The previous shell let the document body scroll. On Capacitor iOS,
+   * WKWebView's elastic bounce on the body makes `position: fixed`
+   * elements (TabBar, glows) appear to drift when the page rubber-bands,
+   * and lets content overscroll past natural bounds — which is why the
+   * cards "scrolled too far" and the TabBar wandered.
+   *
+   * Fix: pin the outer shell to the viewport with `fixed inset-0`,
+   * disable scroll on body / html (see CSS below), and put the actual
+   * scroll on the `<main>` element. Now:
+   *   - the TabBar sits on the SAME fixed wrapper and never moves;
+   *   - bounce is `overscroll-contain`ed inside main, so it can't yank
+   *     siblings around;
+   *   - content stops where it should, like a UIScrollView in UIKit.
+   */
   return (
-    <div className="min-h-screen w-full bg-background flex justify-center">
+    <div className="fixed inset-0 w-full bg-background flex justify-center overflow-hidden">
       <div
         className="pointer-events-none fixed inset-x-0 top-0 h-[min(220px,38vh)] z-0 shell-glow-top shell-glow-breathe"
         aria-hidden
@@ -48,14 +65,15 @@ export const Shell = ({
         className="pointer-events-none fixed inset-x-0 bottom-0 h-[min(300px,42vh)] z-0 shell-glow-floor shell-glow-breathe"
         aria-hidden
       />
-      <div className="relative z-10 w-full max-w-[440px] min-h-screen flex flex-col px-1.5">
+      <div className="relative z-10 w-full max-w-[440px] h-full flex flex-col px-1.5">
         <div
           className="pointer-events-none absolute inset-x-0 top-2 h-32 rounded-[24px] opacity-55"
           style={{ background: "radial-gradient(70% 70% at 50% 0%, hsl(var(--primary) / 0.11), transparent 72%)" }}
           aria-hidden
         />
         <main
-          className={`flex min-h-0 flex-1 flex-col ${hideTabBar ? "" : "pb-32"} ${pageTransitionClass}`}
+          className={`flex-1 min-h-0 overflow-y-auto overscroll-contain flex flex-col ${hideTabBar ? "" : "pb-32"} ${pageTransitionClass}`}
+          style={{ WebkitOverflowScrolling: "touch" } as CSSProperties}
         >
           {children}
         </main>

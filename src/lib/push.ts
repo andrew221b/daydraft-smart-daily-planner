@@ -1,4 +1,5 @@
 import { supabase } from "@/integrations/supabase/client";
+import { Capacitor } from "@capacitor/core";
 
 export const PUBLIC_VAPID_KEY = import.meta.env.VITE_VAPID_PUBLIC_KEY as string | undefined;
 
@@ -10,21 +11,31 @@ export const pushSupported = () =>
  * next step instead of a dead-end "not supported" message.
  *
  * Returns:
- *   - "ok"            — push is wired up and ready to enable
- *   - "needs-install" — iOS Safari, needs to install as PWA before web push works
- *   - "in-app-browser"— inside an embedded WebView (lovable.dev preview, social apps)
+ *   - "ok"               — web push is wired up and ready to enable
+ *   - "needs-install"    — iOS Safari, needs to install as PWA before web push works
+ *   - "in-app-browser"   — inside an embedded WebView (lovable.dev preview, social apps)
  *   - "browser-no-support" — browser genuinely doesn't expose PushManager / SW
- *   - "not-configured" — PushManager is there but the VAPID key isn't wired
+ *   - "not-configured"   — PushManager is there but the VAPID key isn't wired
+ *   - "native-not-wired" — running inside the Capacitor native iOS / Android app,
+ *                          but we haven't installed @capacitor/push-notifications yet.
+ *                          The native channel uses APNs / FCM, not Web Push.
  */
 export type PushAvailability =
   | "ok"
   | "needs-install"
   | "in-app-browser"
   | "browser-no-support"
-  | "not-configured";
+  | "not-configured"
+  | "native-not-wired";
 
 export const pushAvailability = (): PushAvailability => {
   if (typeof window === "undefined") return "browser-no-support";
+  // Capacitor native runs inside a WKWebView that does NOT expose `PushManager`
+  // — that's the web-only API. Native push needs `@capacitor/push-notifications`
+  // talking to APNs (iOS) / FCM (Android), which isn't installed yet. Showing
+  // the "Add to Home Screen" copy here would be nonsense (the user already
+  // installed the native app).
+  if (Capacitor.isNativePlatform()) return "native-not-wired";
   const ua = navigator.userAgent || "";
   const isIos = /iPad|iPhone|iPod/.test(ua);
   // iOS Safari requires the app to be installed to the home screen (standalone)
@@ -60,6 +71,10 @@ export const pushAvailabilityCopy: Record<PushAvailability, { title: string; bod
   "not-configured": {
     title: "Coming soon",
     body: "Push isn't wired up in this preview yet. Your reminders still fire while the app is open.",
+  },
+  "native-not-wired": {
+    title: "Coming to the iOS app soon",
+    body: "Daily nudges run over APNs on the native app — we haven't wired that channel yet. Open the web app at daydraft.app to enable nudges in the meantime.",
   },
 };
 
