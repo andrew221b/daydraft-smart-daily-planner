@@ -3,6 +3,7 @@ import { keepPreviousData, useQuery, useQueryClient } from "@tanstack/react-quer
 import { useLocation, useNavigate, useSearchParams } from "react-router-dom";
 import { HomeTrackerHero } from "@/components/app/HomeTrackerHero";
 import { PullToRefresh } from "@/components/app/PullToRefresh";
+import { YesterdayDebriefCard } from "@/components/app/YesterdayDebriefCard";
 import { useAuth } from "@/hooks/useAuth";
 import { useProfile } from "@/hooks/useProfile";
 import { useTour, TOUR_TODAY } from "@/components/app/Tour";
@@ -145,6 +146,11 @@ export default function Home() {
 
           {/* THE HERO — tracker */}
           <HomeTrackerHero onOpenDetails={() => nav("/reports")} />
+
+          {/* Morning look-back. Silently hides when there's no plan from
+              yesterday, when the edge function isn't deployed, or when the
+              user dismissed it for the day. */}
+          <YesterdayDebriefCard timezone={profile?.timezone} />
 
           {/* Today's plan progress */}
           {userTasks.length > 0 && (
