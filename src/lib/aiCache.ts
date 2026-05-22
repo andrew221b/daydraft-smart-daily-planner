@@ -150,6 +150,13 @@ export async function invokeAiCached<T = unknown>(
     try {
       const invokeOpts: Record<string, unknown> = { body };
       if (controller) invokeOpts.signal = controller.signal;
+      // Forward the dev "Simulate Pro" flag so edge functions bypass
+      // subscription checks in dev. No-op in prod (header is empty).
+      try {
+        const { devSimulateProHeaders } = await import("@/lib/devEntitlement");
+        const extra = devSimulateProHeaders();
+        if (Object.keys(extra).length > 0) invokeOpts.headers = extra;
+      } catch { /* ignore */ }
       const { data, error } = await supabase.functions.invoke(name, invokeOpts as { body: unknown });
       if (error) return { data: null, error };
       if (data != null) {
