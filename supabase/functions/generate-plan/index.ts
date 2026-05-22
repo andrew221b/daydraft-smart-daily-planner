@@ -197,8 +197,19 @@ serve(async (req) => {
           pattern = p;
           // Pro: pull today's calendar events if connected
           const { data: sub } = await supabase.from("subscriptions").select("status").eq("user_id", u.user.id).maybeSingle();
-          const isPro = sub?.status === "active" || sub?.status === "trialing";
-          tier = sub?.status === "active" ? "pro" : sub?.status === "trialing" ? "trial" : "free";
+          // Dev-only override: when the client sends x-dd-dev-pro:1 (toggled
+          // via Settings → "Simulate Pro"), treat the user as Pro so the
+          // server-side gates match the UI. This is an explicit dev escape
+          // hatch; the toggle in the app is gated by isSimulateProUiAllowed().
+          const devProHeader = req.headers.get("x-dd-dev-pro") === "1";
+          const isPro = devProHeader || sub?.status === "active" || sub?.status === "trialing";
+          tier = devProHeader
+            ? "pro"
+            : sub?.status === "active"
+              ? "pro"
+              : sub?.status === "trialing"
+                ? "trial"
+                : "free";
           const { data: tok } = await supabase.from("calendar_tokens").select("user_id").eq("user_id", u.user.id).maybeSingle();
           if (isPro && tok) {
             const ev = await fetch(`${Deno.env.get("SUPABASE_URL")}/functions/v1/fetch-calendar-events`, {
