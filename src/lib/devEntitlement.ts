@@ -26,3 +26,18 @@ export function writeDevSimulatePro(enabled: boolean): void {
   }
   window.dispatchEvent(new CustomEvent("dd-dev-simulate-pro"));
 }
+
+/**
+ * Returns headers to attach to edge-function calls so the server treats the
+ * caller as Pro when "Simulate Pro" is on in dev. Edge functions
+ * (generate-plan, check-plan-quota, micro-reschedule-options, …) read the
+ * `x-dd-dev-pro` header and, when present, bypass subscription gating.
+ *
+ * This is intentionally trusted unconditionally on the server — it's a
+ * dev-only escape hatch. The UI to enable it is gated by
+ * `isSimulateProUiAllowed()` so production builds don't expose the toggle.
+ */
+export function devSimulateProHeaders(): Record<string, string> {
+  if (!isSimulateProUiAllowed()) return {};
+  return readDevSimulatePro() ? { "x-dd-dev-pro": "1" } : {};
+}
