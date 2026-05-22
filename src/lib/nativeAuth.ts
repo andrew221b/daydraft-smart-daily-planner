@@ -112,27 +112,43 @@ export async function signInWithGoogleNative(): Promise<{ error?: Error | null }
   }
   try {
     await ensureInitialized();
-    const rawNonce = generateNonce();
-    const hashedNonce = await sha256Base64Url(rawNonce);
-    console.info("[nativeAuth] Google: calling SocialLogin.login", {
-      rawNonceLen: rawNonce.length,
-      hashedNoncePreview: hashedNonce.slice(0, 12) + "…",
-    });
+    /**
+     * No nonce in this flow — intentional.
+     *
+     * GoogleSignIn-iOS 9.x uses OAuth code flow internally
+     * (`OIDResponseTypeCode` in GIDSignIn.m). Google's token endpoint
+     * does NOT echo the authorization-request nonce back into the
+     * resulting id_token under code flow — so whatever we send via the
+     * SDK's `nonce:` parameter is silently dropped. Empirically
+     * confirmed: even with a SHA-256/base64url hashed nonce, the
+     * returned id_token has no `nonce` claim (see debug log below).
+     *
+     * supabase-js's client-side check is
+     * `Boolean(nonceParam) === Boolean(idToken.nonce)` — so the safe
+     * configuration is "neither side has a nonce". We give up nonce-
+     * based replay protection for this provider; the rest of OIDC
+     * code-flow security (PKCE, audience verification, signature
+     * verification of the id_token via Google's JWKS) is unaffected.
+     *
+     * If Google fixes nonce round-tripping in a future OIDC flow, the
+     * branch below re-adds nonce when the returned token actually
+     * contains one.
+     */
+    console.info("[nativeAuth] Google: calling SocialLogin.login");
     const res = await SocialLogin.login({
       provider: "google",
       options: {
         // Request the standard set so Supabase can build a profile.
         scopes: ["email", "profile"],
-        nonce: hashedNonce,
       },
     });
     const idToken = (res as any)?.result?.idToken as string | undefined;
     const claims = idToken ? decodeJwtPayload(idToken) : null;
+    const tokenNonce = typeof claims?.nonce === "string" ? (claims.nonce as string) : undefined;
     console.info("[nativeAuth] Google: plugin returned", {
       hasIdToken: !!idToken,
       tokenAud: claims?.aud,
-      tokenNoncePresent: !!claims?.nonce,
-      tokenNoncePreview: typeof claims?.nonce === "string" ? (claims.nonce as string).slice(0, 12) + "…" : null,
+      tokenNoncePresent: !!tokenNonce,
     });
     if (!idToken) {
       return { error: new Error("Google sign-in didn't return an ID token") };
@@ -140,7 +156,11 @@ export async function signInWithGoogleNative(): Promise<{ error?: Error | null }
     const { error } = await supabase.auth.signInWithIdToken({
       provider: "google",
       token: idToken,
-      nonce: rawNonce,
+      // Only forward a nonce if the token actually has one. The current
+      // GoogleSignIn 9.x code flow does NOT include one, so this branch
+      // is dormant — kept defensively in case the SDK starts populating
+      // it after a future Google change.
+      ...(tokenNonce ? { nonce: tokenNonce } : {}),
     });
     if (error) console.error("[nativeAuth] Google: signInWithIdToken error", error);
     else console.info("[nativeAuth] Google: signInWithIdToken ok");
