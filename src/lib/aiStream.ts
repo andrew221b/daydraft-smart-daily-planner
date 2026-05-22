@@ -1,5 +1,6 @@
 import { supabase } from "@/integrations/supabase/client";
 import { recordAiCall } from "@/lib/perfMonitor";
+import { devSimulateProHeaders } from "@/lib/devEntitlement";
 
 /**
  * Streaming wrapper for Supabase Edge Functions.
@@ -62,6 +63,9 @@ export async function streamAi<TBlock = any, TFinal = any>(
     accept: "application/x-ndjson, application/json",
   };
   if (auth) headers.Authorization = auth;
+  // Dev-only: forward Simulate Pro flag so the edge function bypasses
+  // subscription checks. Empty in production.
+  Object.assign(headers, devSimulateProHeaders());
 
   const started = typeof performance !== "undefined" ? performance.now() : Date.now();
   let response: Response;
