@@ -113,8 +113,11 @@ export async function signInWithGoogleNative(): Promise<{ error?: Error | null }
   try {
     await ensureInitialized();
     const rawNonce = generateNonce();
-    const hashedNonce = await sha256Hex(rawNonce);
-    console.info("[nativeAuth] Google: calling SocialLogin.login");
+    const hashedNonce = await sha256Base64Url(rawNonce);
+    console.info("[nativeAuth] Google: calling SocialLogin.login", {
+      rawNonceLen: rawNonce.length,
+      hashedNoncePreview: hashedNonce.slice(0, 12) + "…",
+    });
     const res = await SocialLogin.login({
       provider: "google",
       options: {
@@ -123,11 +126,14 @@ export async function signInWithGoogleNative(): Promise<{ error?: Error | null }
         nonce: hashedNonce,
       },
     });
-    console.info("[nativeAuth] Google: plugin returned", {
-      hasIdToken: !!(res as any)?.result?.idToken,
-      keys: res && typeof res === "object" ? Object.keys(res as object) : [],
-    });
     const idToken = (res as any)?.result?.idToken as string | undefined;
+    const claims = idToken ? decodeJwtPayload(idToken) : null;
+    console.info("[nativeAuth] Google: plugin returned", {
+      hasIdToken: !!idToken,
+      tokenAud: claims?.aud,
+      tokenNoncePresent: !!claims?.nonce,
+      tokenNoncePreview: typeof claims?.nonce === "string" ? (claims.nonce as string).slice(0, 12) + "…" : null,
+    });
     if (!idToken) {
       return { error: new Error("Google sign-in didn't return an ID token") };
     }
@@ -171,8 +177,11 @@ export async function signInWithAppleNative(): Promise<{ error?: Error | null }>
   try {
     await ensureInitialized();
     const rawNonce = generateNonce();
-    const hashedNonce = await sha256Hex(rawNonce);
-    console.info("[nativeAuth] Apple: calling SocialLogin.login");
+    const hashedNonce = await sha256Base64Url(rawNonce);
+    console.info("[nativeAuth] Apple: calling SocialLogin.login", {
+      rawNonceLen: rawNonce.length,
+      hashedNoncePreview: hashedNonce.slice(0, 12) + "…",
+    });
     const res = await SocialLogin.login({
       provider: "apple",
       options: {
@@ -180,11 +189,14 @@ export async function signInWithAppleNative(): Promise<{ error?: Error | null }>
         nonce: hashedNonce,
       },
     });
-    console.info("[nativeAuth] Apple: plugin returned", {
-      hasIdToken: !!(res as any)?.result?.idToken,
-      keys: res && typeof res === "object" ? Object.keys(res as object) : [],
-    });
     const idToken = (res as any)?.result?.idToken as string | undefined;
+    const claims = idToken ? decodeJwtPayload(idToken) : null;
+    console.info("[nativeAuth] Apple: plugin returned", {
+      hasIdToken: !!idToken,
+      tokenAud: claims?.aud,
+      tokenNoncePresent: !!claims?.nonce,
+      tokenNoncePreview: typeof claims?.nonce === "string" ? (claims.nonce as string).slice(0, 12) + "…" : null,
+    });
     if (!idToken) {
       return { error: new Error("Apple sign-in didn't return an ID token") };
     }
@@ -212,11 +224,43 @@ function generateNonce(length = 32): string {
   return out;
 }
 
-/** SHA-256 → lowercase hex. Used to satisfy Apple's nonce-in-id_token contract. */
-async function sha256Hex(input: string): Promise<string> {
+/**
+ * SHA-256 → URL-safe base64 (no padding).
+ *
+ * Google's OAuth endpoint docs require the nonce to be a "URL-safe base64-
+ * encoded SHA-256 hash of a random string" — if you send a different format
+ * (e.g. lowercase hex) Google's server silently rejects it, returning an
+ * id_token with NO nonce claim. supabase-js then throws "passed nonce and
+ * nonce in id_token should either both exist or not" because we sent a
+ * nonce but the id_token has none.
+ *
+ * Apple's auth server also accepts (and round-trips) this format, so using
+ * it for both providers keeps the protocol uniform.
+ */
+async function sha256Base64Url(input: string): Promise<string> {
   const buf = new TextEncoder().encode(input);
   const hashBuf = await crypto.subtle.digest("SHA-256", buf);
-  return Array.from(new Uint8Array(hashBuf))
-    .map((b) => b.toString(16).padStart(2, "0"))
-    .join("");
+  // bytes → base64 → URL-safe → strip "=" padding
+  let bin = "";
+  const bytes = new Uint8Array(hashBuf);
+  for (let i = 0; i < bytes.length; i++) bin += String.fromCharCode(bytes[i]);
+  return btoa(bin).replace(/\+/g, "-").replace(/\//g, "_").replace(/=+$/, "");
+}
+
+/**
+ * Best-effort decode of a JWT's payload claims. Returns `null` on any parse
+ * failure — used purely for debug logging to confirm what's in the
+ * provider-issued token before handing it to Supabase.
+ */
+function decodeJwtPayload(token: string): Record<string, unknown> | null {
+  try {
+    const parts = token.split(".");
+    if (parts.length !== 3) return null;
+    // base64url → base64
+    let payload = parts[1].replace(/-/g, "+").replace(/_/g, "/");
+    while (payload.length % 4) payload += "=";
+    return JSON.parse(atob(payload));
+  } catch {
+    return null;
+  }
 }
