@@ -47,5 +47,21 @@
 	</array>
 	<key>UIViewControllerBasedStatusBarAppearance</key>
 	<true/>
+	<!--
+	  Google sign-in URL scheme. Replace `com.googleusercontent.apps.REPLACE_ME`
+	  with the reversed iOS Client ID from Google Cloud Console:
+	    APIs & Services → Credentials → iOS OAuth Client → iOS URL scheme.
+	  Leave the placeholder in place if you're not using Google sign-in yet
+	  — the app boots fine without it.
+	-->
+	<key>CFBundleURLTypes</key>
+	<array>
+		<dict>
+			<key>CFBundleURLSchemes</key>
+			<array>
+				<string>com.googleusercontent.apps.REPLACE_WITH_REVERSED_IOS_CLIENT_ID</string>
+			</array>
+		</dict>
+	</array>
 </dict>
 </plist>

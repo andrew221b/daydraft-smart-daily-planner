@@ -1,6 +1,12 @@
 import { forwardRef, useEffect, useState } from "react";
 import { supabase } from "@/integrations/supabase/client";
 import { lovable } from "@/integrations/lovable";
+import {
+  isNativeAuthAvailable,
+  isNativeGoogleConfigured,
+  signInWithAppleNative,
+  signInWithGoogleNative,
+} from "@/lib/nativeAuth";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { PageFallback } from "@/components/app/PageFallback";
@@ -96,18 +102,24 @@ export default function Auth() {
     }
   };
 
-  // Lovable's OAuth broker (oauth.lovable.app) refuses to round-trip when the
-  // calling origin isn't a real app host — e.g. when this page is loaded
-  // inside the Lovable IDE preview where `window.location.origin` is the
-  // bare `https://lovable.dev`. The user-facing symptoms were:
-  //   1. "Authorization failed — State verification failed (invalid_request)"
-  //      on oauth.lovable.app (broker rejects the unknown origin)
-  //   2. A plain "not found" on lovable.dev/ (broker redirects back but the
-  //      target path isn't served).
-  // Block the click pre-emptively in that environment so the user gets a
-  // clear hint instead of a dead-end. The deployed app URL still works.
+  // OAuth has two distinct paths now, picked at click time:
+  //
+  //   • Web (browser): goes through the Lovable OAuth broker
+  //     (oauth.lovable.app), which redirects back to `window.location.origin`.
+  //     This is what's wired today and works for any real https origin.
+  //   • Native (Capacitor iOS/Android): uses the native sign-in sheet via
+  //     `@capgo/capacitor-social-login`, gets an identity token, and exchanges
+  //     it for a Supabase session via `signInWithIdToken`. No broker, no
+  //     redirect — fixes the "404 inside the WebView" dead-end the broker hit
+  //     when trying to round-trip to `capacitor://localhost`.
+  //
+  // The Lovable preview (`lovable.dev`) is still blocked because the broker
+  // refuses to round-trip to that host either; users there can use email +
+  // password or open the deployed app.
   const oauthBlockedReason = (() => {
     if (typeof window === "undefined") return null;
+    // Native path is fine — don't block.
+    if (isNativeAuthAvailable()) return null;
     try {
       const host = window.location.hostname;
       if (host === "lovable.dev" || host.endsWith(".lovable.dev")) {
@@ -124,11 +136,38 @@ export default function Auth() {
     }
     setBusy(true);
     try {
+      if (isNativeAuthAvailable()) {
+        // Native flow: Apple is always available on iOS; Google needs the
+        // iOS client ID env to be set. Fall through to a friendly error if
+        // not configured.
+        if (provider === "apple") {
+          const { error } = await signInWithAppleNative();
+          if (error) throw error;
+          // signInWithIdToken populates the session — useEffect navigates.
+          return;
+        }
+        if (provider === "google") {
+          if (!isNativeGoogleConfigured()) {
+            toast.error("Google sign-in isn't fully configured for this build yet — try Apple, or email & password.");
+            return;
+          }
+          const { error } = await signInWithGoogleNative();
+          if (error) throw error;
+          return;
+        }
+      }
+      // Web fallback — Lovable OAuth broker round-trip.
       const result = await lovable.auth.signInWithOAuth(provider, { redirect_uri: window.location.origin });
       if (result.error) throw result.error;
       // result.redirected handled by browser; otherwise tokens set, useEffect navigates
     } catch (err: any) {
-      toast.error(err.message || `Couldn't sign in with ${provider}`);
+      // Native "user cancelled" surfaces as an error too — swallow quietly.
+      const msg = String(err?.message || "");
+      const cancelled = /cancel|canceled|user.*aborted|user.*denied/i.test(msg);
+      if (!cancelled) {
+        toast.error(msg || `Couldn't sign in with ${provider}`);
+      }
+    } finally {
       setBusy(false);
     }
   };
