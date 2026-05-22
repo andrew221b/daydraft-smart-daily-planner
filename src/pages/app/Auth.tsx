@@ -130,6 +130,7 @@ export default function Auth() {
   })();
 
   const oauth = async (provider: "google" | "apple") => {
+    console.info(`[auth] oauth tap`, { provider, native: isNativeAuthAvailable(), blocked: oauthBlockedReason });
     if (oauthBlockedReason) {
       toast(oauthBlockedReason, { duration: 6000 });
       return;
@@ -141,8 +142,10 @@ export default function Auth() {
         // iOS client ID env to be set. Fall through to a friendly error if
         // not configured.
         if (provider === "apple") {
+          console.info("[auth] starting native Apple sign-in");
           const { error } = await signInWithAppleNative();
           if (error) throw error;
+          console.info("[auth] native Apple sign-in returned cleanly");
           // signInWithIdToken populates the session — useEffect navigates.
           return;
         }
@@ -151,8 +154,10 @@ export default function Auth() {
             toast.error("Google sign-in isn't fully configured for this build yet — try Apple, or email & password.");
             return;
           }
+          console.info("[auth] starting native Google sign-in");
           const { error } = await signInWithGoogleNative();
           if (error) throw error;
+          console.info("[auth] native Google sign-in returned cleanly");
           return;
         }
       }
@@ -161,10 +166,18 @@ export default function Auth() {
       if (result.error) throw result.error;
       // result.redirected handled by browser; otherwise tokens set, useEffect navigates
     } catch (err: any) {
-      // Native "user cancelled" surfaces as an error too — swallow quietly.
+      console.error(`[auth] ${provider} sign-in failed`, err);
+      // Detect real user-cancellation only — narrow patterns so we don't
+      // swallow legit errors like "URL canceled by system" or
+      // "user not signed in iCloud". Apple's `ASAuthorizationError.canceled`
+      // surfaces as code 1001; the @capgo plugin maps it to the strings
+      // matched below. Anything else gets surfaced to the user.
       const msg = String(err?.message || "");
-      const cancelled = /cancel|canceled|user.*aborted|user.*denied/i.test(msg);
-      if (!cancelled) {
+      const code = String(err?.code || (err as any)?.errorMessage || "");
+      const userCancelled =
+        /user.*cancell?ed|sign.?in.*cancell?ed|the operation was cancelled by the user|ASAuthorizationError.*canceled|com\.apple\.AuthenticationServices.*1001/i
+          .test(`${msg} ${code}`);
+      if (!userCancelled) {
         toast.error(msg || `Couldn't sign in with ${provider}`);
       }
     } finally {

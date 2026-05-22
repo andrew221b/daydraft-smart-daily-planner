@@ -48,6 +48,9 @@ async function ensureInitialized(): Promise<void> {
     initialized = true;
     return;
   }
+  console.info("[nativeAuth] initializing SocialLogin plugin", {
+    googleConfigured: !!GOOGLE_IOS_CLIENT_ID,
+  });
   try {
     await SocialLogin.initialize({
       google: GOOGLE_IOS_CLIENT_ID
@@ -65,11 +68,13 @@ async function ensureInitialized(): Promise<void> {
       apple: {},
     });
     initialized = true;
+    console.info("[nativeAuth] SocialLogin plugin initialized");
   } catch (e) {
     // Initialization failures are rare but possible on the simulator
     // without proper bundle configuration. Surface as a normal error to
     // the caller so the UI can fall back gracefully.
     initialized = false;
+    console.error("[nativeAuth] SocialLogin.initialize failed", e);
     throw e instanceof Error ? e : new Error(String(e));
   }
 }
@@ -109,6 +114,7 @@ export async function signInWithGoogleNative(): Promise<{ error?: Error | null }
     await ensureInitialized();
     const rawNonce = generateNonce();
     const hashedNonce = await sha256Hex(rawNonce);
+    console.info("[nativeAuth] Google: calling SocialLogin.login");
     const res = await SocialLogin.login({
       provider: "google",
       options: {
@@ -117,7 +123,10 @@ export async function signInWithGoogleNative(): Promise<{ error?: Error | null }
         nonce: hashedNonce,
       },
     });
-    // The plugin returns `{ provider: 'google', result: { idToken, accessToken, profile, ... } }`.
+    console.info("[nativeAuth] Google: plugin returned", {
+      hasIdToken: !!(res as any)?.result?.idToken,
+      keys: res && typeof res === "object" ? Object.keys(res as object) : [],
+    });
     const idToken = (res as any)?.result?.idToken as string | undefined;
     if (!idToken) {
       return { error: new Error("Google sign-in didn't return an ID token") };
@@ -127,8 +136,11 @@ export async function signInWithGoogleNative(): Promise<{ error?: Error | null }
       token: idToken,
       nonce: rawNonce,
     });
+    if (error) console.error("[nativeAuth] Google: signInWithIdToken error", error);
+    else console.info("[nativeAuth] Google: signInWithIdToken ok");
     return { error: error ?? null };
   } catch (e) {
+    console.error("[nativeAuth] Google: caught error", e);
     return { error: e instanceof Error ? e : new Error(String(e)) };
   }
 }
@@ -160,12 +172,17 @@ export async function signInWithAppleNative(): Promise<{ error?: Error | null }>
     await ensureInitialized();
     const rawNonce = generateNonce();
     const hashedNonce = await sha256Hex(rawNonce);
+    console.info("[nativeAuth] Apple: calling SocialLogin.login");
     const res = await SocialLogin.login({
       provider: "apple",
       options: {
         scopes: ["email", "name"],
         nonce: hashedNonce,
       },
+    });
+    console.info("[nativeAuth] Apple: plugin returned", {
+      hasIdToken: !!(res as any)?.result?.idToken,
+      keys: res && typeof res === "object" ? Object.keys(res as object) : [],
     });
     const idToken = (res as any)?.result?.idToken as string | undefined;
     if (!idToken) {
@@ -176,8 +193,11 @@ export async function signInWithAppleNative(): Promise<{ error?: Error | null }>
       token: idToken,
       nonce: rawNonce,
     });
+    if (error) console.error("[nativeAuth] Apple: signInWithIdToken error", error);
+    else console.info("[nativeAuth] Apple: signInWithIdToken ok");
     return { error: error ?? null };
   } catch (e) {
+    console.error("[nativeAuth] Apple: caught error", e);
     return { error: e instanceof Error ? e : new Error(String(e)) };
   }
 }
