@@ -16,6 +16,7 @@ import { DndContext, closestCenter, PointerSensor, TouchSensor, useSensor, useSe
 import { SortableContext, arrayMove, verticalListSortingStrategy } from "@dnd-kit/sortable";
 import { SortableBlock } from "@/components/app/SortableBlock";
 import { Sheet, SheetContent, SheetHeader, SheetTitle } from "@/components/ui/sheet";
+import { Switch } from "@/components/ui/switch";
 import {
   AlertDialog,
   AlertDialogAction,
@@ -40,7 +41,7 @@ import { PullToRefresh } from "@/components/app/PullToRefresh";
 import { formatPlanAsPlainText, copyTextToClipboard } from "@/lib/planTextExport";
 import { fetchDayPlan, planDashboardQueryKey, planDayQueryKey } from "@/lib/planQueries";
 import { applyAutoMissedBlocks } from "@/lib/blockResolution";
-import { resolveActualMinutesOnComplete, wallMinutesFromSlotStart } from "@/lib/blockActualTime";
+import { resolveActualMinutesOnComplete } from "@/lib/blockActualTime";
 import {
   getAssignedCategoryId,
   setAssignedCategoryId,
@@ -390,8 +391,10 @@ export default function DayView() {
           completedAtMs,
         );
       } catch {
-        const wall = wallMinutesFromSlotStart(viewDate, toggled.start_time, completedAtMs);
-        resolvedActual = wall > 0 ? Math.max(1, Math.min(wall, 24 * 60)) : null;
+        // resolveActualMinutesOnComplete failure (e.g. transient Supabase
+        // error). We deliberately don't fall back to wall-clock here —
+        // see the rationale on `resolveActualMinutesOnComplete`.
+        resolvedActual = null;
       }
     }
 
@@ -1507,28 +1510,44 @@ export default function DayView() {
                   </div>
                 </div>
 
-                {/* Big primary toggle */}
-                <button
-                  type="button"
+                {/*
+                  Primary toggle. Previously a hand-rolled span+absolute
+                  thumb whose geometry rendered with the thumb hanging
+                  off the right edge of the track on iOS WKWebView.
+                  Replaced with the shared Radix-based <Switch> the rest
+                  of the app uses (Settings, etc.) — known good across
+                  all platforms. The whole row is still tappable.
+                */}
+                <div
+                  role="button"
+                  tabIndex={0}
                   onClick={() => saveReminders({ ...reminderCfg, enabled: !reminderCfg.enabled })}
-                  className={`w-full flex items-center justify-between rounded-2xl border px-4 py-3.5 pressable transition-colors ${
+                  onKeyDown={(e) => {
+                    if (e.key === "Enter" || e.key === " ") {
+                      e.preventDefault();
+                      saveReminders({ ...reminderCfg, enabled: !reminderCfg.enabled });
+                    }
+                  }}
+                  className={`w-full flex items-center justify-between gap-4 rounded-2xl border px-4 py-3.5 pressable transition-colors cursor-pointer ${
                     reminderCfg.enabled
                       ? "border-primary/35 bg-primary/[0.07] text-foreground"
                       : "border-soft surface-card text-foreground/85"
                   }`}
                 >
-                  <div className="text-left">
+                  <div className="text-left min-w-0">
                     <div className="text-[14px] font-medium">Remind me</div>
                     <div className="text-[11.5px] text-secondary-fg mt-0.5">
                       {reminderCfg.enabled ? "On — alerts fire while the app is open" : "Off — no reminders for this task"}
                     </div>
                   </div>
-                  <span className={`h-7 w-12 rounded-full relative transition-colors ${reminderCfg.enabled ? "bg-primary" : "bg-muted"}`}>
-                    <span
-                      className={`absolute top-0.5 h-6 w-6 rounded-full bg-background shadow-card transition-transform ${reminderCfg.enabled ? "translate-x-5" : "translate-x-0.5"}`}
-                    />
-                  </span>
-                </button>
+                  <Switch
+                    checked={reminderCfg.enabled}
+                    onCheckedChange={(v) => saveReminders({ ...reminderCfg, enabled: v })}
+                    onClick={(e) => e.stopPropagation()}
+                    aria-label="Toggle reminders"
+                    className="shrink-0"
+                  />
+                </div>
 
                 <div className={reminderCfg.enabled ? "space-y-5" : "opacity-40 pointer-events-none space-y-5"}>
                   {/* Primary alert — single choice */}

@@ -133,14 +133,18 @@ const SortableBlockInner = ({
           onClick={() => onTap?.(block)}
         >
         {/*
-          Hide the planned start time for tasks that have already resolved
-          (done / missed / skipped). The slot time on the left used to keep
-          showing the original schedule even after the task ended, which
-          read as "still scheduled at 22:14" — misleading. The status row
-          below the title already carries the meaningful timestamp
-          ("Done 16:18", "Missed · 18:22"). We render an invisible
-          placeholder of the same width so the stripe + title stay aligned
-          with the still-active rows above.
+          Time column. Fixed-width + right-aligned so the blue stripe
+          to its right stays vertically aligned across every row, no
+          matter whether the slot is a round hour ("14") or a partial
+          time ("14:30"). `w-[3.25rem]` fits the widest reasonable
+          locale output (24h "23:45" or 12h "12:45pm") with breathing
+          room either side.
+
+          Hide the planned start time for tasks that have already
+          resolved (done / missed / skipped). The status row under the
+          title already carries the meaningful timestamp; we keep an
+          invisible placeholder of the same width so the stripe stays
+          aligned with the still-active rows above.
         */}
         {(() => {
           const isTerminal =
@@ -150,7 +154,7 @@ const SortableBlockInner = ({
               block.resolution === "missed"
             );
           if (isTerminal) {
-            return <div className="shrink-0 h-6 w-[40px]" aria-hidden />;
+            return <div className="shrink-0 h-6 w-[3.25rem]" aria-hidden />;
           }
           if (onTapTime && !block.is_calendar_event) {
             return (
@@ -158,7 +162,7 @@ const SortableBlockInner = ({
                 type="button"
                 onPointerDown={(e) => e.stopPropagation()}
                 onClick={(e) => { e.stopPropagation(); onTapTime?.(block); }}
-                className="shrink-0 h-6 px-1.5 inline-flex items-center justify-center text-secondary-fg/85 text-[10.5px] font-mono-sf tabular-nums pressable hover:text-foreground transition-colors rounded-md"
+                className="shrink-0 h-6 w-[3.25rem] pr-1.5 inline-flex items-center justify-end text-secondary-fg/85 text-[10.5px] font-mono-sf tabular-nums pressable hover:text-foreground transition-colors rounded-md"
                 aria-label="Change start time"
                 title="Change start time"
               >
@@ -167,7 +171,7 @@ const SortableBlockInner = ({
             );
           }
           return (
-            <div className="shrink-0 h-6 px-1.5 inline-flex items-center justify-center text-secondary-fg/70 text-[10.5px] font-mono-sf tabular-nums">
+            <div className="shrink-0 h-6 w-[3.25rem] pr-1.5 inline-flex items-center justify-end text-secondary-fg/70 text-[10.5px] font-mono-sf tabular-nums">
               {fmtTime(block.start_time)}
             </div>
           );

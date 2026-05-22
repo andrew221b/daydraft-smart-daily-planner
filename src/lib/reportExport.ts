@@ -76,7 +76,37 @@ const fmtMoney = (amount: number, currency = "USD") => {
   }
 };
 
-function triggerDownload(blob: Blob, filename: string) {
+/**
+ * Save / share a generated file.
+ *
+ * On the web we click a synthesised `<a download>` link — the standard
+ * pattern. On iOS WKWebView (Capacitor) `<a download>` is silently
+ * ignored: the user taps Export and *nothing* happens, which is the bug
+ * users hit when running the bundled native app. We fall back to the
+ * Web Share API there — iOS gets the system share sheet (Save to Files,
+ * AirDrop, Mail, …) which actually persists the file.
+ *
+ * Web Share is tried first when `navigator.canShare({files})` reports
+ * support, regardless of platform — that's the most user-friendly path
+ * on mobile Safari / Chrome Android too.
+ */
+async function triggerDownload(blob: Blob, filename: string, mimeType: string) {
+  const nav = typeof navigator !== "undefined" ? navigator : null;
+  if (nav && typeof nav.share === "function" && typeof nav.canShare === "function") {
+    try {
+      const file = new File([blob], filename, { type: mimeType });
+      if (nav.canShare({ files: [file] })) {
+        await nav.share({ files: [file], title: filename });
+        return;
+      }
+    } catch (err) {
+      // AbortError means the user dismissed the share sheet — treat as
+      // success (their explicit choice), don't fall through to the
+      // anchor click which would re-trigger the export.
+      if (err instanceof Error && err.name === "AbortError") return;
+      // Anything else: fall through to the `<a download>` path below.
+    }
+  }
   const url = URL.createObjectURL(blob);
   const a = document.createElement("a");
   a.href = url;
@@ -114,7 +144,7 @@ export const paymentDetailRows = (details?: ReportPaymentDetails | null) => {
   ].filter((row): row is [string, string] => !!row[1]?.trim());
 };
 
-export function downloadReportCsv(report: ReportPayload) {
+export async function downloadReportCsv(report: ReportPayload) {
   const lines: string[] = [];
   lines.push(`Time report,${report.periodLabel},${report.rangeLabel}`);
   if (report.scopeLabel) lines.push(`Categories,"${report.scopeLabel.replace(/"/g, '""')}"`);
@@ -156,7 +186,7 @@ export function downloadReportCsv(report: ReportPayload) {
     );
   }
   const blob = new Blob([lines.join("\n")], { type: "text/csv;charset=utf-8" });
-  triggerDownload(blob, `${filenameBase(report)}.csv`);
+  await triggerDownload(blob, `${filenameBase(report)}.csv`, "text/csv");
 }
 
 function hexToRgb(hex: string): [number, number, number] {
@@ -540,5 +570,8 @@ export async function downloadReportPdf(report: ReportPayload) {
     doc.text(`Page ${i} of ${pageCount}`, pageW - margin, pageH - 15, { align: "right" });
   }
 
-  doc.save(`${filenameBase(report)}.pdf`);
+  // `doc.save()` calls the same `<a download>` trick we route around in
+  // `triggerDownload` — bypass it so the iOS share sheet path kicks in.
+  const pdfBlob = doc.output("blob") as Blob;
+  await triggerDownload(pdfBlob, `${filenameBase(report)}.pdf`, "application/pdf");
 }

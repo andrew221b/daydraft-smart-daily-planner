@@ -319,7 +319,7 @@ export default function Reports() {
     const payload = buildPayload(categoryIds, scopeLabel || "All categories");
     try {
       if (kind === "pdf") await downloadReportPdf(payload);
-      else downloadReportCsv(payload);
+      else await downloadReportCsv(payload);
       if (!payload.entries.length) toast("Exported an empty report — no entries in this period");
     } catch (e: any) {
       toast.error(e?.message || "Export failed");
@@ -338,15 +338,36 @@ export default function Reports() {
           </h1>
         </header>
 
-        <div className="shrink-0 mb-5 inline-flex p-1 rounded-2xl bg-muted/40 border border-border/30 self-start">
+        {/*
+          Period segmented control. Active uses a primary-tinted pill +
+          ring rather than `bg-background`, which on dark mode is pure
+          black and disappeared into the parent track. The underlay
+          slides between buttons via transform so the selection reads
+          as one continuous motion. Buttons are an equal-width 3-col
+          grid so the slide hits each pill exactly.
+        */}
+        <div
+          className="shrink-0 mb-5 relative isolate grid grid-cols-3 p-1 rounded-2xl bg-muted/50 border border-border/40 self-start w-[220px]"
+          role="tablist"
+        >
+          <span
+            aria-hidden
+            className="pointer-events-none absolute top-1 bottom-1 left-1 rounded-xl bg-primary/[0.18] ring-1 ring-inset ring-primary/35 shadow-[0_4px_14px_-6px_hsl(var(--primary)/0.55)] transition-transform duration-[340ms] ease-[cubic-bezier(0.34,1.4,0.64,1)] will-change-transform"
+            style={{
+              width: "calc((100% - 0.5rem) / 3)",
+              transform: `translateX(calc(${(["day", "week", "month"] as Period[]).indexOf(period)} * 100%))`,
+            }}
+          />
           {(["day", "week", "month"] as Period[]).map((p) => (
             <button
               key={p}
               type="button"
+              role="tab"
+              aria-selected={period === p}
               onClick={() => setPeriod(p)}
-              className={`px-4 h-8 rounded-xl text-[12px] font-medium capitalize transition-colors pressable ${
+              className={`relative z-[1] h-8 rounded-xl text-[12px] font-semibold capitalize transition-colors duration-200 pressable ${
                 period === p
-                  ? "bg-background shadow-sm text-foreground"
+                  ? "text-primary"
                   : "text-secondary-fg/85 hover:text-foreground"
               }`}
             >
@@ -356,7 +377,13 @@ export default function Reports() {
         </div>
 
         <div className="min-h-0 flex-1 overflow-y-auto space-y-5 pb-4 -mx-5 px-5">
-          <section>
+          {/*
+            Hero-glass top card so Reports has the same luminous primary
+            tint at the top of the column that Home's HomeTrackerHero
+            provides. Without this, Reports felt flatter / darker than
+            the other tabs even though the Shell background is identical.
+          */}
+          <section className="rounded-[28px] hero-glass border border-border/35 px-5 pt-5 pb-4">
             <p className="text-[11px] font-semibold uppercase tracking-[0.16em] text-secondary-fg/70">
               Total tracked
             </p>
@@ -379,7 +406,7 @@ export default function Reports() {
           </section>
 
           {categoryGroups.length > 0 ? (
-            <section className="rounded-2xl border border-border/40 bg-card/30 p-4">
+            <section className="app-card p-4">
               <div className="mb-3 flex items-start justify-between gap-3">
                 <div>
                   <p className="text-[11px] font-semibold uppercase tracking-[0.16em] text-secondary-fg/70">
@@ -526,7 +553,7 @@ export default function Reports() {
           )}
 
           {period !== "day" && perDay.length > 1 && (
-            <section className="rounded-2xl border border-border/40 bg-card/30 p-4">
+            <section className="app-card p-4">
               <p className="text-[11px] font-semibold uppercase tracking-[0.16em] text-secondary-fg/70 mb-2">
                 Daily trend
               </p>

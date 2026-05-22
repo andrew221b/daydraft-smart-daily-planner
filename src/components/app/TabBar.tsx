@@ -53,8 +53,14 @@ export const TabBar = () => {
   const indicatorStyle = {
     width: `calc(${pillWidthCalc})`,
     transform: `translateX(calc(${activeIdx} * (100% + ${TAB_GAP_PX}px))) translateZ(0)`,
-    // iOS 26 indicator: tight springy slide with the slightest overshoot.
-    transitionTimingFunction: "cubic-bezier(0.34, 1.4, 0.64, 1)",
+    // iOS 26 indicator: a long, settled spring slide. The overshoot is
+    // restrained (1.25, not the older 1.4) so the pill feels weighted
+    // — closer to UITabBarController's interactive transition than to a
+    // bouncy toy. `transform` is the only animated property; width is
+    // derived from layout so it stays pixel-perfect at every breakpoint.
+    transitionProperty: "transform",
+    transitionDuration: "420ms",
+    transitionTimingFunction: "cubic-bezier(0.32, 1.25, 0.42, 1)",
   } as const;
 
   return (
@@ -81,7 +87,12 @@ export const TabBar = () => {
           <div className="relative isolate flex min-h-[48px] gap-1.5">
             <span
               aria-hidden
-              className="pointer-events-none absolute inset-y-0 left-0 z-0 rounded-2xl bg-primary/[0.12] ring-1 ring-inset ring-primary/20 transition-transform duration-[320ms] will-change-transform dark:bg-primary/[0.14] dark:ring-primary/[0.26]"
+              // The active-tab indicator. Bumped tint + ring + a soft
+              // primary glow so the "you are here" pill reads at a
+              // glance on both light and dark backgrounds. Animation
+              // settings live on `indicatorStyle` so the timing curve
+              // is in one place.
+              className="pointer-events-none absolute inset-y-0 left-0 z-0 rounded-2xl bg-primary/[0.16] ring-1 ring-inset ring-primary/30 shadow-[0_6px_22px_-10px_hsl(var(--primary)/0.55)] will-change-transform dark:bg-primary/[0.2] dark:ring-primary/[0.36] dark:shadow-[0_6px_24px_-10px_hsl(var(--primary)/0.65)]"
               style={indicatorStyle}
             />
             {tabs.map((it, idx) => (

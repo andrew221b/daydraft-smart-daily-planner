@@ -11,19 +11,27 @@ export function wallMinutesFromSlotStart(planDateYmd: string, startHHMM: string,
 }
 
 /**
- * When marking a block complete without a prior `actual_minutes` write:
- * - Prefer summed time on `time_entries` for this block (includes an open session up to `endMs`)
- * - Otherwise use wall time from slot start → completion, capped at 24h
- * - If completion happens BEFORE the slot's planned start (and no tracking exists),
- *   we have no honest signal for actual time — return null and let callers omit
- *   the "actual" line rather than fabricating a "1m" value.
+ * Resolve `actual_minutes` when a block is marked complete:
+ *   - sum any `time_entries` for the block (including an open session)
+ *   - if there's tracking → return that
+ *   - otherwise → return null
+ *
+ * We *deliberately* don't fall back to wall-clock from slot start. That
+ * heuristic looked plausible but produced wildly misleading numbers in
+ * the common case: a user batch-completing tasks at end-of-day saw a
+ * 12:00 slot reported as "2h 23m actual" simply because they tapped
+ * done at 14:23. Without tracking we have no honest signal — let the
+ * UI show "planned" instead of inventing one.
+ *
+ * `planDateYmd` / `startHHMM` are kept in the signature for backward
+ * compatibility with callers and tests, even though they're unused now.
  */
 export async function resolveActualMinutesOnComplete(
   supabase: SupabaseClient,
   userId: string,
   blockId: string,
-  planDateYmd: string,
-  startHHMM: string,
+  _planDateYmd: string,
+  _startHHMM: string,
   endMs: number,
 ): Promise<number | null> {
   const { data: entries, error } = await supabase
@@ -39,10 +47,7 @@ export async function resolveActualMinutesOnComplete(
     trackedSec += Math.max(0, (en - s) / 1000);
   }
   const trackedMin = Math.round(trackedSec / 60);
-  if (trackedMin > 0) return Math.max(1, trackedMin);
-  const wall = wallMinutesFromSlotStart(planDateYmd, startHHMM, endMs);
-  if (wall <= 0) return null;
-  return Math.max(1, Math.min(wall, 24 * 60));
+  return trackedMin > 0 ? Math.max(1, trackedMin) : null;
 }
 
 /** Focus session armed timer → minutes (null if never armed). */
