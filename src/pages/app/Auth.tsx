@@ -1,6 +1,7 @@
 import { forwardRef, useEffect, useState } from "react";
 import { supabase } from "@/integrations/supabase/client";
 import { lovable } from "@/integrations/lovable";
+import { Capacitor } from "@capacitor/core";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { PageFallback } from "@/components/app/PageFallback";
@@ -97,18 +98,22 @@ export default function Auth() {
   };
 
   // Lovable's OAuth broker (oauth.lovable.app) refuses to round-trip when the
-  // calling origin isn't a real app host — e.g. when this page is loaded
-  // inside the Lovable IDE preview where `window.location.origin` is the
-  // bare `https://lovable.dev`. The user-facing symptoms were:
-  //   1. "Authorization failed — State verification failed (invalid_request)"
-  //      on oauth.lovable.app (broker rejects the unknown origin)
-  //   2. A plain "not found" on lovable.dev/ (broker redirects back but the
-  //      target path isn't served).
-  // Block the click pre-emptively in that environment so the user gets a
-  // clear hint instead of a dead-end. The deployed app URL still works.
+  // calling origin isn't a real app host. Two environments hit this:
+  //   1. Lovable IDE preview — origin is `https://lovable.dev` and the broker
+  //      lands on a 404 because the target path isn't served.
+  //   2. Capacitor native iOS / Android — origin is `capacitor://localhost`,
+  //      which the broker has no way to redirect back to. The user sees a
+  //      "404 Not Found" page inside the WebView and is stuck.
+  // Block the click pre-emptively in either environment so the user gets a
+  // clear hint instead of a dead-end. The deployed web app still works for
+  // OAuth; native iOS needs Sign in with Apple via the native plugin (not
+  // wired yet), so email + password is the only path on device for now.
   const oauthBlockedReason = (() => {
     if (typeof window === "undefined") return null;
     try {
+      if (Capacitor.isNativePlatform()) {
+        return "Google sign-in isn't wired up for the iOS app yet — use email & password here, or sign in via the web app once and the session will carry over.";
+      }
       const host = window.location.hostname;
       if (host === "lovable.dev" || host.endsWith(".lovable.dev")) {
         return "Google / Apple sign-in only works on the published app URL — not inside the Lovable preview. Use email & password here, or open the live app to use OAuth.";
