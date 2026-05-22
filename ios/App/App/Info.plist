@@ -48,6 +48,17 @@
 	<key>UIViewControllerBasedStatusBarAppearance</key>
 	<true/>
 	<!--
+	  Background modes needed for `@capacitor/push-notifications`:
+	  `remote-notification` lets iOS hand silent / data-only pushes to
+	  the app even when it's not foregrounded. Alert pushes (the
+	  daily-nudge use case) work without this, but enabling it keeps
+	  the door open for richer payloads later.
+	-->
+	<key>UIBackgroundModes</key>
+	<array>
+		<string>remote-notification</string>
+	</array>
+	<!--
 	  Google sign-in URL scheme. Replace `com.googleusercontent.apps.REPLACE_ME`
 	  with the reversed iOS Client ID from Google Cloud Console:
 	    APIs & Services → Credentials → iOS OAuth Client → iOS URL scheme.

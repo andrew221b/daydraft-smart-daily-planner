@@ -6,5 +6,14 @@
     <array>
         <string>Default</string>
     </array>
+    <!--
+      APNs environment. `development` works for Xcode-installed debug
+      builds (your iPhone via cable). Apple flips this to `production`
+      automatically when the app is delivered via TestFlight / App Store,
+      so this single value is correct for both flows — no separate
+      release entitlements file needed.
+    -->
+    <key>aps-environment</key>
+    <string>development</string>
 </dict>
 </plist>
