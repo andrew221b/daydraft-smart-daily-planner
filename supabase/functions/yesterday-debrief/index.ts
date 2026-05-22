@@ -57,9 +57,12 @@ serve(async (req) => {
       });
     }
 
+    // Pull start_time + completed_at so we can give the model time-of-day
+    // cues ("finished by 17:30", "first deep block started at 11:00") that
+    // produce specific bullets instead of generic summaries.
     const { data: blocks } = await supabase
       .from("blocks")
-      .select("id,title,type,kind,completed,is_calendar_event,estimated_minutes,actual_minutes,duration_min")
+      .select("id,title,type,kind,completed,is_calendar_event,estimated_minutes,actual_minutes,duration_min,start_time,completed_at")
       .eq("plan_id", plan.id)
       .order("position");
     const tasks = (blocks || []).filter((b: any) => b.kind === "task" && !b.is_calendar_event);
@@ -72,13 +75,60 @@ serve(async (req) => {
 
     const doneCount = done.length;
     const totalCount = tasks.length;
-    const skipped = tasks.filter((b: any) => !b.completed).map((b: any) => String(b.title || "").trim()).filter(Boolean);
-    const deepDone = done.filter((b: any) => b.type === "deep_work");
-    const deepOverMin = deepDone.reduce((sum: number, b: any) => {
-      const est = Number(b.estimated_minutes || b.duration_min || 0);
-      const act = Number(b.actual_minutes || est);
-      return sum + Math.max(0, act - est);
-    }, 0);
+    const skipped = tasks
+      .filter((b: any) => !b.completed)
+      .map((b: any) => String(b.title || "").trim())
+      .filter(Boolean);
+
+    // Per-task variance — `variance > 0` overran, `< 0` underran.
+    type TaskRow = { title: string; type: string; estMin: number; actMin: number; variance: number };
+    const doneRows: TaskRow[] = done.map((b: any): TaskRow => {
+      const estMin = Math.max(0, Number(b.estimated_minutes || b.duration_min || 0));
+      const actMin = Math.max(0, Number(b.actual_minutes || estMin));
+      return {
+        title: String(b.title || "").trim().slice(0, 60) || "(untitled)",
+        type: String(b.type || "task"),
+        estMin,
+        actMin,
+        variance: actMin - estMin,
+      };
+    });
+
+    const deepDone = doneRows.filter((b) => b.type === "deep_work");
+    const deepOverMin = deepDone.reduce((sum, b) => sum + Math.max(0, b.variance), 0);
+    const deepUnderMin = deepDone.reduce((sum, b) => sum + Math.max(0, -b.variance), 0);
+
+    // Headline overrun + underrun — the single biggest specific observation
+    // we can offer. Empty when there's no clear outlier.
+    const sortedByOverrun = [...doneRows].sort((a, b) => b.variance - a.variance);
+    const biggestOverrun = sortedByOverrun[0]?.variance > 5 ? sortedByOverrun[0] : null;
+    const biggestUnderrun = sortedByOverrun[sortedByOverrun.length - 1]?.variance < -5
+      ? sortedByOverrun[sortedByOverrun.length - 1]
+      : null;
+
+    // Time-of-day cues. `start_time` is HH:MM local on plan day. We surface
+    // the earliest completed block start and the latest completed_at hour
+    // so the model can write "finished by 18:00" / "first block at 11:00".
+    const startTimes = done
+      .map((b: any) => (typeof b.start_time === "string" ? b.start_time.slice(0, 5) : ""))
+      .filter((s: string) => /^\d{2}:\d{2}$/.test(s))
+      .sort();
+    const firstStart = startTimes[0] || null;
+    const completedTimestamps = done
+      .map((b: any) => (typeof b.completed_at === "string" ? Date.parse(b.completed_at) : NaN))
+      .filter((n: number) => Number.isFinite(n));
+    const lastCompletedAt =
+      completedTimestamps.length
+        ? new Date(Math.max(...completedTimestamps))
+        : null;
+    const lastCompletedLocal = lastCompletedAt
+      ? new Intl.DateTimeFormat("en-GB", {
+          hour: "2-digit",
+          minute: "2-digit",
+          hour12: false,
+          timeZone: tz,
+        }).format(lastCompletedAt)
+      : null;
 
     const LOVABLE_API_KEY = Deno.env.get("LOVABLE_API_KEY");
     if (!LOVABLE_API_KEY) throw new Error("LOVABLE_API_KEY missing");
@@ -93,14 +143,29 @@ serve(async (req) => {
         ? `\nHonor these recurring user planning preferences where relevant:\n${String(debProf.ai_planning_rules).trim().slice(0, 800)}`
         : "";
 
-    const system = `You are DayDraft's neutral debrief assistant.${debPrefs}
-Return 2 or 3 bullet points ONLY.
-Rules:
-- each bullet under 15 words
-- direct, neutral tone (no hype, no cheerleading)
-- at least one bullet must include a concrete action suggestion for today
-- focus on planned vs actual outcomes
-- plain text only, no markdown symbols in content`;
+    // Tightened system prompt. The previous version was too permissive —
+    // produced bullets like "You had a productive day, keep it up" because
+    // nothing forbade hype and nothing required specifics. The new contract:
+    //   1. Every bullet must include EITHER a specific task title OR a
+    //      specific number (count, minutes, time). Generic bullets are out.
+    //   2. The action bullet is anchored to today, names a task, and is one
+    //      concrete next step — not a platitude.
+    //   3. If the data is thin, return fewer bullets. Padding to 3 is worse
+    //      than returning 2 honest ones.
+    //   4. Hard-banned hype vocabulary.
+    const system = `You are DayDraft's debrief assistant. Tone: a thoughtful colleague who skimmed the data — observant, plain, never cheerful.${debPrefs}
+Return 2 or 3 bullets that report concrete observations from yesterday's planned-vs-actual.
+
+Required:
+- Each bullet must include EITHER a specific task title (quoted in single quotes) OR a specific number (count, minutes, or HH:MM time). Bullets without specifics are rejected.
+- Exactly one bullet is an action bullet for today. It must name a specific task title from the data and propose one concrete next step (start earlier / shorten estimate / move to morning / split into a smaller first step / reschedule). Generic actions like "pick one task" are rejected.
+- 1 sentence per bullet, ≤ 14 words, plain text, no leading "-" or "•" or "*".
+
+Banned vocabulary (auto-rejected): productive, great, well done, good job, nice work, kudos, awesome, amazing, fantastic, wonderful, congrats, keep it up, you crushed, you smashed.
+
+If you can't produce 3 bullets that each carry a specific observation, return 2. Never pad.
+
+Output ONLY the structured tool call.`;
 
     const tools = [{
       type: "function",
@@ -110,13 +175,46 @@ Rules:
         parameters: {
           type: "object",
           properties: {
-            bullets: { type: "array", items: { type: "string" } },
+            bullets: {
+              type: "array",
+              minItems: 2,
+              maxItems: 3,
+              items: {
+                type: "string",
+                description: "One observation bullet. Must contain a task title in single quotes OR a number (count, minutes, HH:MM). ≤14 words.",
+              },
+            },
           },
           required: ["bullets"],
           additionalProperties: false,
         },
       },
     }];
+
+    // Compact, structured user message so the model has facts not prose.
+    // Top 4 overruns + bottom 2 underruns is enough headroom for variety
+    // without blowing token budget.
+    const topOverruns = sortedByOverrun.filter((r) => r.variance > 5).slice(0, 4);
+    const topUnderruns = sortedByOverrun.filter((r) => r.variance < -5).slice(-2);
+    const userPayload = {
+      completed: `${doneCount}/${totalCount}`,
+      first_block_started_at: firstStart,
+      last_task_completed_at: lastCompletedLocal,
+      deep_work: {
+        completed: deepDone.length,
+        total_overrun_min: deepOverMin,
+        total_underrun_min: deepUnderMin,
+      },
+      biggest_overrun: biggestOverrun
+        ? { title: biggestOverrun.title, over_min: biggestOverrun.variance }
+        : null,
+      biggest_underrun: biggestUnderrun
+        ? { title: biggestUnderrun.title, under_min: Math.abs(biggestUnderrun.variance) }
+        : null,
+      top_overruns: topOverruns.map((r) => ({ title: r.title, over_min: r.variance })),
+      top_underruns: topUnderruns.map((r) => ({ title: r.title, under_min: Math.abs(r.variance) })),
+      skipped_titles: skipped.slice(0, 5),
+    };
 
     let bullets: string[] = [];
     try {
@@ -130,10 +228,8 @@ Rules:
             {
               role: "user",
               content:
-                `Yesterday stats:\n` +
-                `- Completed: ${doneCount}/${totalCount}\n` +
-                `- Deep work overrun minutes: ${deepOverMin}\n` +
-                `- Skipped tasks: ${skipped.slice(0, 3).join(", ") || "none"}\n`,
+                `Yesterday's data (JSON):\n${JSON.stringify(userPayload, null, 2)}\n\n` +
+                `Write 2 or 3 bullets per the contract above.`,
             },
           ],
           tools,
@@ -150,21 +246,47 @@ Rules:
       // fallback below
     }
 
+    // Post-validation: enforce the contract client-side too. A bullet that
+    // contains banned vocabulary OR neither a number nor a task-title quote
+    // is filtered out — better to drop a bullet than ship a generic one.
+    const BANNED = /\b(productive|great|well done|good job|nice work|kudos|awesome|amazing|fantastic|wonderful|congrats|keep it up|you crushed|you smashed)\b/i;
+    const HAS_NUMBER = /\d/;
+    const HAS_QUOTED_TITLE = /['‘’"][^'‘’"]{2,}['‘’"]/;
+    const allTitles = new Set(doneRows.map((r) => r.title.toLowerCase()).concat(skipped.map((s) => s.toLowerCase())));
+    const mentionsKnownTitle = (s: string) => {
+      const low = s.toLowerCase();
+      for (const t of allTitles) {
+        if (t.length >= 3 && low.includes(t)) return true;
+      }
+      return false;
+    };
+
     const cleaned = bullets
-      .map((b) => String(b || "").trim().replace(/^[-•]\s*/, ""))
+      .map((b) => String(b || "").trim().replace(/^[-•*]\s*/, "").replace(/\s+/g, " "))
       .filter(Boolean)
+      .filter((b) => !BANNED.test(b))
+      .filter((b) => HAS_NUMBER.test(b) || HAS_QUOTED_TITLE.test(b) || mentionsKnownTitle(b))
+      .map((b) => (b.length > 140 ? b.slice(0, 137).trimEnd() + "…" : b))
       .slice(0, 3);
+
+    // Specific fallbacks — only used when the model returned nothing
+    // usable. Each line is anchored to a real data point we already have.
     if (!cleaned.length) {
-      const fallback = [
-        `You completed ${doneCount}/${totalCount} blocks yesterday.`,
-        deepOverMin > 0
-          ? `Deep work ran ${deepOverMin}m over estimate yesterday.`
-          : "Deep work stayed close to estimates yesterday.",
-        skipped.length
-          ? `Reschedule ${skipped[0]} today as a smaller first step.`
-          : "Pick one top task and start it in your first block today.",
-      ];
-      cleaned.push(...fallback);
+      const fallbackParts: string[] = [];
+      fallbackParts.push(`Completed ${doneCount} of ${totalCount} planned tasks${lastCompletedLocal ? `, finishing by ${lastCompletedLocal}.` : "."}`);
+      if (biggestOverrun) {
+        fallbackParts.push(`'${biggestOverrun.title}' ran ${biggestOverrun.variance}m past its estimate.`);
+      } else if (deepUnderMin > 0 && deepDone.length > 0) {
+        fallbackParts.push(`Deep work finished ${deepUnderMin}m under estimate across ${deepDone.length} block${deepDone.length === 1 ? "" : "s"}.`);
+      }
+      if (skipped.length) {
+        fallbackParts.push(`Today: restart '${skipped[0]}' as a 25-minute first block.`);
+      } else if (biggestOverrun) {
+        fallbackParts.push(`Today: pad '${biggestOverrun.title}' by ${Math.min(30, Math.round(biggestOverrun.variance / 5) * 5)}m on the calendar.`);
+      } else if (firstStart) {
+        fallbackParts.push(`Today: start your first block by ${firstStart} to match yesterday's rhythm.`);
+      }
+      cleaned.push(...fallbackParts.slice(0, 3));
     }
 
     return new Response(
