@@ -50,6 +50,16 @@ export default defineConfig(({ mode }) => ({
     // jsPDF route bundle don't spam every CI log. The actual main bundle
     // sits well under this after splitting.
     chunkSizeWarningLimit: 700,
+    // By default Vite emits `<link rel="modulepreload">` for every chunk
+    // statically reachable from the entry — including ones that only run
+    // behind a dynamic `import()`. That was forcing every cold start to
+    // download the 650 kB `pdf` chunk (jsPDF + html2canvas) and a 150 kB
+    // `index.es` chunk even though users almost never export a PDF. We
+    // filter those heavy on-demand chunks out so cold start stays lean.
+    modulePreload: {
+      resolveDependencies: (_filename, deps) =>
+        deps.filter((d) => !/\/(pdf|index\.es|purify\.es)-/.test(d)),
+    },
     rollupOptions: {
       output: {
         manualChunks: splitVendor,

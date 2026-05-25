@@ -4,6 +4,7 @@ import "./index.css";
 import { Capacitor } from "@capacitor/core";
 import { applyNativeDocumentHints, initCapacitor } from "./lib/capacitor";
 import { applySavedVisualMode } from "./lib/visualMode";
+import { installPressFeedback } from "./lib/pressFeedback";
 import { ThemeProvider } from "./lib/theme";
 import { RootErrorBoundary } from "@/components/app/RootErrorBoundary";
 import { attachVisualViewportInset } from "./lib/visualViewport";
@@ -22,11 +23,86 @@ import { registerServiceWorker } from "./lib/swUpdate";
  * below so it never competes with React mount or initial network.
  * ──────────────────────────────────────────────────────────────────── */
 try {
+  document.body.addEventListener("touchstart", () => {}, { passive: true });
   applyNativeDocumentHints();
   applySavedVisualMode();
   attachVisualViewportInset();
+  installPressFeedback();
 } catch (e) {
   console.error("[bootstrap]", e);
+}
+
+/*
+ * Boot choreography — three things have to happen in the right order
+ * before the inline #boot-overlay is allowed to fade:
+ *
+ *   1. React has committed (so PageFallback / Auth / Home are mounted
+ *      underneath, ready to be revealed).
+ *   2. The native iOS splash has fully faded out (capacitor.config.ts
+ *      sets fadeOutDuration: 400, so we wait that long after calling
+ *      .hide()). If we fade the overlay during this window the user
+ *      never sees it because the native splash is still covering the
+ *      webview — that was the "black → auth → orbital" sequence the
+ *      user reported.
+ *   3. A minimum visible window has elapsed since first paint, so even
+ *      blazingly-fast cold starts give the orbital a chance to register
+ *      as motion rather than a one-frame flash.
+ *
+ * `tryFadeOverlay` checks all three; whichever of them resolves last
+ * triggers the fade.
+ */
+const BOOT_T0 = performance.now();
+const NATIVE_SPLASH_FADE_MS = 400; // must match capacitor.config.ts fadeOutDuration
+const MIN_OVERLAY_VISIBLE_MS = 700;
+
+let splashGone = !Capacitor.isNativePlatform();
+let reactCommitted = false;
+let overlayFadeTriggered = false;
+
+function tryFadeOverlay(): void {
+  if (overlayFadeTriggered) return;
+  if (!reactCommitted || !splashGone) return;
+  const elapsed = performance.now() - BOOT_T0;
+  const wait = Math.max(0, MIN_OVERLAY_VISIBLE_MS - elapsed);
+  overlayFadeTriggered = true;
+  window.setTimeout(() => {
+    document.body.classList.add("app-ready");
+    const overlay = document.getElementById("boot-overlay");
+    if (overlay) {
+      const remove = () => overlay.remove();
+      overlay.addEventListener("transitionend", remove, { once: true });
+      // Failsafe: if transitionend never fires (reduced motion etc.)
+      // drop the node anyway shortly after the fade would have ended.
+      window.setTimeout(remove, 600);
+    }
+  }, wait);
+}
+
+if (Capacitor.isNativePlatform()) {
+  void import("@capacitor/splash-screen")
+    .then(({ SplashScreen }) => SplashScreen.hide())
+    .then(() => {
+      // .hide() resolves the moment the fade is initiated, not when it
+      // completes. Wait the fadeOutDuration before marking splash gone.
+      window.setTimeout(() => {
+        splashGone = true;
+        tryFadeOverlay();
+      }, NATIVE_SPLASH_FADE_MS);
+    })
+    .catch(() => {
+      // Plugin failed to load or hide rejected — fall through so the
+      // overlay can still fade and the app isn't stuck behind a splash.
+      splashGone = true;
+      tryFadeOverlay();
+    });
+  // Hard failsafe: if SplashScreen.hide never resolves at all, don't
+  // leave the user staring at the boot loader forever.
+  window.setTimeout(() => {
+    if (!splashGone) {
+      splashGone = true;
+      tryFadeOverlay();
+    }
+  }, 2500);
 }
 
 function whenIdle(fn: () => void) {
@@ -44,31 +120,6 @@ function whenIdle(fn: () => void) {
 // render — no spinner-after-splash gap.
 void import("./pages/app/Auth");
 void import("./pages/app/Home");
-
-/**
- * Hide the native splash screen once React has painted. Without this the
- * splash hangs around for the full `launchShowDuration` (3s) we set in
- * capacitor.config.ts. The 3s is the *failsafe* — if React fails to boot
- * the user still sees the splash auto-dismiss on its own instead of
- * staring at a stuck logo.
- *
- * Strategy: dynamic-import the plugin in parallel with React mount, then
- * wait two animation frames after createRoot has committed before
- * hiding — that guarantees the first React paint has hit the screen.
- */
-async function hideSplashAfterRender() {
-  if (!Capacitor.isNativePlatform()) return;
-  try {
-    const { SplashScreen } = await import("@capacitor/splash-screen");
-    requestAnimationFrame(() => {
-      requestAnimationFrame(() => {
-        SplashScreen.hide({ fadeOutDuration: 220 }).catch(() => { /* ignore */ });
-      });
-    });
-  } catch {
-    /* plugin unavailable — splash auto-hides via launchShowDuration */
-  }
-}
 
 whenIdle(() => {
   // Replay any writes queued while offline. Touches IndexedDB + network,
@@ -91,39 +142,24 @@ createRoot(document.getElementById("root")!).render(
 );
 
 /**
- * Mark the document as "ready" once React's first paint commits. The
- * inline #boot-wordmark in index.html watches for `body.app-ready` and
- * fades to opacity 0; after the fade transition completes we remove the
- * element from the DOM so it can never intercept clicks.
+ * Mark React as committed. Doesn't fade the overlay directly — that's
+ * `tryFadeOverlay` above, which only fires once *all three* gating
+ * conditions are satisfied (React committed, native splash gone, min
+ * visible window elapsed).
  *
  * Two rAFs because:
  *   - first rAF runs after the synchronous `createRoot().render()` call
  *     queues its work,
  *   - second rAF runs after React commits the initial tree to the DOM
  *     and the browser has had a chance to paint.
- * Adding the class earlier than this would cross-fade against an empty
- * body, which is what the wordmark is supposed to hide.
  */
 function markAppReady() {
   requestAnimationFrame(() => {
     requestAnimationFrame(() => {
-      document.body.classList.add("app-ready");
-      const wm = document.getElementById("boot-wordmark");
-      if (wm) {
-        const remove = () => wm.remove();
-        wm.addEventListener("transitionend", remove, { once: true });
-        // Safety net — if the transitionend never fires (e.g. reduced
-        // motion disables transitions), drop the node after the fade
-        // would have completed anyway.
-        setTimeout(remove, 600);
-      }
+      reactCommitted = true;
+      tryFadeOverlay();
     });
   });
 }
 
 markAppReady();
-
-// Fire after the synchronous render has been scheduled. The function
-// itself does the rAF dance to wait for the first commit before
-// tearing down the splash.
-void hideSplashAfterRender();

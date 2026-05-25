@@ -5,9 +5,9 @@ import { Input } from "@/components/ui/input";
 import { Button } from "@/components/ui/button";
 import { useEffect, useState } from "react";
 import { ThemeToggle } from "@/components/app/ThemeToggle";
-import { Fingerprint, Sparkles, Bell, Calendar, FileText, Shield, Trash2, HelpCircle } from "lucide-react";
+import { Fingerprint, Sparkles, Bell, FileText, Shield, Trash2, HelpCircle } from "lucide-react";
 import { Link, useNavigate, useLocation } from "react-router-dom";
-import { clearStoredPasskey, enrollPasskey, getStoredPasskey, passkeySupported } from "@/lib/passkeys";
+import { NativeBiometric } from "@capgo/capacitor-native-biometric";
 import { toast } from "sonner";
 import { useEntitlement } from "@/hooks/useEntitlement";
 import { isSimulateProUiAllowed, writeDevSimulatePro } from "@/lib/devEntitlement";
@@ -26,11 +26,11 @@ export default function Settings() {
   const nav = useNavigate();
   const location = useLocation();
   const [name, setName] = useState("");
-  const [hasPasskey, setHasPasskey] = useState(!!getStoredPasskey());
+  const [hasPasskey, setHasPasskey] = useState(localStorage.getItem("daydraft.applock") === "true");
   const { entitlement, isPro, devSimulatePro, subscriptionPro, planQuotaUsed, planQuotaLimit, planQuotaRemaining } = useEntitlement();
   const [upgradeOpen, setUpgradeOpen] = useState(false);
   const [proSheetOpen, setProSheetOpen] = useState(false);
-  const [calConnecting, setCalConnecting] = useState(false);
+
   const [visualMode, setVisualMode] = useVisualMode();
   const [pushState] = useState(() => pushAvailability());
   const pushReady = pushState === "ok";
@@ -42,7 +42,7 @@ export default function Settings() {
     const id = window.setTimeout(() => setVersionTaps(0), 3000);
     return () => window.clearTimeout(id);
   }, [versionTaps]);
-  useEffect(() => { if (profile) setName(profile.display_name || ""); }, [profile?.id]);
+  useEffect(() => { if (profile) setName(profile.display_name || ""); }, [profile]);
 
   useEffect(() => {
     const hash = location.hash;
@@ -58,26 +58,29 @@ export default function Settings() {
   }, [location.hash]);
 
   const togglePasskey = async () => {
-    if (hasPasskey) {
-      clearStoredPasskey();
-      setHasPasskey(false);
-      update({ passkey_enabled: false } as any);
-      toast.success("Face ID / fingerprint disabled");
-      return;
-    }
-    if (!user) return;
-    if (!passkeySupported()) { toast.error("Not supported on this device"); return; }
     try {
-      await enrollPasskey({
-        userId: user.id,
-        userEmail: user.email || "user@daydraft.app",
-        userName: profile?.display_name || user.email || "DayDraft user",
-      });
-      setHasPasskey(true);
-      update({ passkey_enabled: true } as any);
-      toast.success("Face ID / fingerprint enabled");
+      const { isAvailable } = await NativeBiometric.isAvailable();
+      if (!isAvailable) {
+        toast.error("Biometrics not available or not configured on this device");
+        return;
+      }
+      
+      if (hasPasskey) {
+        localStorage.removeItem("daydraft.applock");
+        setHasPasskey(false);
+        toast.success("App Lock disabled");
+      } else {
+        // Require them to authenticate once to enable it
+        await NativeBiometric.verifyIdentity({
+          reason: "Verify identity to enable App Lock",
+          title: "Enable App Lock"
+        });
+        localStorage.setItem("daydraft.applock", "true");
+        setHasPasskey(true);
+        toast.success("App Lock enabled");
+      }
     } catch (e: any) {
-      toast.error(e?.message || "Unable to enable passkey");
+      toast.error(e?.message || "Failed to configure App Lock");
     }
   };
 
@@ -102,33 +105,15 @@ export default function Settings() {
     }
   };
 
-  const calendarClientId = import.meta.env.VITE_GOOGLE_CALENDAR_CLIENT_ID as string | undefined;
-  const calendarAvailable = !!calendarClientId;
 
-  const connectCalendar = async () => {
-    if (!calendarAvailable) {
-      toast("Calendar sync is coming soon — we'll let you know.");
-      return;
-    }
-    if (!isPro) { setUpgradeOpen(true); return; }
-    setCalConnecting(true);
-    try {
-      const redirect = `${window.location.origin}/settings`;
-      const scope = encodeURIComponent("https://www.googleapis.com/auth/calendar.readonly");
-      const url = `https://accounts.google.com/o/oauth2/v2/auth?client_id=${calendarClientId}&redirect_uri=${encodeURIComponent(redirect)}&response_type=code&access_type=offline&prompt=consent&scope=${scope}`;
-      window.location.href = url;
-    } finally {
-      setCalConnecting(false);
-    }
-  };
 
   return (
     <>
-      <div className="px-5 pt-12">
+      <div className="px-5 pt-[var(--safe-area-inset-top)]">
         <p className="eyebrow">Account</p>
         <h1 className="type-title mt-2 text-balance">Settings</h1>
 
-        <div className="mt-8 space-y-8">
+        <div className="mt-5 space-y-8">
           <ProCard
             entitlement={entitlement} isPro={isPro} subscriptionPro={subscriptionPro} devSimulatePro={devSimulatePro}
             planQuotaUsed={planQuotaUsed} planQuotaLimit={planQuotaLimit} planQuotaRemaining={planQuotaRemaining}
@@ -227,16 +212,7 @@ export default function Settings() {
                   </div>
                 )}
               </div>
-              <button onClick={connectCalendar}
-                className="w-full flex items-center justify-between px-4 py-3 ios-row">
-                <div className="flex items-center gap-3">
-                  <Calendar className="h-4 w-4 text-secondary-fg" />
-                  <div className="text-[14px] text-left">Google Calendar</div>
-                </div>
-                <span className="text-[12px] font-medium text-secondary-fg/80">
-                  {calendarAvailable ? (isPro ? "Connect" : "Pro") : "Soon"}
-                </span>
-              </button>
+
               <button onClick={togglePasskey}
                 className="w-full flex items-center justify-between px-4 py-3 ios-row">
                 <div className="flex items-center gap-3">
@@ -356,13 +332,14 @@ const ProCard = ({ entitlement, isPro, subscriptionPro, devSimulatePro, planQuot
 
   return (
     <div
-      className={`rounded-[18px] border backdrop-blur-sm p-4 shadow-card surface-accent ${
+      className={`rounded-[18px] border backdrop-blur-sm p-4 shadow-card surface-accent deep-float ${
         isOverQuota
           ? "border-primary/60 ring-1 ring-primary/20"
           : lowFreeDays
             ? "border-primary/50 ring-1 ring-primary/15"
             : "border-accent"
       }`}
+      style={{ animationDelay: '0.2s' }}
     >
       <div className="flex items-center gap-1.5">
         <Sparkles className="h-3.5 w-3.5 text-primary" />

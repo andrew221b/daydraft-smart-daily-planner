@@ -5,6 +5,7 @@ type ToasterProps = React.ComponentProps<typeof Sonner>;
 const Toaster = (props: ToasterProps) => (
   <Sonner
     className="toaster group"
+    style={{ marginTop: "env(safe-area-inset-top)" }}
     toastOptions={{
       classNames: {
         toast:

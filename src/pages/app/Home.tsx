@@ -19,6 +19,7 @@ import {
   rollingEntriesQueryKey,
 } from "@/lib/timeEntriesQuery";
 import { useTabVisible } from "@/components/app/PersistentTabs";
+import { motion } from "framer-motion";
 
 /** Tracker is the hero. */
 export default function Home() {
@@ -46,20 +47,21 @@ export default function Home() {
     return () => clearTimeout(t);
   }, [profile?.onboarded, profile?.tour_seen, tour]);
 
-  const { data: planData } = useQuery({
-    queryKey: planDashboardQueryKey(user?.id ?? "", viewDate),
-    queryFn: () => fetchPlanDashboard(user!.id, viewDate),
-    enabled: !!user?.id,
-    staleTime: 30_000,
-    placeholderData: keepPreviousData,
-  });
-  const blocks = planData?.planBlocks ?? [];
-
   // Pause the missed-block poll while this tab isn't on screen. Background
   // tabs in a native app don't keep hitting the network — this matches that
   // behavior so we don't pay a Supabase round-trip every 60s while the user
   // is on Reports / Settings / Tracker.
   const tabVisible = useTabVisible();
+
+  const { data: planData } = useQuery({
+    queryKey: planDashboardQueryKey(user?.id || "", viewDate),
+    queryFn: () => fetchPlanDashboard(user!.id, viewDate),
+    enabled: !!user?.id && !!viewDate && tabVisible,
+    staleTime: 30_000,
+    placeholderData: keepPreviousData,
+  });
+  const blocks = planData?.planBlocks ?? [];
+
   useEffect(() => {
     if (!user?.id || !tabVisible) return;
     let alive = true;
@@ -92,7 +94,7 @@ export default function Home() {
   const { data: rollingEntries } = useQuery({
     queryKey: rollingEntriesQueryKey(user?.id),
     queryFn: () => fetchRollingEntries(user!.id),
-    enabled: !!user?.id,
+    enabled: !!user?.id && tabVisible,
     staleTime: 60_000,
     gcTime: 30 * 60_000,
     placeholderData: keepPreviousData,
@@ -133,7 +135,7 @@ export default function Home() {
 
   return (
     <PullToRefresh onRefresh={onRefresh}>
-        <div className="flex min-h-0 flex-1 flex-col px-5 pt-7 pb-6">
+        <div className="w-full flex flex-col px-5 pt-[var(--safe-area-inset-top)] pb-6">
           {/* Greeting */}
           <header className="mb-5 shrink-0">
             <p className="text-[10px] font-semibold tracking-[0.18em] uppercase text-secondary-fg/50 mb-1">
@@ -145,17 +147,23 @@ export default function Home() {
           </header>
 
           {/* THE HERO — tracker */}
-          <HomeTrackerHero onOpenDetails={() => nav("/reports")} />
+          <motion.div layout transition={{ type: "spring", bounce: 0.2, duration: 0.6 }}>
+            <HomeTrackerHero onOpenDetails={() => nav("/reports")} />
+          </motion.div>
 
           {/* Morning look-back. Silently hides when there's no plan from
               yesterday, when the edge function isn't deployed, or when the
               user dismissed it for the day. */}
-          <YesterdayDebriefCard timezone={profile?.timezone} />
+          <motion.div layout transition={{ type: "spring", bounce: 0.2, duration: 0.6 }}>
+            <YesterdayDebriefCard timezone={profile?.timezone} />
+          </motion.div>
 
           {/* Today's plan progress */}
           {userTasks.length > 0 && (
-            <div
-              className="mt-4 app-card px-4 py-4 cursor-pointer tappable"
+            <motion.div
+              layout
+              transition={{ type: "spring", bounce: 0.2, duration: 0.6 }}
+              className="mt-4 hero-glass border border-border/35 rounded-[28px] px-4 py-4 cursor-pointer tappable"
               onClick={() => nav("/today")}
               role="button"
               tabIndex={0}
@@ -190,12 +198,12 @@ export default function Home() {
               {doneTasks === userTasks.length && (
                 <div className="mt-2 text-[13px] font-semibold text-success">All done ✓</div>
               )}
-            </div>
+            </motion.div>
           )}
 
           {/* Today categories breakdown — minimal, only if data */}
           {breakdown.length > 0 && (
-            <div className="mt-4 app-card px-4 py-3.5">
+            <motion.div layout transition={{ type: "spring", bounce: 0.2, duration: 0.6 }} className="mt-4 hero-glass border border-border/35 rounded-[28px] px-4 py-3.5">
               <div className="flex items-center justify-between mb-3">
                 <span className="eyebrow">Time tracked today</span>
                 <span className="text-[11px] tabular-nums text-secondary-fg/55 font-medium">
@@ -214,7 +222,7 @@ export default function Home() {
                   </li>
                 ))}
               </ul>
-            </div>
+            </motion.div>
           )}
         </div>
     </PullToRefresh>

@@ -1,4 +1,4 @@
-import { corsHeaders } from "https://esm.sh/@supabase/supabase-js@2.95.0/cors";
+import { corsHeaders } from "../_shared/cors.ts";
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2.95.0";
 
 Deno.serve(async (req) => {
@@ -42,7 +42,9 @@ Deno.serve(async (req) => {
       });
       const meJson = await me.json();
       email = meJson.email || null;
-    } catch {}
+    } catch {
+      // ignore error, email defaults to null
+    }
 
     const expires_at = new Date(Date.now() + (tok.expires_in || 3600) * 1000).toISOString();
     await supabase.from("calendar_tokens").upsert({

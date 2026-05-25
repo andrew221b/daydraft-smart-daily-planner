@@ -63,5 +63,13 @@
 			</array>
 		</dict>
 	</array>
+	<!--
+	  Required by iOS when the app calls LocalAuthentication / NativeBiometric
+	  with Face ID. Without this key, the first Face ID prompt crashes the
+	  process. Wording shown to the user in the system permission dialog when
+	  they first enable App Lock in Settings.
+	-->
+	<key>NSFaceIDUsageDescription</key>
+	<string>DayDraft uses Face ID to unlock your schedule and keep your daily plans private.</string>
 </dict>
 </plist>

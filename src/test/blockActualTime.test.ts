@@ -16,18 +16,7 @@ describe("wallMinutesFromSlotStart", () => {
 });
 
 describe("resolveActualMinutesOnComplete", () => {
-  // Mocked Supabase: no tracker entries.
-  const supabaseNoEntries = {
-    from: () => ({
-      select: () => ({
-        eq: () => ({
-          eq: () => Promise.resolve({ data: [], error: null }),
-        }),
-      }),
-    }),
-  } as unknown as Parameters<typeof resolveActualMinutesOnComplete>[0];
-
-  it("returns null when there's no tracking, regardless of when completion happens", async () => {
+  it("returns null when there's no tracking, regardless of when completion happens", () => {
     // Wall-clock from slot start is no longer used as a fallback —
     // batch-completing at end-of-day was producing wildly inflated
     // "actual" numbers (a 12:00 slot looked like "2h 23m actual"
@@ -37,36 +26,26 @@ describe("resolveActualMinutesOnComplete", () => {
     const before = new Date(2026, 4, 9, 8, 30, 0, 0).getTime();
     const after = new Date(2026, 4, 9, 10, 35, 0, 0).getTime();
     expect(
-      await resolveActualMinutesOnComplete(supabaseNoEntries, "u1", "b1", planDate, "10:30", before),
+      resolveActualMinutesOnComplete([], "b1", planDate, "10:30", before),
     ).toBeNull();
     expect(
-      await resolveActualMinutesOnComplete(supabaseNoEntries, "u1", "b1", planDate, "10:30", after),
+      resolveActualMinutesOnComplete([], "b1", planDate, "10:30", after),
     ).toBeNull();
   });
 
-  it("returns summed tracker minutes when tracking exists", async () => {
+  it("returns summed tracker minutes when tracking exists", () => {
     // 9:00-9:15 = 15 min on the timer.
-    const supabaseWithEntries = {
-      from: () => ({
-        select: () => ({
-          eq: () => ({
-            eq: () => Promise.resolve({
-              data: [
-                {
-                  started_at: new Date(2026, 4, 9, 9, 0, 0, 0).toISOString(),
-                  ended_at: new Date(2026, 4, 9, 9, 15, 0, 0).toISOString(),
-                },
-              ],
-              error: null,
-            }),
-          }),
-        }),
-      }),
-    } as unknown as Parameters<typeof resolveActualMinutesOnComplete>[0];
+    const entries = [
+      {
+        started_at: new Date(2026, 4, 9, 9, 0, 0, 0).toISOString(),
+        ended_at: new Date(2026, 4, 9, 9, 15, 0, 0).toISOString(),
+        block_id: "b1",
+      },
+    ];
     const planDate = "2026-05-09";
     const end = new Date(2026, 4, 9, 9, 15, 0, 0).getTime();
-    const result = await resolveActualMinutesOnComplete(
-      supabaseWithEntries, "u1", "b1", planDate, "09:00", end,
+    const result = resolveActualMinutesOnComplete(
+      entries, "b1", planDate, "09:00", end,
     );
     expect(result).toBe(15);
   });

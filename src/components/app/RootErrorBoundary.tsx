@@ -11,8 +11,28 @@ export class RootErrorBoundary extends Component<Props, State> {
     return { error };
   }
 
-  componentDidCatch(error: Error, info: ErrorInfo) {
-    console.error("[RootErrorBoundary]", error, info.componentStack);
+  componentDidCatch(error: unknown, info: ErrorInfo) {
+    // Some thrown values (Supabase errors, plain objects, custom error
+    // payloads) stringify to `{}` because their interesting props are
+    // non-enumerable. Pull them out explicitly so the iOS log isn't
+    // useless. Without this you get the dreaded "[error] - {}" lines.
+    const dump = {
+      type: typeof error,
+      ctor: (error as any)?.constructor?.name,
+      message: (error as any)?.message,
+      name: (error as any)?.name,
+      code: (error as any)?.code,
+      stack: (error as any)?.stack,
+      // Supabase / fetch wrap their failures here:
+      cause: (error as any)?.cause,
+      status: (error as any)?.status,
+      details: (error as any)?.details,
+      hint: (error as any)?.hint,
+      ownKeys: error && typeof error === "object" ? Object.getOwnPropertyNames(error) : null,
+      json: (() => { try { return JSON.stringify(error); } catch { return "<unstringifiable>"; } })(),
+    };
+    console.error("[RootErrorBoundary] caught", dump);
+    console.error("[RootErrorBoundary] componentStack", info.componentStack);
   }
 
   render() {

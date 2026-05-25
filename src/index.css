@@ -1,9 +1,4 @@
-/*
- * Outfit (Google Fonts) removed — `font-display` / `font-display`
- * Tailwind utilities cascade through to SF Pro Display via the
- * font-family stacks below. This saves a synchronous Google Fonts
- * CSS fetch at cold start (was render-blocking the entire app boot).
- */
+@import url('https://fonts.googleapis.com/css2?family=Outfit:wght@400;500;600;700&display=swap');
 
 @tailwind base;
 @tailwind components;
@@ -78,45 +73,41 @@ body.dd-dnd-scroll-lock {
     --hero-glass-saturate: 1.6;
   }
 
-  /* Light mode — premium "paper" palette tuned to iOS systemBackground /
-   * systemFill tokens. The colour values here are deliberately
-   * conservative; the visual richness comes from precise elevation steps
-   * (shadow-card / shadow-elevated) and hairline borders, not from
-   * vibrant hues. */
+  /* Light mode — premium "paper" palette with measurable elevation steps. */
   :root.light {
-    --background: 240 12% 97.6%;          /* iOS systemGroupedBackground #F2F2F7 */
-    --foreground: 0 0% 6%;                /* iOS label — slightly off-black for less retinal punch */
-    --surface: 0 0% 100%;                 /* iOS systemBackground */
+    --background: 220 16% 95%;          /* Deeper, cooler off-white for crisp contrast */
+    --foreground: 224 30% 12%;          /* Rich dark slate, softer than pure black */
+    --surface: 0 0% 100%;               /* Pure white for cards */
     --surface-elevated: 0 0% 100%;
     --card: 0 0% 100%;
-    --card-foreground: 0 0% 6%;
+    --card-foreground: 224 30% 12%;
     --popover: 0 0% 100%;
-    --popover-foreground: 0 0% 6%;
-    --primary: 211 100% 50%;              /* Apple System Blue #007AFF */
+    --popover-foreground: 224 30% 12%;
+    --primary: 211 100% 50%;            /* Apple System Blue #007AFF */
     --primary-foreground: 0 0% 100%;
-    --primary-glow: 253 100% 58%;         /* Apple System Indigo #5856D6 */
-    --secondary: 240 12% 95%;             /* iOS secondarySystemBackground */
-    --secondary-foreground: 240 6% 10%;
-    --muted: 240 11% 94%;
-    --muted-foreground: 240 6% 38%;       /* iOS secondaryLabel — passes WCAG AA on white */
-    --accent: 211 100% 50%;
+    --primary-glow: 253 100% 58%;       /* Apple System Indigo #5856D6 */
+    --secondary: 220 14% 92%;           /* Slightly deeper secondary fill */
+    --secondary-foreground: 224 30% 18%;
+    --muted: 220 14% 92%;
+    --muted-foreground: 222 18% 40%;    /* Better contrast for secondary text */
+    --accent: 200 96% 38%;
     --accent-foreground: 0 0% 100%;
-    --success: 145 63% 32%;               /* iOS systemGreen, AA on white */
+    --success: 156 64% 30%;
     --success-foreground: 0 0% 100%;
-    --destructive: 4 89% 50%;             /* iOS systemRed */
+    --destructive: 3 78% 44%;
     --destructive-foreground: 0 0% 100%;
-    --border: 240 6% 88%;                 /* iOS separator — hairline on white */
-    --input: 240 6% 88%;
-    --ring: 211 100% 50%;
+    --border: 220 18% 86%;              /* Crisp hairline border */
+    --input: 220 18% 86%;
+    --ring: 200 96% 38%;
     --type-deep: 200 96% 38%;
     --type-comm: 24 84% 42%;
     --type-routine: 230 22% 40%;
-    --shadow-card: 0 1px 0 rgba(255,255,255,0.9), 0 8px 24px -6px rgba(18,28,56,0.08), 0 1px 3px rgba(18,28,56,0.03);
-    --shadow-card-inset: inset 1px 1px 0 rgba(255,255,255,1), inset -1px -1px 0 rgba(0,0,0,0.02);
-    --shadow-elevated: 0 20px 40px -10px rgba(18,28,56,0.12), 0 4px 12px -2px rgba(18,28,56,0.06);
+    --shadow-card: 0 10px 32px -8px rgba(18,28,56,0.12), 0 2px 8px -2px rgba(18,28,56,0.06);
+    --shadow-card-inset: inset 0 1px 0 rgba(255,255,255,1), inset 0 -1px 0 rgba(0,0,0,0.03);
+    --shadow-elevated: 0 24px 48px -12px rgba(18,28,56,0.18), 0 8px 16px -4px rgba(18,28,56,0.08);
     --shadow-tab: 0 12px 36px -16px rgba(18,28,56,0.14), inset 0 1px 0 rgba(255,255,255,0.98);
-    --gradient-glow: radial-gradient(56% 40% at 50% -6%, hsl(var(--primary) / 0.08), transparent 72%);
-    --gradient-floor: radial-gradient(ellipse 72% 44% at 50% 100%, hsl(var(--primary-glow) / 0.04), transparent 72%);
+    --gradient-glow: radial-gradient(56% 40% at 50% -6%, hsl(var(--primary) / 0.1), transparent 72%);
+    --gradient-floor: radial-gradient(ellipse 72% 44% at 50% 100%, hsl(var(--primary-glow) / 0.06), transparent 72%);
     --glass-blur: 28px;
     --glass-saturate: 1.4;
     --hero-glass-blur: 36px;
@@ -125,6 +116,7 @@ body.dd-dnd-scroll-lock {
 
   :root[data-visual-mode="neon"] {
     --primary: 180 100% 50%;            /* Pure Neon Cyan #00F2FE */
+    --primary-foreground: 240 40% 6.5%; /* Dark obsidian for contrast on bright cyan */
     --primary-glow: 320 100% 65%;       /* Neon Hot Pink / Magenta */
     --accent: 280 100% 65%;             /* Neon Violet */
     --background: 240 40% 6.5%;         /* Deep obsidian midnight #0A0B14 */
@@ -158,7 +150,7 @@ body.dd-dnd-scroll-lock {
     --popover-foreground: 226 34% 14%;
 
     --primary: 195 100% 45%;            /* Rich glowing cyan (readable) */
-    --primary-foreground: 0 0% 100%;
+    --primary-foreground: 226 34% 14%;  /* Dark text for contrast */
     --primary-glow: 275 100% 60%;       /* Neon purple */
     --accent: 275 100% 60%;
     --accent-foreground: 0 0% 100%;
@@ -189,32 +181,14 @@ body.dd-dnd-scroll-lock {
 
 @layer base {
   * { @apply border-border; }
-  /*
-   * Native-feeling shell. We pin html/body to the viewport and disable
-   * scroll there so the document never bounces. The Shell component puts
-   * the actual scroll on an inner `<main>` element (overflow-y: auto,
-   * overscroll-contain) so:
-   *   - the TabBar (position: fixed bottom-0) is always anchored to the
-   *     viewport, never affected by rubber-band;
-   *   - content can't scroll past natural bounds;
-   *   - elastic bounce on the scrolling region stays inside that region
-   *     and doesn't drag siblings around — UIScrollView semantics.
-   */
-  html, body, #root { height: 100%; overflow: hidden; }
-  html { -webkit-text-size-adjust: 100%; overscroll-behavior: none; }
-  body { overscroll-behavior: none; }
-
-  /*
-   * iOS Safari `100vh` bug — the address bar overlays the bottom 64px or so,
-   * cutting content. Switch the screen-sized layout containers to the
-   * dynamic viewport unit (`dvh`) which shrinks when the chrome appears and
-   * grows when it retracts. Browsers that don't support `dvh` keep the old
-   * `vh` value automatically because the second declaration is ignored.
-   */
-  @supports (height: 100dvh) {
-    .min-h-screen { min-height: 100dvh; }
-    .h-screen { height: 100dvh; }
+  html, body, #root {
+    height: 100%;
+    height: 100dvh;
+    width: 100%;
+    overflow: hidden;
+    position: fixed;
   }
+  html { -webkit-text-size-adjust: 100%; }
   
   /* Custom premium scrollbar for lists */
   ::-webkit-scrollbar {
@@ -241,12 +215,6 @@ body.dd-dnd-scroll-lock {
     touch-action: manipulation;
     letter-spacing: -0.005em;
     line-height: 1.55;
-  }
-  body {
-    padding-top: env(safe-area-inset-top);
-    padding-bottom: env(safe-area-inset-bottom);
-    padding-left: env(safe-area-inset-left);
-    padding-right: env(safe-area-inset-right);
   }
   button, nav, [role="button"] {
     -webkit-user-select: none;
@@ -385,11 +353,34 @@ body.dd-dnd-scroll-lock {
     inset: 0;
     background: linear-gradient(115deg, transparent 32%, rgba(255,255,255,0.18) 50%, transparent 68%);
     transform: translateX(-110%);
-    animation: gleamPass 1100ms cubic-bezier(0.22, 1, 0.36, 1) 320ms 1;
+    animation: gleamPass 4s cubic-bezier(0.22, 1, 0.36, 1) infinite;
     pointer-events: none;
   }
   @keyframes gleamPass {
     to { transform: translateX(110%); }
+  }
+
+  .btn-volumetric {
+    background: linear-gradient(160deg, hsl(var(--primary) / 0.9) 0%, hsl(var(--primary-glow) / 0.8) 100%);
+    box-shadow:
+      inset 0 1px 1px rgba(255, 255, 255, 0.4),
+      inset 0 -1px 2px rgba(0, 0, 0, 0.2),
+      0 8px 16px -4px hsl(var(--primary) / 0.4),
+      0 4px 8px -4px rgba(0, 0, 0, 0.3);
+    border: 1px solid rgba(255, 255, 255, 0.2);
+    border-top-color: rgba(255, 255, 255, 0.5);
+    border-bottom-color: rgba(0, 0, 0, 0.3);
+    text-shadow: 0 -1px 1px rgba(0, 0, 0, 0.3);
+    transition: transform 90ms cubic-bezier(0.25, 1, 0.5, 1), box-shadow 90ms ease, filter 90ms ease;
+  }
+  .btn-volumetric.pressable:active,
+  .btn-volumetric.pressable[data-pressed="true"] {
+    box-shadow:
+      inset 0 2px 4px rgba(0, 0, 0, 0.3),
+      inset 0 1px 2px rgba(0, 0, 0, 0.4),
+      0 2px 4px hsl(var(--primary) / 0.2);
+    transform: scale(0.96) translateY(2px);
+    filter: brightness(0.9);
   }
 
   /* ─── Per-row stagger ────────────────────────────────────────────
@@ -691,31 +682,6 @@ body.dd-dnd-scroll-lock {
   .no-scrollbar::-webkit-scrollbar { display: none; }
   .no-scrollbar { -ms-overflow-style: none; scrollbar-width: none; }
 
-  /*
-   * Layout / paint isolation for list items.
-   *
-   * `contain: content` tells the browser that an element's layout, paint, and
-   * style effects are scoped to itself. When one row changes, neighbouring
-   * rows skip layout+paint. Use on the *row* (not the list container).
-   *
-   * `content-visibility: auto` is the heavier hammer — the browser skips
-   * rendering entirely for off-screen rows, only paying when they scroll
-   * into view. Falls back to plain rendering in browsers without support.
-   * `contain-intrinsic-size` gives the browser a placeholder height so the
-   * scrollbar doesn't jitter.
-   */
-  .list-row-contain {
-    contain: content;
-  }
-  .list-row-cv {
-    content-visibility: auto;
-    contain-intrinsic-size: auto 96px;
-  }
-  .list-row-cv-tall {
-    content-visibility: auto;
-    contain-intrinsic-size: auto 160px;
-  }
-
   /* Soft section eyebrow */
   .eyebrow {
     font-size: 10px;
@@ -729,27 +695,33 @@ body.dd-dnd-scroll-lock {
   .app-card {
     border-radius: calc(var(--radius) + 2px);
     border: 1px solid hsl(var(--border) / 0.5);
+    border-top-color: hsl(var(--border) / 0.85);
     background:
-      radial-gradient(120% 140% at 0% 0%, hsl(var(--primary) / 0.05) 0%, transparent 56%),
-      linear-gradient(
-      168deg,
-      hsl(var(--surface) / 0.84) 0%,
-      hsl(var(--surface) / 0.76) 100%
-    );
+      radial-gradient(120% 140% at 0% 0%, hsl(var(--primary) / 0.08) 0%, transparent 60%),
+      linear-gradient(168deg, hsl(var(--surface) / 0.84) 0%, hsl(var(--surface) / 0.76) 100%);
     backdrop-filter: blur(var(--glass-blur)) saturate(var(--glass-saturate));
     -webkit-backdrop-filter: blur(var(--glass-blur)) saturate(var(--glass-saturate));
-    box-shadow: var(--shadow-card), var(--shadow-card-inset);
+    box-shadow: 
+      0 0 0 1px hsl(var(--primary) / 0.12),
+      0 0 42px hsl(var(--primary) / 0.16),
+      var(--shadow-card),
+      var(--shadow-card-inset);
     isolation: isolate;
   }
 
   .hero-glass {
     border-radius: 22px;
     border: 1px solid hsl(var(--border) / 0.5);
+    border-top-color: hsl(var(--primary) / 0.4);
     background:
-      radial-gradient(120% 120% at 0% 0%, hsl(var(--primary) / 0.1) 0%, transparent 58%),
-      radial-gradient(120% 120% at 100% 0%, hsl(var(--primary-glow) / 0.08) 0%, transparent 62%),
+      radial-gradient(120% 120% at 0% 0%, hsl(var(--primary) / 0.16) 0%, transparent 64%),
+      radial-gradient(120% 120% at 100% 0%, hsl(var(--primary-glow) / 0.12) 0%, transparent 68%),
       linear-gradient(155deg, hsl(var(--surface) / 0.9) 0%, hsl(var(--surface-elevated) / 0.78) 100%);
-    box-shadow: var(--shadow-elevated), var(--shadow-card-inset);
+    box-shadow: 
+      0 0 0 1px hsl(var(--primary) / 0.18),
+      0 12px 64px -12px hsl(var(--primary) / 0.22),
+      var(--shadow-elevated),
+      var(--shadow-card-inset);
     backdrop-filter: blur(var(--hero-glass-blur)) saturate(var(--hero-glass-saturate));
     -webkit-backdrop-filter: blur(var(--hero-glass-blur)) saturate(var(--hero-glass-saturate));
     isolation: isolate;
@@ -793,129 +765,6 @@ body.dd-dnd-scroll-lock {
   }
   :root.light .border-accent {
     border-color: hsl(var(--primary) / 0.38);
-  }
-
-  /*
-   * ─── Light-mode contrast rescues ────────────────────────────────────
-   *
-   * The codebase was written dark-first, so subtle surface patterns like
-   * `bg-background/30` or `bg-white/[0.04]` are invisible on a white page.
-   * Rather than refactor every call site, we re-target those Tailwind
-   * arbitrary classes in light mode to use a *foreground* tint that
-   * actually shows up — matching the iOS UIKit pattern where secondary
-   * grouped backgrounds sit at 4–8% black on white.
-   *
-   * The classes here are arbitrary Tailwind utilities, so `\/` escapes
-   * are needed in the selector to match the `/` in the class name.
-   */
-  :root.light .bg-background\/30,
-  :root.light .bg-background\/35,
-  :root.light .bg-background\/40,
-  :root.light .bg-background\/45,
-  :root.light .bg-background\/50 {
-    background-color: hsl(var(--foreground) / 0.04) !important;
-  }
-  :root.light .bg-background\/55,
-  :root.light .bg-background\/60,
-  :root.light .bg-background\/70,
-  :root.light .bg-background\/78,
-  :root.light .bg-background\/80,
-  :root.light .bg-background\/88,
-  :root.light .bg-background\/95 {
-    background-color: hsl(var(--surface)) !important;
-  }
-  :root.light .bg-card\/30,
-  :root.light .bg-card\/35,
-  :root.light .bg-card\/40,
-  :root.light .bg-card\/50,
-  :root.light .bg-card\/60 {
-    background-color: hsl(var(--foreground) / 0.03) !important;
-  }
-  :root.light .bg-card\/70,
-  :root.light .bg-card\/80,
-  :root.light .bg-card\/90 {
-    background-color: hsl(var(--surface)) !important;
-  }
-  /*
-   * `bg-white/[0.04]` etc. read as "1px more than nothing" on dark, but as
-   * literal white-on-white in light. Swap for the same foreground tint.
-   */
-  :root.light .bg-white\/\[0\.04\],
-  :root.light .bg-white\/\[0\.05\],
-  :root.light .bg-white\/\[0\.06\],
-  :root.light .bg-white\/\[0\.08\],
-  :root.light .bg-white\/\[0\.10\] {
-    background-color: hsl(var(--foreground) / 0.05) !important;
-  }
-  :root.light .bg-white\/\[0\.12\],
-  :root.light .bg-white\/\[0\.14\],
-  :root.light .bg-white\/\[0\.16\] {
-    background-color: hsl(var(--foreground) / 0.08) !important;
-  }
-
-  /*
-   * `text-primary-foreground` is *white* in both themes. That's correct on
-   * a solid `bg-primary` button, but breaks on faint tints like
-   * `bg-primary/8` / `bg-primary/12`. In light mode, re-anchor any
-   * `text-primary-foreground` sitting on a transparent-ish primary tint to
-   * the primary blue itself — which is the iOS "filled tinted button"
-   * convention (tinted bg + tinted label).
-   *
-   * Component-level fixes are still preferred for new code, but this
-   * catches the legacy call sites we haven't audited yet.
-   */
-  :root.light .bg-primary\/8.text-primary-foreground,
-  :root.light .bg-primary\/10.text-primary-foreground,
-  :root.light .bg-primary\/12.text-primary-foreground,
-  :root.light .bg-primary\/\[0\.08\].text-primary-foreground,
-  :root.light .bg-primary\/\[0\.10\].text-primary-foreground,
-  :root.light .bg-primary\/\[0\.12\].text-primary-foreground,
-  :root.light .bg-primary\/8 .text-primary-foreground,
-  :root.light .bg-primary\/10 .text-primary-foreground,
-  :root.light .bg-primary\/12 .text-primary-foreground,
-  :root.light .bg-primary\/\[0\.08\] .text-primary-foreground,
-  :root.light .bg-primary\/\[0\.10\] .text-primary-foreground,
-  :root.light .bg-primary\/\[0\.12\] .text-primary-foreground {
-    color: hsl(var(--primary)) !important;
-  }
-
-  /*
-   * `text-secondary-fg/85` and friends combine an already-muted token with
-   * extra alpha — fine on dark, but it drops below WCAG AA on white. Lift
-   * the floor on every `/N` variant in light mode by reading from the
-   * solid muted-foreground (which already has the right contrast).
-   */
-  :root.light .text-secondary-fg\/80,
-  :root.light .text-secondary-fg\/85,
-  :root.light .text-secondary-fg\/90,
-  :root.light .text-secondary-fg\/95 {
-    color: hsl(var(--muted-foreground)) !important;
-  }
-  :root.light .text-secondary-fg\/70,
-  :root.light .text-secondary-fg\/75 {
-    color: hsl(var(--muted-foreground) / 0.92) !important;
-  }
-  :root.light .text-foreground\/65,
-  :root.light .text-foreground\/70,
-  :root.light .text-foreground\/75,
-  :root.light .text-foreground\/80,
-  :root.light .text-foreground\/85 {
-    color: hsl(var(--foreground) / 0.86) !important;
-  }
-  :root.light .text-foreground\/90,
-  :root.light .text-foreground\/95 {
-    color: hsl(var(--foreground)) !important;
-  }
-
-  /*
-   * iOS-style hairline divider — 0.5px on retina, crisp on white. Used by
-   * .calm-divider and any `border-t border-border/N` row in light mode.
-   */
-  :root.light .border-border\/30,
-  :root.light .border-border\/35,
-  :root.light .border-border\/40,
-  :root.light .border-border\/45 {
-    border-color: hsl(var(--border)) !important;
   }
 
   /** Ambient layers behind the app column (Shell) */
@@ -1294,84 +1143,11 @@ body.dd-dnd-scroll-lock {
   --glass-saturate: 1.04;
   --hero-glass-blur: 12px;
   --hero-glass-saturate: 1.06;
-  --gradient-glow: radial-gradient(58% 44% at 50% -6%, hsl(var(--primary) / 0.14), transparent 76%);
-  --gradient-floor: radial-gradient(ellipse 72% 46% at 50% 100%, hsl(var(--primary-glow) / 0.09), transparent 72%);
+  --gradient-glow: radial-gradient(64% 50% at 50% -6%, hsl(var(--primary) / 0.28), transparent 76%);
+  --gradient-floor: radial-gradient(ellipse 76% 50% at 50% 100%, hsl(var(--primary-glow) / 0.24), transparent 72%);
 }
 
-@media (prefers-reduced-motion: reduce) {
-  .page-enter,
-  .fade-in,
-  .page-transition-tab,
-  .page-transition-push,
-  .page-transition-pop,
-  .animate-in,
-  .shimmer,
-  .dot-bounce > span,
-  .ring-pulse,
-  .check-pop,
-  .section-switch-stagger > *,
-  .shell-glow-breathe,
-  .tracker-dot-soft-pulse,
-  .tracker-status-pill::after,
-  .tracker-hero-luxe::after {
-    animation: none !important;
-  }
-  .tracker-hero-luxe.tracker-hero--running {
-    animation: none !important;
-    box-shadow: none !important;
-  }
-  .tracker-time-glow--live {
-    text-shadow: 0 1px 0 hsl(var(--foreground) / 0.06) !important;
-  }
-  .tab-indicator-liquid,
-  .tab-indicator-liquid-trail {
-    transition-duration: 120ms !important;
-    transition-timing-function: ease-out !important;
-  }
-  .tab-indicator-liquid-trail {
-    opacity: 0.62 !important;
-    filter: blur(4px) !important;
-  }
-  .panel-luxe::after {
-    transition: none !important;
-    transform: none !important;
-    opacity: 0 !important;
-  }
-  .tracker-tabs-indicator,
-  .tracker-category-luxe,
-  .tracker-category-luxe::after {
-    transition: none !important;
-  }
-  .pressable:active {
-    transform: none;
-  }
-  .tabbar-luxe a svg,
-  .tabbar-luxe a span {
-    transition-duration: 120ms !important;
-  }
-  .tappable,
-  .tappable:active,
-  .pressable:active,
-  .ios-row:active,
-  .gleam::after,
-  .enter-stagger > *,
-  .spring-in,
-  .breathe,
-  .pill-loader,
-  .pill-loader-dot,
-  .tracker-hero-clock::before {
-    animation: none !important;
-    transition: none !important;
-    transform: none !important;
-    filter: none !important;
-  }
-  .tracker-hero-clock::before {
-    /* Without the rotation a single static slice would look arbitrary —
-       drop the layer entirely and let the accent text-shadow carry the
-       "live" cue. */
-    display: none !important;
-  }
-}
+
 
 /* Capacitor iOS: a 34px blur over a rotating gradient is the kind of
    thing WKWebView promotes to a permanent compositor layer. Cut blur

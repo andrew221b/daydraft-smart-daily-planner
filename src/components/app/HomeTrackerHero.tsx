@@ -1,7 +1,6 @@
 import { useEffect, useMemo, useRef, useState, type CSSProperties, type FormEvent } from "react";
-import { Check, Play, Square, Plus, Search, ChevronDown, ChevronRight, Wallet } from "lucide-react";
-import { useTimeTracker, fmtHMS, fmtHM } from "@/hooks/useTimeTracker";
-import { LiveElapsed } from "@/components/app/LiveElapsed";
+import { Check, Play, Square, Plus, Search, ChevronDown, Wallet } from "lucide-react";
+import { useTimeTracker, useTimeTrackerElapsed, fmtHMS, fmtHM } from "@/hooks/useTimeTracker";
 import { Sheet, SheetContent, SheetHeader, SheetTitle } from "@/components/ui/sheet";
 import { Input } from "@/components/ui/input";
 import { Button } from "@/components/ui/button";
@@ -73,8 +72,7 @@ export function HomeTrackerHero({ onOpenDetails }: { onOpenDetails: () => void }
     updateCategoryRate,
     updateCategoryBilling,
   } = useTimeTracker();
-  // The live HH:MM:SS digits are rendered via <LiveElapsed> below — that
-  // component writes textContent directly without re-rendering this tree.
+  const elapsedSec = useTimeTrackerElapsed();
   const activeCat = categories.find((c) => c.id === active?.category_id);
   const [pickerOpen, setPickerOpen] = useState(false);
   const [selectedCategoryId, setSelectedCategoryId] = useState<string | null>(null);
@@ -87,7 +85,7 @@ export function HomeTrackerHero({ onOpenDetails }: { onOpenDetails: () => void }
   const [draftCurrency, setDraftCurrency] = useState("USD");
   const [draftPaymentMethod, setDraftPaymentMethod] = useState("");
   const [billingOpen, setBillingOpen] = useState(false);
-  const [rateOpen, setRateOpen] = useState(false);
+  const [billingExpanded, setBillingExpanded] = useState(false);
   const [paymentDetails, setPaymentDetails] = useState<PaymentDetailsDraft>(emptyPaymentDetails);
   const [paymentSaving, setPaymentSaving] = useState(false);
   const [categorySaving, setCategorySaving] = useState(false);
@@ -210,11 +208,7 @@ export function HomeTrackerHero({ onOpenDetails }: { onOpenDetails: () => void }
   return (
     <section
       data-tour="hero-tracker"
-      // `shrink-0` keeps the hero from being squeezed by the flex column
-      // in Home. The `overflow-hidden` is needed to clip the rotating
-      // conic-gradient sweep against the rounded corner when the timer
-      // is running.
-      className={`relative shrink-0 overflow-hidden rounded-[28px] hero-glass border px-5 pt-6 pb-5 transition-[border-color,background-color,box-shadow,transform] duration-500 ease-out ${
+      className={`relative overflow-hidden rounded-[28px] hero-glass border px-5 pt-6 pb-5 transition-[border-color,background-color,box-shadow,transform] duration-500 ease-out ${
         active
           ? "tracker-hero-clock border-[color-mix(in_srgb,var(--hero-accent)_45%,hsl(var(--border)/0.5))]"
           : "border-border/35"
@@ -261,10 +255,9 @@ export function HomeTrackerHero({ onOpenDetails }: { onOpenDetails: () => void }
                 quietly-pulsing surface, not text inside a faint box.
               */}
               <div className="mt-3 breathe">
-                <LiveElapsed
-                  format={fmtHMS}
-                  className="font-display text-[3.4rem] font-semibold tabular-nums leading-none tracking-[-0.04em] text-foreground block"
-                />
+                <div className="font-display text-[3.4rem] font-semibold tabular-nums leading-none tracking-[-0.04em] text-foreground">
+                  {fmtHMS(elapsedSec)}
+                </div>
               </div>
               <button
                 type="button"
@@ -278,7 +271,7 @@ export function HomeTrackerHero({ onOpenDetails }: { onOpenDetails: () => void }
                 <button
                   type="button"
                   onClick={() => openCategoryPicker()}
-                  className="mt-2 inline-flex items-center gap-1.5 rounded-full border border-border/60 bg-foreground/[0.04] px-4 py-2 text-[12px] font-semibold text-foreground/80 pressable hover:text-foreground hover:bg-foreground/[0.07]"
+                  className="mt-2 inline-flex items-center gap-1.5 rounded-full border border-border/45 bg-background/45 px-4 py-2 text-[12px] font-semibold text-secondary-fg/90 pressable hover:text-foreground"
                 >
                   Switch category
                   <ChevronDown className="h-3 w-3" />
@@ -307,7 +300,7 @@ export function HomeTrackerHero({ onOpenDetails }: { onOpenDetails: () => void }
                   haptics.tap();
                   openCategoryPicker();
                 }}
-                className="gleam mt-4 inline-flex items-center gap-2 rounded-full bg-gradient-primary text-primary-foreground px-8 py-3.5 text-[14px] font-semibold pressable shadow-[0_10px_28px_-12px_hsl(var(--primary)/0.6)] border border-primary/20"
+                className="gleam mt-4 inline-flex items-center gap-2 rounded-full text-primary-foreground px-8 py-3.5 text-[14px] font-semibold pressable btn-volumetric"
               >
                 <Play className="h-3.5 w-3.5" fill="currentColor" />
                 Start tracking
@@ -324,15 +317,10 @@ export function HomeTrackerHero({ onOpenDetails }: { onOpenDetails: () => void }
                 key={c.id}
                 type="button"
                 onClick={() => { haptics.selection(); setSelectedCategoryId(c.id); }}
-                // Selected uses *tinted text on tinted bg* (the iOS pattern)
-                // — `text-primary-foreground` is white, which vanishes on the
-                // 12%-blue tint in light mode. Unselected uses a foreground
-                // tint instead of `bg-white/*` so the chip is visible on a
-                // white surface.
                 className={`shrink-0 inline-flex items-center gap-1.5 rounded-full border py-1.5 pl-2 pr-3 text-[12px] font-medium transition-colors pressable ${
                   selectedCategoryId === c.id
-                    ? "border-primary/50 bg-primary/[0.12] text-primary ring-[1.5px] ring-primary/20"
-                    : "border-border/50 bg-foreground/[0.04] text-foreground/85 hover:bg-foreground/[0.07]"
+                    ? "border-primary/50 bg-primary/12 text-primary-foreground ring-[1.5px] ring-primary/20"
+                    : "border-border/35 bg-white/[0.04] dark:bg-white/[0.05] text-foreground/80 hover:bg-white/[0.08]"
                 }`}
               >
                 <span className="h-1.5 w-1.5 rounded-full" style={{ background: c.color }} />
@@ -343,7 +331,7 @@ export function HomeTrackerHero({ onOpenDetails }: { onOpenDetails: () => void }
               <button
                 type="button"
                 onClick={() => openCategoryPicker()}
-                className="shrink-0 inline-flex items-center gap-1 rounded-full border border-border/55 bg-foreground/[0.04] py-1.5 px-2.5 text-[12px] font-medium text-foreground/75 hover:text-foreground hover:bg-foreground/[0.07] pressable"
+                className="shrink-0 inline-flex items-center gap-1 rounded-full border border-border/40 bg-background/40 py-1.5 px-2.5 text-[12px] font-medium text-secondary-fg/85 hover:text-foreground pressable"
               >
                 <ChevronDown className="h-3 w-3" />
                 More
@@ -352,7 +340,7 @@ export function HomeTrackerHero({ onOpenDetails }: { onOpenDetails: () => void }
             <button
               type="button"
               onClick={() => openCategoryPicker({ focusAdd: true })}
-              className="shrink-0 inline-flex items-center gap-1 rounded-full border border-dashed border-border/60 bg-transparent py-1.5 px-2.5 text-[12px] font-medium text-foreground/70 hover:text-foreground pressable"
+              className="shrink-0 inline-flex items-center gap-1 rounded-full border border-dashed border-border/40 bg-transparent py-1.5 px-2.5 text-[12px] font-medium text-secondary-fg/80 hover:text-foreground pressable"
             >
               <Plus className="h-3 w-3" />
               New
@@ -369,36 +357,88 @@ export function HomeTrackerHero({ onOpenDetails }: { onOpenDetails: () => void }
           </p>
         )}
 
-        {/*
-          Billing summary row. Tapping opens a Sheet — the form used to
-          inline-expand inside this hero card, but the section's rounded
-          `overflow-hidden` (needed to clip the conic sweep when the
-          tracker is running) was cropping the Save/Details row on
-          devices where the flex column constrained the card's height.
-          A Sheet has no parent clipping at all.
-        */}
+        {/* Billing — collapsed by default, tap to expand */}
         {!active && selectedCat && (
-          <button
-            type="button"
-            onClick={() => { haptics.tap(); setRateOpen(true); }}
-            className="mt-3 w-full flex items-center justify-between rounded-2xl border border-border/30 bg-background/25 px-3.5 py-2.5 pressable"
-          >
-            <span className="text-[11px] font-semibold uppercase tracking-[0.16em] text-secondary-fg/60">
-              Rate & billing
-            </span>
-            <div className="flex items-center gap-2">
-              {selectedCat.hourly_rate != null ? (
-                <span className="text-[12px] font-medium text-foreground/65 tabular-nums">
-                  {selectedCat.hourly_rate}/{selectedCat.currency || "USD"}/h
-                </span>
-              ) : (
-                <span className="text-[12px] font-medium text-secondary-fg/55">
-                  Set rate
-                </span>
-              )}
-              <ChevronRight className="h-3.5 w-3.5 text-secondary-fg/50" />
-            </div>
-          </button>
+          <div className="mt-3 rounded-2xl border border-border/30 bg-background/25 overflow-hidden">
+            <button
+              type="button"
+              onClick={() => setBillingExpanded((v) => !v)}
+              className="w-full flex items-center justify-between px-3.5 py-2.5 pressable"
+            >
+              <span className="text-[11px] font-semibold uppercase tracking-[0.16em] text-secondary-fg/60">
+                Rate & billing
+              </span>
+              <div className="flex items-center gap-2">
+                {selectedCat.hourly_rate != null && (
+                  <span className="text-[12px] font-medium text-foreground/65 tabular-nums">
+                    {selectedCat.hourly_rate}/{selectedCat.currency || "USD"}/h
+                  </span>
+                )}
+                <ChevronDown
+                  className={`h-3.5 w-3.5 text-secondary-fg/50 transition-transform duration-200 ${billingExpanded ? "rotate-180" : ""}`}
+                />
+              </div>
+            </button>
+
+            {billingExpanded && (
+              <div className="px-3.5 pb-3.5 space-y-2.5 border-t border-border/25 pt-3">
+                <div className="grid grid-cols-[1fr_100px] gap-2">
+                  <label className="space-y-1 block min-w-0">
+                    <span className="text-[10px] text-secondary-fg/70">Rate / h</span>
+                    <Input
+                      inputMode="decimal"
+                      value={draftRate}
+                      onChange={(e) => setDraftRate(e.target.value)}
+                      placeholder="—"
+                      className="h-9 rounded-xl border-border/40 bg-card/40 text-[13px]"
+                    />
+                  </label>
+                  <label className="space-y-1 block min-w-0">
+                    <span className="text-[10px] text-secondary-fg/70">Currency</span>
+                    <select
+                      value={draftCurrency}
+                      onChange={(e) => setDraftCurrency(e.target.value)}
+                      className="h-9 w-full rounded-xl border border-border/40 bg-card/40 px-2 text-[12px] text-foreground outline-none focus:border-primary/50"
+                    >
+                      {currencyOptions.map((code) => <option key={code} value={code}>{code}</option>)}
+                    </select>
+                  </label>
+                </div>
+                <label className="block space-y-1">
+                  <span className="text-[10px] text-secondary-fg/70">Payment method</span>
+                  <select
+                    value={draftPaymentMethod}
+                    onChange={(e) => setDraftPaymentMethod(e.target.value)}
+                    className="h-9 w-full rounded-xl border border-border/40 bg-card/40 px-2 text-[12px] text-foreground outline-none focus:border-primary/50"
+                  >
+                    {paymentMethodOptionsFor(draftPaymentMethod).map((method) => <option key={method || "blank"} value={method}>{method || "Not set"}</option>)}
+                  </select>
+                </label>
+                <div className="flex gap-2">
+                  <Button
+                    type="button"
+                    size="sm"
+                    disabled={categorySaving}
+                    onClick={() => void saveCategoryBilling()}
+                    className="flex-1 h-9 rounded-xl text-[12px] font-semibold"
+                  >
+                    {categorySaving ? "Saving…" : "Save"}
+                  </Button>
+                  <button
+                    type="button"
+                    onClick={() => {
+                      if (!isPro) { setUpgradeOpen(true); return; }
+                      setBillingOpen(true);
+                    }}
+                    className="flex-1 inline-flex items-center justify-center gap-1.5 rounded-xl border border-border/40 bg-card/35 text-[12px] font-medium text-secondary-fg/80 pressable hover:text-foreground"
+                  >
+                    <Wallet className="h-3.5 w-3.5" />
+                    Details
+                  </button>
+                </div>
+              </div>
+            )}
+          </div>
         )}
       </div>
 
@@ -486,89 +526,6 @@ export function HomeTrackerHero({ onOpenDetails }: { onOpenDetails: () => void }
                 )}
               </div>
             </form>
-          </div>
-        </SheetContent>
-      </Sheet>
-
-      <Sheet
-        open={rateOpen}
-        onOpenChange={(open) => {
-          setRateOpen(open);
-          if (!open) return;
-          // Re-sync drafts from the latest selectedCat each time the
-          // sheet opens so cross-tab edits show through.
-          if (selectedCat) {
-            setDraftRate(selectedCat.hourly_rate == null ? "" : String(selectedCat.hourly_rate));
-            setDraftCurrency(String(selectedCat.currency || "USD"));
-            setDraftPaymentMethod(String(selectedCat.payment_method || ""));
-          }
-        }}
-      >
-        <SheetContent side="bottom" className="rounded-t-[28px] border-border/45 bg-popover max-h-[88vh] overflow-y-auto">
-          <SheetHeader className="text-left">
-            <SheetTitle className="text-[17px]">
-              Rate & billing · {selectedCat?.name ?? "Category"}
-            </SheetTitle>
-          </SheetHeader>
-          <p className="text-[12px] text-secondary-fg mt-1 mb-4">
-            Per-category rate. Used in Reports earnings and exports.
-          </p>
-          <div className="space-y-3 pb-4">
-            <div className="grid grid-cols-[1fr_110px] gap-2">
-              <label className="space-y-1 block min-w-0">
-                <span className="text-[11px] text-secondary-fg/80">Rate / h</span>
-                <Input
-                  inputMode="decimal"
-                  value={draftRate}
-                  onChange={(e) => setDraftRate(e.target.value)}
-                  placeholder="—"
-                  className="h-10 rounded-xl text-[14px]"
-                />
-              </label>
-              <label className="space-y-1 block min-w-0">
-                <span className="text-[11px] text-secondary-fg/80">Currency</span>
-                <select
-                  value={draftCurrency}
-                  onChange={(e) => setDraftCurrency(e.target.value)}
-                  className="h-10 w-full rounded-xl border border-border/45 bg-card px-2 text-[13px] text-foreground outline-none focus:border-primary/50"
-                >
-                  {currencyOptions.map((code) => <option key={code} value={code}>{code}</option>)}
-                </select>
-              </label>
-            </div>
-            <label className="block space-y-1">
-              <span className="text-[11px] text-secondary-fg/80">Payment method</span>
-              <select
-                value={draftPaymentMethod}
-                onChange={(e) => setDraftPaymentMethod(e.target.value)}
-                className="h-10 w-full rounded-xl border border-border/45 bg-card px-2 text-[13px] text-foreground outline-none focus:border-primary/50"
-              >
-                {paymentMethodOptionsFor(draftPaymentMethod).map((method) => <option key={method || "blank"} value={method}>{method || "Not set"}</option>)}
-              </select>
-            </label>
-            <Button
-              type="button"
-              disabled={categorySaving}
-              onClick={async () => {
-                await saveCategoryBilling();
-                setRateOpen(false);
-              }}
-              className="w-full h-11 rounded-xl"
-            >
-              {categorySaving ? "Saving…" : "Save"}
-            </Button>
-            <button
-              type="button"
-              onClick={() => {
-                if (!isPro) { setUpgradeOpen(true); return; }
-                setRateOpen(false);
-                setBillingOpen(true);
-              }}
-              className="w-full inline-flex items-center justify-center gap-1.5 rounded-xl border border-border/45 bg-card/40 h-11 text-[13px] font-medium text-secondary-fg/85 pressable hover:text-foreground"
-            >
-              <Wallet className="h-3.5 w-3.5" />
-              Payment details {isPro ? "" : "(Pro)"}
-            </button>
           </div>
         </SheetContent>
       </Sheet>

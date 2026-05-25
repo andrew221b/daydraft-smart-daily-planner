@@ -18,21 +18,20 @@ const config: CapacitorConfig = {
      * shell has rendered, then fade it out smoothly.
      */
     SplashScreen: {
-      // Failsafe duration. The app calls `SplashScreen.hide()` right after
-      // React's first paint so the actual visible duration is more like
-      // 600–1200ms on a real device. The 3s value just means "if React
-      // never boots, don't strand the user on a frozen logo forever".
-      launchShowDuration: 3000,
+      // Keep splash visible until React calls hide(). This prevents the "white flash"
+      // or "black flash" between the WebView booting and React first paint.
       launchAutoHide: false,
-      // No backgroundColor — the LaunchScreen.storyboard uses
-      // systemBackgroundColor, which adapts to the user's iOS appearance
-      // (white in light mode, near-black in dark mode). Setting an
-      // explicit colour here would override the storyboard and flash a
-      // mismatched colour against the web app's first paint.
-      iosSpinnerStyle: "small",
+      // Match LaunchScreen.storyboard's #090A0C so the LaunchScreen → plugin
+      // splash → boot-overlay handoff has no colour flash.
+      backgroundColor: "#090A0C",
+      showSpinner: false,
       splashFullScreen: true,
       splashImmersive: true,
-      fadeOutDuration: 220,
+      fadeOutDuration: 400,
+    },
+    Keyboard: {
+      resize: "body",
+      resizeOnFullScreen: true,
     },
   },
 };

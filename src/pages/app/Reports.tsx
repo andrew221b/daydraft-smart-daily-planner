@@ -3,7 +3,10 @@ import { keepPreviousData, useQuery } from "@tanstack/react-query";
 import { useAuth } from "@/hooks/useAuth";
 import { supabase } from "@/integrations/supabase/client";
 import { Button } from "@/components/ui/button";
-import { BarChart3, ChevronDown, Download, FileText } from "lucide-react";
+import { BarChart3, CalendarDays, ChevronDown, Download, FileText, ListFilter } from "lucide-react";
+import { motion, AnimatePresence } from "framer-motion";
+import { DateRangePickerSheet } from "@/components/app/DateRangePickerSheet";
+import { CategoryFilterSheet } from "@/components/app/CategoryFilterSheet";
 
 // Recharts is its own ~100kB chunk. Lazy-load it so the Reports first paint
 // shows headline numbers + the per-day list while the chart streams in.
@@ -25,20 +28,39 @@ import { useEntitlement } from "@/hooks/useEntitlement";
 import { UpgradeSheet } from "@/components/app/UpgradeSheet";
 import { TickingNumber } from "@/components/app/TickingNumber";
 import { useTimeTracker, useTimeTrackerElapsed } from "@/hooks/useTimeTracker";
+import { useTabVisible } from "@/components/app/PersistentTabs";
 import {
   filterEntriesByRange,
   rollingEntriesQueryKey,
   fetchRollingEntries,
   type RollingEntry,
+  ROLLING_ENTRIES_DAYS,
 } from "@/lib/timeEntriesQuery";
+import { parseDateStr, todayDateStr, friendlyDateFor, dateStr } from "@/lib/daydraft";
 
-type Period = "day" | "week" | "month";
+type Period = "day" | "week" | "month" | "custom";
 
-function periodRange(period: Period): { from: Date; to: Date; label: string; periodLabel: string } {
+function periodRange(period: Period, customFromStr?: string, customToStr?: string): { from: Date; to: Date; label: string; periodLabel: string } {
   const now = new Date();
   const to = new Date(now);
   to.setHours(23, 59, 59, 999);
   const from = new Date(now);
+  
+  if (period === "custom") {
+    const cf = parseDateStr(customFromStr || todayDateStr());
+    cf.setHours(0, 0, 0, 0);
+    const ct = parseDateStr(customToStr || todayDateStr());
+    ct.setHours(23, 59, 59, 999);
+    // auto-swap if inverted
+    const [finalFrom, finalTo] = cf.getTime() > ct.getTime() ? [ct, cf] : [cf, ct];
+    return {
+      from: finalFrom,
+      to: finalTo,
+      label: `${friendlyDateFor(finalFrom)} – ${friendlyDateFor(finalTo)}`,
+      periodLabel: "Custom period"
+    };
+  }
+
   if (period === "day") {
     from.setHours(0, 0, 0, 0);
   } else if (period === "week") {
@@ -59,7 +81,10 @@ const fmtHM = (sec: number) => {
   const m = Math.round(sec / 60);
   const h = Math.floor(m / 60);
   const mm = m % 60;
-  if (!h) return `${mm}m`;
+  if (!h) {
+    if (mm === 0 && sec > 0) return `${Math.floor(sec)}s`;
+    return `${mm}m`;
+  }
   return mm ? `${h}h ${mm}m` : `${h}h`;
 };
 
@@ -111,15 +136,33 @@ export default function Reports() {
   // Subscribing to elapsedSec keeps live totals (running timer in the active
   // category) ticking inside Reports without a per-tab Supabase query.
   useTimeTrackerElapsed();
+  const reportsTabVisible = useTabVisible();
   const [period, setPeriod] = useState<Period>("week");
+  const minDateStrVal = useMemo(() => {
+    const d = new Date();
+    d.setDate(d.getDate() - ROLLING_ENTRIES_DAYS);
+    return dateStr(d);
+  }, []);
+  // Custom range defaults to today / today — opening Custom mode should
+  // feel like "I'm here, show me right now", not "show me a random week".
+  const [customFrom, setCustomFrom] = useState<string>(() => todayDateStr());
+  const [customTo, setCustomTo] = useState<string>(() => todayDateStr());
+  // Empty Set = "all categories" (no filter applied). Set with ids = only
+  // those categories. Lives separately from the date picker draft so each
+  // sheet has independent committed state.
+  const [appliedCatIds, setAppliedCatIds] = useState<Set<string>>(() => new Set());
+  // Sheet open flags — kept page-level so the sheets themselves can stay
+  // pure presentation components that never own their visibility.
+  const [dateSheetOpen, setDateSheetOpen] = useState(false);
+  const [catSheetOpen, setCatSheetOpen] = useState(false);
   const [expandedCategoryIds, setExpandedCategoryIds] = useState<Set<string>>(() => new Set());
   const [upgradeOpen, setUpgradeOpen] = useState(false);
-  const range = useMemo(() => periodRange(period), [period]);
+  const range = useMemo(() => periodRange(period, customFrom, customTo), [period, customFrom, customTo]);
 
   const { data: rollingEntries = [] } = useQuery({
     queryKey: rollingEntriesQueryKey(user?.id),
     queryFn: () => fetchRollingEntries(user!.id),
-    enabled: !!user?.id,
+    enabled: !!user?.id && reportsTabVisible,
     staleTime: 60_000,
     gcTime: 30 * 60_000,
     placeholderData: keepPreviousData,
@@ -127,7 +170,7 @@ export default function Reports() {
 
   const { data: paymentDetails = null } = useQuery({
     queryKey: ["billing-payment-details", user?.id],
-    enabled: !!user?.id && isPro,
+    enabled: !!user?.id && isPro && reportsTabVisible,
     staleTime: 5 * 60_000,
     gcTime: 30 * 60_000,
     placeholderData: keepPreviousData,
@@ -156,10 +199,14 @@ export default function Reports() {
     [categories],
   );
 
-  const periodEntries = useMemo(
-    () => filterEntriesByRange(rollingEntries, range),
-    [rollingEntries, range],
-  );
+  const periodEntries = useMemo(() => {
+    const inRange = filterEntriesByRange(rollingEntries, range);
+    // Category filter — empty Set sentinel means "no filter, show all".
+    // Filtering happens locally so we don't re-fetch from Supabase when the
+    // user toggles a category; rollingEntries is already a 60-day window.
+    if (appliedCatIds.size === 0) return inRange;
+    return inRange.filter((e) => appliedCatIds.has(e.category_id || "uncategorized"));
+  }, [rollingEntries, range, appliedCatIds]);
 
   // Single pass through entries — previously this file built two near-identical
   // aggregations (`byCategory` and `categoryGroups`) which doubled the work on
@@ -328,8 +375,8 @@ export default function Reports() {
 
   return (
     <>
-      <div className="flex min-h-0 flex-1 flex-col px-5 pt-7 pb-6">
-        <header className="mb-5 shrink-0">
+      <div className="flex w-full flex-col px-5 pt-[var(--safe-area-inset-top)] pb-5">
+        <header className="shrink-0 pb-6">
           <p className="text-[10px] font-semibold uppercase tracking-[0.2em] text-secondary-fg/65">
             Reports
           </p>
@@ -343,22 +390,14 @@ export default function Reports() {
           ring rather than `bg-background`, which on dark mode is pure
           black and disappeared into the parent track. The underlay
           slides between buttons via transform so the selection reads
-          as one continuous motion. Buttons are an equal-width 3-col
+          as one continuous motion. Buttons are an equal-width 4-col
           grid so the slide hits each pill exactly.
         */}
         <div
-          className="shrink-0 mb-5 relative isolate grid grid-cols-3 p-1 rounded-2xl bg-muted/50 border border-border/40 self-start w-[220px]"
+          className="shrink-0 mb-5 relative isolate grid grid-cols-4 p-1 rounded-2xl surface-soft border border-soft self-start w-[280px]"
           role="tablist"
         >
-          <span
-            aria-hidden
-            className="pointer-events-none absolute top-1 bottom-1 left-1 rounded-xl bg-primary/[0.18] ring-1 ring-inset ring-primary/35 shadow-[0_4px_14px_-6px_hsl(var(--primary)/0.55)] transition-transform duration-[340ms] ease-[cubic-bezier(0.34,1.4,0.64,1)] will-change-transform"
-            style={{
-              width: "calc((100% - 0.5rem) / 3)",
-              transform: `translateX(calc(${(["day", "week", "month"] as Period[]).indexOf(period)} * 100%))`,
-            }}
-          />
-          {(["day", "week", "month"] as Period[]).map((p) => (
+          {(["day", "week", "month", "custom"] as Period[]).map((p) => (
             <button
               key={p}
               type="button"
@@ -367,23 +406,85 @@ export default function Reports() {
               onClick={() => setPeriod(p)}
               className={`relative z-[1] h-8 rounded-xl text-[12px] font-semibold capitalize transition-colors duration-200 pressable ${
                 period === p
-                  ? "text-primary"
+                  ? "text-foreground"
                   : "text-secondary-fg/85 hover:text-foreground"
               }`}
             >
+              {period === p && (
+                <motion.div
+                  layoutId="reports-period-tab"
+                  className="absolute inset-0 rounded-xl bg-surface-elevated border border-soft shadow-sm"
+                  transition={{ type: "spring", bounce: 0.2, duration: 0.6 }}
+                  style={{ zIndex: -1 }}
+                />
+              )}
               {p}
             </button>
           ))}
         </div>
 
-        <div className="min-h-0 flex-1 overflow-y-auto space-y-5 pb-4 -mx-5 px-5">
+        {/* Category filter — visible in EVERY period mode (not just custom),
+            because filtering by which categories count is useful regardless
+            of the time window. Empty applied-set means "no filter, show all". */}
+        <CategoryFilterChip
+          categories={categories as any}
+          appliedIds={appliedCatIds}
+          onOpen={() => setCatSheetOpen(true)}
+          onClear={() => setAppliedCatIds(new Set())}
+        />
+
+        <AnimatePresence initial={false}>
+          {period === "custom" && (
+            <motion.div
+              initial={{ height: 0, opacity: 0, y: -8 }}
+              animate={{ height: "auto", opacity: 1, y: 0 }}
+              exit={{ height: 0, opacity: 0, y: -8 }}
+              transition={{ type: "spring", bounce: 0.25, duration: 0.55 }}
+              className="overflow-hidden origin-top"
+            >
+              {/* From / To chip pair. Replaced the old `<Input type="date">`
+                  pair because the native date picker:
+                    1. clips on narrower Android phones (the user's bug),
+                    2. has no consistent open animation across platforms,
+                    3. mutates the applied range on every keystroke — making
+                       the background cards flicker while the user is still
+                       picking.
+                  The chip cards are responsive (grid, never clip), and the
+                  bottom-sheet picker holds its draft state until Apply. */}
+              <div className="pb-5 pt-1 grid grid-cols-2 gap-3">
+                <button
+                  type="button"
+                  onClick={() => setDateSheetOpen(true)}
+                  className="hero-glass border border-border/35 rounded-2xl px-4 py-3 text-left pressable hover:border-primary/30 transition-colors min-w-0"
+                >
+                  <p className="text-[9.5px] font-semibold uppercase tracking-[0.18em] text-secondary-fg/65 mb-1">From</p>
+                  <p className="text-[14.5px] font-semibold text-foreground/95 truncate tabular-nums">
+                    {formatChipDate(customFrom)}
+                  </p>
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setDateSheetOpen(true)}
+                  className="hero-glass border border-border/35 rounded-2xl px-4 py-3 text-left pressable hover:border-primary/30 transition-colors min-w-0"
+                >
+                  <p className="text-[9.5px] font-semibold uppercase tracking-[0.18em] text-secondary-fg/65 mb-1">To</p>
+                  <p className="text-[14.5px] font-semibold text-foreground/95 truncate tabular-nums">
+                    {formatChipDate(customTo)}
+                  </p>
+                </button>
+              </div>
+            </motion.div>
+          )}
+        </AnimatePresence>
+
+        <div className="space-y-5 pb-4 -mx-5 px-5">
           {/*
             Hero-glass top card so Reports has the same luminous primary
             tint at the top of the column that Home's HomeTrackerHero
             provides. Without this, Reports felt flatter / darker than
             the other tabs even though the Shell background is identical.
           */}
-          <section className="rounded-[28px] hero-glass border border-border/35 px-5 pt-5 pb-4">
+          <section className="rounded-[28px] hero-glass border px-5 pt-5 pb-4 deep-float" style={{ animationDelay: '0.4s' }}>
             <p className="text-[11px] font-semibold uppercase tracking-[0.16em] text-secondary-fg/70">
               Total tracked
             </p>
@@ -406,7 +507,7 @@ export default function Reports() {
           </section>
 
           {categoryGroups.length > 0 ? (
-            <section className="app-card p-4">
+            <section className="hero-glass border border-border/35 rounded-[28px] p-4">
               <div className="mb-3 flex items-start justify-between gap-3">
                 <div>
                   <p className="text-[11px] font-semibold uppercase tracking-[0.16em] text-secondary-fg/70">
@@ -440,7 +541,7 @@ export default function Reports() {
                 {categoryGroups.map((group) => {
                   const isOpen = expandedCategoryIds.has(group.id);
                   return (
-                    <li key={group.id} className="overflow-hidden rounded-2xl border border-border/35 bg-background/30">
+                    <li key={group.id} className="overflow-hidden rounded-2xl border border-soft/50 surface-soft card-volumetric">
                       <button
                         type="button"
                         onClick={() => toggleCategoryExpanded(group.id)}
@@ -484,7 +585,7 @@ export default function Reports() {
                         />
                       </button>
                       {isOpen && (
-                        <div className="border-t border-border/30">
+                        <div className="border-t border-soft">
                           <ul className="divide-y divide-border/30">
                             {group.entries.map((e) => {
                               const s = new Date(e.started_at);
@@ -520,16 +621,16 @@ export default function Reports() {
                           <div className="grid grid-cols-2 gap-2 px-4 py-3">
                             <button
                               type="button"
-                              onClick={() => onExport("pdf", [group.id], group.name)}
-                              className="h-8 rounded-xl border border-border/40 text-[11px] font-semibold text-secondary-fg/85 pressable hover:text-foreground"
+                              onClick={(e) => { e.stopPropagation(); onExport("pdf", [group.id], group.name); }}
+                              className="h-8 rounded-xl border border-soft text-[11px] font-semibold text-secondary-fg/85 pressable hover:text-foreground"
                               aria-label={`Download PDF report for ${group.name}`}
                             >
                               PDF
                             </button>
                             <button
                               type="button"
-                              onClick={() => onExport("csv", [group.id], group.name)}
-                              className="h-8 rounded-xl border border-border/40 text-[11px] font-semibold text-secondary-fg/85 pressable hover:text-foreground"
+                              onClick={(e) => { e.stopPropagation(); onExport("csv", [group.id], group.name); }}
+                              className="h-8 rounded-xl border border-soft text-[11px] font-semibold text-secondary-fg/85 pressable hover:text-foreground"
                               aria-label={`Download CSV report for ${group.name}`}
                             >
                               CSV
@@ -543,7 +644,7 @@ export default function Reports() {
               </ul>
             </section>
           ) : (
-            <section className="rounded-2xl border border-dashed border-border/40 px-4 py-8 text-center">
+            <section className="rounded-2xl border border-dashed border-soft px-4 py-8 text-center">
               <BarChart3 className="h-6 w-6 mx-auto text-secondary-fg/60 mb-2" />
               <p className="text-[13px] text-secondary-fg/85">No tracked time in this period</p>
               <p className="text-[11px] text-secondary-fg/60 mt-1">
@@ -553,7 +654,7 @@ export default function Reports() {
           )}
 
           {period !== "day" && perDay.length > 1 && (
-            <section className="app-card p-4">
+            <section className="hero-glass border border-border/35 rounded-[28px] p-4">
               <p className="text-[11px] font-semibold uppercase tracking-[0.16em] text-secondary-fg/70 mb-2">
                 Daily trend
               </p>
@@ -575,14 +676,14 @@ export default function Reports() {
               <Button
                 variant="outline"
                 onClick={() => onExport("pdf")}
-                className="h-11 rounded-2xl border-border/50 text-[13px] font-medium"
+                className="h-11 rounded-2xl border-soft text-[13px] font-medium"
               >
                 <FileText className="h-4 w-4 mr-1.5" /> Export PDF
               </Button>
               <Button
                 variant="outline"
                 onClick={() => onExport("csv")}
-                className="h-11 rounded-2xl border-border/50 text-[13px] font-medium"
+                className="h-11 rounded-2xl border-soft text-[13px] font-medium"
               >
                 <Download className="h-4 w-4 mr-1.5" /> Export CSV
               </Button>
@@ -591,6 +692,102 @@ export default function Reports() {
         </div>
       </div>
       <UpgradeSheet open={upgradeOpen} onOpenChange={setUpgradeOpen} reason="feature" />
+      <DateRangePickerSheet
+        open={dateSheetOpen}
+        onOpenChange={setDateSheetOpen}
+        initialFrom={customFrom}
+        initialTo={customTo}
+        minDate={minDateStrVal}
+        onApply={(from, to) => {
+          // Commit both endpoints together so the background page only
+          // rerenders once with the final range, not on every tap inside
+          // the calendar.
+          setCustomFrom(from);
+          setCustomTo(to);
+        }}
+      />
+      <CategoryFilterSheet
+        open={catSheetOpen}
+        onOpenChange={setCatSheetOpen}
+        categories={categories as any}
+        initialSelected={appliedCatIds}
+        onApply={setAppliedCatIds}
+      />
     </>
+  );
+}
+
+/** Render a single date in the "Sat, 24 May" chip-card format. Falls back to
+ *  the raw ymd if parsing fails. */
+function formatChipDate(ymd: string): string {
+  try {
+    const d = parseDateStr(ymd);
+    return d.toLocaleDateString(undefined, { weekday: "short", month: "short", day: "numeric" });
+  } catch {
+    return ymd;
+  }
+}
+
+/** Inline chip that summarises the current category filter. Tapping it opens
+ *  the bottom-sheet multi-select. Designed to read as "All categories" when
+ *  no filter is set (the most common state), so the chip never looks alarming
+ *  for users who don't need filtering. */
+function CategoryFilterChip({
+  categories,
+  appliedIds,
+  onOpen,
+  onClear,
+}: {
+  categories: { id: string; name: string; color: string }[];
+  appliedIds: Set<string>;
+  onOpen: () => void;
+  onClear: () => void;
+}) {
+  const isFiltered = appliedIds.size > 0;
+  // Show up to 3 colour dots when filtered, otherwise one neutral icon.
+  const swatches = isFiltered
+    ? categories.filter((c) => appliedIds.has(c.id)).slice(0, 3)
+    : [];
+  return (
+    <div className="shrink-0 mb-4 flex items-center gap-2">
+      <button
+        type="button"
+        onClick={onOpen}
+        className={`flex items-center gap-2 h-9 px-3 rounded-full border text-[12.5px] font-medium pressable transition-colors min-w-0 ${
+          isFiltered
+            ? "border-primary/40 bg-primary/[0.08] text-foreground/95"
+            : "border-border/40 bg-foreground/[0.03] text-foreground/85 hover:bg-foreground/[0.06]"
+        }`}
+        aria-label="Filter by category"
+      >
+        <ListFilter className="h-3.5 w-3.5 shrink-0 opacity-80" />
+        {swatches.length > 0 && (
+          <span className="flex -space-x-1.5" aria-hidden>
+            {swatches.map((c) => (
+              <span
+                key={c.id}
+                className="h-3 w-3 rounded-full ring-2 ring-popover"
+                style={{ background: c.color }}
+              />
+            ))}
+          </span>
+        )}
+        <span className="truncate">
+          {isFiltered
+            ? `${appliedIds.size} ${appliedIds.size === 1 ? "category" : "categories"}`
+            : "All categories"}
+        </span>
+      </button>
+      {isFiltered && (
+        <button
+          type="button"
+          onClick={onClear}
+          className="text-[12px] font-medium text-secondary-fg/85 hover:text-foreground pressable px-2 py-1 transition-colors"
+          aria-label="Clear category filter"
+        >
+          Clear
+        </button>
+      )}
+    </div>
   );
 }

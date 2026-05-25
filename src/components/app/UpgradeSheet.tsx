@@ -50,7 +50,7 @@ export const canShowPassivePaywall = () => {
 export const UpgradeSheet = ({
   open, onOpenChange, reason = "feature",
 }: { open: boolean; onOpenChange: (v: boolean) => void; reason?: UpgradeReason }) => {
-  const [plan, setPlan] = useState<"monthly" | "annual">("annual");
+  const [plan, setPlan] = useState<"weekly" | "monthly" | "annual">("annual");
   const [busy, setBusy] = useState(false);
   const { user } = useAuth();
 
@@ -120,24 +120,30 @@ export const UpgradeSheet = ({
           </ul>
 
           {/* plan toggle */}
-          <div className="grid grid-cols-2 gap-2 mt-6">
+          <div className="flex flex-col gap-2.5 mt-6">
             <PlanCard
               active={plan === "annual"} onClick={() => setPlan("annual")}
-              title="Annual" price="$59" sub="$4.92/mo" badge="Save 38%"
+              title="Annual" price="$59.99" sub="$4.99/mo" badge="Best Value"
             />
-            <PlanCard
-              active={plan === "monthly"} onClick={() => setPlan("monthly")}
-              title="Monthly" price="$7.99" sub="per month"
-            />
+            <div className="grid grid-cols-2 gap-2.5">
+              <PlanCard
+                active={plan === "monthly"} onClick={() => setPlan("monthly")}
+                title="Monthly" price="$9.99" sub="per month"
+              />
+              <PlanCard
+                active={plan === "weekly"} onClick={() => setPlan("weekly")}
+                title="Weekly" price="$3.99" sub="per week"
+              />
+            </div>
           </div>
 
           <Button onClick={checkout} disabled={busy}
-            className="w-full mt-5 h-13 py-3.5 rounded-[14px] bg-primary hover:bg-primary/92 text-primary-foreground text-[15px] font-medium pressable shadow-card"
+            className="w-full mt-6 h-[54px] rounded-[16px] bg-primary hover:bg-primary/90 text-primary-foreground text-[16px] font-semibold pressable shadow-[0_8px_24px_-8px_hsl(var(--primary)/0.6)] transition-all"
            >
             {reasonCta[reason]}
           </Button>
-          <p className="text-[11px] text-secondary-fg text-center mt-2 leading-relaxed">
-            Transparent pricing · cancel before renewal anytime · no surprise add-ons
+          <p className="text-[11px] text-secondary-fg text-center mt-3 leading-relaxed">
+            Cancel anytime · No surprise add-ons
           </p>
 
           {isDev && (
@@ -155,14 +161,16 @@ const PlanCard = ({ active, onClick, title, price, sub, badge }: {
   active: boolean; onClick: () => void; title: string; price: string; sub: string; badge?: string;
 }) => (
   <button onClick={onClick}
-    className={`relative text-left rounded-[14px] border p-3.5 pressable transition-all backdrop-blur-sm ${
-      active ? "border-accent surface-accent ring-1 ring-primary/10" : "border-soft surface-card"
+    className={`relative text-left rounded-[16px] border p-4 pressable transition-all overflow-hidden ${
+      active 
+        ? "border-primary bg-primary/5 shadow-[0_0_24px_-6px_hsl(var(--primary)/0.2)]" 
+        : "border-soft surface-card hover:border-primary/30"
     }`}>
     {badge && (
-      <span className="absolute -top-2 right-2 text-[10px] font-semibold px-1.5 py-0.5 rounded-full bg-primary text-primary-foreground">{badge}</span>
+      <span className="absolute top-0 right-0 text-[10px] font-bold px-2.5 py-1 rounded-bl-[12px] bg-primary text-primary-foreground uppercase tracking-wider">{badge}</span>
     )}
-    <div className="eyebrow">{title}</div>
-    <div className="font-display text-xl font-semibold tabular-nums mt-1">{price}</div>
-    <div className="text-[11px] text-secondary-fg">{sub}</div>
+    <div className={`text-[12px] font-medium uppercase tracking-wide ${active ? "text-primary" : "text-secondary-fg"}`}>{title}</div>
+    <div className={`font-display text-[22px] font-bold tabular-nums mt-1 ${active ? "text-foreground" : "text-foreground/90"}`}>{price}</div>
+    <div className={`text-[12px] mt-0.5 ${active ? "text-primary/80" : "text-secondary-fg/80"}`}>{sub}</div>
   </button>
 );

@@ -66,6 +66,10 @@ export const PullToRefresh = ({
   };
   const onMove = (y: number) => {
     if (startY.current == null || refreshing) return;
+    if (document.body.classList.contains("dd-dnd-scroll-lock")) {
+      setPull(0);
+      return;
+    }
     const dy = y - startY.current;
     if (dy <= 0) { setPull(0); return; }
     const damped = Math.min(MAX, dy * 0.5);
@@ -93,7 +97,7 @@ export const PullToRefresh = ({
   return (
     <div
       ref={rootRef}
-      className="flex min-h-0 flex-1 flex-col"
+      className="w-full"
       onTouchStart={(e) => onStart(e.touches[0].clientY)}
       onTouchMove={(e) => onMove(e.touches[0].clientY)}
       onTouchEnd={onEnd}

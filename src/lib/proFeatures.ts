@@ -34,9 +34,9 @@ export const PRO_FEATURE_CATALOG: ProCatalogItem[] = [
   {
     id: "unlimited",
     Icon: Zap,
-    headline: "Unlimited planning days",
-    tagline: "Plan every day you need — no lifetime 5-day ceiling.",
-    sheetLine: "Unlimited planning days",
+    headline: "Unlimited everything",
+    tagline: "Plan every day, generate unlimited AI schedules, and chat with AI without limits.",
+    sheetLine: "Unlimited days & AI planning",
   },
   {
     id: "drift",
@@ -55,16 +55,16 @@ export const PRO_FEATURE_CATALOG: ProCatalogItem[] = [
   {
     id: "pdf_export",
     Icon: FileDown,
-    headline: "PDF time reports",
-    tagline: "Export week or month from the tracker for expenses, clients, or reviews.",
-    sheetLine: "Tracker PDF export",
+    headline: "Professional PDF Reports",
+    tagline: "Export your tracked time to beautiful PDF reports for clients and reviews.",
+    sheetLine: "Professional PDF Tracker Exports",
   },
   {
     id: "billing_reports",
     Icon: Wallet,
-    headline: "Billing-ready reports",
-    tagline: "Include hourly rates, earned totals, selected categories, and payment instructions.",
-    sheetLine: "Billing reports with payment details",
+    headline: "Billing-ready details",
+    tagline: "Include your hourly rates, earned totals, and payment instructions in exports.",
+    sheetLine: "Billing & payment instructions on exports",
   },
 ];
 

@@ -1,0 +1,235 @@
+
+/Users/andrew/Desktop/daydraft-smart-daily-planner-main/src/components/app/AskAiSheet.tsx
+  75:17  error  Unexpected any. Specify a different type  @typescript-eslint/no-explicit-any
+
+/Users/andrew/Desktop/daydraft-smart-daily-planner-main/src/components/app/PersistentTabs.tsx
+   69:17  warning  Fast refresh only works when a file only exports components. Use a new file to share constants or functions between components  react-refresh/only-export-components
+   82:17  warning  Fast refresh only works when a file only exports components. Use a new file to share constants or functions between components  react-refresh/only-export-components
+  138:14  warning  Fast refresh only works when a file only exports components. Use a new file to share constants or functions between components  react-refresh/only-export-components
+
+/Users/andrew/Desktop/daydraft-smart-daily-planner-main/src/components/app/SortableBlock.tsx
+  24:15  error  Unexpected any. Specify a different type  @typescript-eslint/no-explicit-any
+  25:19  error  Unexpected any. Specify a different type  @typescript-eslint/no-explicit-any
+  26:26  error  Unexpected any. Specify a different type  @typescript-eslint/no-explicit-any
+  27:22  error  Unexpected any. Specify a different type  @typescript-eslint/no-explicit-any
+  28:21  error  Unexpected any. Specify a different type  @typescript-eslint/no-explicit-any
+
+/Users/andrew/Desktop/daydraft-smart-daily-planner-main/src/components/app/ThemeToggle.tsx
+  4:46  error  Unexpected any. Specify a different type  @typescript-eslint/no-explicit-any
+
+/Users/andrew/Desktop/daydraft-smart-daily-planner-main/src/components/app/TimerRescheduleSheet.tsx
+   71:31  error    Unexpected any. Specify a different type                                                                 @typescript-eslint/no-explicit-any
+   80:54  error    Unexpected any. Specify a different type                                                                 @typescript-eslint/no-explicit-any
+  110:6   warning  React Hook useEffect has a missing dependency: 'user'. Either include it or remove the dependency array  react-hooks/exhaustive-deps
+  121:57  error    Unexpected any. Specify a different type                                                                 @typescript-eslint/no-explicit-any
+  141:57  error    Unexpected any. Specify a different type                                                                 @typescript-eslint/no-explicit-any
+  149:17  error    Unexpected any. Specify a different type                                                                 @typescript-eslint/no-explicit-any
+
+/Users/andrew/Desktop/daydraft-smart-daily-planner-main/src/components/app/Tour.tsx
+   65:6   warning  React Hook useLayoutEffect has a missing dependency: 'step'. Either include it or remove the dependency array                   react-hooks/exhaustive-deps
+   81:6   warning  React Hook useEffect has a missing dependency: 'step'. Either include it or remove the dependency array                         react-hooks/exhaustive-deps
+   88:6   warning  React Hook useEffect has a missing dependency: 'step'. Either include it or remove the dependency array                         react-hooks/exhaustive-deps
+   92:41  error    Unexpected any. Specify a different type                                                                                        @typescript-eslint/no-explicit-any
+  119:39  error    Unexpected any. Specify a different type                                                                                        @typescript-eslint/no-explicit-any
+  146:17  warning  Fast refresh only works when a file only exports components. Use a new file to share constants or functions between components  react-refresh/only-export-components
+  154:14  warning  Fast refresh only works when a file only exports components. Use a new file to share constants or functions between components  react-refresh/only-export-components
+  188:14  warning  Fast refresh only works when a file only exports components. Use a new file to share constants or functions between components  react-refresh/only-export-components
+
+/Users/andrew/Desktop/daydraft-smart-daily-planner-main/src/components/app/TrackerPill.tsx
+   411:6   warning  React Hook useMemo has a missing dependency: 'active'. Either include it or remove the dependency array  react-hooks/exhaustive-deps
+   451:17  error    Unexpected any. Specify a different type                                                                 @typescript-eslint/no-explicit-any
+   478:22  error    Unexpected any. Specify a different type                                                                 @typescript-eslint/no-explicit-any
+   496:19  error    Unexpected any. Specify a different type                                                                 @typescript-eslint/no-explicit-any
+   532:26  error    Unexpected any. Specify a different type                                                                 @typescript-eslint/no-explicit-any
+   566:33  error    Unexpected any. Specify a different type                                                                 @typescript-eslint/no-explicit-any
+   577:19  error    Unexpected any. Specify a different type                                                                 @typescript-eslint/no-explicit-any
+  1382:79  error    Unexpected any. Specify a different type                                                                 @typescript-eslint/no-explicit-any
+  1404:45  error    Unexpected any. Specify a different type                                                                 @typescript-eslint/no-explicit-any
+  1429:40  error    Unexpected any. Specify a different type                                                                 @typescript-eslint/no-explicit-any
+  1633:27  error    Unexpected any. Specify a different type                                                                 @typescript-eslint/no-explicit-any
+  1633:55  error    Empty block statement                                                                                    no-empty
+
+/Users/andrew/Desktop/daydraft-smart-daily-planner-main/src/components/app/UpgradeSheet.tsx
+  40:14  warning  Fast refresh only works when a file only exports components. Use a new file to share constants or functions between components  react-refresh/only-export-components
+  73:10  error    Unexpected any. Specify a different type                                                                                        @typescript-eslint/no-explicit-any
+
+/Users/andrew/Desktop/daydraft-smart-daily-planner-main/src/components/app/YesterdayDebriefCard.tsx
+  140:59  warning  React Hook useMemo has an unnecessary dependency: 'data.date'. Either exclude it or remove the dependency array  react-hooks/exhaustive-deps
+
+/Users/andrew/Desktop/daydraft-smart-daily-planner-main/src/components/ui/button.tsx
+  57:18  warning  Fast refresh only works when a file only exports components. Use a new file to share constants or functions between components  react-refresh/only-export-components
+
+/Users/andrew/Desktop/daydraft-smart-daily-planner-main/src/components/ui/sonner.tsx
+  21:19  warning  Fast refresh only works when a file only exports components. Use a new file to share constants or functions between components  react-refresh/only-export-components
+
+/Users/andrew/Desktop/daydraft-smart-daily-planner-main/src/components/ui/textarea.tsx
+  5:18  error  An interface declaring no members is equivalent to its supertype  @typescript-eslint/no-empty-object-type
+
+/Users/andrew/Desktop/daydraft-smart-daily-planner-main/src/hooks/useAuth.tsx
+  67:14  warning  Fast refresh only works when a file only exports components. Use a new file to share constants or functions between components  react-refresh/only-export-components
+
+/Users/andrew/Desktop/daydraft-smart-daily-planner-main/src/hooks/useProfile.tsx
+  120:41  error    Unexpected any. Specify a different type                                                                                        @typescript-eslint/no-explicit-any
+  129:35  warning  React Hook useEffect has a missing dependency: 'refresh'. Either include it or remove the dependency array                      react-hooks/exhaustive-deps
+  202:14  warning  Fast refresh only works when a file only exports components. Use a new file to share constants or functions between components  react-refresh/only-export-components
+  214:14  warning  Fast refresh only works when a file only exports components. Use a new file to share constants or functions between components  react-refresh/only-export-components
+  225:14  warning  Fast refresh only works when a file only exports components. Use a new file to share constants or functions between components  react-refresh/only-export-components
+
+/Users/andrew/Desktop/daydraft-smart-daily-planner-main/src/hooks/useTimeTracker.tsx
+   42:17  warning  Fast refresh only works when a file only exports components. Use a new file to share constants or functions between components  react-refresh/only-export-components
+   46:17  warning  Fast refresh only works when a file only exports components. Use a new file to share constants or functions between components  react-refresh/only-export-components
+  397:6   warning  React Hook useEffect has a missing dependency: 'active'. Either include it or remove the dependency array                       react-hooks/exhaustive-deps
+  407:6   warning  React Hook useEffect has a missing dependency: 'active'. Either include it or remove the dependency array                       react-hooks/exhaustive-deps
+  466:6   warning  React Hook useEffect has a missing dependency: 'active'. Either include it or remove the dependency array                       react-hooks/exhaustive-deps
+  553:50  error    Unexpected any. Specify a different type                                                                                        @typescript-eslint/no-explicit-any
+  698:46  error    Unexpected any. Specify a different type                                                                                        @typescript-eslint/no-explicit-any
+  713:22  error    Unexpected any. Specify a different type                                                                                        @typescript-eslint/no-explicit-any
+  748:30  error    Unexpected any. Specify a different type                                                                                        @typescript-eslint/no-explicit-any
+  810:17  warning  Fast refresh only works when a file only exports components. Use a new file to share constants or functions between components  react-refresh/only-export-components
+  823:17  warning  Fast refresh only works when a file only exports components. Use a new file to share constants or functions between components  react-refresh/only-export-components
+  829:14  warning  Fast refresh only works when a file only exports components. Use a new file to share constants or functions between components  react-refresh/only-export-components
+  837:14  warning  Fast refresh only works when a file only exports components. Use a new file to share constants or functions between components  react-refresh/only-export-components
+
+/Users/andrew/Desktop/daydraft-smart-daily-planner-main/src/lib/aiCache.ts
+  109:80  error  Unexpected any. Specify a different type  @typescript-eslint/no-explicit-any
+
+/Users/andrew/Desktop/daydraft-smart-daily-planner-main/src/lib/aiRuntime.ts
+  51:46  error  Unexpected any. Specify a different type  @typescript-eslint/no-explicit-any
+
+/Users/andrew/Desktop/daydraft-smart-daily-planner-main/src/lib/aiStream.ts
+  49:41  error  Unexpected any. Specify a different type  @typescript-eslint/no-explicit-any
+  49:55  error  Unexpected any. Specify a different type  @typescript-eslint/no-explicit-any
+
+/Users/andrew/Desktop/daydraft-smart-daily-planner-main/src/lib/blockReminders.ts
+  107:33  error  Unexpected any. Specify a different type  @typescript-eslint/no-explicit-any
+  129:22  error  Unexpected any. Specify a different type  @typescript-eslint/no-explicit-any
+
+/Users/andrew/Desktop/daydraft-smart-daily-planner-main/src/lib/blockResolution.ts
+  28:34  error  Unexpected any. Specify a different type  @typescript-eslint/no-explicit-any
+
+/Users/andrew/Desktop/daydraft-smart-daily-planner-main/src/lib/haptics.ts
+  41:39  error  Unexpected any. Specify a different type  @typescript-eslint/no-explicit-any
+
+/Users/andrew/Desktop/daydraft-smart-daily-planner-main/src/lib/lazyWithReload.ts
+  16:67  error  Unexpected any. Specify a different type  @typescript-eslint/no-explicit-any
+
+/Users/andrew/Desktop/daydraft-smart-daily-planner-main/src/lib/maps.ts
+  4:57  error  Unexpected any. Specify a different type  @typescript-eslint/no-explicit-any
+
+/Users/andrew/Desktop/daydraft-smart-daily-planner-main/src/lib/nativeAuth.ts
+  145:29  error  Unexpected any. Specify a different type  @typescript-eslint/no-explicit-any
+  212:29  error  Unexpected any. Specify a different type  @typescript-eslint/no-explicit-any
+
+/Users/andrew/Desktop/daydraft-smart-daily-planner-main/src/lib/offlineQueue.ts
+  20:55  error  Unexpected any. Specify a different type  @typescript-eslint/no-explicit-any
+
+/Users/andrew/Desktop/daydraft-smart-daily-planner-main/src/lib/planQueries.ts
+  43:24  error  Unexpected any. Specify a different type  @typescript-eslint/no-explicit-any
+  48:43  error  Unexpected any. Specify a different type  @typescript-eslint/no-explicit-any
+
+/Users/andrew/Desktop/daydraft-smart-daily-planner-main/src/lib/push.ts
+   99:15  error  Unexpected any. Specify a different type  @typescript-eslint/no-explicit-any
+  108:12  error  Unexpected any. Specify a different type  @typescript-eslint/no-explicit-any
+
+/Users/andrew/Desktop/daydraft-smart-daily-planner-main/src/lib/taskSplitter.ts
+  111:23  error  Unnecessary escape character: \/  no-useless-escape
+
+/Users/andrew/Desktop/daydraft-smart-daily-planner-main/src/lib/theme.tsx
+  55:26  error    Unexpected any. Specify a different type                                                                                        @typescript-eslint/no-explicit-any
+  67:58  error    Unexpected any. Specify a different type                                                                                        @typescript-eslint/no-explicit-any
+  75:14  warning  Fast refresh only works when a file only exports components. Use a new file to share constants or functions between components  react-refresh/only-export-components
+
+/Users/andrew/Desktop/daydraft-smart-daily-planner-main/src/pages/app/Auth.tsx
+   82:19  error  Unexpected any. Specify a different type  @typescript-eslint/no-explicit-any
+   98:19  error  Unexpected any. Specify a different type  @typescript-eslint/no-explicit-any
+  168:19  error  Unexpected any. Specify a different type  @typescript-eslint/no-explicit-any
+  176:48  error  Unexpected any. Specify a different type  @typescript-eslint/no-explicit-any
+  198:17  error  Unexpected any. Specify a different type  @typescript-eslint/no-explicit-any
+
+/Users/andrew/Desktop/daydraft-smart-daily-planner-main/src/pages/app/DayView.tsx
+   222:50   error    Unexpected any. Specify a different type                                                                                                  @typescript-eslint/no-explicit-any
+   236:6    warning  React Hook useEffect has missing dependencies: 'blocks.length' and 'tour'. Either include them or remove the dependency array             react-hooks/exhaustive-deps
+   236:7    warning  React Hook useEffect has a complex expression in the dependency array. Extract it to a separate variable so it can be statically checked  react-hooks/exhaustive-deps
+   255:6    warning  React Hook useEffect has a missing dependency: 'blocks'. Either include it or remove the dependency array                                 react-hooks/exhaustive-deps
+   260:70   error    Unexpected any. Specify a different type                                                                                                  @typescript-eslint/no-explicit-any
+   272:40   error    Unexpected any. Specify a different type                                                                                                  @typescript-eslint/no-explicit-any
+   295:6    warning  React Hook useEffect has a missing dependency: 'invalidatePlanCaches'. Either include it or remove the dependency array                   react-hooks/exhaustive-deps
+   350:18   error    Unexpected any. Specify a different type                                                                                                  @typescript-eslint/no-explicit-any
+   356:17   error    Unexpected any. Specify a different type                                                                                                  @typescript-eslint/no-explicit-any
+   454:17   error    Unexpected any. Specify a different type                                                                                                  @typescript-eslint/no-explicit-any
+   468:83   error    Unexpected any. Specify a different type                                                                                                  @typescript-eslint/no-explicit-any
+   569:74   error    Unexpected any. Specify a different type                                                                                                  @typescript-eslint/no-explicit-any
+   577:17   error    Unexpected any. Specify a different type                                                                                                  @typescript-eslint/no-explicit-any
+   635:18   error    Unexpected any. Specify a different type                                                                                                  @typescript-eslint/no-explicit-any
+   653:52   error    Unexpected any. Specify a different type                                                                                                  @typescript-eslint/no-explicit-any
+   664:43   error    Unexpected any. Specify a different type                                                                                                  @typescript-eslint/no-explicit-any
+   665:41   error    Unexpected any. Specify a different type                                                                                                  @typescript-eslint/no-explicit-any
+   666:32   error    Unexpected any. Specify a different type                                                                                                  @typescript-eslint/no-explicit-any
+   667:39   error    Unexpected any. Specify a different type                                                                                                  @typescript-eslint/no-explicit-any
+   668:42   error    Unexpected any. Specify a different type                                                                                                  @typescript-eslint/no-explicit-any
+   691:53   error    Unexpected any. Specify a different type                                                                                                  @typescript-eslint/no-explicit-any
+   712:17   error    Unexpected any. Specify a different type                                                                                                  @typescript-eslint/no-explicit-any
+   731:52   error    Unexpected any. Specify a different type                                                                                                  @typescript-eslint/no-explicit-any
+   742:43   error    Unexpected any. Specify a different type                                                                                                  @typescript-eslint/no-explicit-any
+   743:41   error    Unexpected any. Specify a different type                                                                                                  @typescript-eslint/no-explicit-any
+   744:32   error    Unexpected any. Specify a different type                                                                                                  @typescript-eslint/no-explicit-any
+   745:39   error    Unexpected any. Specify a different type                                                                                                  @typescript-eslint/no-explicit-any
+   746:42   error    Unexpected any. Specify a different type                                                                                                  @typescript-eslint/no-explicit-any
+   770:17   error    Unexpected any. Specify a different type                                                                                                  @typescript-eslint/no-explicit-any
+   790:60   error    Unexpected any. Specify a different type                                                                                                  @typescript-eslint/no-explicit-any
+   840:83   error    Unexpected any. Specify a different type                                                                                                  @typescript-eslint/no-explicit-any
+   888:19   error    Unexpected any. Specify a different type                                                                                                  @typescript-eslint/no-explicit-any
+   912:19   error    Unexpected any. Specify a different type                                                                                                  @typescript-eslint/no-explicit-any
+  1199:102  error    Unexpected any. Specify a different type                                                                                                  @typescript-eslint/no-explicit-any
+  1474:29   error    Unexpected any. Specify a different type                                                                                                  @typescript-eslint/no-explicit-any
+  1832:23   error    Unexpected any. Specify a different type                                                                                                  @typescript-eslint/no-explicit-any
+  1965:17   error    'packed' is never reassigned. Use 'const' instead                                                                                         prefer-const
+  1973:29   error    Unexpected any. Specify a different type                                                                                                  @typescript-eslint/no-explicit-any
+
+/Users/andrew/Desktop/daydraft-smart-daily-planner-main/src/pages/app/Focus.tsx
+   52:35  error    Unexpected any. Specify a different type                                                                             @typescript-eslint/no-explicit-any
+   57:38  error    Unexpected any. Specify a different type                                                                             @typescript-eslint/no-explicit-any
+  168:6   warning  React Hook useEffect has missing dependencies: 'nav' and 'user'. Either include them or remove the dependency array  react-hooks/exhaustive-deps
+  197:6   warning  React Hook useEffect has a missing dependency: 'block'. Either include it or remove the dependency array             react-hooks/exhaustive-deps
+  222:6   warning  React Hook useEffect has a missing dependency: 'block'. Either include it or remove the dependency array             react-hooks/exhaustive-deps
+  258:32  error    Unexpected any. Specify a different type                                                                             @typescript-eslint/no-explicit-any
+  259:39  error    Unexpected any. Specify a different type                                                                             @typescript-eslint/no-explicit-any
+  260:42  error    Unexpected any. Specify a different type                                                                             @typescript-eslint/no-explicit-any
+  268:17  error    Unexpected any. Specify a different type                                                                             @typescript-eslint/no-explicit-any
+  423:6   warning  React Hook useEffect has a missing dependency: 'block'. Either include it or remove the dependency array             react-hooks/exhaustive-deps
+  510:46  error    Unexpected any. Specify a different type                                                                             @typescript-eslint/no-explicit-any
+  516:19  error    Unexpected any. Specify a different type                                                                             @typescript-eslint/no-explicit-any
+  517:16  error    Unexpected any. Specify a different type                                                                             @typescript-eslint/no-explicit-any
+
+/Users/andrew/Desktop/daydraft-smart-daily-planner-main/src/pages/app/ForgotPassword.tsx
+  25:19  error  Unexpected any. Specify a different type  @typescript-eslint/no-explicit-any
+
+/Users/andrew/Desktop/daydraft-smart-daily-planner-main/src/pages/app/Home.tsx
+  28:35  error    Unexpected any. Specify a different type                                                                                                                                                      @typescript-eslint/no-explicit-any
+  57:9   warning  The 'blocks' logical expression could make the dependencies of useMemo Hook (at line 105) change on every render. To fix this, wrap the initialization of 'blocks' in its own useMemo() Hook  react-hooks/exhaustive-deps
+  57:9   warning  The 'blocks' logical expression could make the dependencies of useMemo Hook (at line 107) change on every render. To fix this, wrap the initialization of 'blocks' in its own useMemo() Hook  react-hooks/exhaustive-deps
+
+/Users/andrew/Desktop/daydraft-smart-daily-planner-main/src/pages/app/Onboarding.tsx
+  52:21  error  Unexpected any. Specify a different type  @typescript-eslint/no-explicit-any
+  59:26  error  Unexpected any. Specify a different type  @typescript-eslint/no-explicit-any
+  66:33  error  Unexpected any. Specify a different type  @typescript-eslint/no-explicit-any
+  84:17  error  Unexpected any. Specify a different type  @typescript-eslint/no-explicit-any
+
+/Users/andrew/Desktop/daydraft-smart-daily-planner-main/src/pages/app/Reports.tsx
+  136:50  error  Unexpected any. Specify a different type  @typescript-eslint/no-explicit-any
+  325:17  error  Unexpected any. Specify a different type  @typescript-eslint/no-explicit-any
+
+/Users/andrew/Desktop/daydraft-smart-daily-planner-main/src/pages/app/ResetPassword.tsx
+  34:19  error  Unexpected any. Specify a different type  @typescript-eslint/no-explicit-any
+
+/Users/andrew/Desktop/daydraft-smart-daily-planner-main/src/pages/app/Settings.tsx
+   64:44  error  Unexpected any. Specify a different type  @typescript-eslint/no-explicit-any
+   77:43  error  Unexpected any. Specify a different type  @typescript-eslint/no-explicit-any
+   79:17  error  Unexpected any. Specify a different type  @typescript-eslint/no-explicit-any
+  100:17  error  Unexpected any. Specify a different type  @typescript-eslint/no-explicit-any
+
+/Users/andrew/Desktop/daydraft-smart-daily-planner-main/src/pages/legal/DeleteAccount.tsx
+  41:17  error  Unexpected any. Specify a different type  @typescript-eslint/no-explicit-any
+
+✖ 154 problems (114 errors, 40 warnings)
+

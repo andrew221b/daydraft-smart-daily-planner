@@ -123,7 +123,7 @@ export { fetchEntitlement };
  * via the same interface — no UI changes required.
  */
 export const startCheckout = async (
-  _plan: "monthly" | "annual",
+  _plan: "weekly" | "monthly" | "annual",
   opts?: { onUnavailable?: () => void }
 ) => {
   opts?.onUnavailable?.();

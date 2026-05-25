@@ -5,6 +5,7 @@ import {
   useEffect,
   useMemo,
   useState,
+  useRef,
   type ComponentType,
 } from "react";
 import { useLocation } from "react-router-dom";
@@ -87,6 +88,20 @@ export function PersistentTabs() {
   const { pathname } = useLocation();
   const activeKey = useMemo(() => matchedTabKey(pathname), [pathname]);
 
+  // Track direction so we can flip the 3D book-page animation when moving
+  // backwards through the tab order.
+  const activeKeyRef = useRef(activeKey);
+  const directionRef = useRef<"left" | "right">("right");
+
+  if (activeKey !== activeKeyRef.current) {
+    const oldIdx = TABS.findIndex((t) => t.key === activeKeyRef.current);
+    const newIdx = TABS.findIndex((t) => t.key === activeKey);
+    if (oldIdx !== -1 && newIdx !== -1) {
+      directionRef.current = newIdx > oldIdx ? "right" : "left";
+    }
+    activeKeyRef.current = activeKey;
+  }
+
   // Lazy-mount: a tab only enters the DOM the first time it is visited.
   // After that, it stays mounted forever (within this Shell lifecycle).
   const [mounted, setMounted] = useState<Set<TabKey>>(() => {
@@ -103,6 +118,23 @@ export function PersistentTabs() {
     });
   }, [activeKey]);
 
+  // Imperatively re-apply the animation class to the now-active tab so the
+  // keyframes restart every single time — even when the tab was previously
+  // visited (iOS Safari otherwise skips animation when an element comes back
+  // from display:none with the same class it had last time).
+  const tabRefs = useRef<Map<TabKey, HTMLDivElement>>(new Map());
+  useEffect(() => {
+    if (!activeKey) return;
+    const el = tabRefs.current.get(activeKey);
+    if (!el) return;
+    const cls = `page-transition-tab-${directionRef.current}`;
+    el.classList.remove("page-transition-tab-left", "page-transition-tab-right");
+    // Force reflow so the browser sees the class as freshly added and
+    // restarts the keyframe sequence.
+    void el.offsetWidth;
+    el.classList.add(cls);
+  }, [activeKey]);
+
   return (
     <>
       {TABS.map((tab) => {
@@ -112,16 +144,20 @@ export function PersistentTabs() {
         return (
           <div
             key={tab.key}
-            // `display:none` keeps the React tree + DOM nodes + scroll
-            // position alive, but releases the inactive tab from paint and
-            // layout. The active tab takes the full main column.
-            className={`flex min-h-0 flex-1 flex-col ${isActive ? "" : "hidden"}`}
+            ref={(el) => {
+              if (el) tabRefs.current.set(tab.key, el);
+              else tabRefs.current.delete(tab.key);
+            }}
+            className={`absolute inset-0 overflow-y-auto overscroll-y-contain no-scrollbar ${isActive ? `page-transition-tab-${directionRef.current}` : "hidden"}`}
             aria-hidden={!isActive}
+            style={{ paddingBottom: "calc(env(safe-area-inset-bottom) + 5.5rem)" }}
           >
             <TabVisibilityCtx.Provider value={isActive}>
-              <Suspense fallback={null}>
-                <Component />
-              </Suspense>
+              <div className="min-h-full flex flex-col">
+                <Suspense fallback={null}>
+                  <Component />
+                </Suspense>
+              </div>
             </TabVisibilityCtx.Provider>
           </div>
         );

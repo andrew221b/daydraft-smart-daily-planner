@@ -1,0 +1,93 @@
+commit aeebe696251806ae988b888faec73d5193579943
+Author: shapeinc25 <shapeinc25@gmail.com>
+Date:   Thu May 21 19:12:02 2026 +0300
+
+    Comprehensive performance pass + dead code cleanup
+    
+    Performance:
+    - Move per-second timer tick into a Web Worker and a pub/sub store so the
+      running timer no longer re-renders React every second (LiveElapsed writes
+      to the DOM directly).
+    - Wrap Supabase edge function calls in invokeAiCached for in-flight dedup,
+      TTL memo, and optional localStorage persistence; add streamAi for NDJSON
+      streaming with graceful fallback.
+    - Tune Vite manualChunks (recharts, jspdf, html2canvas, date-fns, icons),
+      lazy-load recharts inside Reports — main bundle 130kB raw, every screen
+      chunk under 50kB gzip.
+    - Collapse fetchPlanDashboard / fetchDayPlan two-step queries into a single
+      PostgREST nested select.
+    - Service worker now caches app shell (cache-first), assets (cache-first),
+      Supabase data (network-first w/ offline fallback), AI responses (SWR).
+    - Add IndexedDB local-first layer for rolling time entries with offline
+      write queue drained on the `online` event.
+    - iOS: 100vh -> 100dvh via @supports, visualViewport-driven --keyboard-inset
+      so the TabBar rides above the soft keyboard.
+    - Memo SortableBlock and TabItem; CSS containment on list rows.
+    - Hidden perf debug panel (tap version 10x in Settings): TTI, AI call
+      durations, cache hit ratio, slow-render warnings, timer drift.
+    
+    Dead code removal (~2,065 lines):
+    - 7 orphan modules: usePlannedDates, composerDraft, productPolish,
+      weekIntention, taskTimeAnchors, PlanDriftNudge, ui/chart.
+    - 11 unused shadcn UI primitives (sidebar alone was 637 lines).
+    - 3 unused npm deps: date-fns, @radix-ui/react-label, @radix-ui/react-toggle.
+    
+    Verified: tsc --noEmit clean, vite build clean, 13/13 tests pass.
+    
+    Co-Authored-By: Claude Opus 4.7 <noreply@anthropic.com>
+
+diff --git a/src/index.css b/src/index.css
+index 56dd6be..b9f93c2 100644
+--- a/src/index.css
++++ b/src/index.css
+@@ -182,6 +182,18 @@ body.dd-dnd-scroll-lock {
+   * { @apply border-border; }
+   html, body, #root { height: 100%; }
+   html { -webkit-text-size-adjust: 100%; }
++
++  /*
++   * iOS Safari `100vh` bug — the address bar overlays the bottom 64px or so,
++   * cutting content. Switch the screen-sized layout containers to the
++   * dynamic viewport unit (`dvh`) which shrinks when the chrome appears and
++   * grows when it retracts. Browsers that don't support `dvh` keep the old
++   * `vh` value automatically because the second declaration is ignored.
++   */
++  @supports (height: 100dvh) {
++    .min-h-screen { min-height: 100dvh; }
++    .h-screen { height: 100dvh; }
++  }
+   
+   /* Custom premium scrollbar for lists */
+   ::-webkit-scrollbar {
+@@ -658,6 +670,31 @@ body.dd-dnd-scroll-lock {
+   .no-scrollbar::-webkit-scrollbar { display: none; }
+   .no-scrollbar { -ms-overflow-style: none; scrollbar-width: none; }
+ 
++  /*
++   * Layout / paint isolation for list items.
++   *
++   * `contain: content` tells the browser that an element's layout, paint, and
++   * style effects are scoped to itself. When one row changes, neighbouring
++   * rows skip layout+paint. Use on the *row* (not the list container).
++   *
++   * `content-visibility: auto` is the heavier hammer — the browser skips
++   * rendering entirely for off-screen rows, only paying when they scroll
++   * into view. Falls back to plain rendering in browsers without support.
++   * `contain-intrinsic-size` gives the browser a placeholder height so the
++   * scrollbar doesn't jitter.
++   */
++  .list-row-contain {
++    contain: content;
++  }
++  .list-row-cv {
++    content-visibility: auto;
++    contain-intrinsic-size: auto 96px;
++  }
++  .list-row-cv-tall {
++    content-visibility: auto;
++    contain-intrinsic-size: auto 160px;
++  }
++
+   /* Soft section eyebrow */
+   .eyebrow {
+     font-size: 10px;

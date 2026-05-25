@@ -26,22 +26,16 @@ export function wallMinutesFromSlotStart(planDateYmd: string, startHHMM: string,
  * `planDateYmd` / `startHHMM` are kept in the signature for backward
  * compatibility with callers and tests, even though they're unused now.
  */
-export async function resolveActualMinutesOnComplete(
-  supabase: SupabaseClient,
-  userId: string,
+export function resolveActualMinutesOnComplete(
+  entries: { started_at: string; ended_at: string | null; block_id: string | null }[],
   blockId: string,
   _planDateYmd: string,
   _startHHMM: string,
   endMs: number,
-): Promise<number | null> {
-  const { data: entries, error } = await supabase
-    .from("time_entries")
-    .select("started_at, ended_at")
-    .eq("user_id", userId)
-    .eq("block_id", blockId);
-  if (error) throw error;
+): number | null {
+  const blockEntries = entries.filter((e) => e.block_id === blockId);
   let trackedSec = 0;
-  for (const e of entries || []) {
+  for (const e of blockEntries) {
     const s = new Date(e.started_at).getTime();
     const en = e.ended_at ? new Date(e.ended_at).getTime() : endMs;
     trackedSec += Math.max(0, (en - s) / 1000);

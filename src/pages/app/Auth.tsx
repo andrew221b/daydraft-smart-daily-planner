@@ -1,3 +1,4 @@
+import { Capacitor } from "@capacitor/core";
 import { forwardRef, useEffect, useState } from "react";
 import { supabase } from "@/integrations/supabase/client";
 import { lovable } from "@/integrations/lovable";
@@ -15,7 +16,7 @@ import { Link, useNavigate } from "react-router-dom";
 import { useAuth } from "@/hooks/useAuth";
 import { useProfile } from "@/hooks/useProfile";
 import { Fingerprint } from "lucide-react";
-import { getStoredPasskey, passkeySupported, verifyPasskey } from "@/lib/passkeys";
+
 
 export default function Auth() {
   const { user, loading } = useAuth();
@@ -25,12 +26,11 @@ export default function Auth() {
   const [pw, setPw] = useState("");
   const [name, setName] = useState("");
   const [busy, setBusy] = useState(false);
+  const [oauthBusy, setOauthBusy] = useState<"google" | "apple" | null>(null);
   const [awaitingConfirmation, setAwaitingConfirmation] = useState(false);
   const [confirmedFor, setConfirmedFor] = useState<string>("");
   const [resending, setResending] = useState(false);
   const nav = useNavigate();
-  const stored = typeof window !== "undefined" ? getStoredPasskey() : null;
-  const canUsePasskey = passkeySupported() && !!stored;
 
   useEffect(() => {
     if (loading || (user && profileLoading)) return;
@@ -122,8 +122,8 @@ export default function Auth() {
     if (isNativeAuthAvailable()) return null;
     try {
       const host = window.location.hostname;
-      if (host === "lovable.dev" || host.endsWith(".lovable.dev")) {
-        return "Google / Apple sign-in only works on the published app URL — not inside the Lovable preview. Use email & password here, or open the live app to use OAuth.";
+      if (host.includes("lovable") || host.includes("localhost")) {
+        return "Google / Apple sign-in only works on the published app URL — not inside the Lovable preview or localhost. Use email & password here, or open the live app to use OAuth.";
       }
     } catch { /* ignore */ }
     return null;
@@ -135,7 +135,7 @@ export default function Auth() {
       toast(oauthBlockedReason, { duration: 6000 });
       return;
     }
-    setBusy(true);
+    setOauthBusy(provider);
     try {
       if (isNativeAuthAvailable()) {
         // Native flow: Apple is always available on iOS; Google needs the
@@ -181,34 +181,21 @@ export default function Auth() {
         toast.error(msg || `Couldn't sign in with ${provider}`);
       }
     } finally {
-      setBusy(false);
+      setOauthBusy(null);
     }
   };
 
-  const passkeyLogin = async () => {
-    setBusy(true);
-    try {
-      const { ok, userEmail } = await verifyPasskey();
-      if (!ok || !userEmail) throw new Error("Couldn't verify");
-      // Passkey verifies device identity; for now, prefill email and ask for password.
-      // (Full passwordless requires server-side challenge — out of scope here.)
-      setEmail(userEmail);
-      setMode("signin");
-      toast.success("Identity verified — enter your password to continue");
-    } catch (e: any) {
-      toast.error("Face ID / fingerprint failed");
-    } finally { setBusy(false); }
-  };
+
 
   if (loading || (user && profileLoading)) {
     return <PageFallback />;
   }
 
   return (
-    <div className="min-h-screen w-full bg-background flex justify-center">
-      <div className="relative w-full max-w-[400px] min-h-screen flex flex-col">
+    <div className="h-[100dvh] w-full bg-background flex justify-center overflow-y-auto overscroll-y-contain no-scrollbar">
+      <div className="relative w-full max-w-[400px] min-h-full flex flex-col">
         <div className="pointer-events-none absolute inset-x-0 top-0 h-[200px]" style={{ background: "var(--gradient-glow)" }} />
-        <div className="relative z-10 flex-1 flex flex-col px-6 pt-16 pb-10">
+        <div className="relative z-10 flex-1 flex flex-col px-6 pt-16 pb-[calc(env(safe-area-inset-bottom)+2.5rem)]">
           <p className="eyebrow">DayDraft</p>
           <h1 className="font-display text-[28px] font-semibold mt-3 leading-[1.1] tracking-tight text-balance">
             {awaitingConfirmation ? "Check your email." : mode === "signup" ? "Design your days." : "Welcome back."}
@@ -223,23 +210,23 @@ export default function Auth() {
 
           {!awaitingConfirmation ? (
             <>
-              <div className="mt-8 space-y-2">
-                <button onClick={() => oauth("google")} disabled={busy}
-                  className={`w-full h-12 rounded-[14px] app-card py-0 text-foreground hover:border-primary/20 pressable text-sm font-medium inline-flex items-center justify-center gap-2 ${oauthBlockedReason ? "opacity-55" : ""}`}
+              {/* space-y-2 (8px) was tight enough that iOS WebView's fuzzy
+                  hit-test could deliver a tap on Google to Apple. Bumped to
+                  space-y-3 (12px) to clear the fuzziness window. */}
+              <div className="mt-8 space-y-3">
+                <button onClick={(e) => { if (busy || oauthBusy || oauthBlockedReason) return; oauth("google"); }}
+                  className={`w-full h-12 rounded-[14px] bg-background text-foreground border border-border hover:bg-muted/50 pressable pressable-instant text-sm font-medium inline-flex items-center justify-center gap-2 shadow-sm ${oauthBlockedReason || busy || oauthBusy ? "opacity-50 cursor-not-allowed" : ""}`}
                   title={oauthBlockedReason || undefined}>
-                  <GoogleIcon /> Continue with Google
+                  <GoogleIcon /> {oauthBusy === "google" ? "..." : "Continue with Google"}
                 </button>
-                <button onClick={() => oauth("apple")} disabled={busy}
-                  className={`w-full h-12 rounded-[14px] bg-foreground text-background hover:opacity-90 pressable text-sm font-medium inline-flex items-center justify-center gap-2 shadow-card ${oauthBlockedReason ? "opacity-55" : ""}`}
-                  title={oauthBlockedReason || undefined}>
-                  <AppleIcon /> Continue with Apple
-                </button>
-                {canUsePasskey && (
-                  <button onClick={passkeyLogin} disabled={busy}
-                    className="w-full h-12 rounded-[14px] border border-accent surface-accent backdrop-blur-sm text-primary hover:bg-primary/[0.07] pressable text-sm font-medium inline-flex items-center justify-center gap-2">
-                    <Fingerprint className="h-4 w-4" /> Use Face ID / fingerprint
+                {(!Capacitor.isNativePlatform() || Capacitor.getPlatform() !== "android") && (
+                  <button onClick={(e) => { if (busy || oauthBusy || oauthBlockedReason) return; oauth("apple"); }}
+                    className={`w-full h-12 rounded-[14px] bg-foreground text-background hover:opacity-90 pressable pressable-instant text-sm font-medium inline-flex items-center justify-center gap-2 shadow-card ${oauthBlockedReason || busy || oauthBusy ? "opacity-50 cursor-not-allowed" : ""}`}
+                    title={oauthBlockedReason || undefined}>
+                    <AppleIcon /> {oauthBusy === "apple" ? "..." : "Continue with Apple"}
                   </button>
                 )}
+
                 {oauthBlockedReason && (
                   <p className="text-[11px] leading-snug text-secondary-fg/85 px-1 pt-1">
                     {oauthBlockedReason}
@@ -272,18 +259,19 @@ export default function Auth() {
                   className="h-12 surface-card border-soft rounded-[14px]"
                 />
                 <Input type="password" required minLength={6} value={pw} onChange={e => setPw(e.target.value)} placeholder="Password" className="h-12 surface-card border-soft rounded-[14px]" />
-                <Button type="submit" disabled={busy} className="w-full h-12 rounded-[14px] bg-primary text-primary-foreground hover:bg-primary/90 pressable text-base font-medium shadow-card">
+                <Button type="submit" disabled={busy || !!oauthBusy} className="w-full h-12 rounded-[14px] bg-primary text-primary-foreground hover:bg-primary/90 btn-volumetric pressable pressable-instant text-base font-medium shadow-card">
                   {busy ? "..." : mode === "signup" ? "Create account" : "Sign in"}
                 </Button>
               </form>
 
               <div className="mt-6 flex items-center justify-between">
                 <button
+                  type="button"
                   onClick={() => {
                     setAwaitingConfirmation(false);
                     setMode(mode === "signup" ? "signin" : "signup");
                   }}
-                  className="text-secondary-fg text-sm hover:text-foreground transition-colors"
+                  className="text-secondary-fg text-sm hover:text-foreground transition-colors pressable pressable-instant px-2 py-1 -ml-2 rounded-lg"
                 >
                   {mode === "signup" ? "I already have an account" : "Create a new account"}
                 </button>
@@ -300,7 +288,7 @@ export default function Auth() {
                 type="button"
                 onClick={resendConfirmation}
                 disabled={resending}
-                className="w-full h-12 rounded-[14px] app-card py-0 text-foreground hover:border-primary/15 pressable text-base font-medium"
+                className="w-full h-12 rounded-[14px] bg-primary text-primary-foreground hover:bg-primary/90 btn-volumetric pressable pressable-instant text-base font-medium shadow-card"
               >
                 {resending ? "Sending..." : "Resend confirmation email"}
               </Button>

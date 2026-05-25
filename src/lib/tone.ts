@@ -31,7 +31,7 @@ const COPY: Record<Tone, Record<string, string>> = {
   professional: {
     plan_cta: "Plan my day",
     plan_hint: "Confirm estimates, anchor meetings, and build a realistic schedule",
-    start_first: "Start first block",
+    start_first: "Start Tasks",
     start_next: "Start next block",
     recap_cta: "Open recap",
     track_label: "Track time on this",
@@ -70,7 +70,7 @@ const COPY: Record<Tone, Record<string, string>> = {
   motivational: {
     plan_cta: "Build today's momentum 🚀",
     plan_hint: "Set clear estimates, prioritize hard work, finish strong",
-    start_first: "Start strong",
+    start_first: "Start Tasks",
     start_next: "Keep momentum",
     recap_cta: "Review today's progress",
     track_label: "Track the work",

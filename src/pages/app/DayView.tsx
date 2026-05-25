@@ -1,18 +1,23 @@
 import { useEffect, useMemo, useRef, useState } from "react";
+import { createPortal } from "react-dom";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { useNavigate, useSearchParams } from "react-router-dom";
 import { useAuth } from "@/hooks/useAuth";
 import { supabase } from "@/integrations/supabase/client";
+import { trackAiEvent } from "@/lib/aiRuntime";
+import { syncBlockNotifications } from "@/lib/localNotifications";
+import { enqueueWrite } from "@/lib/idbCache";
 import { invokeAiCached } from "@/lib/aiCache";
 import { useAbortOnUnmount } from "@/hooks/useAbortOnUnmount";
 import {
   Block, fmtTime, todayDateStr, parseDateStr, friendlyDateFor, isFutureDateStr, isUserTask, isOpenUserTask, isUserTaskDone, inferScheduleBlockType, packLinearSchedule,
-  blockSlotEndHHMM,
+  blockSlotEndHHMM, timeToMinutes, minutesToHHMM,
 } from "@/lib/daydraft";
 import { ChevronLeft, ChevronRight, Play, CalendarDays, Trash2, Bell, BellOff, MoreHorizontal, Clock, Timer, MapPin, Copy, Sparkles, ListPlus, Wand2, ArrowRightCircle, Loader2 } from "lucide-react";
 import { DayPickerSheet } from "@/components/app/DayPickerSheet";
 import { Button } from "@/components/ui/button";
-import { DndContext, closestCenter, PointerSensor, TouchSensor, useSensor, useSensors, DragEndEvent, DragStartEvent } from "@dnd-kit/core";
+import { DndContext, closestCenter, MouseSensor, TouchSensor, useSensor, useSensors, DragEndEvent, DragStartEvent, DragOverlay } from "@dnd-kit/core";
+import { motion, AnimatePresence } from "framer-motion";
 import { SortableContext, arrayMove, verticalListSortingStrategy } from "@dnd-kit/sortable";
 import { SortableBlock } from "@/components/app/SortableBlock";
 import { Sheet, SheetContent, SheetHeader, SheetTitle } from "@/components/ui/sheet";
@@ -42,13 +47,14 @@ import { formatPlanAsPlainText, copyTextToClipboard } from "@/lib/planTextExport
 import { fetchDayPlan, planDashboardQueryKey, planDayQueryKey } from "@/lib/planQueries";
 import { applyAutoMissedBlocks } from "@/lib/blockResolution";
 import { resolveActualMinutesOnComplete } from "@/lib/blockActualTime";
+import { rollingEntriesQueryKey, type RollingEntry } from "@/lib/timeEntriesQuery";
 import {
   getAssignedCategoryId,
   setAssignedCategoryId,
   clearAssignedCategoryId,
   pruneAssignedCategories,
 } from "@/lib/blockCategory";
-import { useCalmMode } from "@/lib/calmMode";
+
 import { useEntitlement } from "@/hooks/useEntitlement";
 import { UpgradeSheet } from "@/components/app/UpgradeSheet";
 import { setDndBodyScrollLock } from "@/lib/dndScrollLock";
@@ -87,7 +93,7 @@ export default function DayView() {
   const [blocks, setBlocks] = useState<ExBlock[]>([]);
   const [now, setNow] = useState(new Date());
   const [replanning, setReplanning] = useState(false);
-  const dayScrollRef = useRef<HTMLDivElement>(null);
+  const [activeDragId, setActiveDragId] = useState<string | null>(null);
   const [composerOpen, setComposerOpen] = useState(false);
   const [bulkInput, setBulkInput] = useState("");
   const [bulkRows, setBulkRows] = useState<{ title: string; duration: number; start_time?: string }[]>([]);
@@ -119,7 +125,7 @@ export default function DayView() {
   // don't try to mutate state for a page the user already left.
   const getAiAbortSignal = useAbortOnUnmount();
   const blockOpLocksRef = useRef(new Set<string>());
-  const [calmMode] = useCalmMode();
+
   const { isPro, overQuota, planQuotaLimit, refresh: refreshEntitlement } = useEntitlement();
   const tracker = useTimeTracker();
   // Bumped whenever we touch the per-block category assignment in localStorage
@@ -153,10 +159,12 @@ export default function DayView() {
     else nav(`/today?date=${ymd}`);
   };
 
+  const dayTabVisible = useTabVisible();
+
   const { data: dayData, isLoading: loading, refetch } = useQuery({
     queryKey: planDayQueryKey(user?.id ?? "", viewDate),
     queryFn: () => fetchDayPlan(user!.id, viewDate),
-    enabled: !!user?.id,
+    enabled: !!user?.id && dayTabVisible,
     staleTime: 15_000,
     refetchOnWindowFocus: true,
   });
@@ -165,6 +173,11 @@ export default function DayView() {
 
   useEffect(() => {
     setBlocks((dayData?.blocks || []) as ExBlock[]);
+    
+    // Only schedule local notifications for today's plan
+    if (viewDate === todayDateStr() && dayData?.blocks) {
+      syncBlockNotifications(viewDate, dayData.blocks);
+    }
   }, [dayData?.plan?.id, dayData?.blocks]);
 
   const openReminders = (id: string) => {
@@ -224,8 +237,8 @@ export default function DayView() {
   };
 
   const sensors = useSensors(
-    useSensor(PointerSensor, { activationConstraint: { delay: 220, tolerance: 8 } }),
-    useSensor(TouchSensor, { activationConstraint: { delay: 220, tolerance: 8 } })
+    useSensor(MouseSensor, { activationConstraint: { distance: 8 } }),
+    useSensor(TouchSensor, { activationConstraint: { delay: 250, tolerance: 8 } })
   );
 
   useEffect(() => {
@@ -238,13 +251,36 @@ export default function DayView() {
   // the timeline — there's no point ticking it while DayView's tab isn't
   // visible. PersistentTabs keeps the tree alive, but the interval can
   // sleep until the user comes back.
-  const dayTabVisible = useTabVisible();
   useEffect(() => {
     if (!dayTabVisible) return;
     setNow(new Date()); // re-sync on return so the highlight is fresh
     const t = setInterval(() => setNow(new Date()), 60000);
     return () => clearInterval(t);
   }, [dayTabVisible]);
+
+  const [showAllDone, setShowAllDone] = useState(false);
+  const prevIsAllDoneRef = useRef<boolean | null>(null);
+  
+  useEffect(() => {
+    const totalTasks = blocks.filter(isUserTask).length;
+    const firstUnfinishedTask = blocks.find((b) => isUserTask(b) && isOpenUserTask(b));
+    const isAllDone = !planMissing && !isFuture && !firstUnfinishedTask && totalTasks > 0;
+    
+    // Only trigger the animation if we transition from NOT all done to ALL done.
+    if (prevIsAllDoneRef.current === false && isAllDone && dayTabVisible) {
+      setShowAllDone(true);
+      setTimeout(() => {
+        setShowAllDone(false);
+      }, 3500);
+    }
+    
+    // If it's no longer all done, hide it immediately
+    if (!isAllDone && showAllDone) {
+      setShowAllDone(false);
+    }
+
+    prevIsAllDoneRef.current = isAllDone;
+  }, [dayTabVisible, blocks, planMissing, isFuture, showAllDone]);
 
   // Drop localStorage tracker-category records for blocks that no longer
   // exist (deleted from a different device, plan reset, etc).
@@ -306,16 +342,23 @@ export default function DayView() {
     setBlocks(next);
     haptics.impact("light");
     try {
-      await supabase.from("blocks").delete().eq("id", id);
+      const { error: delErr } = await supabase.from("blocks").delete().eq("id", id);
+      if (delErr) {
+        if (!navigator.onLine || delErr.message?.toLowerCase().includes("fetch")) {
+          await enqueueWrite({ table: "blocks", op: "delete", payload: {}, filter: { id } });
+        } else {
+          throw delErr;
+        }
+      }
       clearAssignedCategoryId(id);
       if (plan && next.length === 0) {
         await supabase.from("plans").delete().eq("id", plan.id);
         setBlocks([]);
-        await invalidatePlanCaches();
+        void invalidatePlanCaches();
         return;
       }
       await persistOrder(next);
-      await invalidatePlanCaches();
+      void invalidatePlanCaches();
       toast("Block removed", {
         action: {
           label: "Undo",
@@ -348,7 +391,7 @@ export default function DayView() {
               completed_at: removed.completed_at ?? null,
             } as any);
             await persistOrder(snapshot);
-            await invalidatePlanCaches();
+            void invalidatePlanCaches();
           },
         },
       });
@@ -380,55 +423,74 @@ export default function DayView() {
     const completedAtIso = new Date().toISOString();
     const completedAtMs = Date.now();
     let resolvedActual: number | null = null;
-    if (!wasDone && user) {
-      try {
-        resolvedActual = await resolveActualMinutesOnComplete(
-          supabase,
-          user.id,
-          id,
-          viewDate,
-          toggled.start_time,
-          completedAtMs,
-        );
-      } catch {
-        // resolveActualMinutesOnComplete failure (e.g. transient Supabase
-        // error). We deliberately don't fall back to wall-clock here —
-        // see the rationale on `resolveActualMinutesOnComplete`.
-        resolvedActual = null;
-      }
+    if (!wasDone) {
+      const rolling = queryClient.getQueryData<RollingEntry[]>(rollingEntriesQueryKey(user?.id)) || [];
+      resolvedActual = resolveActualMinutesOnComplete(
+        rolling,
+        id,
+        viewDate,
+        toggled.start_time,
+        completedAtMs,
+      );
     }
 
-    setBlocks((bs) =>
-      bs.map((b) =>
-        b.id === id
-          ? {
-              ...b,
-              completed: !wasDone,
-              completed_at: !wasDone ? completedAtIso : null,
-              actual_minutes: !wasDone ? resolvedActual : null,
-              resolution: !wasDone ? ("done" as const) : null,
-              resolved_at: !wasDone ? completedAtIso : null,
-            }
-          : b,
-      ),
+    const newBlocks = blocks.map((b) =>
+      b.id === id
+        ? {
+            ...b,
+            completed: !wasDone,
+            completed_at: !wasDone ? completedAtIso : null,
+            actual_minutes: !wasDone ? resolvedActual : null,
+            resolution: !wasDone ? ("done" as const) : null,
+            resolved_at: !wasDone ? completedAtIso : null,
+          }
+        : b
     );
+    
+    setBlocks(newBlocks);
+    // Optimistic cache update. The query key MUST match useQuery's:
+    // `planDayQueryKey(userId, viewDate)` — previously this was written
+    // to the wrong key `["dayData", ...]` which silently no-op'd and let
+    // a stale background refetch overwrite the completed state.
+    if (dayData && user?.id) {
+      queryClient.setQueryData(planDayQueryKey(user.id, viewDate), {
+        ...dayData,
+        blocks: newBlocks,
+      });
+    }
+
     haptics.notify("success");
     try {
+      const payload = {
+        completed: !wasDone,
+        completed_at: !wasDone ? completedAtIso : null,
+        actual_minutes: !wasDone ? resolvedActual : null,
+        resolution: !wasDone ? "done" : null,
+        resolved_at: !wasDone ? completedAtIso : null,
+      };
+      
       const { error: upErr } = await supabase
         .from("blocks")
-        .update({
-          completed: !wasDone,
-          completed_at: !wasDone ? completedAtIso : null,
-          actual_minutes: !wasDone ? resolvedActual : null,
-          resolution: !wasDone ? "done" : null,
-          resolved_at: !wasDone ? completedAtIso : null,
-        })
+        .update(payload)
         .eq("id", id);
-      if (upErr) throw upErr;
+        
+      if (upErr) {
+        if (!navigator.onLine || upErr.message?.toLowerCase().includes("fetch")) {
+          await enqueueWrite({ table: "blocks", op: "update", payload, filter: { id } });
+          toast("Saved offline", { description: "Will sync when reconnected" });
+        } else {
+          throw upErr;
+        }
+      }
       if (!wasDone) {
         try { localStorage.setItem(`dd_last_plan_progress_${viewDate}`, new Date().toISOString()); } catch {/* ignore */}
       }
-      await invalidatePlanCaches();
+      // Silently refetch to ensure background sync without disrupting UI
+      void queryClient.cancelQueries({ queryKey: planDayQueryKey(user?.id ?? "", viewDate) });
+      void queryClient.invalidateQueries({
+        queryKey: planDayQueryKey(user?.id ?? "", viewDate),
+        refetchType: "none",
+      });
       toast.success(wasDone ? "Reopened" : "Done", {
         description: firstUserTaskDoneToday ? firstTaskCompleteMessage(viewDate) : undefined,
         action: {
@@ -446,7 +508,7 @@ export default function DayView() {
                 resolved_at: (prev as ExBlock)?.resolved_at ?? null,
               })
               .eq("id", id);
-            await invalidatePlanCaches();
+            void invalidatePlanCaches();
           },
         },
       });
@@ -467,6 +529,17 @@ export default function DayView() {
       .insert({ user_id: user.id, date: viewDate, raw_input: bulkInput || "" } as any)
       .select("id")
       .single();
+      
+    if (error?.code === "23505" || error?.message?.includes("duplicate")) {
+      const { data: existing } = await supabase
+        .from("plans")
+        .select("id")
+        .eq("user_id", user.id)
+        .eq("date", viewDate)
+        .single();
+      if (existing?.id) return existing.id;
+    }
+
     if (error || !created?.id) {
       toast.error(error?.message || "Couldn't create plan");
       return null;
@@ -565,10 +638,18 @@ export default function DayView() {
           position: b.position,
           slot_end_time: blockSlotEndHHMM(b),
         }));
-      const { error } = await supabase.from("blocks").insert(toInsert as any);
-      if (error) throw error;
+      const { error: insertErr } = await supabase.from("blocks").insert(toInsert as any);
+      if (insertErr) {
+        if (!navigator.onLine || insertErr.message?.toLowerCase().includes("fetch")) {
+          for (const b of toInsert) {
+            await enqueueWrite({ table: "blocks", op: "insert", payload: b });
+          }
+        } else {
+          throw insertErr;
+        }
+      }
       await persistOrder(packed);
-      await invalidatePlanCaches();
+      void invalidatePlanCaches();
       await refetch();
       // First task on a brand-new day burns a trial slot — refresh the counter.
       if (wouldStartNewDay) void refreshEntitlement();
@@ -594,23 +675,46 @@ export default function DayView() {
   };
 
   const persistOrder = async (list: ExBlock[]) => {
-    const ops = list.map((b, i) =>
-      supabase
-        .from("blocks")
-        .update({
-          position: i,
-          start_time: b.start_time,
-          slot_end_time: blockSlotEndHHMM(b),
-        })
-        .eq("id", b.id),
-    );
-    const results = await Promise.all(ops);
-    const failed = results.find((r) => r.error);
-    if (failed?.error) throw failed.error;
+    if (!list.length) return;
+    const payload = list.map((b, i) => ({
+      id: b.id,
+      plan_id: b.plan_id,
+      user_id: b.user_id,
+      start_time: b.start_time,
+      duration_min: b.duration_min,
+      title: b.title,
+      type: b.type,
+      kind: b.kind,
+      estimated_minutes: b.estimated_minutes ?? b.duration_min,
+      actual_minutes: b.actual_minutes ?? null,
+      block_type: inferScheduleBlockType(b),
+      completed: b.completed,
+      position: i,
+      ai_reasoning: b.ai_reasoning ?? null,
+      location: b.location ?? null,
+      location_lat: b.location_lat ?? null,
+      location_lng: b.location_lng ?? null,
+      is_calendar_event: b.is_calendar_event ?? false,
+      overlap_ok: b.overlap_ok ?? false,
+      parallel_group_id: b.parallel_group_id ?? null,
+      slot_end_time: blockSlotEndHHMM(b),
+      resolution: b.resolution ?? null,
+      resolved_at: b.resolved_at ?? null,
+      completed_at: b.completed_at ?? null,
+    }));
+    const { error: upErr } = await supabase.from("blocks").upsert(payload as any);
+    if (upErr) {
+      if (!navigator.onLine || upErr.message?.toLowerCase().includes("fetch")) {
+        await enqueueWrite({ table: "blocks", op: "upsert", payload });
+      } else {
+        throw upErr;
+      }
+    }
   };
 
-  const handleDragStart = (_e: DragStartEvent) => {
+  const handleDragStart = (e: DragStartEvent) => {
     setDndBodyScrollLock(true);
+    setActiveDragId(e.active.id as string);
     // iOS-style "lift" feedback the instant the drag activates. The card's
     // CSS scale + shadow run alongside; this pairs the visual cue with a
     // tactile one so the long-press feels responsive instead of silent.
@@ -619,6 +723,7 @@ export default function DayView() {
 
   const onDragEnd = (e: DragEndEvent) => {
     setDndBodyScrollLock(false);
+    setActiveDragId(null);
     const { active, over } = e;
     // Soft "settle" tap on drop, regardless of whether the position changed.
     haptics.impact("light");
@@ -626,7 +731,11 @@ export default function DayView() {
     const oldIdx = blocks.findIndex(b => b.id === active.id);
     const newIdx = blocks.findIndex(b => b.id === over.id);
     if (oldIdx === -1 || newIdx === -1) return;
-    const reordered = packLinearSchedule(arrayMove(blocks, oldIdx, newIdx));
+    const moved = arrayMove(blocks, oldIdx, newIdx);
+    if (newIdx === 0 && blocks.length > 0) {
+      moved[0] = { ...moved[0], start_time: blocks[0].start_time };
+    }
+    const reordered = packLinearSchedule(moved);
     const snapshot = blocks;
     setBlocks(reordered);
     void persistOrder(reordered)
@@ -706,7 +815,7 @@ export default function DayView() {
       if (newBlocks.length) await supabase.from("blocks").insert(newBlocks);
       const { data: bs } = await supabase.from("blocks").select("*").eq("plan_id", plan.id).order("position");
       setBlocks((bs || []) as ExBlock[]);
-      await invalidatePlanCaches();
+      void invalidatePlanCaches();
       toast.success("Re-planned");
     } catch (e: any) {
       if (signal.aborted) return;
@@ -878,7 +987,7 @@ export default function DayView() {
       try {
         const result = await moveBlocksToDate([blk], targetDate);
         if (!result) return;
-        await invalidatePlanCaches();
+        void invalidatePlanCaches();
         await refetch();
         haptics.notify("success");
         toast.success(`Moved to ${friendlyDateFor(parseDateStr(targetDate))}`, {
@@ -900,7 +1009,7 @@ export default function DayView() {
       try {
         const result = await moveBlocksToDate(candidates, targetDate);
         if (!result) return;
-        await invalidatePlanCaches();
+        void invalidatePlanCaches();
         await refetch();
         setMoreOpen(false);
         haptics.notify("success");
@@ -936,14 +1045,17 @@ export default function DayView() {
   return (
     <>
     <PullToRefresh
-        scrollContainerRef={dayScrollRef}
         onRefresh={async () => {
           await refetch();
-          await invalidatePlanCaches();
+          void invalidatePlanCaches();
         }}
       >
-      <div className="flex min-h-0 flex-1 flex-col">
-      <div className="shrink-0 px-5 pt-12 pb-2">
+      <motion.div
+        initial={{ opacity: 0, y: 15 }}
+        animate={{ opacity: 1, y: 0 }}
+        transition={{ type: "spring", bounce: 0.15, duration: 0.6 }}
+        className="flex w-full flex-col px-5 pt-[var(--safe-area-inset-top)] pb-8"
+      >
         <div className="app-card px-2 py-2.5 flex items-center gap-1">
           <button
             type="button"
@@ -987,79 +1099,69 @@ export default function DayView() {
             </button>
           )}
         </div>
-      </div>
 
-      {calmMode && !planMissing && (
-        <div className="mt-5 shrink-0 px-6">
-          <div className="rounded-[18px] border border-border/40 bg-background/25 px-3.5 py-2.5 text-[11px] text-secondary-fg/85 leading-relaxed">
-            Calm Mode — fewer secondary controls.
-          </div>
-        </div>
-      )}
-      {/* Progress bar */}
-      {!calmMode && !planMissing && totalTasks > 0 && (
-        <div className="mt-4 shrink-0 px-6">
-          <div className="app-card px-4 py-3">
-            <div className="flex items-center justify-between gap-2 mb-2.5">
-              <div className="text-[13px] text-foreground/95 tabular-nums">
-                <span className="font-bold">{doneTasks}</span>
-                <span className="text-secondary-fg/60 font-normal"> / {totalTasks} done</span>
-              </div>
-              <div className="flex items-center gap-2">
-                {totalTasks > 0 && (
-                  <span className="text-[12px] font-semibold text-primary tabular-nums">
-                    {Math.round((doneTasks / totalTasks) * 100)}%
+        {/* Progress bar */}
+        {!planMissing && totalTasks > 0 && (
+          <div className="mt-4 shrink-0">
+            <div className="app-card px-4 py-3">
+              <div className="flex items-center justify-between gap-2 mb-2.5">
+                <div className="text-[13px] text-foreground/95 tabular-nums">
+                  <span className="font-bold">{doneTasks}</span>
+                  <span className="text-secondary-fg/60 font-normal"> / {totalTasks} done</span>
+                </div>
+                <div className="flex items-center gap-2">
+                  {totalTasks > 0 && (
+                    <span className="text-[12px] font-semibold text-primary tabular-nums">
+                      {Math.round((doneTasks / totalTasks) * 100)}%
+                    </span>
+                  )}
+                  <span className="text-[11px] text-secondary-fg/55 tabular-nums">
+                    {Math.round(userTasks.reduce((s, b) => s + b.duration_min, 0) / 6) / 10}h
                   </span>
-                )}
-                <span className="text-[11px] text-secondary-fg/55 tabular-nums">
-                  {Math.round(userTasks.reduce((s, b) => s + b.duration_min, 0) / 6) / 10}h
-                </span>
+                </div>
               </div>
-            </div>
-            <div className="h-1.5 rounded-full bg-muted/50 overflow-hidden">
-              <div
-                className="h-full rounded-full bg-primary transition-[width] duration-700 ease-out"
-                style={{ width: totalTasks ? `${(doneTasks / totalTasks) * 100}%` : "0%" }}
-              />
+              <div className="h-1.5 rounded-full bg-muted/50 overflow-hidden">
+                <div
+                  className="h-full rounded-full bg-primary transition-[width] duration-700 ease-out"
+                  style={{ width: totalTasks ? `${(doneTasks / totalTasks) * 100}%` : "0%" }}
+                />
+              </div>
             </div>
           </div>
-        </div>
-      )}
+        )}
 
-      {/* Missed-tasks banner. iOS-style sectioned card — quiet but always
-          one tap from a useful action. Only when there are open misses
-          on a today/past day; future plans can't have misses yet. */}
-      {!planMissing && !isFuture && missedTasks.length > 0 && (
-        <div className="mt-4 shrink-0 px-6">
-          <div className="rounded-[16px] border border-destructive/25 bg-destructive/[0.06] px-3.5 py-2.5 flex items-center gap-3">
-            <span className="h-1.5 w-1.5 rounded-full bg-destructive/85 animate-pulse shrink-0" aria-hidden />
-            <div className="flex-1 min-w-0">
-              <div className="text-[13px] font-medium text-foreground/95 leading-snug">
-                {missedTasks.length === 1
-                  ? "1 task missed its slot"
-                  : `${missedTasks.length} tasks missed their slot`}
-              </div>
-              <div className="text-[11px] text-secondary-fg/80 mt-0.5">
-                Move them forward instead of leaving them behind.
-              </div>
-            </div>
+        {/* Missed-tasks pill: sleek, minimal */}
+        {!planMissing && !isFuture && missedTasks.length > 0 && (
+          <div className="mt-4 shrink-0 flex justify-center mb-1">
             <button
               type="button"
               onClick={() => setDayPickerIntent({ kind: "carry-missed" })}
-              className="shrink-0 h-9 px-3 rounded-full text-[12px] font-semibold text-primary bg-primary/12 border border-primary/30 pressable"
+              className="rounded-full border border-destructive/25 bg-destructive/[0.08] px-3.5 py-1.5 flex items-center gap-2 pressable hover:bg-destructive/[0.12] transition-colors"
             >
-              Move…
+              <span className="h-1.5 w-1.5 rounded-full bg-destructive animate-pulse shrink-0" aria-hidden />
+              <span className="text-[12px] font-medium text-destructive">
+                {missedTasks.length} missed {missedTasks.length === 1 ? "slot" : "slots"}
+              </span>
+              <span className="text-[12px] font-semibold text-destructive/80 ml-1">
+                Move &rarr;
+              </span>
             </button>
           </div>
-        </div>
-      )}
+        )}
 
-      <div
-        ref={dayScrollRef}
-        className="min-h-0 flex-1 overflow-y-auto overscroll-y-contain px-5 pb-[calc(96px+env(safe-area-inset-bottom))] [-webkit-overflow-scrolling:touch] pt-8"
-      >
+        {/* Inline "Start" CTA. */}
+        {!planMissing && !isFuture && firstUnfinishedTask && (
+          <Button
+            onClick={() => nav(`/focus/${firstUnfinishedTask.id}`)}
+            className="w-full h-12 rounded-2xl bg-primary hover:bg-primary/90 text-primary-foreground text-[15px] font-semibold pressable shadow-[0_8px_30px_-6px_hsl(var(--primary)/0.5)] border border-primary/20 mt-4 mb-1 active:scale-[0.98] transition-transform"
+          >
+            <Play className="h-4 w-4 mr-2" fill="currentColor" />
+            {toneCopy(getTone(profile as any), doneTasks === 0 ? "start_first" : "start_next")}
+          </Button>
+        )}
+
         {planMissing && (
-          <div className="rounded-[28px] border border-border/30 bg-card/35 px-6 py-12 text-center hero-glass shadow-card relative overflow-hidden empty-state-fade">
+          <div className="mt-4 rounded-[28px] border border-border/30 bg-card/35 px-6 py-12 text-center hero-glass shadow-card relative overflow-hidden empty-state-fade">
             {/* Soft decorative background circles inside the empty card */}
             <div className="absolute -top-12 -left-12 h-28 w-28 rounded-full bg-primary/8 blur-xl pointer-events-none" />
             <div className="absolute -bottom-12 -right-12 h-28 w-28 rounded-full bg-primary-glow/8 blur-xl pointer-events-none" />
@@ -1107,7 +1209,7 @@ export default function DayView() {
                 onDragEnd={onDragEnd}
               >
                 <SortableContext items={blocks.map((b) => b.id)} strategy={verticalListSortingStrategy}>
-                  <div className="touch-pan-y space-y-2.5 enter-stagger">
+                  <div className="touch-pan-y space-y-2.5 mt-4 enter-stagger">
                     {blocks.map((b) => {
                       const assignedId = getAssignedCategoryId(b.id);
                       const assignedCat = assignedId
@@ -1154,6 +1256,24 @@ export default function DayView() {
                     )}
                   </div>
                 </SortableContext>
+                <DragOverlay dropAnimation={{ duration: 200, easing: 'cubic-bezier(0.18, 0.67, 0.6, 1.22)' }}>
+                  {activeDragId ? (() => {
+                    const dragBlock = blocks.find((b) => b.id === activeDragId);
+                    if (!dragBlock) return null;
+                    const assignedId = getAssignedCategoryId(activeDragId);
+                    const assignedCat = assignedId ? tracker.categories.find((c) => c.id === assignedId) || null : null;
+                    return (
+                      <SortableBlock
+                        block={dragBlock}
+                        editing={false}
+                        tourSpotlight={false}
+                        trackingActive={!!tracker.active && tracker.active.block_id === activeDragId}
+                        assignedCategory={assignedCat}
+                        isOverlay
+                      />
+                    );
+                  })() : null}
+                </DragOverlay>
               </DndContext>
             )}
 
@@ -1181,30 +1301,30 @@ export default function DayView() {
 
           </>
         )}
-      </div>
-      </div>
+      </motion.div>
       </PullToRefresh>
 
-      {!planMissing && !isFuture && firstUnfinishedTask && (
-        <div
-          className="fixed left-1/2 -translate-x-1/2 w-full max-w-[440px] px-6 z-30"
-          style={{ bottom: "calc(84px + env(safe-area-inset-bottom))" }}
-        >
-          <Button onClick={() => nav(`/focus/${firstUnfinishedTask.id}`)}
-            className="w-full h-14 rounded-2xl bg-primary hover:bg-primary/92 text-primary-foreground text-[15px] font-semibold pressable shadow-[0_10px_36px_-10px_hsl(var(--primary)/0.65)]">
-            <Play className="h-4.5 w-4.5 mr-1.5" fill="currentColor" /> {toneCopy(getTone(profile as any), doneTasks === 0 ? "start_first" : "start_next")}
-          </Button>
-        </div>
-      )}
-      {!planMissing && !isFuture && !firstUnfinishedTask && totalTasks > 0 && (
-        <div
-          className="fixed left-1/2 -translate-x-1/2 w-full max-w-[440px] px-6 z-30"
-          style={{ bottom: "calc(84px + env(safe-area-inset-bottom))" }}
-        >
-          <div className="w-full h-12 rounded-2xl bg-success/15 text-success border border-success/25 flex items-center justify-center gap-2 text-[14px] font-semibold">
-            <span className="text-success/90">✓</span> All done for today
-          </div>
-        </div>
+      {/* Portaled all-done toast (Start button is now inline above the
+          task list — see the JSX further up). */}
+      {typeof document !== "undefined" && createPortal(
+        <AnimatePresence>
+          {dayTabVisible && showAllDone && (
+            <motion.div
+              key="all-done-toast"
+              initial={{ opacity: 0, x: "-50%", y: 20 }}
+              animate={{ opacity: 1, x: "-50%", y: 0 }}
+              exit={{ opacity: 0, x: "-50%", y: 10, scale: 0.95 }}
+              transition={{ duration: 0.4 }}
+              className="fixed left-1/2 w-full max-w-[440px] px-6 z-40 pointer-events-none"
+              style={{ bottom: "calc(84px + env(safe-area-inset-bottom))" }}
+            >
+              <div className="w-full h-12 rounded-full bg-success/10 text-success border border-success/20 flex items-center justify-center gap-2 text-[14px] font-semibold backdrop-blur-md">
+                <span className="text-success/90">✓</span> All done for today
+              </div>
+            </motion.div>
+          )}
+        </AnimatePresence>,
+        document.body
       )}
 
       {/* Block tap sheet — single place for all per-block actions */}
@@ -1264,14 +1384,14 @@ export default function DayView() {
                   label="Move to another day"
                 />
               )}
-              {!calmMode && !tappedBlock.is_calendar_event && isToday && (
+              {!tappedBlock.is_calendar_event && isToday && (
                 <ActionRow
                   onClick={() => openReminders(tappedBlock.id)}
                   icon={getReminderConfig(tappedBlock.id).enabled ? <Bell className="h-4 w-4" /> : <BellOff className="h-4 w-4" />}
                   label="Reminders"
                 />
               )}
-              {!calmMode && tappedBlock.location && (
+              {tappedBlock.location && (
                 <a
                   href={mapsUrl(tappedBlock.location, tappedBlock.location_lat, tappedBlock.location_lng)}
                   target="_blank" rel="noopener noreferrer"
@@ -1281,18 +1401,16 @@ export default function DayView() {
                   <span className="flex-1">{tappedBlock.location}</span>
                 </a>
               )}
-              {!calmMode && (
-                <ActionRow
-                  onClick={() => {
-                    const blk = tappedBlock;
-                    setTappedBlock(null);
-                    setAskAiContext(`Help me think about this task: "${blk!.title}" (${blk!.duration_min} min). Suggest a realistic estimate, breakdown into steps, or a smarter time of day. Don't propose a full plan — just ideas I can apply.`);
-                    setAskAiOpen(true);
-                  }}
-                  icon={<Sparkles className="h-4 w-4" />}
-                  label="Ask AI about this"
-                />
-              )}
+              <ActionRow
+                onClick={() => {
+                  const blk = tappedBlock;
+                  setTappedBlock(null);
+                  setAskAiContext(`Help me think about this task: "${blk!.title}" (${blk!.duration_min} min). Suggest a realistic estimate, breakdown into steps, or a smarter time of day. Don't propose a full plan — just ideas I can apply.`);
+                  setAskAiOpen(true);
+                }}
+                icon={<Sparkles className="h-4 w-4" />}
+                label="Ask AI about this"
+              />
               {!tappedBlock.is_calendar_event && (
                 <ActionRow
                   onClick={() => { const id = tappedBlock.id; setTappedBlock(null); removeBlock(id); }}
@@ -1322,7 +1440,7 @@ export default function DayView() {
               label="Carry unfinished to…"
             />
           )}
-          {!calmMode && blocks.length > 0 && (
+          {blocks.length > 0 && (
             <ActionRow
               onClick={() => { setMoreOpen(false); void copyDayOutline(); }}
               icon={<Copy className="h-4 w-4" />}
@@ -1346,7 +1464,11 @@ export default function DayView() {
           setComposerOpen(v);
         }}
       >
-        <SheetContent side="bottom" className="rounded-t-[28px] border-border/45 bg-popover max-h-[92vh] flex flex-col">
+        <SheetContent 
+          side="bottom" 
+          className="rounded-t-[28px] border-border/45 bg-popover max-h-[92vh] flex flex-col"
+          onOpenAutoFocus={(e) => e.preventDefault()}
+        >
           <SheetHeader className="text-left shrink-0">
             <SheetTitle className="flex items-center gap-2 text-[16px]">
               {bulkStep === "review"
@@ -1363,13 +1485,13 @@ export default function DayView() {
                   Type or paste your tasks — one per line, bullets, commas, anything. We'll split them into blocks.
                 </p>
                 <Textarea
-                  autoFocus
+                  autoFocus={false}
                   value={bulkInput}
                   onChange={(e) => setBulkInput(e.target.value)}
                   placeholder={"Fix mobile layout, download PDF, send to client\nCall Alex, invoice client"}
                   className="min-h-[150px] rounded-2xl border-soft bg-card text-[14px]"
                 />
-                <Button onClick={() => void prepareBulkRows()} disabled={planMutating} className="w-full h-12 rounded-2xl bg-primary hover:bg-primary/92 text-primary-foreground font-semibold pressable">
+                <Button onClick={() => void prepareBulkRows()} disabled={planMutating} className="w-full h-12 rounded-2xl bg-primary hover:bg-primary/92 text-white font-semibold pressable">
                   Continue
                 </Button>
               </div>
@@ -1464,7 +1586,7 @@ export default function DayView() {
                 try {
                   await supabase.from("blocks").delete().eq("plan_id", plan.id);
                   await supabase.from("plans").delete().eq("id", plan.id);
-                  await invalidatePlanCaches();
+                  void invalidatePlanCaches();
                   toast.success("Plan deleted");
                   nav(isToday ? "/today" : `/today?date=${viewDate}`);
                 } catch (e: any) {
@@ -1818,13 +1940,20 @@ export default function DayView() {
           try {
             const updatedBlock = next.find((x) => x.id === id);
             if (!updatedBlock) { setBlocks(snapshot); return; }
-            const { error } = await supabase.from("blocks").update({
+            const payload = {
               duration_min: v,
               slot_end_time: blockSlotEndHHMM(updatedBlock),
-            }).eq("id", id);
-            if (error) throw error;
+            };
+            const { error: upErr } = await supabase.from("blocks").update(payload).eq("id", id);
+            if (upErr) {
+              if (!navigator.onLine || upErr.message?.toLowerCase().includes("fetch")) {
+                await enqueueWrite({ table: "blocks", op: "update", payload, filter: { id } });
+              } else {
+                throw upErr;
+              }
+            }
             await persistOrder(next);
-            await invalidatePlanCaches();
+            void invalidatePlanCaches();
           } catch (e: any) {
             setBlocks(snapshot);
             toast.error(e?.message || "Couldn't update duration");
@@ -1925,15 +2054,47 @@ export default function DayView() {
                 if (idx < 0) { setStartTimeEditId(null); return; }
                 const snapshot = blocks;
                 const updated = [...blocks];
-                updated[idx] = { ...updated[idx], start_time: startTimeDraft };
-                const packed = packLinearSchedule(updated);
+                const targetMin = timeToMinutes(startTimeDraft);
+                
+                // If it's not the first block, check if pushing the time later creates a gap
+                let packed: Block[];
+                if (idx > 0) {
+                  const previousPacked = packLinearSchedule(updated.slice(0, idx));
+                  const previousEndMin = timeToMinutes(previousPacked[previousPacked.length - 1].start_time) + Number(previousPacked[previousPacked.length - 1].duration_min);
+                  
+                  if (targetMin > previousEndMin) {
+                    // User explicitly pushed this later, insert a Break to fill the gap
+                    const breakDuration = targetMin - previousEndMin;
+                    const breakBlock: Block = {
+                      id: crypto.randomUUID(),
+                      plan_id: updated[0].plan_id,
+                      user_id: updated[0].user_id,
+                      start_time: minutesToHHMM(previousEndMin),
+                      duration_min: breakDuration,
+                      title: "Break",
+                      type: "routine",
+                      kind: "break",
+                      completed: false,
+                      position: 0,
+                    };
+                    updated.splice(idx, 0, breakBlock);
+                  }
+                }
+                
+                // Still update the block itself (for idx === 0, this drives the whole schedule)
+                const targetIdx = updated.findIndex(b => b.id === id);
+                if (targetIdx >= 0) {
+                  updated[targetIdx] = { ...updated[targetIdx], start_time: startTimeDraft };
+                }
+                
+                packed = packLinearSchedule(updated);
                 setBlocks(packed);
                 setStartTimeEditId(null);
                 haptics.notify("success");
                 setPlanMutating(true);
                 try {
                   await persistOrder(packed);
-                  await invalidatePlanCaches();
+                  void invalidatePlanCaches();
                 } catch (e: any) {
                   setBlocks(snapshot);
                   toast.error(e?.message || "Couldn't update start time");

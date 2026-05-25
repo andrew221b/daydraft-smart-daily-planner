@@ -1,6 +1,6 @@
 /* DayDraft service worker — push notifications + caching strategies. */
 
-const VERSION = "v4";
+const VERSION = "v6";
 const SHELL_CACHE = `dd-shell-${VERSION}`;
 const ASSET_CACHE = `dd-assets-${VERSION}`;
 const API_CACHE = `dd-api-${VERSION}`;

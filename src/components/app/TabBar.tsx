@@ -1,6 +1,7 @@
-import { memo, useEffect, useRef } from "react";
+import { memo, useEffect, useLayoutEffect, useRef, useState } from "react";
 import { NavLink, useLocation } from "react-router-dom";
 import { BarChart3, CalendarDays, Settings as SettingsIcon, Timer } from "lucide-react";
+import { motion, useMotionValue, useSpring, useTransform, useVelocity } from "framer-motion";
 import { haptics } from "@/lib/haptics";
 import type { LucideIcon } from "lucide-react";
 
@@ -49,19 +50,49 @@ export const TabBar = () => {
 
   const n = tabs.length;
   const totalGapPx = Math.max(0, n - 1) * TAB_GAP_PX;
-  const pillWidthCalc = `(100% - ${totalGapPx}px) / ${n}`;
-  const indicatorStyle = {
-    width: `calc(${pillWidthCalc})`,
-    transform: `translateX(calc(${activeIdx} * (100% + ${TAB_GAP_PX}px))) translateZ(0)`,
-    // iOS 26 indicator: a long, settled spring slide. The overshoot is
-    // restrained (1.25, not the older 1.4) so the pill feels weighted
-    // — closer to UITabBarController's interactive transition than to a
-    // bouncy toy. `transform` is the only animated property; width is
-    // derived from layout so it stays pixel-perfect at every breakpoint.
-    transitionProperty: "transform",
-    transitionDuration: "420ms",
-    transitionTimingFunction: "cubic-bezier(0.32, 1.25, 0.42, 1)",
-  } as const;
+
+  // Measure the row width so the indicator can spring on an absolute pixel
+  // offset instead of percent-of-parent. Springs need a numeric target.
+  const rowRef = useRef<HTMLDivElement>(null);
+  const [rowWidth, setRowWidth] = useState(0);
+  useLayoutEffect(() => {
+    const el = rowRef.current;
+    if (!el) return;
+    const measure = () => setRowWidth(el.clientWidth);
+    measure();
+    const ro = new ResizeObserver(measure);
+    ro.observe(el);
+    return () => ro.disconnect();
+  }, []);
+
+  const pillWidth = rowWidth > 0 ? (rowWidth - totalGapPx) / n : 0;
+  const targetX = activeIdx * (pillWidth + TAB_GAP_PX);
+
+  // Liquid-rubber indicator: a real spring drives x, and we derive scaleX /
+  // scaleY from |velocity| so the pill squashes & stretches mid-flight, then
+  // settles. Stiffness/damping tuned for "weighty but lively" — overshoots
+  // ~6%, no oscillation, ~380ms total travel feel.
+  const x = useSpring(0, { stiffness: 360, damping: 22, mass: 1 });
+  const initialized = useRef(false);
+
+  useEffect(() => {
+    if (rowWidth === 0) return;
+    if (!initialized.current) {
+      x.jump(targetX);
+      initialized.current = true;
+    } else {
+      x.set(targetX);
+    }
+  }, [targetX, rowWidth, x]);
+
+  const velocity = useVelocity(x);
+  const absVelocity = useTransform(velocity, (v) => Math.min(2400, Math.abs(v)));
+  // Stretch along travel direction (scaleX > 1), squash on the cross-axis
+  // (scaleY < 1) — classic Disney rubber animation.
+  const stretchRaw = useTransform(absVelocity, [0, 2400], [1, 1.18]);
+  const squashRaw = useTransform(absVelocity, [0, 2400], [1, 0.9]);
+  const scaleX = useSpring(stretchRaw, { stiffness: 220, damping: 26 });
+  const scaleY = useSpring(squashRaw, { stiffness: 220, damping: 26 });
 
   return (
     <nav
@@ -76,24 +107,23 @@ export const TabBar = () => {
       }}
     >
       <div
-        // backdrop-blur is the single most expensive thing iOS WebView
-        // recomputes every frame. 24px reads almost identical to 64px
-        // at a fraction of the GPU cost; bumped the background opacity
-        // a touch (70→78%) to keep the surface legible with less blur.
+        // Tab bar surface: Liquid Glass effect.
+        // Needs high blur, high saturation, and low opacity to look like
+        // native iOS frosted glass. WebkitBackdropFilter is required for iOS WebView.
         className="rounded-[26px] border border-border/55 bg-background/78 shadow-[0_16px_48px_-12px_rgb(0,0,0,0.25)] backdrop-blur-xl dark:border-border/40 dark:bg-background/72 dark:shadow-[0_16px_48px_-12px_rgb(0,0,0,0.6)] dark:ring-1 dark:ring-white/[0.08]"
         style={{ WebkitBackdropFilter: "blur(24px)", backdropFilter: "blur(24px)" }}
       >
         <div className="p-1.5">
-          <div className="relative isolate flex min-h-[48px] gap-1.5">
-            <span
+          <div ref={rowRef} className="relative isolate flex min-h-[48px] gap-1.5">
+            <motion.span
               aria-hidden
-              // The active-tab indicator. Bumped tint + ring + a soft
-              // primary glow so the "you are here" pill reads at a
-              // glance on both light and dark backgrounds. Animation
-              // settings live on `indicatorStyle` so the timing curve
-              // is in one place.
               className="pointer-events-none absolute inset-y-0 left-0 z-0 rounded-2xl bg-primary/[0.16] ring-1 ring-inset ring-primary/30 shadow-[0_6px_22px_-10px_hsl(var(--primary)/0.55)] will-change-transform dark:bg-primary/[0.2] dark:ring-primary/[0.36] dark:shadow-[0_6px_24px_-10px_hsl(var(--primary)/0.65)]"
-              style={indicatorStyle}
+              style={{
+                width: pillWidth || `calc((100% - ${totalGapPx}px) / ${n})`,
+                x,
+                scaleX,
+                scaleY,
+              }}
             />
             {tabs.map((it, idx) => (
               <TabItem

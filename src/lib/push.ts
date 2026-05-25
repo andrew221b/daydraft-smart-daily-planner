@@ -1,5 +1,6 @@
 import { supabase } from "@/integrations/supabase/client";
 import { Capacitor } from "@capacitor/core";
+import { requestLocalNotificationPermissions, clearLocalNotifications } from "./localNotifications";
 
 export const PUBLIC_VAPID_KEY = import.meta.env.VITE_VAPID_PUBLIC_KEY as string | undefined;
 
@@ -25,17 +26,11 @@ export type PushAvailability =
   | "needs-install"
   | "in-app-browser"
   | "browser-no-support"
-  | "not-configured"
-  | "native-not-wired";
+  | "not-configured";
 
 export const pushAvailability = (): PushAvailability => {
   if (typeof window === "undefined") return "browser-no-support";
-  // Capacitor native runs inside a WKWebView that does NOT expose `PushManager`
-  // — that's the web-only API. Native push needs `@capacitor/push-notifications`
-  // talking to APNs (iOS) / FCM (Android), which isn't installed yet. Showing
-  // the "Add to Home Screen" copy here would be nonsense (the user already
-  // installed the native app).
-  if (Capacitor.isNativePlatform()) return "native-not-wired";
+  if (Capacitor.isNativePlatform()) return "ok";
   const ua = navigator.userAgent || "";
   const isIos = /iPad|iPhone|iPod/.test(ua);
   // iOS Safari requires the app to be installed to the home screen (standalone)
@@ -72,10 +67,7 @@ export const pushAvailabilityCopy: Record<PushAvailability, { title: string; bod
     title: "Coming soon",
     body: "Push isn't wired up in this preview yet. Your reminders still fire while the app is open.",
   },
-  "native-not-wired": {
-    title: "Coming to the iOS app soon",
-    body: "Daily nudges run over APNs on the native app — we haven't wired that channel yet. Open the web app at daydraft.app to enable nudges in the meantime.",
-  },
+
 };
 
 const urlBase64ToUint8 = (b64: string) => {
@@ -86,6 +78,13 @@ const urlBase64ToUint8 = (b64: string) => {
 };
 
 export const enablePush = async (userId: string) => {
+  if (Capacitor.isNativePlatform()) {
+    const granted = await requestLocalNotificationPermissions();
+    if (!granted) throw new Error("Notifications permission denied");
+    // Native Push (FCM/APNs) is not yet wired, but we return to let Settings update the flag.
+    return;
+  }
+
   if (!pushSupported()) throw new Error("Push not supported on this browser");
   if (!PUBLIC_VAPID_KEY) throw new Error("Push isn't configured yet — VAPID key missing");
   const reg = await navigator.serviceWorker.register("/sw.js");
@@ -112,6 +111,11 @@ export const enablePush = async (userId: string) => {
 };
 
 export const disablePush = async (userId: string) => {
+  if (Capacitor.isNativePlatform()) {
+    await clearLocalNotifications();
+    return;
+  }
+
   if (!pushSupported()) return;
   const reg = await navigator.serviceWorker.getRegistration();
   const sub = await reg?.pushManager.getSubscription();

@@ -14,6 +14,8 @@ import { PageFallback } from "@/components/app/PageFallback";
 import { RouteErrorBoundary } from "@/components/app/RouteErrorBoundary";
 import { EagerPrefetcher } from "@/components/app/EagerPrefetcher";
 import { Shell } from "@/components/app/Shell";
+import { AppLock } from "@/components/app/AppLock";
+import { BiometricOptInSheet } from "@/components/app/BiometricOptInSheet";
 import { PersistentTabs } from "@/components/app/PersistentTabs";
 import { lazyWithReload } from "@/lib/lazyWithReload";
 import ForgotPassword from "./pages/app/ForgotPassword";
@@ -62,17 +64,21 @@ const RequireAuth = ({ children }: { children: JSX.Element }) => {
   const { user, loading } = useAuth();
   const { profile, loading: pLoading } = useProfile();
   const loc = useLocation();
-  if (loading || (user && pLoading)) return <PageFallback />;
+
+  if (loading) return <PageFallback />;
   if (!user) return <Navigate to="/auth" replace state={{ from: loc }} />;
+
+  const knownOnboarded = readOnboardedFlag(user.id);
+  // Only block on the profile network fetch if we DON'T know their onboarding status yet.
+  // This saves a full network round-trip on cold launches for returning users!
+  if (!knownOnboarded && pLoading) return <PageFallback />;
+
   const onOnboardingRoute = loc.pathname === "/onboarding" || loc.pathname === "/onboarding/";
-  // Treat unknown profile state as "onboarding not resolved" to avoid letting
-  // authenticated users into app routes before profile/onboarding is known —
-  // unless this uid was already flagged as onboarded locally, in which case
-  // trust the flag and skip the bounce.
-  const onboardingResolved =
-    profile?.onboarded === true || readOnboardedFlag(user.id);
+  const onboardingResolved = profile?.onboarded === true || knownOnboarded;
+
   if (!onboardingResolved && !onOnboardingRoute) return <Navigate to="/onboarding" replace />;
   if (onboardingResolved && onOnboardingRoute) return <Navigate to="/home" replace />;
+
   return children;
 };
 
@@ -110,16 +116,26 @@ const ShellLayout = () => (
   </RequireAuth>
 );
 
-const App = () => (
-  <QueryClientProvider client={queryClient}>
-    <TooltipProvider>
-      <ThemedToaster />
+const AppContent = () => {
+  // Native splash is hidden in main.tsx, before React mounts — the inline
+  // boot-overlay in index.html is what bridges the gap until the first React
+  // commit lands.
+  return (
+    <QueryClientProvider client={queryClient}>
+      <TooltipProvider>
+        <ThemedToaster />
       <BrowserRouter>
         <AuthProvider>
         <ProfileProvider>
         <TourProvider>
         <TimeTrackerProvider>
-          <EagerPrefetcher />
+          <AppLock>
+            <EagerPrefetcher />
+            {/* One-time post-auth opt-in for Face ID / Fingerprint.
+                Self-gates on user + onboarded + native + not-yet-asked, so
+                it's safe to leave mounted at the app root; it only shows
+                its sheet when the conditions all line up. */}
+            <BiometricOptInSheet />
           <Routes>
             <Route path="/" element={<RootRedirect />} />
             <Route path="/auth" element={<SuspenseRoute><Auth /></SuspenseRoute>} />
@@ -151,6 +167,7 @@ const App = () => (
             <Route path="/settings/delete-account" element={<RequireAuth><SuspenseRoute><DeleteAccount /></SuspenseRoute></RequireAuth>} />
             <Route path="*" element={<NotFound />} />
           </Routes>
+          </AppLock>
         </TimeTrackerProvider>
         </TourProvider>
         </ProfileProvider>
@@ -158,6 +175,7 @@ const App = () => (
       </BrowserRouter>
     </TooltipProvider>
   </QueryClientProvider>
-);
+  );
+};
 
-export default App;
+export default AppContent;

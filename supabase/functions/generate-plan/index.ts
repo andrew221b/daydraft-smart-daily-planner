@@ -62,7 +62,7 @@ serve(async (req) => {
     const isLikelyIncomplete = (line: string) => {
       if (wordCount(line) < 1) return true;
       if (endsWithDanglingWord(line)) return true;
-      if (/[,:;/\-]\s*$/.test(line)) return true;
+      if (/[,:;/-]\s*$/.test(line)) return true;
       return false;
     };
     const taskLines = splitTaskLines(raw_input);
@@ -138,7 +138,7 @@ serve(async (req) => {
       raw_input = rewritten;
     }
 
-    let mergedClarified = clarifiedList.map((t: any) => ({ ...t }));
+    const mergedClarified = clarifiedList.map((t: any) => ({ ...t }));
     const anchorSplitLines = splitTaskLines(raw_input);
     for (let i = 0; i < mergedClarified.length; i++) {
       const lineSource = anchorSplitLines[i] || String(mergedClarified[i]?.title || "");
@@ -162,8 +162,8 @@ serve(async (req) => {
         }).filter(Boolean).join("\n")
         : "";
 
-    const LOVABLE_API_KEY = Deno.env.get("LOVABLE_API_KEY");
-    if (!LOVABLE_API_KEY) throw new Error("LOVABLE_API_KEY missing");
+    const GEMINI_API_KEY = Deno.env.get("GEMINI_API_KEY");
+    if (!GEMINI_API_KEY) throw new Error("GEMINI_API_KEY missing");
 
     // Optional: pull user_patterns + calendar events if authenticated
     let pattern: any = null;
@@ -666,11 +666,11 @@ Rules:
       },
     }];
 
-    const resp = await fetch("https://ai.gateway.lovable.dev/v1/chat/completions", {
+    const resp = await fetch("https://generativelanguage.googleapis.com/v1beta/openai/chat/completions", {
       method: "POST",
-      headers: { Authorization: `Bearer ${LOVABLE_API_KEY}`, "Content-Type": "application/json" },
+      headers: { Authorization: `Bearer ${GEMINI_API_KEY}`, "Content-Type": "application/json" },
       body: JSON.stringify({
-        model: "google/gemini-3-flash-preview",
+        model: "gemini-2.5-pro",
         messages: [
           { role: "system", content: system },
           { role: "user", content: `Name: ${name || "User"}\nRaw tasks:\n${raw_input}${emotionalContext ? `\nOptional context:\n${emotionalContext}` : ""}` },

@@ -90,13 +90,13 @@ const fmtMoney = (amount: number, currency = "USD") => {
  * support, regardless of platform — that's the most user-friendly path
  * on mobile Safari / Chrome Android too.
  */
-async function triggerDownload(blob: Blob, filename: string, mimeType: string) {
+export async function triggerDownload(blob: Blob, filename: string, mimeType: string) {
   const nav = typeof navigator !== "undefined" ? navigator : null;
   if (nav && typeof nav.share === "function" && typeof nav.canShare === "function") {
     try {
       const file = new File([blob], filename, { type: mimeType });
       if (nav.canShare({ files: [file] })) {
-        await nav.share({ files: [file], title: filename });
+        await nav.share({ files: [file] });
         return;
       }
     } catch (err) {
@@ -146,10 +146,16 @@ export const paymentDetailRows = (details?: ReportPaymentDetails | null) => {
 
 export async function downloadReportCsv(report: ReportPayload) {
   const lines: string[] = [];
-  lines.push(`Time report,${report.periodLabel},${report.rangeLabel}`);
-  if (report.scopeLabel) lines.push(`Categories,"${report.scopeLabel.replace(/"/g, '""')}"`);
-  lines.push(`Total tracked,${fmtH(report.totalSeconds)}`);
-  lines.push(`Total earned,${fmtMoney(report.totalEarnings || 0, report.categories[0]?.currency || report.paymentDetails?.currency || "USD")}`);
+  
+  lines.push("--- SUMMARY ---");
+  lines.push(`"Report type","${report.periodLabel.replace(/"/g, '""')}"`);
+  lines.push(`"Date range","${report.rangeLabel.replace(/"/g, '""')}"`);
+  if (report.scopeLabel) lines.push(`"Categories","${report.scopeLabel.replace(/"/g, '""')}"`);
+  lines.push(`"Total tracked (Hours)","${(report.totalSeconds / 3600).toFixed(2)}"`);
+  const globalCurrency = report.categories[0]?.currency || report.paymentDetails?.currency || "USD";
+  lines.push(`"Total earned","${(report.totalEarnings || 0).toFixed(2)}"`);
+  lines.push(`"Currency","${globalCurrency}"`);
+
   const sections = report.paymentSections?.length
     ? report.paymentSections
     : report.paymentDetails
@@ -159,32 +165,43 @@ export async function downloadReportCsv(report: ReportPayload) {
     const paymentRows = paymentDetailRows(sec.details);
     if (!paymentRows.length) continue;
     lines.push("");
-    lines.push(sec.title.replace(/"/g, '""'));
+    lines.push(`--- ${sec.title.toUpperCase().replace(/"/g, '""')} ---`);
     for (const [label, value] of paymentRows) {
       lines.push(`"${label.replace(/"/g, '""')}","${value.replace(/"/g, '""')}"`);
     }
   }
-  lines.push("");
-  lines.push("Category,Time,Percent,Rate / hour,Earned");
-  for (const c of report.categories) {
-    lines.push(`"${c.name.replace(/"/g, '""')}",${fmtH(c.seconds)},${(c.pct * 100).toFixed(1)}%,${c.hourlyRate ?? ""},${fmtMoney(c.earnings || 0, c.currency || "USD")}`);
+
+  if (report.categories.length) {
+    lines.push("");
+    lines.push("--- CATEGORY BREAKDOWN ---");
+    lines.push("Category,Duration (Hours),Share (%),Rate / hour,Earned,Currency");
+    for (const c of report.categories) {
+      lines.push(`"${c.name.replace(/"/g, '""')}",${(c.seconds / 3600).toFixed(2)},${(c.pct * 100).toFixed(1)},${c.hourlyRate ?? ""},${(c.earnings || 0).toFixed(2)},"${c.currency || "USD"}"`);
+    }
   }
-  lines.push("");
-  lines.push("Date,Started,Ended,Category,Duration (min),Rate / hour,Earned,Note");
-  for (const e of report.entries) {
-    lines.push(
-      [
-        e.date,
-        e.startedAt,
-        e.endedAt,
-        `"${e.category.replace(/"/g, '""')}"`,
-        e.durationMin.toString(),
-        e.hourlyRate ?? "",
-        fmtMoney(e.earnings || 0, e.currency || "USD"),
-        `"${(e.note ?? "").replace(/"/g, '""')}"`,
-      ].join(","),
-    );
+
+  if (report.entries.length) {
+    lines.push("");
+    lines.push("--- ACTIVITY LOG ---");
+    lines.push("Date,Started,Ended,Category,Duration (Minutes),Duration (Hours),Rate / hour,Earned,Currency,Note");
+    for (const e of report.entries) {
+      lines.push(
+        [
+          e.date,
+          e.startedAt,
+          e.endedAt,
+          `"${e.category.replace(/"/g, '""')}"`,
+          e.durationMin.toString(),
+          (e.durationMin / 60).toFixed(2),
+          e.hourlyRate ?? "",
+          (e.earnings || 0).toFixed(2),
+          `"${e.currency || "USD"}"`,
+          `"${(e.note ?? "").replace(/"/g, '""')}"`,
+        ].join(",")
+      );
+    }
   }
+
   const blob = new Blob([lines.join("\n")], { type: "text/csv;charset=utf-8" });
   await triggerDownload(blob, `${filenameBase(report)}.csv`, "text/csv");
 }

@@ -3,32 +3,27 @@ import { useNavigate } from "react-router-dom";
 import { Button } from "@/components/ui/button";
 import { Textarea } from "@/components/ui/textarea";
 import { useProfile } from "@/hooks/useProfile";
-import { ArrowRight, Check, Sparkles } from "lucide-react";
+import { ArrowRight, Sparkles } from "lucide-react";
 import { enablePush, pushSupported } from "@/lib/push";
 import { supabase } from "@/integrations/supabase/client";
 import { toast } from "sonner";
-import { TONE_OPTIONS, type Tone } from "@/lib/tone";
-
 const PROGRESS_KEY = "dd_onboarding_progress_v3";
-const TONE_KEYS = TONE_OPTIONS.map((o) => o.key);
 
 export default function Onboarding() {
   const initial = (() => {
     try {
       const raw = sessionStorage.getItem(PROGRESS_KEY);
-      if (!raw) return { step: 0, tone: "professional" as Tone, aiAbout: "" };
+      if (!raw) return { step: 0, aiAbout: "" };
       const p = JSON.parse(raw);
-      const step = [0, 1, 2].includes(p.step) ? p.step : 0;
-      const tone = TONE_KEYS.includes(p.tone) ? (p.tone as Tone) : ("professional" as Tone);
+      const step = [0, 1].includes(p.step) ? p.step : 0;
       const aiAbout = typeof p.aiAbout === "string" ? p.aiAbout : "";
-      return { step, tone, aiAbout };
+      return { step, aiAbout };
     } catch {
-      return { step: 0, tone: "professional" as Tone, aiAbout: "" };
+      return { step: 0, aiAbout: "" };
     }
   })();
 
   const [step, setStep] = useState<number>(initial.step);
-  const [tone, setTone] = useState<Tone>(initial.tone);
   const [aiAbout, setAiAbout] = useState(initial.aiAbout);
   const [finishing, setFinishing] = useState(false);
   const { profile, update, refresh } = useProfile();
@@ -36,9 +31,9 @@ export default function Onboarding() {
 
   useEffect(() => {
     try {
-      sessionStorage.setItem(PROGRESS_KEY, JSON.stringify({ step, tone, aiAbout }));
+      sessionStorage.setItem(PROGRESS_KEY, JSON.stringify({ step, aiAbout }));
     } catch { /* ignore */ }
-  }, [step, tone, aiAbout]);
+  }, [step, aiAbout]);
 
   const finish = async (notif: boolean) => {
     if (finishing) return;
@@ -54,9 +49,9 @@ export default function Onboarding() {
         }
       }
       const tz = (() => { try { return Intl.DateTimeFormat().resolvedOptions().timeZone; } catch { return "UTC"; } })();
-      try { localStorage.setItem("dd_ai_tone", tone); } catch { /* ignore */ }
+      try { localStorage.setItem("dd_ai_tone", "professional"); } catch { /* ignore */ }
       const payload = {
-        ai_tone: tone as any,
+        ai_tone: "professional" as any,
         ai_context_custom: aiAbout.trim() || null,
         notifications_enabled: enabled,
         onboarded: true,
@@ -89,12 +84,12 @@ export default function Onboarding() {
   };
 
   return (
-    <div className="min-h-screen w-full bg-background flex justify-center">
-      <div className="relative w-full max-w-[440px] min-h-screen flex flex-col">
+    <div className="h-[100dvh] w-full bg-background flex justify-center overflow-y-auto overscroll-y-contain no-scrollbar">
+      <div className="relative w-full max-w-[440px] min-h-full flex flex-col">
         <div className="pointer-events-none absolute inset-x-0 top-0 h-[240px]" style={{ background: "var(--gradient-glow)" }} />
-        <div className="relative z-10 flex-1 flex flex-col px-6 pt-14 pb-10 page-enter" key={step}>
+        <div className="relative z-10 flex-1 flex flex-col px-6 pt-14 pb-[calc(env(safe-area-inset-bottom)+2.5rem)] page-enter" key={step}>
           <div className="flex gap-1.5 mb-8">
-            {[0, 1, 2].map((i) => (
+            {[0, 1].map((i) => (
               <div key={i} className={`h-[3px] flex-1 rounded-full transition-colors ${i <= step ? "bg-primary" : "bg-border/70"}`} />
             ))}
           </div>
@@ -122,64 +117,43 @@ export default function Onboarding() {
             </div>
           )}
 
-          {step === 1 && (
-            <div className="flex-1 flex flex-col">
-              <h1 className="font-display text-[26px] font-semibold leading-tight mt-2 tracking-tight text-balance">
-                Pick the AI voice
-              </h1>
-              <p className="text-secondary-fg mt-2 text-[13px] leading-[1.55]">
-                Used only when you ask for help.
-              </p>
-              <div className="space-y-2 mt-5 flex-1 overflow-y-auto">
-                {TONE_OPTIONS.map((e) => {
-                  const active = tone === e.key;
-                  return (
-                    <button
-                      key={e.key}
-                      onClick={() => setTone(e.key)}
-                      className={`w-full flex items-center gap-3 p-3.5 rounded-[16px] border pressable transition-all backdrop-blur-sm ${active ? "border-accent surface-accent" : "border-soft surface-card hover:border-strong"}`}
-                    >
-                      <span className="text-lg">{e.emoji}</span>
-                      <div className="flex-1 text-left">
-                        <div className="font-medium text-[14px]">{e.title}</div>
-                        <div className="text-[11.5px] text-secondary-fg leading-snug mt-0.5">{e.sub}</div>
-                      </div>
-                      <span className={`h-[18px] w-[18px] rounded-full border flex items-center justify-center transition-all shrink-0 ${active ? "border-primary bg-primary" : "border-soft"}`}>
-                        {active && <Check className="h-3 w-3 text-primary-foreground" strokeWidth={3} />}
-                      </span>
-                    </button>
-                  );
-                })}
-              </div>
-              <Button disabled={finishing} onClick={() => setStep(2)} className="w-full h-[52px] rounded-[16px] bg-primary text-primary-foreground hover:bg-primary/92 pressable text-[15px] font-medium mt-5 shadow-card">
-                Continue
-              </Button>
-            </div>
-          )}
 
-          {step === 2 && (
-            <div className="flex-1 flex flex-col min-h-0">
-              <h1 className="font-display text-[26px] font-semibold leading-tight mt-2 tracking-tight text-balance">
-                A line about you (optional)
+
+          {step === 1 && (
+            <div className="flex-1 flex flex-col min-h-0 items-center text-center fade-in">
+              <div className="relative w-28 h-28 flex items-center justify-center mb-6 mt-2">
+                {/* Aura layers */}
+                <div className="absolute inset-0 rounded-full bg-gradient-to-tr from-primary/60 via-purple-500/50 to-blue-500/60 blur-[18px] ai-blob-1" />
+                <div className="absolute inset-1 rounded-full bg-gradient-to-bl from-accent/70 via-primary/50 to-indigo-400/60 blur-[14px] ai-blob-2" />
+                <div className="absolute inset-3 rounded-full bg-primary/40 blur-[10px] ai-blob-3" />
+
+                {/* Core floating element */}
+                <div className="relative z-10 w-14 h-14 rounded-[1.25rem] bg-background/90 border border-soft backdrop-blur-xl flex items-center justify-center shadow-[0_8px_32px_rgba(0,0,0,0.12)]" style={{ animation: 'deepFloat 4s ease-in-out infinite' }}>
+                  <Sparkles className="h-6 w-6 text-primary" style={{ animation: 'softBreathe 3s ease-in-out infinite' }} />
+                </div>
+              </div>
+              
+              <h1 className="font-display text-[26px] font-semibold leading-tight tracking-tight text-balance">
+                Teach the AI about you
               </h1>
-              <p className="text-secondary-fg mt-2 text-[13px] leading-[1.55]">
-                Helps AI answers land right. Skip if you'd rather not.
+              <p className="text-secondary-fg mt-3 text-[13.5px] leading-[1.55] max-w-xs mx-auto text-balance">
+                This context is secretly passed to the AI every time you plan your day, so your schedules fit your actual lifestyle.
               </p>
-              <div className="mt-5 flex-1 min-h-0">
+              <div className="mt-7 flex-1 min-h-0 w-full text-left">
                 <Textarea
                   value={aiAbout}
                   onChange={(e) => setAiAbout(e.target.value)}
-                  placeholder="e.g. I'm a parent of a 4yo, work remote, prefer deep work after lunch."
+                  placeholder="e.g. I work from home, I have a dog that needs walking at 1pm, and I prefer to avoid hard tasks after 4pm."
                   maxLength={500}
-                  className="min-h-[120px] surface-card border-soft rounded-xl text-[13px] resize-none"
+                  className="min-h-[120px] surface-card border-soft rounded-xl text-[13.5px] resize-none"
                 />
-                <p className="mt-1 text-[10px] text-secondary-fg">{aiAbout.length}/500</p>
+                <p className="mt-1.5 text-[10.5px] text-secondary-fg/80">{aiAbout.length}/500</p>
               </div>
               <Button disabled={finishing} onClick={() => finish(true)} className="w-full h-[52px] rounded-[16px] bg-primary text-primary-foreground hover:bg-primary/92 pressable text-[15px] font-medium mt-5 shadow-card shrink-0">
-                Enable nudges & finish
+                Enable smart planning
               </Button>
-              <button disabled={finishing} onClick={() => finish(false)} className="mt-3 text-secondary-fg text-[13px] hover:text-foreground transition-colors mx-auto disabled:opacity-60 disabled:pointer-events-none">
-                Finish without nudges
+              <button disabled={finishing} onClick={() => finish(false)} className="mt-4 pb-2 text-secondary-fg text-[13px] hover:text-foreground transition-colors mx-auto disabled:opacity-60 disabled:pointer-events-none">
+                Skip for now
               </button>
             </div>
           )}

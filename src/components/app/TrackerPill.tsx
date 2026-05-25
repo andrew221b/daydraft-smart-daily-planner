@@ -8,12 +8,15 @@ import { Sheet, SheetContent, SheetHeader, SheetTitle, SheetDescription } from "
 import { Input } from "@/components/ui/input";
 import { useAuth } from "@/hooks/useAuth";
 import { toast } from "sonner";
-import jsPDF from "jspdf";
-import autoTable from "jspdf-autotable";
+// jspdf + jspdf-autotable + their transitive html2canvas total ~150 KB
+// gzip. Pulling them statically into TrackerPill puts the whole printer
+// in the main route bundle even though export-as-PDF is rare. They're
+// dynamically imported inside `exportPDF` instead — see below.
 import { useEntitlement } from "@/hooks/useEntitlement";
 import { Block, isUserTask, todayDateStr } from "@/lib/daydraft";
 import { fetchPlanDashboard, planDashboardQueryKey } from "@/lib/planQueries";
 import { fetchRollingEntries, rollingEntriesQueryKey } from "@/lib/timeEntriesQuery";
+import { triggerDownload } from "@/lib/reportExport";
 import { useTabVisible } from "@/components/app/PersistentTabs";
 import { UpgradeSheet } from "@/components/app/UpgradeSheet";
 import {
@@ -163,10 +166,12 @@ function TrackerInner({ embedded = false, onClose }: { embedded?: boolean; onClo
   // Entries are pulled from the shared rolling-entries cache — same source as
   // Home, Reports, and the home tracker hero. Switching to /tracker after any
   // of those have visited reads from cache instead of refetching.
+  const trackerTabVisible = useTabVisible();
+
   const { data: entries = [] } = useQuery({
     queryKey: rollingEntriesQueryKey(user?.id),
     queryFn: () => fetchRollingEntries(user!.id),
-    enabled: !!user?.id,
+    enabled: !!user?.id && trackerTabVisible,
     staleTime: 60_000,
     gcTime: 30 * 60_000,
     placeholderData: keepPreviousData,
@@ -202,7 +207,7 @@ function TrackerInner({ embedded = false, onClose }: { embedded?: boolean; onClo
   const { data: todayPlanData } = useQuery({
     queryKey: planDashboardQueryKey(user?.id ?? "", todayDate),
     queryFn: () => fetchPlanDashboard(user!.id, todayDate),
-    enabled: !!user?.id,
+    enabled: !!user?.id && trackerTabVisible,
     staleTime: 30_000,
     gcTime: 30 * 60_000,
     placeholderData: keepPreviousData,
@@ -213,7 +218,6 @@ function TrackerInner({ embedded = false, onClose }: { embedded?: boolean; onClo
   // `nowSec` drives the live duration of any still-running entry in the
   // tracker grid. While the Tracker tab is hidden the grid isn't on screen
   // so the tick is wasted re-renders — pause it.
-  const trackerTabVisible = useTabVisible();
   useEffect(() => {
     if (!trackerTabVisible) return;
     setNowSec(Date.now()); // re-sync on return
@@ -457,10 +461,14 @@ function TrackerInner({ embedded = false, onClose }: { embedded?: boolean; onClo
   };
 
   // ----- PDF export -----
-  const exportPDF = () => {
+  const exportPDF = async () => {
     if (!isPro) { setUpgradeOpen(true); return; }
     setExporting(true);
     try {
+      const [{ default: jsPDF }, { default: autoTable }] = await Promise.all([
+        import("jspdf"),
+        import("jspdf-autotable"),
+      ]);
       const doc = new jsPDF({ unit: "pt", format: "a4" });
       const pageW = doc.internal.pageSize.getWidth();
       const margin = 40;
@@ -572,7 +580,9 @@ function TrackerInner({ embedded = false, onClose }: { embedded?: boolean; onClo
       }
 
       const fileLabel = period.label.toLowerCase().replace(/\s+/g, "-");
-      doc.save(`daydraft-tracker-${fileLabel}-${ymd(new Date())}.pdf`);
+      const filename = `daydraft-tracker-${fileLabel}-${ymd(new Date())}.pdf`;
+      const pdfBlob = doc.output("blob") as Blob;
+      await triggerDownload(pdfBlob, filename, "application/pdf");
       toast.success("PDF exported");
     } catch (err: any) {
       toast.error(err?.message || "Export failed");
@@ -711,7 +721,7 @@ function TrackerInner({ embedded = false, onClose }: { embedded?: boolean; onClo
                     </div>
                     <button
                       onClick={handleStop}
-                      className="mt-1 inline-flex items-center justify-center gap-2 h-11 px-6 rounded-full bg-primary text-primary-foreground text-[13.5px] font-semibold pressable shadow-card"
+                      className="mt-1 btn-volumetric inline-flex items-center justify-center gap-2 h-11 px-6 rounded-full bg-primary text-primary-foreground text-[13.5px] font-semibold pressable shadow-card"
                       aria-label="Stop"
                     >
                       <Pause className="h-3.5 w-3.5" fill="currentColor" /> Stop
@@ -801,14 +811,13 @@ function TrackerInner({ embedded = false, onClose }: { embedded?: boolean; onClo
                           <div className="flex items-center gap-2">
                             <span className="h-3 w-3 rounded-full shrink-0" style={{ background: c.color }} />
                             <Input
-                              autoFocus
                               value={editingName}
                               onChange={(e) => setEditingName(e.target.value)}
                               onKeyDown={(e) => { if (e.key === "Escape") setEditingCat(null); }}
                               className="flex-1 h-8 bg-transparent border-0 px-0 text-[15px] font-medium focus-visible:ring-0 shadow-none"
                             />
                           </div>
-                          <div className="flex items-center gap-2 rounded-xl border border-soft bg-background/35 px-2 py-1.5">
+                          <div className="flex items-center gap-2 rounded-xl border border-soft bg-black/[0.03] dark:bg-black/40 px-2 py-1.5">
                             <span className="text-[11px] font-semibold text-secondary-fg shrink-0">Rate / h</span>
                             <Input
                               inputMode="decimal"
@@ -825,7 +834,7 @@ function TrackerInner({ embedded = false, onClose }: { embedded?: boolean; onClo
                               maxLength={3}
                             />
                           </div>
-                          <div className="rounded-xl border border-soft bg-background/25 px-2.5 py-2">
+                          <div className="rounded-xl border border-soft bg-black/[0.02] dark:bg-black/30 px-2.5 py-2">
                             <div className="mb-1.5 flex items-center justify-between gap-2">
                               <span className="text-[11px] font-semibold text-secondary-fg">Payment for this category</span>
                               {!isPro && <span className="text-[10px] font-semibold text-primary">Pro</span>}
@@ -1003,7 +1012,7 @@ function TrackerInner({ embedded = false, onClose }: { embedded?: boolean; onClo
                                   setCategoryBusyId(null);
                                 }
                               }}
-                              className="inline-flex items-center gap-1 px-3 py-1.5 rounded-lg bg-foreground text-background text-xs font-medium pressable disabled:opacity-50 disabled:pointer-events-none"
+                              className="gleam btn-volumetric inline-flex items-center gap-1 px-3 py-1.5 rounded-lg text-primary-foreground text-xs font-medium pressable disabled:opacity-50 disabled:pointer-events-none"
                             >
                               <Play className="h-3 w-3" fill="currentColor" /> Start
                             </button>
@@ -1091,15 +1100,15 @@ function TrackerInner({ embedded = false, onClose }: { embedded?: boolean; onClo
               </div>
 
               <div className="grid grid-cols-3 gap-2">
-                <div className="rounded-lg border border-soft/80 bg-background/35 px-2.5 py-2">
+                <div className="rounded-lg border border-soft/80 bg-black/[0.03] dark:bg-black/40 px-2.5 py-2">
                   <div className="text-[9px] font-semibold uppercase tracking-wide text-secondary-fg">Best day</div>
                   <div className="mt-0.5 font-mono text-[12px] font-semibold tabular-nums text-foreground">{weekPeakSec > 0 ? fmtHM(weekPeakSec) : "0m"}</div>
                 </div>
-                <div className="rounded-lg border border-soft/80 bg-background/35 px-2.5 py-2">
+                <div className="rounded-lg border border-soft/80 bg-black/[0.03] dark:bg-black/40 px-2.5 py-2">
                   <div className="text-[9px] font-semibold uppercase tracking-wide text-secondary-fg">Active days</div>
                   <div className="mt-0.5 font-mono text-[12px] font-semibold tabular-nums text-foreground">{weekActiveDays}/7</div>
                 </div>
-                <div className="rounded-lg border border-soft/80 bg-background/35 px-2.5 py-2">
+                <div className="rounded-lg border border-soft/80 bg-black/[0.03] dark:bg-black/40 px-2.5 py-2">
                   <div className="text-[9px] font-semibold uppercase tracking-wide text-secondary-fg">Scale</div>
                   <div className="mt-0.5 font-mono text-[12px] font-semibold tabular-nums text-foreground">0 → {weekPeakSec > 0 ? fmtHM(weekPeakSec) : "0m"}</div>
                 </div>
@@ -1128,7 +1137,7 @@ function TrackerInner({ embedded = false, onClose }: { embedded?: boolean; onClo
                         aria-pressed={isSelected}
                         onClick={() => setSelectedDay(isSelected ? null : d.key)}
                         className={`flex-1 min-w-0 flex flex-col items-center gap-1 rounded-lg py-1 pressable transition-colors ${
-                          isSelected ? "ring-2 ring-primary ring-offset-2 ring-offset-background bg-primary/[0.06]" : "hover:bg-background/40"
+                          isSelected ? "ring-2 ring-primary ring-offset-2 ring-offset-background bg-primary/[0.06]" : "hover:bg-black/5 dark:hover:bg-black/40"
                         }`}
                       >
                         <div className="h-[78px] w-full flex flex-col items-center justify-end gap-1">
@@ -1530,7 +1539,7 @@ function CategoryDetail({
 
   if (sec === 0) {
     return (
-      <div className="px-3 pb-3 pt-1 border-t border-soft bg-background/50">
+      <div className="px-3 pb-3 pt-1 border-t border-soft bg-black/[0.03] dark:bg-black/50">
         <div className="py-3 text-center text-[12px] text-secondary-fg">
           No activity in <span className="text-foreground">{period.label.toLowerCase()}</span> yet
         </div>
@@ -1539,7 +1548,7 @@ function CategoryDetail({
   }
 
   return (
-    <div className="px-3 pb-3 pt-2 border-t border-soft bg-background/40 space-y-3 animate-in fade-in slide-in-from-top-1 duration-150">
+    <div className="px-3 pb-3 pt-2 border-t border-soft bg-black/[0.04] dark:bg-black/40 space-y-3 animate-in fade-in slide-in-from-top-1 duration-150">
       {/* Stats row */}
       <div className="grid grid-cols-3 gap-2">
         <Stat label={period.label} value={fmtHM(sec)} />
@@ -1744,7 +1753,7 @@ function ManualEntryRow({
     setCustom(""); setNote("");
   };
   return (
-      <div className="px-3 pb-3 pt-1 border-t border-soft bg-background/50 space-y-2 animate-in fade-in slide-in-from-top-1 duration-150">
+      <div className="px-3 pb-3 pt-1 border-t border-soft bg-black/[0.03] dark:bg-black/50 space-y-2 animate-in fade-in slide-in-from-top-1 duration-150">
       <div className="flex items-center gap-1.5 pt-2">
         <span className="text-[10px] font-semibold uppercase tracking-wider text-secondary-fg mr-1">Log past</span>
         {QUICK.map(q => (

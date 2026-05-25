@@ -32,13 +32,17 @@ export interface Block {
   resolved_at?: string | null;
 }
 
-const timeToMinutes = (hhmm: string) => {
-  const [h, m] = String(hhmm || "00:00").split(":").map(Number);
-  return (Number.isFinite(h) ? h : 0) * 60 + (Number.isFinite(m) ? m : 0);
+export const timeToMinutes = (hhmm: string) => {
+  const [h, m] = hhmm.split(":").map(Number);
+  if (!Number.isFinite(h) || !Number.isFinite(m)) return 0;
+  return h * 60 + m;
 };
 
-const minutesToHHMM = (mins: number) =>
-  `${String(Math.floor(mins / 60)).padStart(2, "0")}:${String(Math.max(0, mins % 60)).padStart(2, "0")}`;
+export const minutesToHHMM = (min: number) => {
+  const h = Math.floor(min / 60);
+  const m = min % 60;
+  return `${String(h).padStart(2, "0")}:${String(m).padStart(2, "0")}`;
+};
 
 /** Local wall-clock instant for YYYY-MM-DD + HH:mm on the user's calendar. */
 export function wallMsOnPlanDay(planDateYMD: string, hhmm: string): number {
@@ -78,9 +82,10 @@ export function packLinearSchedule<T extends Pick<Block, "start_time" | "duratio
       out.push({ ...b });
       continue;
     }
-    const startMin = cursorMin;
-    const nb = { ...b, start_time: minutesToHHMM(startMin) };
-    cursorMin = startMin + Number(nb.duration_min || 0);
+    // Strict packing: the block starts exactly when the previous block ends.
+    // If a user wants a gap, a "break" block should be inserted explicitly.
+    const nb = { ...b, start_time: minutesToHHMM(cursorMin) };
+    cursorMin = cursorMin + Number(nb.duration_min || 0);
     out.push(nb);
   }
   return out;
@@ -138,9 +143,17 @@ export const fmtTime = (hhmm: string) => {
   try {
     const d = new Date();
     d.setHours(h, m, 0, 0);
-    return d.toLocaleTimeString(undefined, { hour: "numeric", minute: m === 0 ? undefined : "2-digit" })
-      .replace(/\s/g, "")
-      .toLowerCase();
+    const locales = typeof navigator !== "undefined" && navigator.languages?.length 
+      ? (navigator.languages as string[]) 
+      : undefined;
+      
+    const withMinutes = d.toLocaleTimeString(locales, { hour: "numeric", minute: "2-digit" });
+    const is12h = /[ap]m/i.test(withMinutes) || /[a-z]/i.test(withMinutes.replace(/[^a-z]/gi, ""));
+    
+    if (is12h && m === 0) {
+      return d.toLocaleTimeString(locales, { hour: "numeric" }).replace(/\s/g, "").toLowerCase();
+    }
+    return withMinutes.replace(/\s/g, "").toLowerCase();
   } catch {
     const period = h >= 12 ? "pm" : "am";
     const hr = ((h + 11) % 12) + 1;

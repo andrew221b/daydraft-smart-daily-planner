@@ -40,6 +40,7 @@ import { supabase } from "@/integrations/supabase/client";
 let initialized = false;
 
 const GOOGLE_IOS_CLIENT_ID = import.meta.env.VITE_GOOGLE_IOS_CLIENT_ID as string | undefined;
+const GOOGLE_WEB_CLIENT_ID = import.meta.env.VITE_GOOGLE_WEB_CLIENT_ID as string | undefined;
 
 /** Idempotent — safe to call from many entry points. Runs once per app session. */
 async function ensureInitialized(): Promise<void> {
@@ -53,19 +54,22 @@ async function ensureInitialized(): Promise<void> {
   });
   try {
     await SocialLogin.initialize({
-      google: GOOGLE_IOS_CLIENT_ID
+      google: GOOGLE_IOS_CLIENT_ID || GOOGLE_WEB_CLIENT_ID
         ? {
             // Used to request an ID token whose audience matches the iOS
             // client. Supabase's Google provider must list this client ID
             // in its "Authorized client IDs" field.
             iOSClientId: GOOGLE_IOS_CLIENT_ID,
+            // Required for Android native authentication via Capgo
+            webClientId: GOOGLE_WEB_CLIENT_ID,
             // The mode determines what we receive. "online" returns an
             // accessToken + idToken — Supabase needs the idToken.
             mode: "online",
           }
         : undefined,
       // Apple needs no init config on iOS — the system handles it.
-      apple: {},
+      // On Android, an empty object throws "apple.android.redirectUrl is null".
+      apple: Capacitor.getPlatform() === "ios" ? {} : undefined,
     });
     initialized = true;
     console.info("[nativeAuth] SocialLogin plugin initialized");
@@ -84,7 +88,7 @@ export function isNativeAuthAvailable(): boolean {
 }
 
 export function isNativeGoogleConfigured(): boolean {
-  return Capacitor.isNativePlatform() && !!GOOGLE_IOS_CLIENT_ID;
+  return Capacitor.isNativePlatform() && (!!GOOGLE_IOS_CLIENT_ID || !!GOOGLE_WEB_CLIENT_ID);
 }
 
 /**
@@ -107,8 +111,8 @@ export async function signInWithGoogleNative(): Promise<{ error?: Error | null }
   if (!Capacitor.isNativePlatform()) {
     return { error: new Error("Native Google sign-in is only available on iOS / Android") };
   }
-  if (!GOOGLE_IOS_CLIENT_ID) {
-    return { error: new Error("Google sign-in isn't configured for this build (missing VITE_GOOGLE_IOS_CLIENT_ID)") };
+  if (!GOOGLE_IOS_CLIENT_ID && !GOOGLE_WEB_CLIENT_ID) {
+    return { error: new Error("Google sign-in isn't configured for this build (missing VITE_GOOGLE_IOS_CLIENT_ID or VITE_GOOGLE_WEB_CLIENT_ID)") };
   }
   try {
     await ensureInitialized();
@@ -137,10 +141,9 @@ export async function signInWithGoogleNative(): Promise<{ error?: Error | null }
     console.info("[nativeAuth] Google: calling SocialLogin.login");
     const res = await SocialLogin.login({
       provider: "google",
-      options: {
-        // Request the standard set so Supabase can build a profile.
+      options: Capacitor.getPlatform() === "ios" ? {
         scopes: ["email", "profile"],
-      },
+      } : undefined,
     });
     const idToken = (res as any)?.result?.idToken as string | undefined;
     const claims = idToken ? decodeJwtPayload(idToken) : null;
@@ -191,7 +194,7 @@ export async function signInWithGoogleNative(): Promise<{ error?: Error | null }
  * should either both exist or not". This is the exact bug we're fixing.
  */
 export async function signInWithAppleNative(): Promise<{ error?: Error | null }> {
-  if (!Capacitor.isNativePlatform()) {
+  if (Capacitor.getPlatform() !== "ios") {
     return { error: new Error("Native Apple sign-in is only available on iOS") };
   }
   try {

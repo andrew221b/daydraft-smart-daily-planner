@@ -313,9 +313,28 @@ export function TimeTrackerProvider({ children }: { children: ReactNode }) {
     };
     stopFallback();
     stopWorker();
-    emitElapsed(0);
-    setElapsedMin(0);
-    if (!active) return;
+    if (!active) {
+      emitElapsed(0);
+      setElapsedMin(0);
+      const ping = () => setElapsedMin((m) => m + 1);
+      // Keep a background minute heartbeat alive when idle so that
+      // Date.now()-based totals (today/week) re-evaluate when the day rolls over.
+      const msToNextMin = 60000 - (Date.now() % 60000);
+      alignmentRef.current = setTimeout(() => {
+        ping();
+        fallbackTickRef.current = window.setInterval(ping, 60000);
+      }, msToNextMin);
+      
+      const onVisibility = () => {
+        if (!document.hidden) ping();
+      };
+      document.addEventListener("visibilitychange", onVisibility);
+      
+      return () => {
+        document.removeEventListener("visibilitychange", onVisibility);
+        stopFallback();
+      };
+    }
 
     const started = new Date(active.started_at).getTime();
     let lastMin = -1;
@@ -837,7 +856,10 @@ export const fmtHMS = (s: number) => {
 export const fmtHM = (s: number) => {
   const h = Math.floor(s / 3600),
     m = Math.floor((s % 3600) / 60);
-  if (h === 0) return `${m}m`;
+  if (h === 0) {
+    if (m === 0 && s > 0) return `${Math.floor(s)}s`;
+    return `${m}m`;
+  }
   if (m === 0) return `${h}h`;
   return `${h}h ${m}m`;
 };

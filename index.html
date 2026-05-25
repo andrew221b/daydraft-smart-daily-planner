@@ -37,43 +37,70 @@
     <!--
       Boot-time visuals.
       • Pre-paint background matches the iOS LaunchScreen.storyboard's
-        systemBackgroundColor (light: #f2f2f7, dark: #0f1115) so the
-        gap between native splash and React first paint never flashes
-        white against a dark-mode app.
-      • A centered "DayDraft" wordmark mirrors the UILabel in the
-        launch storyboard exactly — same position, same font, same
-        size, same color. When React mounts it adds `app-ready` to
-        the <body> and the wordmark fades out over 220 ms while the
-        real UI fades in underneath. The user sees one continuous
-        wordmark from icon-tap to authenticated screen.
+        systemBackgroundColor (light: #f2f2f7, dark: #0f1115).
+      • Pure CSS orbital loader paints with the first HTML byte and
+        animates throughout JS download + React mount.
+      • main.tsx adds `body.app-ready` once React has committed; the
+        overlay then fades to opacity 0 and removes itself.
     -->
     <style>
-      :root { color-scheme: light dark; background-color: #f2f2f7; }
-      @media (prefers-color-scheme: dark) { :root { background-color: #0f1115; } }
+      :root {
+        color-scheme: light dark;
+        background-color: #090a0c;
+        --dd-boot-bg: #090a0c;
+      }
       html, body, #root { background-color: inherit; }
-      #boot-wordmark {
+
+      /*
+        Boot splash — matches Native LaunchScreen exactly.
+      */
+      #boot-overlay {
         position: fixed;
         inset: 0;
+        z-index: 2147483646;
         display: flex;
         align-items: center;
         justify-content: center;
-        font-family: -apple-system, BlinkMacSystemFont, "SF Pro Display", system-ui, sans-serif;
-        font-size: 32px;
-        font-weight: 600;
-        letter-spacing: -0.02em;
-        color: #000;
-        background-color: inherit;
-        z-index: 9999;
+        background-color: var(--dd-boot-bg);
+        opacity: 1;
+        transition: opacity 400ms ease-out;
+        -webkit-user-select: none;
+        user-select: none;
         pointer-events: none;
-        transition: opacity 220ms cubic-bezier(0.22, 1, 0.36, 1);
       }
-      @media (prefers-color-scheme: dark) { #boot-wordmark { color: #fff; } }
-      body.app-ready #boot-wordmark { opacity: 0; }
+      body.app-ready #boot-overlay { opacity: 0; }
+
+      .boot-logo {
+        width: 160px;
+        height: 160px;
+        /* Pure transparent logo */
+        background-image: url('/isolated-logo.webp');
+        background-size: contain;
+        background-repeat: no-repeat;
+        background-position: center;
+        animation: bootPulse 2.5s ease-in-out infinite;
+      }
+      
+      @keyframes bootPulse {
+        0%, 100% { 
+          transform: scale(1); 
+          filter: drop-shadow(0 0 0px rgba(59, 130, 246, 0)) brightness(1); 
+        }
+        50% { 
+          transform: scale(1.06); 
+          filter: drop-shadow(0 0 30px rgba(59, 130, 246, 0.65)) brightness(1.15); 
+        }
+      }
+      @media (prefers-reduced-motion: reduce) {
+        .boot-logo { animation: none !important; }
+      }
     </style>
   </head>
 
   <body>
-    <div id="boot-wordmark" aria-hidden="true">DayDraft</div>
+    <div id="boot-overlay" aria-hidden="true">
+      <div class="boot-logo"></div>
+    </div>
     <div id="root"></div>
     <script type="module" src="/src/main.tsx"></script>
   </body>
