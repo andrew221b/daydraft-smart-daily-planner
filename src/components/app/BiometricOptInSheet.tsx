@@ -1,7 +1,7 @@
 import { useEffect, useState } from "react";
 import { Capacitor } from "@capacitor/core";
 import { NativeBiometric } from "@capgo/capacitor-native-biometric";
-import { Fingerprint, ScanFace, Shield } from "lucide-react";
+import { Fingerprint, ScanFace } from "lucide-react";
 import { motion } from "framer-motion";
 import { toast } from "sonner";
 import { Sheet, SheetContent } from "@/components/ui/sheet";

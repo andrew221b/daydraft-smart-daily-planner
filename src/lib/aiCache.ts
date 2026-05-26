@@ -151,7 +151,7 @@ export async function invokeAiCached<T = unknown>(
   if (ttlMs > 0) {
     const hit = memCache.get(key);
     if (hit && hit.expiresAt > Date.now()) {
-      recordAiCacheHit(name);
+      recordAiCacheHit();
       return { data: hit.data as T, error: null };
     }
   }
@@ -160,7 +160,7 @@ export async function invokeAiCached<T = unknown>(
   if (persistMs > 0) {
     const persisted = readPersistent<T>(key);
     if (persisted !== null) {
-      recordAiCacheHit(name);
+      recordAiCacheHit();
       // promote to memory cache so subsequent hits skip JSON.parse
       memCache.set(key, { data: persisted, expiresAt: Date.now() + Math.min(ttlMs || persistMs, persistMs) });
       return { data: persisted, error: null };
@@ -170,11 +170,11 @@ export async function invokeAiCached<T = unknown>(
   // 3. dedup in-flight
   const existing = inflight.get(key);
   if (existing) {
-    recordAiCacheHit(name);
+    recordAiCacheHit();
     return settleWithSignal(existing as Promise<InvokeResult<T>>, options.signal);
   }
 
-  recordAiCacheMiss(name);
+  recordAiCacheMiss();
   const started = typeof performance !== "undefined" ? performance.now() : Date.now();
 
   const runner = (async (): Promise<InvokeResult<T>> => {

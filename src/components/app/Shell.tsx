@@ -9,12 +9,9 @@ const DRILL_IN_PREFIXES = ["/focus", "/today/plan", "/settings/delete-account"];
 export const Shell = ({
   children,
   hideTabBar = false,
-  hideQuickCapture = false,
 }: {
   children: ReactNode;
   hideTabBar?: boolean;
-  /** @deprecated kept for API compatibility — quick capture UI was removed. */
-  hideQuickCapture?: boolean;
 }) => {
   const { pathname } = useLocation();
   const navType = useNavigationType();
@@ -40,13 +37,10 @@ export const Shell = ({
   // so no Shell-level prefetch is needed here. Kept intentionally empty to
   // make the dependency obvious to future readers.
 
-  // Scroll to top on navigation
-  useEffect(() => {
-    window.scrollTo(0, 0);
-  }, [pathname]);
 
   return (
   <div className="h-[100dvh] w-full bg-background flex justify-center overflow-hidden">
+    {/* Ambient glow layers — behind content (z-0) */}
     <div
       className="pointer-events-none fixed inset-x-0 top-0 h-[min(220px,38vh)] z-0 shell-glow-top shell-glow-breathe"
       aria-hidden
@@ -55,6 +49,13 @@ export const Shell = ({
       className="pointer-events-none fixed inset-x-0 bottom-0 h-[min(300px,42vh)] z-0 shell-glow-floor shell-glow-breathe"
       aria-hidden
     />
+
+    {/* Edge chrome — above content (z-[18]), below tab bar (z-40) */}
+    <div
+      className="pointer-events-none fixed inset-x-0 top-0 z-[18] shell-edge-top"
+      aria-hidden
+    />
+
     <div className="relative z-10 w-full max-w-[440px] h-full flex flex-col px-1.5">
       <div
         className="pointer-events-none absolute inset-x-0 top-2 h-32 rounded-[24px] opacity-55"
@@ -62,7 +63,7 @@ export const Shell = ({
         aria-hidden
       />
       <main
-        className="relative min-h-0 flex-1 w-full"
+        className={`relative min-h-0 flex-1 w-full ${pageTransitionClass}`}
       >
         {children}
       </main>

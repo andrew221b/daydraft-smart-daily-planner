@@ -96,20 +96,24 @@ export const TabBar = () => {
 
   return (
     <nav
-      // `--keyboard-inset` is updated by `attachVisualViewportInset` whenever
-      // the iOS soft keyboard opens/closes. Translating the bar up by that
-      // amount keeps it above the keyboard instead of being hidden behind it.
-      className="fixed bottom-0 left-1/2 z-40 w-[min(calc(100vw-24px),424px)] px-px"
+      // Full-width so the frosted glass covers the side gaps (12 px each side)
+      // and the home indicator zone — exactly like native iOS tab bars.
+      // Blur lives on the nav itself (a plain rectangle, no radius clip) so
+      // WKWebView can't produce hard rounded-corner artefacts.
+      // `--keyboard-inset` keeps the bar above the soft keyboard.
+      className="fixed bottom-0 inset-x-0 z-40 bg-background/78 dark:bg-background/72"
       style={{
         paddingBottom: "max(env(safe-area-inset-bottom), 10px)",
-        transform: "translateX(-50%) translateY(calc(-1 * var(--keyboard-inset, 0px)))",
+        transform: "translateY(calc(-1 * var(--keyboard-inset, 0px)))",
         transition: "transform 220ms cubic-bezier(0.32, 0.72, 0, 1)",
+        touchAction: "manipulation",
+        WebkitBackdropFilter: "blur(20px)",
+        backdropFilter: "blur(20px)",
       }}
     >
+      {/* Centering wrapper — pill stays max 424 px wide, centred */}
+      <div className="mx-auto w-[min(calc(100vw-24px),424px)] px-px">
       <div
-        // Tab bar surface: Liquid Glass effect.
-        // Needs high blur, high saturation, and low opacity to look like
-        // native iOS frosted glass. WebkitBackdropFilter is required for iOS WebView.
         className="rounded-[26px] border border-border/55 bg-background/78 shadow-[0_16px_48px_-12px_rgb(0,0,0,0.25)] backdrop-blur-xl dark:border-border/40 dark:bg-background/72 dark:shadow-[0_16px_48px_-12px_rgb(0,0,0,0.6)] dark:ring-1 dark:ring-white/[0.08]"
         style={{ WebkitBackdropFilter: "blur(24px)", backdropFilter: "blur(24px)" }}
       >
@@ -138,6 +142,7 @@ export const TabBar = () => {
             ))}
           </div>
         </div>
+      </div>
       </div>
     </nav>
   );

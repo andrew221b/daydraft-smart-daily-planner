@@ -1,15 +1,13 @@
 import { useEffect, useRef, useState } from "react";
 import { useNavigate, useParams, useSearchParams } from "react-router-dom";
 import { supabase } from "@/integrations/supabase/client";
-import { invokeAiCached } from "@/lib/aiCache";
 import { useAbortOnUnmount } from "@/hooks/useAbortOnUnmount";
 import { Block, todayDateStr, wallMsOnPlanDay, blockSlotEndHHMM, fmtTime, isOpenUserTask } from "@/lib/daydraft";
 import { minutesFromFocusArmSeconds, resolveActualMinutesOnComplete } from "@/lib/blockActualTime";
-import { Check, Sparkles, MapPin, ExternalLink, Loader2, Lightbulb, Copy, Phone, CalendarPlus, Mail, Timer, Square, X, ShieldAlert } from "lucide-react";
+import { Check, Timer, Square, X, ShieldAlert } from "lucide-react";
 import { motion } from "framer-motion";
 import { useAuth } from "@/hooks/useAuth";
 import { useProfile } from "@/hooks/useProfile";
-import { mapsUrl } from "@/lib/maps";
 import { toast } from "sonner";
 import { useTimeTracker, getElapsedSec, fmtHMS } from "@/hooks/useTimeTracker";
 import { Input } from "@/components/ui/input";
@@ -23,7 +21,6 @@ import { haptics } from "@/lib/haptics";
 import { PreflightSheet } from "@/components/app/PreflightSheet";
 import { getAssignedCategoryId } from "@/lib/blockCategory";
 import { getCalmMode, setCalmMode } from "@/lib/calmMode";
-import { isAiFlagEnabled, trackAiEvent } from "@/lib/aiRuntime";
 import { useEntitlement } from "@/hooks/useEntitlement";
 import {
   AlertDialog,
@@ -35,14 +32,6 @@ import {
   AlertDialogHeader,
   AlertDialogTitle,
 } from "@/components/ui/alert-dialog";
-
-type AIHelp = {
-  substeps: string[];
-  links: { label: string; url: string }[];
-  tip: string;
-  draft?: { subject?: string; body: string };
-  recovery_actions?: { id: "compress_rest_day" | "defer_low_priority" | "split_current_block"; label: string; why: string }[];
-};
 
 export default function Focus() {
   const { blockId } = useParams();
@@ -60,10 +49,6 @@ export default function Focus() {
   /** Ticks once per second while armed so session elapsed re-renders without countdown pressure. */
   const [sessionTick, setSessionTick] = useState(0);
   const [showCheck, setShowCheck] = useState(false);
-  const [help, setHelp] = useState<AIHelp | null>(null);
-  const [helpLoading, setHelpLoading] = useState(false);
-  const [helpError, setHelpError] = useState<string | null>(null);
-  const [helpOpen, setHelpOpen] = useState(false);
   const [preflightOpen, setPreflightOpen] = useState(false);
   const [armed, setArmed] = useState(false);
   // Cancels in-flight task-assistant calls if the user leaves the Focus
@@ -73,7 +58,6 @@ export default function Focus() {
   const autoStartedRef = useRef(false);
   const [confirmSkipOpen, setConfirmSkipOpen] = useState(false);
   const [confirmCancelOpen, setConfirmCancelOpen] = useState(false);
-  const [runtimeReason, setRuntimeReason] = useState<"stuck" | "skip" | "overtime" | null>(null);
   // Wall-clock when the timer actually started ticking (after preflight).
   // Used to attribute REAL elapsed time to time_entries on complete().
   const actualStartMsRef = useRef<number | null>(null);
@@ -94,7 +78,6 @@ export default function Focus() {
   const calmAutoEnabledRef = useRef(false);
   const guardrailToastShownRef = useRef(false);
   const trackingRef = useRef(tracking);
-  const aiFocusRuntimeEnabled = isAiFlagEnabled("aiFocusRuntime", user?.id);
   const { isPro } = useEntitlement();
 
   useEffect(() => {
@@ -121,10 +104,6 @@ export default function Focus() {
     setArmed(false);
     setTrackerSkipped(false);
     autoStartedRef.current = false;
-    setHelp(null);
-    setHelpOpen(false);
-    setHelpError(null);
-    setHelpLoading(false);
     startedHereRef.current = false;
     actualStartMsRef.current = null;
     guardrailToastShownRef.current = false;
@@ -235,44 +214,6 @@ export default function Focus() {
   }, []);
 
   const trackingCat = categories.find(c => c.id === tracking?.category_id);
-
-  const loadHelp = async (reason?: "stuck" | "skip" | "overtime") => {
-    if (!block || helpLoading) return;
-    setHelpOpen(true);
-    if (help) return;
-    if (reason) setRuntimeReason(reason);
-    setHelpLoading(true);
-    setHelpError(null);
-    trackAiEvent("ai_focus_help_used", { reason: reason || "manual", block_type: block.type });
-    const signal = getAbortSignal();
-    try {
-      // task-assistant on the same block + reason is cacheable for the whole
-      // session — the inputs don't change while the user is in Focus.
-      const { data, error } = await invokeAiCached<AIHelp>(
-        "task-assistant",
-        {
-          title: block.title,
-          type: block.type,
-          location: block.location,
-          duration_min: block.duration_min,
-          ai_tone: (profile as any)?.ai_tone || "professional",
-          ai_tone_custom: (profile as any)?.ai_tone_custom || null,
-          ai_planning_rules: (profile as any)?.ai_planning_rules || "",
-          runtime_reason: reason || null,
-        },
-        { ttlMs: 30 * 60_000, timeoutMs: 45_000, signal },
-      );
-      if (signal.aborted) return;
-      if (error) throw error;
-      setHelp(data as AIHelp);
-    } catch (e: any) {
-      if (signal.aborted) return;
-      console.error(e);
-      setHelpError(e?.message || "Unable to load AI assistant");
-    } finally {
-      if (!signal.aborted) setHelpLoading(false);
-    }
-  };
 
   const complete = async () => {
     if (!block || !user) return;
@@ -485,68 +426,6 @@ export default function Focus() {
       </div>
     );
   }
-
-  const applyRecoveryAction = async (actionId: "compress_rest_day" | "defer_low_priority" | "split_current_block") => {
-    if (!block || !user) return;
-    trackAiEvent("ai_replan_applied", { action_id: actionId, block_id: block.id });
-    if (actionId === "split_current_block") {
-      toast.success("Use the suggested steps below as your micro-plan.");
-      return;
-    }
-    const { data: restRows } = await supabase
-      .from("blocks")
-      .select("title,duration_min,type,kind,completed,position,resolution")
-      .eq("plan_id", block.plan_id)
-      .gt("position", block.position)
-      .eq("completed", false)
-      .is("resolution", null)
-      .order("position", { ascending: true });
-    const rest = (restRows || []).filter((r: any) => r.kind === "task");
-    if (!rest.length) {
-      toast("No remaining tasks to re-plan.");
-      return;
-    }
-    const shaped = rest
-      .filter((r: any) => actionId !== "defer_low_priority" || r.type !== "routine")
-      .map((r: any) => {
-        const min = Number(r.duration_min) || 30;
-        const nextMin = actionId === "compress_rest_day" ? Math.max(20, Math.round(min * 0.8)) : min;
-        return `${r.title} (${nextMin}m)`;
-      });
-    if (!shaped.length) {
-      toast("Everything left is low-priority. Finish this block first.");
-      return;
-    }
-    sessionStorage.setItem("dd_planning_input", shaped.join("\n"));
-    if (planDate) sessionStorage.setItem("dd_planning_plan_date", planDate);
-    nav(planDate && planDate !== todayDateStr() ? `/today?date=${planDate}&composer=1` : "/today?composer=1");
-  };
-
-  // Smart contextual quick actions derived from the title/type
-  const title = (block.title || "").toLowerCase();
-  const isCall = /\b(call|phone|ring|dial)\b/.test(title);
-  const isMeeting = block.type === "communication" && /\b(meeting|sync|standup|1:1|catchup|catch-up|call with|meet with)\b/.test(title);
-  const isEmail = /\b(email|reply|respond|inbox)\b/.test(title);
-
-  const calendarUrl = (() => {
-    const t = encodeURIComponent(block.title || "Block");
-    return `https://calendar.google.com/calendar/render?action=TEMPLATE&text=${t}`;
-  })();
-  const mailtoUrl = `mailto:?subject=${encodeURIComponent(block.title || "")}`;
-  const telUrl = `tel:`;
-
-  const copyDraft = async () => {
-    if (!help?.draft) return;
-    const txt = help.draft.subject
-      ? `Subject: ${help.draft.subject}\n\n${help.draft.body}`
-      : help.draft.body;
-    try {
-      await navigator.clipboard.writeText(txt);
-      toast.success("Draft copied");
-    } catch {
-      toast.error("Unable to copy draft");
-    }
-  };
 
   return (
     <div className="absolute inset-0 w-full h-[100dvh] bg-background overflow-hidden flex flex-col items-center justify-between pb-[env(safe-area-inset-bottom)] pt-[var(--safe-area-inset-top)]">
@@ -834,140 +713,6 @@ export default function Focus() {
           </p>
         </div>
 
-        {/* AI Assistant panel */}
-        <div className="w-full mt-5">
-          {!helpOpen ? (
-            <button
-              onClick={() => loadHelp()}
-              className="w-full h-11 rounded-2xl app-card py-0 text-[13px] font-medium pressable inline-flex items-center justify-center gap-2 text-foreground border-primary/20 hover:border-primary/40 transition-colors"
-            >
-              <Sparkles className="h-4 w-4 text-primary" />
-              {toneCopy(tone, "ai_help_cta")}
-            </button>
-          ) : (
-            <div className="app-card panel-luxe px-3.5 py-5 space-y-3 text-left">
-              <div className="flex items-center gap-2 eyebrow text-primary">
-                <Sparkles className="h-3.5 w-3.5" /> {toneCopy(tone, "ai_assistant_title")}
-              </div>
-              {block.location && (
-                <a
-                  href={mapsUrl(block.location, block.location_lat, block.location_lng)}
-                  target="_blank"
-                  rel="noreferrer"
-                  className="flex items-center gap-2 text-sm text-foreground bg-background/80 rounded-[12px] px-3 py-2 border border-soft pressable"
-                >
-                  <MapPin className="h-4 w-4 text-primary shrink-0" />
-                  <span className="truncate flex-1">{block.location}</span>
-                  <ExternalLink className="h-3.5 w-3.5 text-secondary-fg" />
-                </a>
-              )}
-              {/* Contextual quick actions */}
-              {(isCall || isMeeting || isEmail) && (
-                <div className="flex gap-1.5 flex-wrap">
-                  {isCall && (
-                    <a href={telUrl} className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-background border border-soft text-xs font-medium text-foreground pressable">
-                      <Phone className="h-3.5 w-3.5 text-primary" /> Call
-                    </a>
-                  )}
-                  {isMeeting && (
-                    <a href={calendarUrl} target="_blank" rel="noreferrer" className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-background border border-soft text-xs font-medium text-foreground pressable">
-                      <CalendarPlus className="h-3.5 w-3.5 text-primary" /> Add to calendar
-                    </a>
-                  )}
-                  {isEmail && (
-                    <a href={mailtoUrl} className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-background border border-soft text-xs font-medium text-foreground pressable">
-                      <Mail className="h-3.5 w-3.5 text-primary" /> New email
-                    </a>
-                  )}
-                </div>
-              )}
-              {helpLoading && (
-                <div className="flex items-center gap-2 text-sm text-secondary-fg py-3 justify-center">
-                  <Loader2 className="h-4 w-4 animate-spin" /> Thinking…
-                </div>
-              )}
-              {helpError && (
-                <div className="text-sm text-destructive">{helpError}</div>
-              )}
-              {help && (
-                <>
-                  {aiFocusRuntimeEnabled && help.recovery_actions && help.recovery_actions.length > 0 && (
-                    <div className="space-y-1.5">
-                      <div className="text-[11px] uppercase tracking-wider text-secondary-fg">AI quick recovery</div>
-                      {help.recovery_actions.map((a, idx) => (
-                        <button
-                          key={`${a.id}-${idx}`}
-                          type="button"
-                          onClick={() => void applyRecoveryAction(a.id)}
-                          className="w-full text-left rounded-lg border border-soft bg-background/70 px-3 py-2 pressable"
-                        >
-                          <div className="text-[12px] font-medium text-foreground">{a.label}</div>
-                          <div className="text-[11px] text-secondary-fg mt-0.5">{a.why}</div>
-                        </button>
-                      ))}
-                    </div>
-                  )}
-                  {help.draft && (
-                    <div className="rounded-[14px] border border-accent surface-accent overflow-hidden">
-                      <div className="flex items-center justify-between px-3 py-2 border-b border-accent">
-                        <div className="flex items-center gap-1.5 eyebrow text-primary">
-                          <Mail className="h-3 w-3" /> Draft
-                        </div>
-                        <button onClick={copyDraft} className="inline-flex items-center gap-1 text-[11px] font-medium text-primary pressable">
-                          <Copy className="h-3 w-3" /> Copy
-                        </button>
-                      </div>
-                      <div className="px-3 py-2.5 text-sm space-y-1">
-                        {help.draft.subject && (
-                          <div className="text-foreground"><span className="text-secondary-fg text-xs">Subject: </span>{help.draft.subject}</div>
-                        )}
-                        <pre className="whitespace-pre-wrap font-sans text-foreground text-[13px] leading-relaxed">{help.draft.body}</pre>
-                      </div>
-                    </div>
-                  )}
-                  {help.substeps?.length > 0 && (
-                    <div>
-                      <div className="text-[11px] uppercase tracking-wider text-secondary-fg mb-1.5">Steps</div>
-                      <ol className="space-y-1.5">
-                        {help.substeps.map((s, i) => (
-                          <li key={i} className="flex items-start gap-2 text-sm">
-                            <span className="h-5 w-5 rounded-full bg-primary/10 text-primary text-[11px] font-semibold flex items-center justify-center shrink-0 mt-0.5">{i + 1}</span>
-                            <span className="text-foreground">{s}</span>
-                          </li>
-                        ))}
-                      </ol>
-                    </div>
-                  )}
-                  {help.links?.length > 0 && (
-                    <div>
-                      <div className="text-[11px] uppercase tracking-wider text-secondary-fg mb-1.5">Useful links</div>
-                      <div className="space-y-1">
-                        {help.links.map((l, i) => (
-                          <a
-                            key={i}
-                            href={l.url}
-                            target="_blank"
-                            rel="noreferrer"
-                            className="flex items-center gap-2 text-sm text-primary hover:underline"
-                          >
-                            <ExternalLink className="h-3.5 w-3.5 shrink-0" />
-                            <span className="truncate">{l.label}</span>
-                          </a>
-                        ))}
-                      </div>
-                    </div>
-                  )}
-                  {help.tip && (
-                    <div className="flex items-start gap-2 surface-accent border border-accent rounded-[12px] px-3 py-2 text-sm text-foreground">
-                      <Lightbulb className="h-4 w-4 text-primary shrink-0 mt-0.5" />
-                      <span>{help.tip}</span>
-                    </div>
-                  )}
-                </>
-              )}
-            </div>
-          )}
-        </div>
       </motion.div>
       <PreflightSheet
         open={preflightOpen}
@@ -986,18 +731,6 @@ export default function Focus() {
           </AlertDialogHeader>
           <AlertDialogFooter>
             <AlertDialogCancel>Cancel</AlertDialogCancel>
-            {aiFocusRuntimeEnabled && (
-              <button
-                type="button"
-                onClick={() => {
-                  setConfirmSkipOpen(false);
-                  void loadHelp("skip");
-                }}
-                className="h-10 rounded-md border border-soft px-3 text-sm text-secondary-fg hover:text-foreground pressable"
-              >
-                {toneCopy(tone, "ai_skip_alt_cta")}
-              </button>
-            )}
             <AlertDialogAction onClick={() => { setConfirmSkipOpen(false); skip(); }}>Skip</AlertDialogAction>
           </AlertDialogFooter>
         </AlertDialogContent>

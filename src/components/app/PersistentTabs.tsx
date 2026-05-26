@@ -25,6 +25,10 @@ import { lazyWithReload } from "@/lib/lazyWithReload";
 
 type TabKey = "home" | "day" | "tracker" | "reports" | "settings";
 
+const TAB_ORDER: Record<TabKey, number> = {
+  home: 0, day: 1, tracker: 2, reports: 3, settings: 4,
+};
+
 type TabDef = {
   key: TabKey;
   matches: (pathname: string) => boolean;
@@ -88,20 +92,6 @@ export function PersistentTabs() {
   const { pathname } = useLocation();
   const activeKey = useMemo(() => matchedTabKey(pathname), [pathname]);
 
-  // Track direction so we can flip the 3D book-page animation when moving
-  // backwards through the tab order.
-  const activeKeyRef = useRef(activeKey);
-  const directionRef = useRef<"left" | "right">("right");
-
-  if (activeKey !== activeKeyRef.current) {
-    const oldIdx = TABS.findIndex((t) => t.key === activeKeyRef.current);
-    const newIdx = TABS.findIndex((t) => t.key === activeKey);
-    if (oldIdx !== -1 && newIdx !== -1) {
-      directionRef.current = newIdx > oldIdx ? "right" : "left";
-    }
-    activeKeyRef.current = activeKey;
-  }
-
   // Lazy-mount: a tab only enters the DOM the first time it is visited.
   // After that, it stays mounted forever (within this Shell lifecycle).
   const [mounted, setMounted] = useState<Set<TabKey>>(() => {
@@ -118,19 +108,26 @@ export function PersistentTabs() {
     });
   }, [activeKey]);
 
-  // Imperatively re-apply the animation class to the now-active tab so the
-  // keyframes restart every single time — even when the tab was previously
-  // visited (iOS Safari otherwise skips animation when an element comes back
-  // from display:none with the same class it had last time).
+  // Imperatively re-apply the directional animation class to the now-active
+  // tab so keyframes restart every time. Direction is forward (fwd) when the
+  // user taps a tab to the right of the current one, backward (back) if left.
   const tabRefs = useRef<Map<TabKey, HTMLDivElement>>(new Map());
+  const prevKeyRef = useRef<TabKey | null>(null);
+
   useEffect(() => {
     if (!activeKey) return;
     const el = tabRefs.current.get(activeKey);
     if (!el) return;
-    const cls = `page-transition-tab-${directionRef.current}`;
-    el.classList.remove("page-transition-tab-left", "page-transition-tab-right");
-    // Force reflow so the browser sees the class as freshly added and
-    // restarts the keyframe sequence.
+    el.scrollTop = 0;
+
+    const prev = prevKeyRef.current;
+    const cls =
+      prev === null || TAB_ORDER[activeKey] > TAB_ORDER[prev]
+        ? "page-transition-tab-fwd"
+        : "page-transition-tab-back";
+    prevKeyRef.current = activeKey;
+
+    el.classList.remove("page-transition-tab", "page-transition-tab-fwd", "page-transition-tab-back");
     void el.offsetWidth;
     el.classList.add(cls);
   }, [activeKey]);
@@ -148,9 +145,9 @@ export function PersistentTabs() {
               if (el) tabRefs.current.set(tab.key, el);
               else tabRefs.current.delete(tab.key);
             }}
-            className={`absolute inset-0 overflow-y-auto overscroll-y-contain no-scrollbar ${isActive ? `page-transition-tab-${directionRef.current}` : "hidden"}`}
+            className={`absolute inset-0 overflow-y-auto overscroll-y-contain no-scrollbar ${isActive ? "" : "hidden"}`}
             aria-hidden={!isActive}
-            style={{ paddingBottom: "calc(env(safe-area-inset-bottom) + 5.5rem)" }}
+            style={{ paddingBottom: "calc(env(safe-area-inset-bottom) + 5rem)" }}
           >
             <TabVisibilityCtx.Provider value={isActive}>
               <div className="min-h-full flex flex-col">

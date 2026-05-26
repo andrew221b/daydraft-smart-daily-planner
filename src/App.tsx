@@ -173,6 +173,17 @@ const AppContent = () => {
         </ProfileProvider>
         </AuthProvider>
       </BrowserRouter>
+      {/* Global home-indicator cover. Explicit primary-glow gradient so the
+          zone isn't pure black (backdrop-filter over #000 = black). */}
+      <div
+        className="pointer-events-none fixed inset-x-0 bottom-0"
+        style={{
+          height: "env(safe-area-inset-bottom, 0px)",
+          zIndex: 99999,
+          background: "linear-gradient(to top, hsl(var(--primary-glow) / 0.18), hsl(var(--primary-glow) / 0.06))",
+        }}
+        aria-hidden
+      />
     </TooltipProvider>
   </QueryClientProvider>
   );

@@ -54,6 +54,7 @@ export type Database = {
           location: string | null
           location_lat: number | null
           location_lng: number | null
+          moved_to_date: string | null
           overlap_ok: boolean
           parallel_group_id: string | null
           parallel_with: string | null
@@ -82,6 +83,7 @@ export type Database = {
           location?: string | null
           location_lat?: number | null
           location_lng?: number | null
+          moved_to_date?: string | null
           overlap_ok?: boolean
           parallel_group_id?: string | null
           parallel_with?: string | null
@@ -110,6 +112,7 @@ export type Database = {
           location?: string | null
           location_lat?: number | null
           location_lng?: number | null
+          moved_to_date?: string | null
           overlap_ok?: boolean
           parallel_group_id?: string | null
           parallel_with?: string | null

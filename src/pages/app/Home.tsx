@@ -12,7 +12,7 @@ import { fetchPlanDashboard, planDashboardQueryKey } from "@/lib/planQueries";
 import { supabase } from "@/integrations/supabase/client";
 import { applyAutoMissedBlocks } from "@/lib/blockResolution";
 import { greetingFor, getTone } from "@/lib/tone";
-import { fmtHM, useTimeTracker, useTimeTrackerElapsed } from "@/hooks/useTimeTracker";
+import { fmtHM, useTimeTracker } from "@/hooks/useTimeTracker";
 import {
   fetchRollingEntries,
   filterEntriesByRange,
@@ -20,6 +20,20 @@ import {
 } from "@/lib/timeEntriesQuery";
 import { useTabVisible } from "@/components/app/PersistentTabs";
 import { motion } from "framer-motion";
+
+function fmtMoney(amount: number, currency: string): string | null {
+  if (amount < 0.005) return null;
+  try {
+    return new Intl.NumberFormat("en-US", {
+      style: "currency",
+      currency,
+      minimumFractionDigits: 0,
+      maximumFractionDigits: 2,
+    }).format(amount);
+  } catch {
+    return `${currency} ${amount.toFixed(2)}`;
+  }
+}
 
 /** Tracker is the hero. */
 export default function Home() {
@@ -99,9 +113,10 @@ export default function Home() {
     gcTime: 30 * 60_000,
     placeholderData: keepPreviousData,
   });
-  // Subscribe to elapsed ticks so live timer contribution to today's totals
-  // re-renders each second.
-  useTimeTrackerElapsed();
+  // Intentionally not subscribing to elapsed ticks — the breakdown reads
+  // committed entries from rollingEntries (db-backed), which only updates
+  // when a session ends, not per-second. Re-rendering every second here
+  // gains nothing and costs a React diff of the whole page.
 
   const userTasks = useMemo(() => blocks.filter(isUserTask), [blocks]);
   const doneTasks = useMemo(() => userTasks.filter((b) => isUserTaskDone(b)).length, [userTasks]);
@@ -135,7 +150,7 @@ export default function Home() {
 
   return (
     <PullToRefresh onRefresh={onRefresh}>
-        <div className="w-full flex flex-col px-5 pt-[var(--safe-area-inset-top)] pb-6">
+        <div className="w-full flex flex-col px-5 pt-[var(--content-inset-top)] pb-6">
           {/* Greeting */}
           <header className="mb-5 shrink-0">
             <p className="text-[10px] font-semibold tracking-[0.18em] uppercase text-secondary-fg/50 mb-1">
@@ -183,9 +198,9 @@ export default function Home() {
                   </span>
                 </div>
               </div>
-              <div className="h-1.5 rounded-full bg-muted/55 overflow-hidden">
+              <div className="h-2 rounded-full bg-muted/45 overflow-hidden">
                 <div
-                  className="h-full rounded-full bg-primary/90 transition-[width] duration-700 ease-out"
+                  className="h-full rounded-full progress-fill"
                   style={{ width: `${(doneTasks / userTasks.length) * 100}%` }}
                 />
               </div>
@@ -218,7 +233,14 @@ export default function Home() {
                     <div className="flex-1 max-w-[72px] h-[3px] rounded-full bg-foreground/[0.07] overflow-hidden">
                       <div className="h-full rounded-full" style={{ width: `${Math.max(8, row.pct * 100)}%`, background: row.cat!.color }} />
                     </div>
-                    <span className="text-[12px] tabular-nums text-secondary-fg/80 font-medium w-[3.4rem] text-right">{fmtHM(row.sec)}</span>
+                    <div className="flex flex-col items-end shrink-0 w-[3.8rem]">
+                      <span className="text-[12px] tabular-nums text-secondary-fg/80 font-medium leading-tight">{fmtHM(row.sec)}</span>
+                      {row.cat!.hourly_rate && row.cat!.hourly_rate > 0 && (() => {
+                        const earned = fmtMoney((row.sec / 3600) * row.cat!.hourly_rate!, row.cat!.currency || "USD");
+                        if (!earned) return null;
+                        return <span className="text-[10px] tabular-nums text-success/70 font-medium leading-tight">{earned}</span>;
+                      })()}
+                    </div>
                   </li>
                 ))}
               </ul>

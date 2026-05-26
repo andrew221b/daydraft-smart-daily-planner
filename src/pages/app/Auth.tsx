@@ -15,9 +15,6 @@ import { toast } from "sonner";
 import { Link, useNavigate } from "react-router-dom";
 import { useAuth } from "@/hooks/useAuth";
 import { useProfile } from "@/hooks/useProfile";
-import { Fingerprint } from "lucide-react";
-
-
 export default function Auth() {
   const { user, loading } = useAuth();
   const { profile, loading: profileLoading } = useProfile();

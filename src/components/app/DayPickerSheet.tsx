@@ -6,14 +6,10 @@ import { haptics } from "@/lib/haptics";
 type Props = {
   open: boolean;
   onOpenChange: (v: boolean) => void;
-  /** YYYY-MM-DD currently selected. Used to highlight + scroll into view. */
   value: string;
   onPick: (next: string) => void;
-  /** How far back from today the picker is allowed to go. Default: -3. */
   pastDays?: number;
-  /** How far forward from today the picker can go. Default: 28. */
   futureDays?: number;
-  /** Header copy; varies per call site (nav vs carry-forward vs reschedule). */
   title?: string;
   subtitle?: string;
 };
@@ -32,13 +28,6 @@ type DayCell = {
 const WEEKDAY_FMT = new Intl.DateTimeFormat(undefined, { weekday: "short" });
 const MONTH_FMT = new Intl.DateTimeFormat(undefined, { month: "short" });
 
-/**
- * Compact iOS-style day picker. Horizontal scroll of pills representing
- * each upcoming day; current selection is centred on open.
- *
- * Built once, reused for: header date navigation, "carry unfinished
- * to…", and "move task to another day". One look across the app.
- */
 export function DayPickerSheet({
   open,
   onOpenChange,
@@ -50,6 +39,7 @@ export function DayPickerSheet({
   subtitle,
 }: Props) {
   const scrollerRef = useRef<HTMLDivElement | null>(null);
+
   const cells = useMemo<DayCell[]>(() => {
     const today = parseDateStr(todayDateStr());
     const todayMs = today.getTime();
@@ -59,8 +49,7 @@ export function DayPickerSheet({
       d.setDate(today.getDate() + i);
       const ymd = dateStr(d);
       list.push({
-        ymd,
-        date: d,
+        ymd, date: d,
         isToday: d.getTime() === todayMs,
         isPast: d.getTime() < todayMs,
         isSelected: ymd === value,
@@ -72,8 +61,7 @@ export function DayPickerSheet({
     return list;
   }, [pastDays, futureDays, value]);
 
-  // Centre the selected pill on open. Without this the user always lands
-  // at "3 days ago" and has to scroll right to find their selection.
+  // Centre selected pill on open.
   useEffect(() => {
     if (!open) return;
     const id = requestAnimationFrame(() => {
@@ -86,7 +74,37 @@ export function DayPickerSheet({
     return () => cancelAnimationFrame(id);
   }, [open]);
 
-  // Group by month for the subtle month dividers between Aug→Sep style breaks.
+  // Native touch handlers: intercept horizontal swipes before the Radix Sheet
+  // overlay or any parent can absorb them. stopPropagation on touchmove when
+  // the gesture is clearly horizontal so the underlying scroll container gets
+  // the event and the Sheet doesn't try to dismiss.
+  useEffect(() => {
+    const el = scrollerRef.current;
+    if (!el) return;
+    let startX = 0, startY = 0, decided = false, isHoriz = false;
+
+    const onStart = (e: TouchEvent) => {
+      startX = e.touches[0].clientX;
+      startY = e.touches[0].clientY;
+      decided = false; isHoriz = false;
+    };
+    const onMove = (e: TouchEvent) => {
+      if (!decided) {
+        const dx = Math.abs(e.touches[0].clientX - startX);
+        const dy = Math.abs(e.touches[0].clientY - startY);
+        if (dx > 4 || dy > 4) { decided = true; isHoriz = dx > dy; }
+      }
+      if (isHoriz) e.stopPropagation();
+    };
+
+    el.addEventListener("touchstart", onStart, { passive: true });
+    el.addEventListener("touchmove", onMove, { passive: true });
+    return () => {
+      el.removeEventListener("touchstart", onStart);
+      el.removeEventListener("touchmove", onMove);
+    };
+  }, [open]);
+
   const groups = useMemo(() => {
     const out: { month: string; cells: DayCell[] }[] = [];
     cells.forEach((c) => {
@@ -112,8 +130,15 @@ export function DayPickerSheet({
 
         <div
           ref={scrollerRef}
-          className="mt-4 overflow-x-auto no-scrollbar"
-          style={{ scrollSnapType: "x mandatory" }}
+          className="mt-4 overflow-x-scroll no-scrollbar"
+          style={{
+            WebkitOverflowScrolling: "touch",
+            // touch-action: pan-x is resolved at the browser gesture level,
+            // before any JS event dispatch, so Radix capture-phase listeners
+            // cannot intercept horizontal swipes on this element.
+            touchAction: "pan-x",
+            overscrollBehaviorX: "contain",
+          } as React.CSSProperties}
         >
           <div className="flex items-stretch gap-3 px-6 pb-1">
             {groups.map((g, gi) => (
@@ -128,12 +153,8 @@ export function DayPickerSheet({
                     key={c.ymd}
                     type="button"
                     data-selected={c.isSelected}
-                    onClick={() => {
-                      haptics.selection();
-                      onPick(c.ymd);
-                      onOpenChange(false);
-                    }}
-                    style={{ scrollSnapAlign: "center" }}
+                    onClick={() => { haptics.selection(); onPick(c.ymd); onOpenChange(false); }}
+                    style={{ touchAction: "pan-x" }}
                     className={[
                       "shrink-0 w-[58px] py-2.5 rounded-2xl border pressable flex flex-col items-center gap-0.5 transition-colors",
                       c.isSelected
@@ -145,11 +166,7 @@ export function DayPickerSheet({
                             : "border-border/40 bg-card/60 text-foreground/90",
                     ].join(" ")}
                   >
-                    <span
-                      className={`text-[9.5px] font-semibold uppercase tracking-[0.14em] ${
-                        c.isSelected ? "text-primary-foreground/85" : "text-secondary-fg/75"
-                      }`}
-                    >
+                    <span className={`text-[9.5px] font-semibold uppercase tracking-[0.14em] ${c.isSelected ? "text-primary-foreground/85" : "text-secondary-fg/75"}`}>
                       {c.weekday}
                     </span>
                     <span className="font-display text-[18px] font-semibold tabular-nums leading-none">
@@ -168,11 +185,7 @@ export function DayPickerSheet({
         <div className="px-6 mt-5 flex gap-2">
           <button
             type="button"
-            onClick={() => {
-              haptics.selection();
-              onPick(todayDateStr());
-              onOpenChange(false);
-            }}
+            onClick={() => { haptics.selection(); onPick(todayDateStr()); onOpenChange(false); }}
             className="flex-1 h-11 rounded-2xl border border-border/40 bg-card/60 text-[13px] font-medium text-foreground/90 pressable"
           >
             Today

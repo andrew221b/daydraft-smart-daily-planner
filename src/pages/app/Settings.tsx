@@ -109,7 +109,7 @@ export default function Settings() {
 
   return (
     <>
-      <div className="px-5 pt-[var(--safe-area-inset-top)]">
+      <div className="px-5 pt-[var(--content-inset-top)]">
         <p className="eyebrow">Account</p>
         <h1 className="type-title mt-2 text-balance">Settings</h1>
 
@@ -141,7 +141,7 @@ export default function Settings() {
 
           {/* 2. Profile — name + appearance grouped */}
           <Section title="You">
-            <div className="rounded-[14px] border border-soft surface-card backdrop-blur-sm divide-y divide-border/50 overflow-hidden">
+            <div className="rounded-[18px] border border-border/35 hero-glass divide-y divide-border/35 overflow-hidden">
               <div className="px-3 py-2.5">
                 <div className="text-[11px] text-secondary-fg mb-1">Name</div>
                 <Input value={name} onChange={e => setName(e.target.value)} onBlur={() => update({ display_name: name })}
@@ -181,7 +181,7 @@ export default function Settings() {
 
           {/* 4. Notifications + Calendar — connected channels */}
           <Section title="Connections">
-            <div className="rounded-[14px] border border-soft surface-card backdrop-blur-sm divide-y divide-border/50 overflow-hidden">
+            <div className="rounded-[18px] border border-border/35 hero-glass divide-y divide-border/35 overflow-hidden">
               <div className="px-4 py-3">
                 <div className="flex items-center justify-between">
                   <div className="flex items-center gap-3 min-w-0">
@@ -228,7 +228,7 @@ export default function Settings() {
 
           {/* 6. Help + legal — quiet, terminal items */}
           <Section title="More">
-            <div className="rounded-[18px] border border-soft surface-card backdrop-blur-sm divide-y divide-border/50 overflow-hidden">
+            <div className="rounded-[18px] border border-border/35 hero-glass divide-y divide-border/35 overflow-hidden">
               <button
                 onClick={async () => {
                   await tour.resetAll();
@@ -259,7 +259,7 @@ export default function Settings() {
             </div>
           </Section>
 
-          <Button onClick={signOut} variant="outline" className="w-full h-11 rounded-xl border-soft surface-card hover:bg-surface-elevated pressable text-[13px]">
+          <Button onClick={signOut} variant="outline" className="w-full h-11 rounded-[14px] border-border/35 hero-glass hover:bg-white/[0.06] pressable text-[13px]">
             Sign out
           </Button>
 

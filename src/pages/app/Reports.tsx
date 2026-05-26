@@ -3,7 +3,9 @@ import { keepPreviousData, useQuery } from "@tanstack/react-query";
 import { useAuth } from "@/hooks/useAuth";
 import { supabase } from "@/integrations/supabase/client";
 import { Button } from "@/components/ui/button";
-import { BarChart3, CalendarDays, ChevronDown, Download, FileText, ListFilter } from "lucide-react";
+import { BarChart3, ChevronDown, Download, FileText, ListFilter, ChevronRight } from "lucide-react";
+import { useExchangeRates, convertCurrency } from "@/hooks/useExchangeRates";
+import { CurrencyPickerSheet } from "@/components/app/CurrencyPickerSheet";
 import { motion, AnimatePresence } from "framer-motion";
 import { DateRangePickerSheet } from "@/components/app/DateRangePickerSheet";
 import { CategoryFilterSheet } from "@/components/app/CategoryFilterSheet";
@@ -157,6 +159,11 @@ export default function Reports() {
   const [catSheetOpen, setCatSheetOpen] = useState(false);
   const [expandedCategoryIds, setExpandedCategoryIds] = useState<Set<string>>(() => new Set());
   const [upgradeOpen, setUpgradeOpen] = useState(false);
+  const [displayCurrency, setDisplayCurrency] = useState<string>(
+    () => localStorage.getItem("reports-display-currency") || "USD",
+  );
+  const [currencyPickerOpen, setCurrencyPickerOpen] = useState(false);
+  const { data: rates = {}, isLoading: ratesLoading } = useExchangeRates();
   const range = useMemo(() => periodRange(period, customFrom, customTo), [period, customFrom, customTo]);
 
   const { data: rollingEntries = [] } = useQuery({
@@ -212,7 +219,7 @@ export default function Reports() {
   // aggregations (`byCategory` and `categoryGroups`) which doubled the work on
   // every period change. One walk computes totals, per-category sums, per-day
   // sums, and per-category entry lists at once.
-  const { totalSec, totalEarnings, categoryGroups, perDay } = useMemo(() => {
+  const { totalSec, totalEarnings, categoryGroups, perDay, earningsByCurrency } = useMemo(() => {
     const now = Date.now();
     let total = 0;
     let earnedTotal = 0;
@@ -263,11 +270,18 @@ export default function Reports() {
         day: k.slice(5),
         hours: Number((sec / 3600).toFixed(2)),
       }));
+    const byCurrency = new Map<string, number>();
+    for (const g of groupList) {
+      if (g.earnings > 0) {
+        byCurrency.set(g.currency, (byCurrency.get(g.currency) ?? 0) + g.earnings);
+      }
+    }
     return {
       totalSec: total,
       totalEarnings: earnedTotal,
       categoryGroups: groupList,
       perDay,
+      earningsByCurrency: byCurrency,
     };
   }, [periodEntries, catMap]);
 
@@ -375,7 +389,7 @@ export default function Reports() {
 
   return (
     <>
-      <div className="flex w-full flex-col px-5 pt-[var(--safe-area-inset-top)] pb-5">
+      <div className="flex w-full flex-col px-5 pt-[var(--content-inset-top)] pb-5">
         <header className="shrink-0 pb-6">
           <p className="text-[10px] font-semibold uppercase tracking-[0.2em] text-secondary-fg/65">
             Reports
@@ -492,16 +506,35 @@ export default function Reports() {
               <p className="font-display text-[40px] font-semibold tabular-nums leading-none overflow-hidden">
                 <TickingNumber value={fmtHM(totalSec)} />
               </p>
-              {totalEarnings > 0 && (
-                <div className="text-right">
-                  <p className="text-[10px] font-semibold uppercase tracking-[0.16em] text-secondary-fg/70">
-                    Estimated pay
-                  </p>
-                  <p className="font-display text-[22px] font-semibold tabular-nums text-primary overflow-hidden">
-                    <TickingNumber value={fmtMoney(totalEarnings, categoryGroups[0]?.currency || "USD")} />
-                  </p>
-                </div>
-              )}
+              {earningsByCurrency.size > 0 && (() => {
+                const hasRates = Object.keys(rates).length > 1;
+                const converted = Array.from(earningsByCurrency.entries()).reduce(
+                  (sum, [from, amount]) =>
+                    sum + (hasRates ? convertCurrency(amount, from, displayCurrency, rates) : amount),
+                  0,
+                );
+                return (
+                  <button
+                    type="button"
+                    onClick={() => setCurrencyPickerOpen(true)}
+                    className="text-right pressable rounded-xl p-1 -m-1"
+                    aria-label="Change display currency"
+                  >
+                    <span className="flex items-center justify-end gap-1.5">
+                      <span className="text-[10px] font-semibold uppercase tracking-[0.16em] text-secondary-fg/70">
+                        Estimated pay
+                      </span>
+                      <span className="inline-flex items-center gap-0.5 rounded-full bg-success/15 px-2 py-0.5 text-[9.5px] font-bold text-success border border-success/30">
+                        {displayCurrency}
+                        <ChevronRight className="h-2.5 w-2.5 opacity-80" />
+                      </span>
+                    </span>
+                    <span className={`block font-display text-[22px] font-semibold tabular-nums text-success leading-none mt-1 transition-opacity ${ratesLoading && !hasRates ? "opacity-40" : ""}`}>
+                      <TickingNumber value={fmtMoney(converted, displayCurrency)} />
+                    </span>
+                  </button>
+                );
+              })()}
             </div>
             <p className="mt-2 text-[12px] text-secondary-fg/80">{range.label}</p>
           </section>
@@ -572,7 +605,7 @@ export default function Reports() {
                               <span>No rate</span>
                             )}
                             {group.earnings > 0 && (
-                              <span className="font-semibold text-primary">
+                              <span className="font-semibold text-success">
                                 {fmtMoney(group.earnings, group.currency)} earned
                               </span>
                             )}
@@ -609,7 +642,7 @@ export default function Reports() {
                                       {fmtHM(sec)}
                                     </span>
                                     {earned > 0 && (
-                                      <span className="block text-[10px] tabular-nums text-primary">
+                                      <span className="block text-[10px] tabular-nums text-success">
                                         {fmtMoney(earned, group.currency)}
                                       </span>
                                     )}
@@ -692,6 +725,17 @@ export default function Reports() {
         </div>
       </div>
       <UpgradeSheet open={upgradeOpen} onOpenChange={setUpgradeOpen} reason="feature" />
+      <CurrencyPickerSheet
+        open={currencyPickerOpen}
+        onOpenChange={setCurrencyPickerOpen}
+        selected={displayCurrency}
+        rates={rates}
+        ratesLoading={ratesLoading}
+        onSelect={(code) => {
+          setDisplayCurrency(code);
+          localStorage.setItem("reports-display-currency", code);
+        }}
+      />
       <DateRangePickerSheet
         open={dateSheetOpen}
         onOpenChange={setDateSheetOpen}

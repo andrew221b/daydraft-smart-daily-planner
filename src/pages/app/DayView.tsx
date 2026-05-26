@@ -13,7 +13,7 @@ import {
   Block, fmtTime, todayDateStr, parseDateStr, friendlyDateFor, isFutureDateStr, isUserTask, isOpenUserTask, isUserTaskDone, inferScheduleBlockType, packLinearSchedule,
   blockSlotEndHHMM, timeToMinutes, minutesToHHMM,
 } from "@/lib/daydraft";
-import { ChevronLeft, ChevronRight, Play, CalendarDays, Trash2, Bell, BellOff, MoreHorizontal, Clock, Timer, MapPin, Copy, Sparkles, ListPlus, Wand2, ArrowRightCircle, Loader2 } from "lucide-react";
+import { ChevronLeft, ChevronRight, Play, CalendarDays, Trash2, Bell, BellOff, MoreHorizontal, Clock, Timer, MapPin, Copy, Sparkles, ListPlus, Wand2, ArrowRightCircle, Loader2, Bookmark, X } from "lucide-react";
 import { DayPickerSheet } from "@/components/app/DayPickerSheet";
 import { Button } from "@/components/ui/button";
 import { DndContext, closestCenter, MouseSensor, TouchSensor, useSensor, useSensors, DragEndEvent, DragStartEvent, DragOverlay } from "@dnd-kit/core";
@@ -77,6 +77,7 @@ type ExBlock = Block & {
   slot_end_time?: string | null;
   resolution?: string | null;
   resolved_at?: string | null;
+  moved_to_date?: string | null;
 };
 
 export default function DayView() {
@@ -315,6 +316,49 @@ export default function DayView() {
       queryClient.invalidateQueries({ queryKey: planDayQueryKey(user.id, viewDate) }),
       queryClient.invalidateQueries({ queryKey: planDashboardQueryKey(user.id, viewDate) }),
     ]);
+  };
+
+  const { data: templates = [] } = useQuery({
+    queryKey: ["block-templates", user?.id],
+    queryFn: async () => {
+      if (!user) return [];
+      const { data, error } = await supabase
+        .from("block_templates")
+        .select("id, name, raw_input")
+        .eq("user_id", user.id)
+        .order("created_at" as any, { ascending: false });
+      if (error) throw error;
+      return (data ?? []) as { id: string; name: string; raw_input: string }[];
+    },
+    enabled: !!user?.id && dayTabVisible,
+    staleTime: 60_000,
+  });
+
+  const saveAsTemplate = async (blk: ExBlock) => {
+    if (!user) return;
+    try {
+      await supabase.from("block_templates").insert({
+        user_id: user.id,
+        name: blk.title,
+        raw_input: blk.title,
+      } as any);
+      await queryClient.invalidateQueries({ queryKey: ["block-templates", user.id] });
+      haptics.notify("success");
+      toast.success("Saved as template");
+    } catch (e: any) {
+      toast.error(e?.message || "Couldn't save template");
+    }
+  };
+
+  const deleteTemplate = async (id: string) => {
+    if (!user) return;
+    try {
+      await supabase.from("block_templates").delete().eq("id", id);
+      await queryClient.invalidateQueries({ queryKey: ["block-templates", user.id] });
+      toast.success("Template removed");
+    } catch (e: any) {
+      toast.error(e?.message || "Couldn't remove template");
+    }
   };
 
   useEffect(() => {
@@ -964,7 +1008,7 @@ export default function DayView() {
     const movedAt = new Date().toISOString();
     await supabase
       .from("blocks")
-      .update({ resolution: "skipped", resolved_at: movedAt })
+      .update({ resolution: "skipped", resolved_at: movedAt, moved_to_date: targetDate })
       .in("id", items.map((b) => b.id));
     return { moved: items.length };
   };
@@ -1023,6 +1067,7 @@ export default function DayView() {
     }
   };
 
+
   const firstUnfinishedTask = blocks.find((b) => isUserTask(b) && isOpenUserTask(b));
   const userTasks = blocks.filter(isUserTask);
   const totalTasks = userTasks.length;
@@ -1054,7 +1099,7 @@ export default function DayView() {
         initial={{ opacity: 0, y: 15 }}
         animate={{ opacity: 1, y: 0 }}
         transition={{ type: "spring", bounce: 0.15, duration: 0.6 }}
-        className="flex w-full flex-col px-5 pt-[var(--safe-area-inset-top)] pb-8"
+        className="flex w-full flex-col px-5 pt-[var(--content-inset-top)] pb-8"
       >
         <div className="app-card px-2 py-2.5 flex items-center gap-1">
           <button
@@ -1120,9 +1165,9 @@ export default function DayView() {
                   </span>
                 </div>
               </div>
-              <div className="h-1.5 rounded-full bg-muted/50 overflow-hidden">
+              <div className="h-2 rounded-full bg-muted/45 overflow-hidden">
                 <div
-                  className="h-full rounded-full bg-primary transition-[width] duration-700 ease-out"
+                  className="h-full rounded-full progress-fill"
                   style={{ width: totalTasks ? `${(doneTasks / totalTasks) * 100}%` : "0%" }}
                 />
               </div>
@@ -1161,7 +1206,8 @@ export default function DayView() {
         )}
 
         {planMissing && (
-          <div className="mt-4 rounded-[28px] border border-border/30 bg-card/35 px-6 py-12 text-center hero-glass shadow-card relative overflow-hidden empty-state-fade">
+          <div className="flex items-center justify-center" style={{ minHeight: "56vh" }}>
+          <div className="w-full rounded-[28px] border border-border/30 bg-card/35 px-6 py-12 text-center hero-glass shadow-card relative overflow-hidden empty-state-fade">
             {/* Soft decorative background circles inside the empty card */}
             <div className="absolute -top-12 -left-12 h-28 w-28 rounded-full bg-primary/8 blur-xl pointer-events-none" />
             <div className="absolute -bottom-12 -right-12 h-28 w-28 rounded-full bg-primary-glow/8 blur-xl pointer-events-none" />
@@ -1176,24 +1222,25 @@ export default function DayView() {
               Add your tasks — type them out, paste a list, or let AI plan your day.
             </p>
             <div className="mt-7 flex flex-col gap-2.5 max-w-[240px] mx-auto relative z-10">
-              <Button
-                onClick={() => setComposerOpen(true)}
-                className="h-12 rounded-[16px] bg-gradient-primary hover:opacity-95 text-primary-foreground text-[14px] font-semibold pressable w-full shadow-[0_6px_20px_hsl(var(--primary)/0.25)] border border-primary/20"
-              >
-                <ListPlus className="h-4 w-4 mr-1.5" /> Add tasks
-              </Button>
-              <Button
+              <button
                 type="button"
-                variant="outline"
+                onClick={() => setComposerOpen(true)}
+                className="btn-volumetric pressable inline-flex items-center justify-center gap-2 w-full h-12 rounded-[16px] text-primary-foreground text-[14px] font-semibold"
+              >
+                <ListPlus className="h-4 w-4" /> Add tasks
+              </button>
+              <button
+                type="button"
                 onClick={() => {
                   setAskAiContext("I have an empty day. Ask me one useful question that helps me decide what to add, without creating a schedule for me.");
                   setAskAiOpen(true);
                 }}
-                className="h-11 rounded-[16px] border border-border/40 bg-white/[0.04] dark:bg-white/[0.05] text-foreground/90 hover:bg-white/[0.08] text-[13px] font-semibold pressable w-full transition-colors"
+                className="pressable inline-flex items-center justify-center gap-2 w-full h-11 rounded-[16px] text-[13px] font-semibold text-foreground/90 border border-border/50 bg-white/[0.07] dark:bg-white/[0.06] shadow-[inset_0_1px_1px_rgba(255,255,255,0.12),0_4px_12px_rgba(0,0,0,0.2)] backdrop-blur-sm"
               >
-                <Wand2 className="h-4 w-4 mr-1.5 text-primary" /> Ask AI
-              </Button>
+                <Wand2 className="h-4 w-4 text-primary" /> Ask AI
+              </button>
             </div>
+          </div>
           </div>
         )}
 
@@ -1240,6 +1287,15 @@ export default function DayView() {
                         onStopTrack={(blk) => {
                           void stopTrackingForBlock(blk);
                         }}
+                        onCarryForward={!isFuture ? (blk) => setDayPickerIntent({ kind: "move-task", blockId: blk.id }) : undefined}
+                        onEditDuration={(blk) => setDurationEditId(blk.id)}
+                        onEditReminders={(blk) => openReminders(blk.id)}
+                        onAskAi={(blk) => {
+                          setAskAiContext(`Help me think about this task: "${blk.title}" (${blk.duration_min} min). Suggest a realistic time estimate, breakdown into steps, or the best time of day. Just ideas — don't build a full plan.`);
+                          setAskAiOpen(true);
+                        }}
+                        onSaveTemplate={(blk) => void saveAsTemplate(blk)}
+                        onDeleteBlock={(blk) => removeBlock(blk.id)}
                       />
                       );
                     })}
@@ -1288,7 +1344,15 @@ export default function DayView() {
                 </button>
                 <button
                   onClick={() => {
-                    setAskAiContext("Look at my current day and suggest one small helpful improvement. Don't change or schedule anything — just advice I can apply manually.");
+                    const taskList = blocks
+                      .filter((b) => b.kind === "task" && !b.is_calendar_event)
+                      .map((b) => `• ${b.start_time} ${b.title} (${b.duration_min}m)`)
+                      .join("\n");
+                    setAskAiContext(
+                      taskList
+                        ? `My schedule for today:\n${taskList}\n\nLook at this day and suggest one small improvement. Just advice — don't change or reschedule anything.`
+                        : "I have an empty day. Ask me one useful question to help me decide what to focus on, without creating a schedule for me."
+                    );
                     setAskAiOpen(true);
                   }}
                   disabled={planMutating}
@@ -1411,6 +1475,13 @@ export default function DayView() {
                 icon={<Sparkles className="h-4 w-4" />}
                 label="Ask AI about this"
               />
+              {!tappedBlock.is_calendar_event && tappedBlock.kind === "task" && (
+                <ActionRow
+                  onClick={() => { const blk = tappedBlock; setTappedBlock(null); void saveAsTemplate(blk); }}
+                  icon={<Bookmark className="h-4 w-4" />}
+                  label="Save as template"
+                />
+              )}
               {!tappedBlock.is_calendar_event && (
                 <ActionRow
                   onClick={() => { const id = tappedBlock.id; setTappedBlock(null); removeBlock(id); }}
@@ -1484,6 +1555,32 @@ export default function DayView() {
                 <p className="text-[12px] leading-relaxed text-secondary-fg">
                   Type or paste your tasks — one per line, bullets, commas, anything. We'll split them into blocks.
                 </p>
+                {templates.length > 0 && (
+                  <div>
+                    <p className="text-[10px] font-semibold uppercase tracking-[0.12em] text-secondary-fg/55 mb-2">Templates</p>
+                    <div className="-mx-1 flex gap-1.5 overflow-x-auto pb-1 px-1 scrollbar-none">
+                      {templates.map((t) => (
+                        <div key={t.id} className="shrink-0 flex items-center gap-0.5 rounded-full border border-border/40 bg-card/50 pl-3 pr-1 py-1">
+                          <button
+                            type="button"
+                            onClick={() => setBulkInput((v) => v ? `${v}\n${t.raw_input}` : t.raw_input)}
+                            className="text-[12px] font-medium text-foreground/85 max-w-[11rem] truncate pressable"
+                          >
+                            {t.name}
+                          </button>
+                          <button
+                            type="button"
+                            onClick={() => void deleteTemplate(t.id)}
+                            className="h-5 w-5 flex items-center justify-center rounded-full text-secondary-fg/45 hover:text-destructive hover:bg-destructive/10 pressable transition-colors ml-0.5"
+                            aria-label="Remove template"
+                          >
+                            <X className="h-3 w-3" />
+                          </button>
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+                )}
                 <Textarea
                   autoFocus={false}
                   value={bulkInput}

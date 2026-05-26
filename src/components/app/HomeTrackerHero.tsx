@@ -1,6 +1,8 @@
 import { useEffect, useMemo, useRef, useState, type CSSProperties, type FormEvent } from "react";
+import { AnimatePresence, motion } from "framer-motion";
 import { Check, Play, Square, Plus, Search, ChevronDown, Wallet } from "lucide-react";
-import { useTimeTracker, useTimeTrackerElapsed, fmtHMS, fmtHM } from "@/hooks/useTimeTracker";
+import { useTimeTracker, subscribeElapsed, getElapsedSec, fmtHMS, fmtHM } from "@/hooks/useTimeTracker";
+import { LiveElapsed } from "@/components/app/LiveElapsed";
 import { Sheet, SheetContent, SheetHeader, SheetTitle } from "@/components/ui/sheet";
 import { Input } from "@/components/ui/input";
 import { Button } from "@/components/ui/button";
@@ -10,6 +12,74 @@ import { UpgradeSheet } from "@/components/app/UpgradeSheet";
 import { categoryBillingToDraft } from "@/lib/categoryBilling";
 import { haptics } from "@/lib/haptics";
 import { toast } from "sonner";
+
+function fmtMoney(amount: number, currency: string): string {
+  try {
+    return new Intl.NumberFormat("en-US", {
+      style: "currency",
+      currency,
+      minimumFractionDigits: 0,
+      maximumFractionDigits: 2,
+    }).format(amount);
+  } catch {
+    return `${currency} ${amount.toFixed(2)}`;
+  }
+}
+
+function FlipEarnings({ rate, currency }: { rate: number; currency: string }) {
+  const [amt, setAmt] = useState(() => `+${fmtMoney(0, currency)}`);
+  const [visible, setVisible] = useState(false);
+  const [flipKey, setFlipKey] = useState(0);
+  const visibleRef = useRef(false);
+  const prevMinRef = useRef(-1);
+
+  useEffect(() => {
+    prevMinRef.current = -1;
+    visibleRef.current = false;
+    setVisible(false);
+    return subscribeElapsed((sec) => {
+      const earned = (sec / 3600) * rate;
+      const min = Math.floor(sec / 60);
+      if (!visibleRef.current && sec >= 0) {
+        visibleRef.current = true;
+        setAmt(`+${fmtMoney(earned, currency)}`);
+        setVisible(true);
+      }
+      if (visibleRef.current && min !== prevMinRef.current && min > 0) {
+        prevMinRef.current = min;
+        setAmt(`+${fmtMoney(earned, currency)}`);
+        setFlipKey((k) => k + 1);
+      }
+    });
+  }, [rate, currency]);
+
+  if (!visible) return null;
+
+  return (
+    <motion.div
+      initial={{ opacity: 0, scale: 0.92 }}
+      animate={{ opacity: 1, scale: 1 }}
+      transition={{ type: "spring", stiffness: 300, damping: 24 }}
+      className="mt-1.5 inline-flex items-center gap-1.5 rounded-full bg-success/10 border border-success/20 px-3 py-1 tabular-nums overflow-hidden"
+      style={{ perspective: 200 }}
+    >
+      <span className="text-[11px] font-medium text-success/65">earned</span>
+      <AnimatePresence mode="popLayout" initial={false}>
+        <motion.span
+          key={flipKey}
+          className="text-[14px] font-semibold text-success"
+          initial={{ y: -12, rotateX: -40, opacity: 0 }}
+          animate={{ y: 0, rotateX: 0, opacity: 1 }}
+          exit={{ y: 12, rotateX: 40, opacity: 0 }}
+          transition={{ duration: 0.28, ease: [0.4, 0, 0.2, 1] }}
+          style={{ display: "inline-block", transformOrigin: "50% 50%" }}
+        >
+          {amt}
+        </motion.span>
+      </AnimatePresence>
+    </motion.div>
+  );
+}
 
 /**
  * HomeTrackerHero — the bold, primary surface of the app.
@@ -72,7 +142,6 @@ export function HomeTrackerHero({ onOpenDetails }: { onOpenDetails: () => void }
     updateCategoryRate,
     updateCategoryBilling,
   } = useTimeTracker();
-  const elapsedSec = useTimeTrackerElapsed();
   const activeCat = categories.find((c) => c.id === active?.category_id);
   const [pickerOpen, setPickerOpen] = useState(false);
   const [selectedCategoryId, setSelectedCategoryId] = useState<string | null>(null);
@@ -233,7 +302,7 @@ export function HomeTrackerHero({ onOpenDetails }: { onOpenDetails: () => void }
         <div className="mt-4 flex flex-col items-center text-center">
           {active && activeCat ? (
             <>
-              <div className="inline-flex items-center gap-2 rounded-full bg-foreground/[0.05] px-3 py-1 border border-border/30">
+              <div className="inline-flex items-center gap-2 rounded-full bg-foreground/[0.07] px-3 py-1 border border-border/30">
                 <span
                   className="h-1.5 w-1.5 rounded-full animate-pulse shadow-[0_0_0_3px_color-mix(in_srgb,var(--hero-accent)_22%,transparent)]"
                   style={{ background: accent }}
@@ -255,10 +324,17 @@ export function HomeTrackerHero({ onOpenDetails }: { onOpenDetails: () => void }
                 quietly-pulsing surface, not text inside a faint box.
               */}
               <div className="mt-3 breathe">
-                <div className="font-display text-[3.4rem] font-semibold tabular-nums leading-none tracking-[-0.04em] text-foreground">
-                  {fmtHMS(elapsedSec)}
-                </div>
+                <LiveElapsed
+                  format={fmtHMS}
+                  className="font-display text-[3.4rem] font-semibold tabular-nums leading-none tracking-[-0.04em] text-foreground"
+                />
               </div>
+              {activeCat?.hourly_rate && activeCat.hourly_rate > 0 && (
+                <FlipEarnings
+                  rate={activeCat.hourly_rate}
+                  currency={activeCat.currency || "USD"}
+                />
+              )}
               <button
                 type="button"
                 onClick={() => { haptics.impact("medium"); void stop(); }}
@@ -319,8 +395,8 @@ export function HomeTrackerHero({ onOpenDetails }: { onOpenDetails: () => void }
                 onClick={() => { haptics.selection(); setSelectedCategoryId(c.id); }}
                 className={`shrink-0 inline-flex items-center gap-1.5 rounded-full border py-1.5 pl-2 pr-3 text-[12px] font-medium transition-colors pressable ${
                   selectedCategoryId === c.id
-                    ? "border-primary/50 bg-primary/12 text-primary-foreground ring-[1.5px] ring-primary/20"
-                    : "border-border/35 bg-white/[0.04] dark:bg-white/[0.05] text-foreground/80 hover:bg-white/[0.08]"
+                    ? "border-primary/50 bg-primary/[0.12] text-foreground ring-[1.5px] ring-primary/20"
+                    : "border-border/35 bg-black/[0.05] dark:bg-white/[0.05] text-foreground/80 hover:bg-black/[0.08] dark:hover:bg-white/[0.08]"
                 }`}
               >
                 <span className="h-1.5 w-1.5 rounded-full" style={{ background: c.color }} />

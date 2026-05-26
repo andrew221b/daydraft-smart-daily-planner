@@ -5,7 +5,7 @@ const config: CapacitorConfig = {
   appName: "DayDraft",
   webDir: "dist",
   ios: {
-    contentInset: "automatic",
+    contentInset: "never",
     /** Mobile content mode keeps layout predictable on iPad-class devices. */
     preferredContentMode: "mobile",
   },

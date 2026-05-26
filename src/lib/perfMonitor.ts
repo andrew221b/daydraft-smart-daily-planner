@@ -62,14 +62,12 @@ export function recordAiCall(name: string, ms: number): void {
   if (ms > b.maxMs) b.maxMs = ms;
 }
 
-export function recordAiCacheHit(name: string): void {
+export function recordAiCacheHit(): void {
   state.aiCacheHits += 1;
-  void name;
 }
 
-export function recordAiCacheMiss(name: string): void {
+export function recordAiCacheMiss(): void {
   state.aiCacheMisses += 1;
-  void name;
 }
 
 export function recordTimerDrift(driftMs: number): void {
