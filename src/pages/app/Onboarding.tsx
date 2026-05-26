@@ -111,7 +111,7 @@ export default function Onboarding() {
                   <div className="text-[13px] text-subtle">No auto-planning. No noise. You're in control.</div>
                 </div>
               </div>
-              <Button disabled={finishing} onClick={() => setStep(1)} className="w-full h-[52px] rounded-[16px] bg-primary text-primary-foreground hover:bg-primary/92 pressable text-[15px] font-medium shadow-card">
+              <Button disabled={finishing} onClick={() => setStep(1)} className="w-full h-[52px] rounded-[18px] bg-primary text-primary-foreground hover:bg-primary/92 pressable text-[15px] font-medium shadow-card">
                 Continue <ArrowRight className="h-4 w-4" />
               </Button>
             </div>
@@ -136,7 +136,7 @@ export default function Onboarding() {
               <h1 className="font-display text-[26px] font-semibold leading-tight tracking-tight text-balance">
                 Teach the AI about you
               </h1>
-              <p className="text-secondary-fg mt-3 text-[13.5px] leading-[1.55] max-w-xs mx-auto text-balance">
+              <p className="text-secondary-fg mt-3 text-[14px] leading-[1.55] max-w-xs mx-auto text-balance">
                 This context is secretly passed to the AI every time you plan your day, so your schedules fit your actual lifestyle.
               </p>
               <div className="mt-7 flex-1 min-h-0 w-full text-left">
@@ -145,11 +145,11 @@ export default function Onboarding() {
                   onChange={(e) => setAiAbout(e.target.value)}
                   placeholder="e.g. I work from home, I have a dog that needs walking at 1pm, and I prefer to avoid hard tasks after 4pm."
                   maxLength={500}
-                  className="min-h-[120px] surface-card border-soft rounded-xl text-[13.5px] resize-none"
+                  className="min-h-[120px] surface-card border-soft rounded-xl text-[14px] resize-none"
                 />
-                <p className="mt-1.5 text-[10.5px] text-secondary-fg/80">{aiAbout.length}/500</p>
+                <p className="mt-1.5 text-[11px] text-secondary-fg/80">{aiAbout.length}/500</p>
               </div>
-              <Button disabled={finishing} onClick={() => finish(true)} className="w-full h-[52px] rounded-[16px] bg-primary text-primary-foreground hover:bg-primary/92 pressable text-[15px] font-medium mt-5 shadow-card shrink-0">
+              <Button disabled={finishing} onClick={() => finish(true)} className="w-full h-[52px] rounded-[18px] bg-primary text-primary-foreground hover:bg-primary/92 pressable text-[15px] font-medium mt-5 shadow-card shrink-0">
                 Enable smart planning
               </Button>
               <button disabled={finishing} onClick={() => finish(false)} className="mt-4 pb-2 text-secondary-fg text-[13px] hover:text-foreground transition-colors mx-auto disabled:opacity-60 disabled:pointer-events-none">

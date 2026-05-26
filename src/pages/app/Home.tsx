@@ -156,7 +156,7 @@ export default function Home() {
             <p className="text-[10px] font-semibold tracking-[0.18em] uppercase text-secondary-fg/50 mb-1">
               {new Date().toLocaleDateString("en-US", { weekday: "long", month: "long", day: "numeric" })}
             </p>
-            <h1 className="font-display text-[28px] font-semibold tracking-[-0.025em] leading-[1.1] text-foreground overflow-hidden text-ellipsis whitespace-nowrap">
+            <h1 className="page-title text-foreground overflow-hidden text-ellipsis whitespace-nowrap">
               {greeting}
             </h1>
           </header>

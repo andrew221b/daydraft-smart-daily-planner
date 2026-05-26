@@ -58,7 +58,7 @@ export const Shell = ({
 
     <div className="relative z-10 w-full max-w-[440px] h-full flex flex-col px-1.5">
       <div
-        className="pointer-events-none absolute inset-x-0 top-2 h-32 rounded-[24px] opacity-55"
+        className="pointer-events-none absolute inset-x-0 top-2 h-32 rounded-[28px] opacity-55"
         style={{ background: "radial-gradient(70% 70% at 50% 0%, hsl(var(--primary) / 0.11), transparent 72%)" }}
         aria-hidden
       />

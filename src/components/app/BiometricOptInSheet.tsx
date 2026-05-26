@@ -195,7 +195,7 @@ export function BiometricOptInSheet() {
             type="button"
             onClick={handleEnable}
             disabled={enrolling}
-            className="w-full max-w-[320px] h-[54px] rounded-[20px] bg-primary text-primary-foreground hover:bg-primary/92 pressable font-semibold text-[16px] shadow-[0_12px_32px_-8px_hsl(var(--primary)/0.6)] disabled:opacity-60 transition-opacity"
+            className="w-full max-w-[320px] h-[54px] rounded-[18px] bg-primary text-primary-foreground hover:bg-primary/92 pressable font-semibold text-[16px] shadow-[0_12px_32px_-8px_hsl(var(--primary)/0.6)] disabled:opacity-60 transition-opacity"
           >
             {enrolling ? "Verifying…" : primaryCta}
           </button>
@@ -203,7 +203,7 @@ export function BiometricOptInSheet() {
           <button
             type="button"
             onClick={handleNotNow}
-            className="mt-2 w-full max-w-[320px] h-[48px] rounded-[18px] text-secondary-fg/80 hover:text-foreground/95 hover:bg-soft/40 pressable font-medium text-[14.5px] transition-colors"
+            className="mt-2 w-full max-w-[320px] h-[48px] rounded-[18px] text-secondary-fg/80 hover:text-foreground/95 hover:bg-soft/40 pressable font-medium text-[15px] transition-colors"
           >
             Maybe later
           </button>

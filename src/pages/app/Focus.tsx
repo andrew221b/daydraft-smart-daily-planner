@@ -543,7 +543,7 @@ export default function Focus() {
           <button
             type="button"
             onClick={() => void complete()}
-            className="w-full flex h-14 items-center justify-center gap-2 rounded-[20px] bg-primary text-[17px] font-semibold text-primary-foreground pressable shadow-[0_0_28px_-4px_hsl(var(--primary)/0.5)]"
+            className="w-full flex h-14 items-center justify-center gap-2 rounded-[18px] bg-primary text-[17px] font-semibold text-primary-foreground pressable shadow-[0_0_28px_-4px_hsl(var(--primary)/0.5)]"
           >
             <Check className="h-5 w-5 shrink-0" strokeWidth={2.75} />
             Done
@@ -551,7 +551,7 @@ export default function Focus() {
           <button
             type="button"
             onClick={() => setConfirmSkipOpen(true)}
-            className="w-full flex h-12 items-center justify-center rounded-[16px] border border-soft surface-soft text-[14px] font-medium text-secondary-fg pressable hover:text-foreground transition-colors"
+            className="w-full flex h-12 items-center justify-center rounded-[18px] border border-soft surface-soft text-[14px] font-medium text-secondary-fg pressable hover:text-foreground transition-colors"
           >
             Skip
           </button>
@@ -560,7 +560,7 @@ export default function Focus() {
             the user hasn't opted out for this session. Two clear paths so
             the user is never silently un-tracked. */}
         {!trackingThisBlock && armed && !assignedCatIdForBlock && !trackerSkipped && (
-          <div className="mt-6 w-full max-w-[320px] rounded-[24px] app-card p-5 space-y-4 shadow-lg border border-soft">
+          <div className="mt-6 w-full max-w-[320px] rounded-[28px] app-card p-5 space-y-4 shadow-lg border border-soft">
             <div className="flex items-start gap-3">
               <Timer className="h-4 w-4 text-primary mt-0.5 shrink-0" />
               <div className="text-[13px] leading-snug text-foreground/90">
@@ -570,7 +570,7 @@ export default function Focus() {
             <div className="grid grid-cols-2 gap-2.5">
               <Popover open={catPickerOpen} onOpenChange={(o) => { setCatPickerOpen(o); if (!o) setNewFocusCatName(""); }}>
                 <PopoverTrigger asChild>
-                  <button className="h-11 rounded-[14px] bg-primary/15 border border-primary/30 text-primary text-[13.5px] font-bold pressable hover:bg-primary/20 transition-colors">
+                  <button className="h-11 rounded-[14px] bg-primary/15 border border-primary/30 text-primary text-[14px] font-bold pressable hover:bg-primary/20 transition-colors">
                     Pick category
                   </button>
                 </PopoverTrigger>

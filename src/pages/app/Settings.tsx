@@ -110,10 +110,12 @@ export default function Settings() {
   return (
     <>
       <div className="px-5 pt-[var(--content-inset-top)]">
-        <p className="eyebrow">Account</p>
-        <h1 className="type-title mt-2 text-balance">Settings</h1>
+        <header className="shrink-0 pb-5">
+          <p className="eyebrow">Account</p>
+          <h1 className="page-title mt-2 text-balance">Settings</h1>
+        </header>
 
-        <div className="mt-5 space-y-8">
+        <div className="space-y-8">
           <ProCard
             entitlement={entitlement} isPro={isPro} subscriptionPro={subscriptionPro} devSimulatePro={devSimulatePro}
             planQuotaUsed={planQuotaUsed} planQuotaLimit={planQuotaLimit} planQuotaRemaining={planQuotaRemaining}
@@ -142,12 +144,12 @@ export default function Settings() {
           {/* 2. Profile — name + appearance grouped */}
           <Section title="You">
             <div className="rounded-[18px] border border-border/35 hero-glass divide-y divide-border/35 overflow-hidden">
-              <div className="px-3 py-2.5">
+              <div className="px-4 py-3">
                 <div className="text-[11px] text-secondary-fg mb-1">Name</div>
                 <Input value={name} onChange={e => setName(e.target.value)} onBlur={() => update({ display_name: name })}
                   className="h-9 bg-transparent border-0 px-0 focus-visible:ring-0 text-[14px]" />
               </div>
-              <div className="px-3 py-3">
+              <div className="px-4 py-3">
                 <div className="text-[11px] text-secondary-fg mb-2">Appearance</div>
                 <ThemeToggle />
                 <div className="mt-3">
@@ -206,7 +208,7 @@ export default function Settings() {
                     <div className="text-[12px] font-medium text-foreground/90 leading-snug">
                       {pushAvailabilityCopy[pushState].title}
                     </div>
-                    <p className="text-[11.5px] text-secondary-fg mt-1 leading-relaxed">
+                    <p className="text-[12px] text-secondary-fg mt-1 leading-relaxed">
                       {pushAvailabilityCopy[pushState].body}
                     </p>
                   </div>
@@ -303,7 +305,7 @@ export default function Settings() {
 
 const Section = ({ title, children }: { title: string; children: React.ReactNode }) => (
   <div>
-    <div className="text-[10px] uppercase tracking-[0.14em] text-secondary-fg mb-2 font-medium">{title}</div>
+    <div className="eyebrow mb-2">{title}</div>
     {children}
   </div>
 );

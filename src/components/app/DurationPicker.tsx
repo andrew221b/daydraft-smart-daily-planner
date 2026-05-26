@@ -56,7 +56,7 @@ export function DurationPicker({ open, onClose, value, onChange, title = "Durati
                 key={p}
                 type="button"
                 onClick={() => commit(p)}
-                className={`h-12 rounded-[14px] border pressable text-[13.5px] font-medium tabular-nums transition-colors ${
+                className={`h-12 rounded-[14px] border pressable text-[14px] font-medium tabular-nums transition-colors ${
                   value === p
                     ? "bg-primary text-primary-foreground border-primary shadow-card"
                     : "surface-card border-soft text-foreground hover:border-primary/40"

@@ -113,9 +113,12 @@ export const TabBar = () => {
     >
       {/* Centering wrapper — pill stays max 424 px wide, centred */}
       <div className="mx-auto w-[min(calc(100vw-24px),424px)] px-px">
+      {/* No backdrop-filter here — the outer <nav> already frosts the
+          content underneath. A second blur layer on this rounded pill
+          is invisible (content is pre-blurred) but creates a separate
+          GPU compositor layer on iOS WKWebView. */}
       <div
-        className="rounded-[26px] border border-border/55 bg-background/78 shadow-[0_16px_48px_-12px_rgb(0,0,0,0.25)] backdrop-blur-xl dark:border-border/40 dark:bg-background/72 dark:shadow-[0_16px_48px_-12px_rgb(0,0,0,0.6)] dark:ring-1 dark:ring-white/[0.08]"
-        style={{ WebkitBackdropFilter: "blur(24px)", backdropFilter: "blur(24px)" }}
+        className="rounded-[28px] border border-border/55 bg-background/78 shadow-[0_16px_48px_-12px_rgb(0,0,0,0.25)] dark:border-border/40 dark:bg-background/72 dark:shadow-[0_16px_48px_-12px_rgb(0,0,0,0.6)] dark:ring-1 dark:ring-white/[0.08]"
       >
         <div className="p-1.5">
           <div ref={rowRef} className="relative isolate flex min-h-[48px] gap-1.5">
@@ -175,14 +178,15 @@ const TabItem = memo(function TabItem({
       onPointerDown={warmRoute}
       onTouchStart={warmRoute}
       onFocus={warmRoute}
-      className={`relative z-[1] flex min-h-[46px] flex-1 flex-col items-center justify-center gap-0.5 rounded-xl py-1.5 pressable transition-colors duration-200 ease-out ${
+      className={`relative z-[1] flex min-h-[46px] flex-1 flex-col items-center justify-center gap-0.5 rounded-xl py-1.5 transition-[color,opacity] duration-200 ease-out active:opacity-65 -webkit-tap-highlight-color-transparent ${
         highlighted ? "text-primary" : "text-secondary-fg hover:text-foreground/80"
       }`}
+      style={{ WebkitTapHighlightColor: "transparent" }}
       aria-label={label}
       aria-current={highlighted ? "page" : undefined}
     >
       <Icon
-        className={`h-[18px] w-[18px] transition-[transform,stroke-width] duration-300 ease-[cubic-bezier(0.34,1.56,0.64,1)] ${
+        className={`h-[18px] w-[18px] transition-[transform,stroke-width] duration-200 ease-[cubic-bezier(0.34,1.4,0.64,1)] ${
           highlighted ? "scale-[1.08]" : "group-hover:scale-[1.02]"
         }`}
         strokeWidth={highlighted ? 2.2 : 1.75}

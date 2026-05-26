@@ -115,7 +115,7 @@ export function CurrencyPickerSheet({
           <div className="flex-1 text-center">
             <p className="text-[15px] font-semibold text-foreground/95">Display currency</p>
             {ratesLoading && (
-              <p className="text-[10.5px] text-secondary-fg/55 mt-0.5">Loading live rates…</p>
+              <p className="text-[11px] text-secondary-fg/55 mt-0.5">Loading live rates…</p>
             )}
           </div>
           <div className="min-w-[56px]" />
@@ -130,7 +130,7 @@ export function CurrencyPickerSheet({
               placeholder="USD, Euro, Bitcoin…"
               value={query}
               onChange={(e) => setQuery(e.target.value)}
-              className="w-full h-10 pl-9 pr-3 rounded-2xl border border-border/40 bg-foreground/[0.04] text-[13.5px] placeholder:text-secondary-fg/45 focus:outline-none focus:border-primary/45 transition-colors"
+              className="w-full h-10 pl-9 pr-3 rounded-2xl border border-border/40 bg-foreground/[0.04] text-[14px] placeholder:text-secondary-fg/45 focus:outline-none focus:border-primary/45 transition-colors"
             />
           </div>
         </div>
@@ -238,7 +238,7 @@ const CurrencyRow = memo(function CurrencyRow({
       </div>
 
       {rate && (
-        <p className="text-[10.5px] tabular-nums text-secondary-fg/55 shrink-0">{rate}</p>
+        <p className="text-[11px] tabular-nums text-secondary-fg/55 shrink-0">{rate}</p>
       )}
     </button>
   );

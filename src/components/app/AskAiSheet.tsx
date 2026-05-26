@@ -58,7 +58,7 @@ const ChatInput = memo(function ChatInput({
       style={{ paddingBottom: "max(env(safe-area-inset-bottom, 0px), 12px)" }}
     >
       <div className={[
-        "flex items-center gap-2 rounded-[20px] border px-4 py-2 transition-[border-color,box-shadow] duration-150",
+        "flex items-center gap-2 rounded-[18px] border px-4 py-2 transition-[border-color,box-shadow] duration-150",
         canSend
           ? "border-primary/40 bg-primary/[0.04] shadow-[0_0_0_4px_hsl(var(--primary)/0.08)]"
           : "border-border/55 bg-foreground/[0.05]",
@@ -81,7 +81,7 @@ const ChatInput = memo(function ChatInput({
           disabled={!canSend}
           aria-label="Send"
           className={[
-            "flex h-[32px] w-[32px] shrink-0 items-center justify-center rounded-full pressable transition-all duration-200",
+            "flex h-[32px] w-[32px] shrink-0 items-center justify-center rounded-full pressable transition-[background-color,color,box-shadow] duration-200",
             canSend
               ? "bg-primary text-primary-foreground shadow-[0_4px_12px_hsl(var(--primary)/0.4)]"
               : "bg-foreground/[0.10] text-foreground/35",
@@ -312,19 +312,19 @@ export function AskAiSheet({
               of the scrollable area, close to the input — not floating at top. */}
           {isEmpty && (
             <div className="h-full min-h-[280px] flex flex-col justify-end px-4 pb-4">
-              <p className="text-[10.5px] uppercase tracking-[0.12em] text-foreground/28 font-semibold px-1 pb-2">Suggestions</p>
+              <p className="text-[11px] uppercase tracking-[0.12em] text-foreground/28 font-semibold px-1 pb-2">Suggestions</p>
               <div className="space-y-2">
                 {quickPrompts.map((p) => (
                   <button
                     key={p.label}
                     type="button"
                     onClick={() => p.send ? void send(p.prompt) : setPresetInput(p.prompt)}
-                    className="w-full text-left rounded-2xl border border-border/30 bg-surface/60 px-4 py-3 pressable transition-all duration-150 active:scale-[0.98] hover:border-primary/22 hover:bg-primary/[0.04]"
+                    className="w-full text-left rounded-2xl border border-border/30 bg-surface/60 px-4 py-3 pressable transition-[border-color,background-color] duration-200 hover:border-primary/22 hover:bg-primary/[0.04]"
                   >
                     <div className="flex items-center gap-2">
                       <div className="min-w-0 flex-1">
-                        <p className="text-[13.5px] font-medium text-foreground/90 leading-snug">{p.label}</p>
-                        <p className="text-[11.5px] text-foreground/38 mt-[3px] leading-snug">{p.hint}</p>
+                        <p className="text-[14px] font-medium text-foreground/90 leading-snug">{p.label}</p>
+                        <p className="text-[12px] text-foreground/38 mt-[3px] leading-snug">{p.hint}</p>
                       </div>
                       {p.send
                         ? <ChevronRight className="h-3.5 w-3.5 text-foreground/20 shrink-0" />
@@ -343,7 +343,7 @@ export function AskAiSheet({
               {messages.map((m, i) => (
                 <div key={i} className={`bubble-in flex ${m.role === "user" ? "justify-end" : "justify-start"}`}>
                   <div className={[
-                    "max-w-[84%] rounded-[20px] px-4 py-2.5 text-[14px] leading-[1.6] whitespace-pre-wrap",
+                    "max-w-[84%] rounded-[18px] px-4 py-2.5 text-[14px] leading-[1.6] whitespace-pre-wrap",
                     m.role === "user"
                       ? "bg-primary text-primary-foreground shadow-[0_4px_16px_hsl(var(--primary)/0.26)] rounded-tr-[6px]"
                       : "bg-surface text-foreground/95 border border-border/30 rounded-tl-[6px]",
@@ -355,7 +355,7 @@ export function AskAiSheet({
 
               {loading && !hasEmptyAssistant && (
                 <div className="flex justify-start bubble-in">
-                  <div className="rounded-[20px] rounded-tl-[6px] bg-surface border border-border/30 px-4 py-3.5">
+                  <div className="rounded-[18px] rounded-tl-[6px] bg-surface border border-border/30 px-4 py-3.5">
                     <ThinkingDots />
                   </div>
                 </div>

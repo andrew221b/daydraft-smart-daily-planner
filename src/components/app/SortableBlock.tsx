@@ -163,7 +163,7 @@ export const SortableBlock = ({
       {...(sortableDisabled ? {} : attributes)}
       {...(sortableDisabled ? {} : listeners)}
       className={[
-        "group cursor-pointer tappable app-card rounded-[20px] px-3.5 py-3.5 shadow-sm",
+        "group cursor-pointer tappable app-card rounded-[18px] px-3.5 py-3.5 shadow-sm",
         isDragging ? "is-dragging" : "",
         trackingActive ? "ring-[1.5px] ring-primary/40 bg-primary/[0.04] shadow-[0_0_32px_hsl(var(--primary)/0.12)]" : "",
         isDone && block.kind === "task" ? "opacity-80" : "",
@@ -237,7 +237,7 @@ export const SortableBlock = ({
           <div className="flex-1 min-w-0">
             <div className={[
               "flex items-center gap-1.5 min-w-0 leading-tight",
-              rhythmType === "rest" ? "text-[12.5px]" : "text-[14px] font-medium",
+              rhythmType === "rest" ? "text-[13px]" : "text-[14px] font-medium",
               isDone && block.kind === "task" ? "text-foreground/65" : "text-foreground",
             ].join(" ")}>
               {isCal && <Calendar className="h-3 w-3 text-secondary-fg shrink-0" />}
@@ -258,7 +258,7 @@ export const SortableBlock = ({
             </div>
 
             {/* Subtitle */}
-            <div className={`${rhythmType === "rest" ? "text-[10px]" : "text-[10.5px]"} text-secondary-fg mt-[3px] tabular-nums leading-none`}>
+            <div className={`${rhythmType === "rest" ? "text-[10px]" : "text-[11px]"} text-secondary-fg mt-[3px] tabular-nums leading-none`}>
               {isTask && movedDateLabel && block.resolution === "skipped" ? (
                 <span className="text-sky-500/90 dark:text-sky-400/85">
                   Moved · {movedDateLabel}<span className="text-faint mx-1">·</span>
@@ -306,12 +306,12 @@ export const SortableBlock = ({
             )}
 
             {trackingActive ? (
-              <div className="mt-1.5 inline-flex items-center gap-1.5 rounded-full bg-success/15 text-success border border-success/25 px-2 py-0.5 text-[10.5px] font-medium leading-none">
+              <div className="mt-1.5 inline-flex items-center gap-1.5 rounded-full bg-success/15 text-success border border-success/25 px-2 py-0.5 text-[11px] font-medium leading-none">
                 <span className="h-1.5 w-1.5 rounded-full bg-success animate-pulse" />
                 Tracking now
               </div>
             ) : assignedCategory ? (
-              <div className="mt-1.5 inline-flex items-center gap-1.5 rounded-full border border-border/45 bg-card/60 px-2 py-0.5 text-[10.5px] font-medium leading-none text-foreground/80">
+              <div className="mt-1.5 inline-flex items-center gap-1.5 rounded-full border border-border/45 bg-card/60 px-2 py-0.5 text-[11px] font-medium leading-none text-foreground/80">
                 <span className="h-1.5 w-1.5 rounded-full" style={{ background: assignedCategory.color }} aria-hidden />
                 {assignedCategory.name}
               </div>
@@ -443,11 +443,11 @@ export const SortableBlock = ({
                         cb?.(block);
                       }}
                       className={[
-                        "flex-1 rounded-xl py-2.5 inline-flex flex-col items-center gap-1 pressable transition-all duration-150",
+                        "flex-1 rounded-xl py-2.5 inline-flex flex-col items-center gap-1 pressable transition-[border-color,background-color] duration-200",
                         "border shadow-sm",
                         destructive
-                          ? "border-destructive/15 bg-destructive/[0.06] hover:bg-destructive/[0.11] hover:border-destructive/25 active:scale-[0.95]"
-                          : "border-black/[0.08] bg-black/[0.05] dark:border-white/[0.09] dark:bg-white/[0.04] hover:bg-black/[0.08] hover:border-black/[0.14] dark:hover:bg-white/[0.08] dark:hover:border-white/[0.14] active:scale-[0.95]",
+                          ? "border-destructive/15 bg-destructive/[0.06] hover:bg-destructive/[0.11] hover:border-destructive/25"
+                          : "border-black/[0.08] bg-black/[0.05] dark:border-white/[0.09] dark:bg-white/[0.04] hover:bg-black/[0.08] hover:border-black/[0.14] dark:hover:bg-white/[0.08] dark:hover:border-white/[0.14]",
                       ].join(" ")}
                     >
                       <span className={color}>{icon}</span>
@@ -495,6 +495,7 @@ function CompleteCircleEmpty({
       onPointerDown={(e) => e.stopPropagation()}
       onClick={(e) => {
         e.stopPropagation();
+        haptics.notify("success");
         setRippling(false);
         requestAnimationFrame(() => setRippling(true));
         onToggle();
@@ -527,6 +528,7 @@ function CompleteCircleDone({
       onPointerDown={(e) => e.stopPropagation()}
       onClick={(e) => {
         e.stopPropagation();
+        haptics.tap();
         onToggle();
       }}
       className="relative h-8 w-8 rounded-full bg-success flex items-center justify-center shrink-0 pressable shadow-[0_4px_14px_-2px_hsl(var(--success)/0.55)] ring-1 ring-white/20"

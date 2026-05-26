@@ -172,7 +172,7 @@ export function TimerRescheduleSheet() {
           <SheetTitle className="text-[18px] font-semibold tracking-tight">
             Adjust the rest of your day?
           </SheetTitle>
-          <p className="text-[12.5px] leading-snug text-secondary-fg">
+          <p className="text-[13px] leading-snug text-secondary-fg">
             "{shortTitle}" ran {overByMin > 0 ? `${overByMin}m over` : "long"}. Pick a fix
             or keep the plan as it was.
           </p>
@@ -190,7 +190,7 @@ export function TimerRescheduleSheet() {
                 <span className="mt-0.5 grid place-items-center h-9 w-9 rounded-full bg-primary/10 text-primary shrink-0">
                   <Icon className="h-4 w-4" />
                 </span>
-                <span className="flex-1 text-[13.5px] leading-[1.45] text-foreground/95 whitespace-normal break-words">
+                <span className="flex-1 text-[14px] leading-[1.45] text-foreground/95 whitespace-normal break-words">
                   {opt.label}
                 </span>
                 <ChevronRight className="h-4 w-4 text-secondary-fg/55 shrink-0 mt-2.5 transition-transform group-hover:translate-x-0.5" />

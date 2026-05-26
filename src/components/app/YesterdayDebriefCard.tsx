@@ -159,7 +159,7 @@ function YesterdayDebriefCardInner({ timezone }: { timezone?: string | null }) {
           locked
           onClick={() => setUpgradeOpen(true)}
         >
-          <p className="text-[13.5px] font-medium text-foreground/90 leading-snug">
+          <p className="text-[14px] font-medium text-foreground/90 leading-snug">
             Keep getting AI debriefs every morning.
           </p>
           <p className="mt-1 text-[12px] text-secondary-fg/85 leading-relaxed">
@@ -183,7 +183,7 @@ function YesterdayDebriefCardInner({ timezone }: { timezone?: string | null }) {
     <DebriefShell onDismiss={dismiss} accent>
       <ul className="space-y-1.5">
         {bullets.map((b, i) => (
-          <li key={i} className="flex items-start gap-2.5 text-[13.5px] text-foreground/90 leading-snug">
+          <li key={i} className="flex items-start gap-2.5 text-[14px] text-foreground/90 leading-snug">
             <span
               className="mt-[7px] h-1 w-1 rounded-full bg-primary/80 shrink-0"
               aria-hidden

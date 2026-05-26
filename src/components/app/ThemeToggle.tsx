@@ -15,7 +15,7 @@ export const ThemeToggle = () => {
         const active = theme === v;
         return (
           <button key={v} onClick={() => setTheme(v)}
-            className={`flex-1 inline-flex items-center justify-center gap-1.5 py-2 rounded-lg text-xs font-medium pressable transition-all ${
+            className={`flex-1 inline-flex items-center justify-center gap-1.5 py-2 rounded-lg text-xs font-medium pressable transition-[color,background-color] duration-200 ${
               active ? "bg-primary text-primary-foreground" : "text-secondary-fg hover:text-foreground"
             }`}>
             <Icon className="h-3.5 w-3.5" /> {label}

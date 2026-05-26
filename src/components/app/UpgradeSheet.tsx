@@ -138,7 +138,7 @@ export const UpgradeSheet = ({
           </div>
 
           <Button onClick={checkout} disabled={busy}
-            className="w-full mt-6 h-[54px] rounded-[16px] bg-primary hover:bg-primary/90 text-primary-foreground text-[16px] font-semibold pressable shadow-[0_8px_24px_-8px_hsl(var(--primary)/0.6)] transition-all"
+            className="w-full mt-6 h-[54px] rounded-[18px] bg-primary hover:bg-primary/90 text-primary-foreground text-[16px] font-semibold pressable shadow-[0_8px_24px_-8px_hsl(var(--primary)/0.6)]"
            >
             {reasonCta[reason]}
           </Button>
@@ -161,7 +161,7 @@ const PlanCard = ({ active, onClick, title, price, sub, badge }: {
   active: boolean; onClick: () => void; title: string; price: string; sub: string; badge?: string;
 }) => (
   <button onClick={onClick}
-    className={`relative text-left rounded-[16px] border p-4 pressable transition-all overflow-hidden ${
+    className={`relative text-left rounded-[18px] border p-4 pressable transition-[border-color,background-color,box-shadow] duration-200 overflow-hidden ${
       active 
         ? "border-primary bg-primary/5 shadow-[0_0_24px_-6px_hsl(var(--primary)/0.2)]" 
         : "border-soft surface-card hover:border-primary/30"

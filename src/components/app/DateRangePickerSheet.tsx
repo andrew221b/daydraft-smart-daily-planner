@@ -210,8 +210,8 @@ export function DateRangePickerSheet({
                 editingEnd === "from" ? "bg-primary/15 ring-1 ring-primary/30" : "hover:bg-foreground/[0.04]"
               }`}
             >
-              <p className="text-[9.5px] font-semibold uppercase tracking-[0.18em] text-secondary-fg/65 mb-0.5">From</p>
-              <p className="text-[14.5px] font-semibold text-foreground/95 truncate">
+              <p className="text-[10px] font-semibold uppercase tracking-[0.18em] text-secondary-fg/65 mb-0.5">From</p>
+              <p className="text-[15px] font-semibold text-foreground/95 truncate">
                 {DATE_LONG_FMT.format(parseDateStr(draftFrom))}
               </p>
             </button>
@@ -223,8 +223,8 @@ export function DateRangePickerSheet({
                 editingEnd === "to" ? "bg-primary/15 ring-1 ring-primary/30" : "hover:bg-foreground/[0.04]"
               }`}
             >
-              <p className="text-[9.5px] font-semibold uppercase tracking-[0.18em] text-secondary-fg/65 mb-0.5">To</p>
-              <p className="text-[14.5px] font-semibold text-foreground/95 truncate">
+              <p className="text-[10px] font-semibold uppercase tracking-[0.18em] text-secondary-fg/65 mb-0.5">To</p>
+              <p className="text-[15px] font-semibold text-foreground/95 truncate">
                 {DATE_LONG_FMT.format(parseDateStr(draftTo))}
               </p>
             </button>
@@ -288,7 +288,7 @@ export function DateRangePickerSheet({
         {/* Weekday header */}
         <div className="shrink-0 px-5 pb-1.5 grid grid-cols-7 gap-1">
           {WEEKDAY_LABELS.map((w, i) => (
-            <div key={i} className="h-6 flex items-center justify-center text-[10.5px] font-semibold uppercase tracking-[0.12em] text-secondary-fg/55">
+            <div key={i} className="h-6 flex items-center justify-center text-[11px] font-semibold uppercase tracking-[0.12em] text-secondary-fg/55">
               {w}
             </div>
           ))}
@@ -339,7 +339,7 @@ export function DateRangePickerSheet({
                         disabled={isDisabled}
                         whileTap={!isDisabled ? { scale: 0.88 } : undefined}
                         transition={{ type: "spring", stiffness: 500, damping: 24 }}
-                        className={`relative z-[1] h-9 w-9 rounded-full text-[13.5px] font-semibold tabular-nums transition-colors duration-150 ${
+                        className={`relative z-[1] h-9 w-9 rounded-full text-[14px] font-semibold tabular-nums transition-colors duration-150 ${
                           isEndpoint
                             ? "bg-primary text-primary-foreground shadow-[0_4px_14px_-2px_hsl(var(--primary)/0.55)]"
                             : isToday

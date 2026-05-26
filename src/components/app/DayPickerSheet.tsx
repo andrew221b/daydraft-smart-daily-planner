@@ -124,7 +124,7 @@ export function DayPickerSheet({
         <div className="px-6">
           <h3 className="font-display text-[17px] font-semibold tracking-tight">{title}</h3>
           {subtitle && (
-            <p className="text-[12.5px] text-secondary-fg/85 mt-1 leading-relaxed">{subtitle}</p>
+            <p className="text-[13px] text-secondary-fg/85 mt-1 leading-relaxed">{subtitle}</p>
           )}
         </div>
 
@@ -166,7 +166,7 @@ export function DayPickerSheet({
                             : "border-border/40 bg-card/60 text-foreground/90",
                     ].join(" ")}
                   >
-                    <span className={`text-[9.5px] font-semibold uppercase tracking-[0.14em] ${c.isSelected ? "text-primary-foreground/85" : "text-secondary-fg/75"}`}>
+                    <span className={`text-[10px] font-semibold uppercase tracking-[0.14em] ${c.isSelected ? "text-primary-foreground/85" : "text-secondary-fg/75"}`}>
                       {c.weekday}
                     </span>
                     <span className="font-display text-[18px] font-semibold tabular-nums leading-none">

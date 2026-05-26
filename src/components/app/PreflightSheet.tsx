@@ -99,7 +99,7 @@ export const PreflightSheet = ({
             <button
               key={key}
               onClick={() => toggle(key)}
-              className={`w-full flex items-center gap-3 px-4 py-3.5 rounded-[18px] border pressable transition-all backdrop-blur-md ${
+              className={`w-full flex items-center gap-3 px-4 py-3.5 rounded-[18px] border pressable transition-[border-color,background-color,box-shadow] duration-200 backdrop-blur-md ${
                 checks[key]
                   ? "border-accent surface-accent shadow-[0_4px_16px_hsl(var(--primary)/0.08)]"
                   : "border-soft surface-card hover:bg-card/90"
@@ -119,7 +119,7 @@ export const PreflightSheet = ({
         <div className="mt-5 space-y-2 pb-2">
           <Button
             onClick={startWithPref}
-            className="w-full h-12 rounded-[16px] bg-gradient-primary hover:bg-primary/92 text-primary-foreground font-semibold pressable shadow-card border border-primary/20"
+            className="w-full h-12 rounded-[18px] bg-gradient-primary hover:bg-primary/92 text-primary-foreground font-semibold pressable shadow-card border border-primary/20"
           >
             {allChecked ? "Let's go" : "Start anyway"}
           </Button>

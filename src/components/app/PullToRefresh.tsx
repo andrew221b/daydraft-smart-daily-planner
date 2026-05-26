@@ -90,9 +90,17 @@ export const PullToRefresh = ({
       setPull(50);
       try { await onRefresh(); } catch { /* noop */ }
       setRefreshing(false);
+      // Success haptic on completion — pairs with the spring snap-back
+      // so the refresh feels tactile end-to-end.
+      haptics.notify("success");
     }
     setPull(0);
   };
+
+  // While the finger is moving, height tracks 1:1 (no transition would
+  // make it feel rubbery in the wrong way). On release / completion the
+  // spring curve gives the iOS-style elastic snap-back.
+  const isReleasing = startY.current === null;
 
   return (
     <div
@@ -104,8 +112,13 @@ export const PullToRefresh = ({
       onTouchCancel={onEnd}
     >
       <div
-        className="flex items-center justify-center text-secondary-fg overflow-hidden transition-[height] duration-150"
-        style={{ height: pull }}
+        className="flex items-center justify-center text-secondary-fg overflow-hidden"
+        style={{
+          height: pull,
+          transition: isReleasing
+            ? "height 320ms cubic-bezier(0.34, 1.2, 0.64, 1)"
+            : "none",
+        }}
       >
         {refreshing ? (
           <Loader2 className="h-4 w-4 animate-spin text-primary" />

@@ -19,6 +19,7 @@ import { fetchRollingEntries, rollingEntriesQueryKey } from "@/lib/timeEntriesQu
 import { triggerDownload } from "@/lib/reportExport";
 import { useTabVisible } from "@/components/app/PersistentTabs";
 import { UpgradeSheet } from "@/components/app/UpgradeSheet";
+import { haptics } from "@/lib/haptics";
 import {
   AlertDialog,
   AlertDialogAction,
@@ -216,14 +217,17 @@ function TrackerInner({ embedded = false, onClose }: { embedded?: boolean; onClo
 
   // ----- Aggregations -----
   // `nowSec` drives the live duration of any still-running entry in the
-  // tracker grid. While the Tracker tab is hidden the grid isn't on screen
-  // so the tick is wasted re-renders — pause it.
+  // tracker grid. We only tick when (a) the Tracker tab is visible AND
+  // (b) there's an active session whose duration is actually growing.
+  // Idle = no running entry = `now` doesn't affect any memo, so a tick
+  // is pure waste. Interval is 60s (was 30s) because the grid shows
+  // h:m granularity — sub-minute updates wouldn't be visible anyway.
   useEffect(() => {
-    if (!trackerTabVisible) return;
+    if (!trackerTabVisible || !active) return;
     setNowSec(Date.now()); // re-sync on return
-    const id = window.setInterval(() => setNowSec(Date.now()), 30_000);
+    const id = window.setInterval(() => setNowSec(Date.now()), 60_000);
     return () => window.clearInterval(id);
-  }, [trackerTabVisible]);
+  }, [trackerTabVisible, active]);
 
   useEffect(() => {
     try {
@@ -426,6 +430,7 @@ function TrackerInner({ embedded = false, onClose }: { embedded?: boolean; onClo
     setStopBusy(true);
     try {
       await stop();
+      haptics.notify("success");
     } finally {
       setStopBusy(false);
     }
@@ -689,7 +694,7 @@ function TrackerInner({ embedded = false, onClose }: { embedded?: boolean; onClo
             {/* Hero stopwatch — premium, centered */}
             <div className="px-5 pt-5">
               <div
-                className={`relative overflow-hidden rounded-[16px] border p-5 transition-[border-color,background-color,box-shadow,transform] duration-500 backdrop-blur-sm tracker-hero-luxe ${
+                className={`relative overflow-hidden rounded-[18px] border p-5 transition-[border-color,background-color,box-shadow,transform] duration-[320ms] backdrop-blur-sm tracker-hero-luxe ${
                   active && activeCat
                     ? "tracker-hero--running border-transparent surface-card shadow-card"
                     : "border-soft surface-card"
@@ -721,7 +726,7 @@ function TrackerInner({ embedded = false, onClose }: { embedded?: boolean; onClo
                     </div>
                     <button
                       onClick={handleStop}
-                      className="mt-1 btn-volumetric inline-flex items-center justify-center gap-2 h-11 px-6 rounded-full bg-primary text-primary-foreground text-[13.5px] font-semibold pressable shadow-card"
+                      className="mt-1 btn-volumetric inline-flex items-center justify-center gap-2 h-11 px-6 rounded-full bg-primary text-primary-foreground text-[14px] font-semibold pressable shadow-card"
                       aria-label="Stop"
                     >
                       <Pause className="h-3.5 w-3.5" fill="currentColor" /> Stop
@@ -768,8 +773,8 @@ function TrackerInner({ embedded = false, onClose }: { embedded?: boolean; onClo
 
             {/* Empty state when no entries today and no active */}
             {!active && todayByCat.length === 0 && categories.length > 0 && (
-              <div className="px-5 pt-4 empty-state-fade">
-                <div className="rounded-[18px] border border-dashed border-soft surface-soft backdrop-blur-sm px-4 py-5 text-center">
+              <div className="min-h-[40vh] flex flex-col items-center justify-center px-5 empty-state-fade">
+                <div className="w-full rounded-[18px] border border-dashed border-soft surface-soft backdrop-blur-sm px-4 py-5 text-center">
                   <div className="mx-auto h-10 w-10 rounded-full bg-muted flex items-center justify-center mb-2 breathe">
                     <Clock className="h-4 w-4 text-secondary-fg" />
                   </div>
@@ -789,7 +794,7 @@ function TrackerInner({ embedded = false, onClose }: { embedded?: boolean; onClo
                 const earned = rate > 0 ? (periodSec / 3600) * rate : 0;
                 return (
                   <SwipeRow key={c.id} disabled={c.is_default || isActive || editingCat === c.id} onDelete={() => setConfirmDeleteCat(c.id)}>
-                  <div className={`rounded-[16px] border transition-[border-color,background-color,box-shadow,transform] duration-300 shadow-card tracker-category-luxe ${isActive ? "border-accent surface-accent ring-2 ring-primary/12 ring-offset-2 ring-offset-background" : "border-soft surface-card"} overflow-hidden backdrop-blur-sm`}>
+                  <div className={`rounded-[18px] border transition-[border-color,background-color,box-shadow,transform] duration-300 shadow-card tracker-category-luxe ${isActive ? "border-accent surface-accent ring-2 ring-primary/12 ring-offset-2 ring-offset-background" : "border-soft surface-card"} overflow-hidden backdrop-blur-sm`}>
                     <div className="flex items-center gap-2 px-3 py-2.5">
                       {editingCat === c.id ? (
                         <form
@@ -975,7 +980,7 @@ function TrackerInner({ embedded = false, onClose }: { embedded?: boolean; onClo
                             <Pencil className="h-3.5 w-3.5" />
                           </button>
                           {isActive ? (
-                            <button disabled={stopBusy} onClick={handleStop} className="inline-flex items-center gap-1 px-3 py-1.5 rounded-lg bg-primary text-primary-foreground text-xs font-medium pressable disabled:opacity-50 disabled:pointer-events-none">
+                            <button disabled={stopBusy} onClick={handleStop} className="inline-flex items-center gap-1 h-9 px-3 rounded-lg bg-primary text-primary-foreground text-xs font-medium pressable disabled:opacity-50 disabled:pointer-events-none">
                               <Pause className="h-3 w-3" fill="currentColor" /> Stop
                             </button>
                           ) : (
@@ -1008,11 +1013,12 @@ function TrackerInner({ embedded = false, onClose }: { embedded?: boolean; onClo
                                 setCategoryBusyId(c.id);
                                 try {
                                   await start(c.id);
+                                  haptics.impact("medium");
                                 } finally {
                                   setCategoryBusyId(null);
                                 }
                               }}
-                              className="gleam btn-volumetric inline-flex items-center gap-1 px-3 py-1.5 rounded-lg text-primary-foreground text-xs font-medium pressable disabled:opacity-50 disabled:pointer-events-none"
+                              className="gleam btn-volumetric inline-flex items-center gap-1 h-9 px-3 rounded-lg text-primary-foreground text-xs font-medium pressable disabled:opacity-50 disabled:pointer-events-none"
                             >
                               <Play className="h-3 w-3" fill="currentColor" /> Start
                             </button>

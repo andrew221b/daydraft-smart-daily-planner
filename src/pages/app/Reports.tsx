@@ -391,10 +391,10 @@ export default function Reports() {
     <>
       <div className="flex w-full flex-col px-5 pt-[var(--content-inset-top)] pb-5">
         <header className="shrink-0 pb-6">
-          <p className="text-[10px] font-semibold uppercase tracking-[0.2em] text-secondary-fg/65">
+          <p className="eyebrow">
             Reports
           </p>
-          <h1 className="mt-1 font-display text-[26px] font-semibold tracking-[-0.02em]">
+          <h1 className="page-title mt-1">
             Time insights
           </h1>
         </header>
@@ -408,7 +408,7 @@ export default function Reports() {
           grid so the slide hits each pill exactly.
         */}
         <div
-          className="shrink-0 mb-5 relative isolate grid grid-cols-4 p-1 rounded-2xl surface-soft border border-soft self-start w-[280px]"
+          className="shrink-0 mb-5 relative isolate grid grid-cols-4 p-1 rounded-2xl surface-soft border border-soft self-start w-full max-w-[280px]"
           role="tablist"
         >
           {(["day", "week", "month", "custom"] as Period[]).map((p) => (
@@ -471,8 +471,8 @@ export default function Reports() {
                   onClick={() => setDateSheetOpen(true)}
                   className="hero-glass border border-border/35 rounded-2xl px-4 py-3 text-left pressable hover:border-primary/30 transition-colors min-w-0"
                 >
-                  <p className="text-[9.5px] font-semibold uppercase tracking-[0.18em] text-secondary-fg/65 mb-1">From</p>
-                  <p className="text-[14.5px] font-semibold text-foreground/95 truncate tabular-nums">
+                  <p className="text-[10px] font-semibold uppercase tracking-[0.18em] text-secondary-fg/65 mb-1">From</p>
+                  <p className="text-[15px] font-semibold text-foreground/95 truncate tabular-nums">
                     {formatChipDate(customFrom)}
                   </p>
                 </button>
@@ -481,8 +481,8 @@ export default function Reports() {
                   onClick={() => setDateSheetOpen(true)}
                   className="hero-glass border border-border/35 rounded-2xl px-4 py-3 text-left pressable hover:border-primary/30 transition-colors min-w-0"
                 >
-                  <p className="text-[9.5px] font-semibold uppercase tracking-[0.18em] text-secondary-fg/65 mb-1">To</p>
-                  <p className="text-[14.5px] font-semibold text-foreground/95 truncate tabular-nums">
+                  <p className="text-[10px] font-semibold uppercase tracking-[0.18em] text-secondary-fg/65 mb-1">To</p>
+                  <p className="text-[15px] font-semibold text-foreground/95 truncate tabular-nums">
                     {formatChipDate(customTo)}
                   </p>
                 </button>
@@ -524,7 +524,7 @@ export default function Reports() {
                       <span className="text-[10px] font-semibold uppercase tracking-[0.16em] text-secondary-fg/70">
                         Estimated pay
                       </span>
-                      <span className="inline-flex items-center gap-0.5 rounded-full bg-success/15 px-2 py-0.5 text-[9.5px] font-bold text-success border border-success/30">
+                      <span className="inline-flex items-center gap-0.5 rounded-full bg-success/15 px-2 py-0.5 text-[10px] font-bold text-success border border-success/30">
                         {displayCurrency}
                         <ChevronRight className="h-2.5 w-2.5 opacity-80" />
                       </span>
@@ -556,7 +556,7 @@ export default function Reports() {
                     if (expandedCategoryIds.size === categoryGroups.length) setExpandedCategoryIds(new Set());
                     else setExpandedCategoryIds(new Set(categoryGroups.map((g) => g.id)));
                   }}
-                  className="shrink-0 text-[11px] font-semibold text-primary pressable"
+                  className="shrink-0 text-[11px] font-semibold text-primary pressable py-1.5 px-1 -my-1.5 -mx-1"
                 >
                   {expandedCategoryIds.size === categoryGroups.length ? "Collapse all" : "Expand all"}
                 </button>
@@ -612,65 +612,76 @@ export default function Reports() {
                           </div>
                         </div>
                         <ChevronDown
-                          className={`mt-0.5 h-4 w-4 shrink-0 text-secondary-fg transition-transform ${
+                          className={`mt-0.5 h-4 w-4 shrink-0 text-secondary-fg transition-transform duration-300 ease-[cubic-bezier(0.34,1.2,0.64,1)] ${
                             isOpen ? "rotate-180" : ""
                           }`}
                         />
                       </button>
-                      {isOpen && (
-                        <div className="border-t border-soft">
-                          <ul className="divide-y divide-border/30">
-                            {group.entries.map((e) => {
-                              const s = new Date(e.started_at);
-                              const en = e.ended_at ? new Date(e.ended_at) : new Date();
-                              const sec = Math.max(0, (en.getTime() - s.getTime()) / 1000);
-                              const earned = ((group.hourlyRate || 0) * sec) / 3600;
-                              return (
-                                <li key={e.id} className="flex items-center gap-3 px-4 py-2.5">
-                                  <div className="min-w-0 flex-1">
-                                    <p className="text-[11px] text-secondary-fg/75 tabular-nums">
-                                      {s.toLocaleDateString(undefined, { month: "short", day: "numeric" })} ·{" "}
-                                      {s.toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })} -{" "}
-                                      {en.toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })}
-                                    </p>
-                                    {e.note && (
-                                      <p className="mt-0.5 truncate text-[12px] text-foreground/80">{e.note}</p>
-                                    )}
-                                  </div>
-                                  <span className="text-right">
-                                    <span className="block text-[12px] tabular-nums text-secondary-fg/85">
-                                      {fmtHM(sec)}
-                                    </span>
-                                    {earned > 0 && (
-                                      <span className="block text-[10px] tabular-nums text-success">
-                                        {fmtMoney(earned, group.currency)}
+                      <AnimatePresence initial={false}>
+                        {isOpen && (
+                          <motion.div
+                            key="cat-detail"
+                            initial={{ height: 0, opacity: 0 }}
+                            animate={{ height: "auto", opacity: 1 }}
+                            exit={{ height: 0, opacity: 0 }}
+                            transition={{ type: "spring", stiffness: 340, damping: 28, mass: 0.85 }}
+                            style={{ overflow: "hidden" }}
+                          >
+                            <div className="border-t border-soft">
+                              <ul className="divide-y divide-border/30">
+                                {group.entries.map((e) => {
+                                  const s = new Date(e.started_at);
+                                  const en = e.ended_at ? new Date(e.ended_at) : new Date();
+                                  const sec = Math.max(0, (en.getTime() - s.getTime()) / 1000);
+                                  const earned = ((group.hourlyRate || 0) * sec) / 3600;
+                                  return (
+                                    <li key={e.id} className="flex items-center gap-3 px-4 py-2.5">
+                                      <div className="min-w-0 flex-1">
+                                        <p className="text-[11px] text-secondary-fg/75 tabular-nums">
+                                          {s.toLocaleDateString(undefined, { month: "short", day: "numeric" })} ·{" "}
+                                          {s.toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })} -{" "}
+                                          {en.toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })}
+                                        </p>
+                                        {e.note && (
+                                          <p className="mt-0.5 truncate text-[12px] text-foreground/80">{e.note}</p>
+                                        )}
+                                      </div>
+                                      <span className="text-right">
+                                        <span className="block text-[12px] tabular-nums text-secondary-fg/85">
+                                          {fmtHM(sec)}
+                                        </span>
+                                        {earned > 0 && (
+                                          <span className="block text-[10px] tabular-nums text-success">
+                                            {fmtMoney(earned, group.currency)}
+                                          </span>
+                                        )}
                                       </span>
-                                    )}
-                                  </span>
-                                </li>
-                              );
-                            })}
-                          </ul>
-                          <div className="grid grid-cols-2 gap-2 px-4 py-3">
-                            <button
-                              type="button"
-                              onClick={(e) => { e.stopPropagation(); onExport("pdf", [group.id], group.name); }}
-                              className="h-8 rounded-xl border border-soft text-[11px] font-semibold text-secondary-fg/85 pressable hover:text-foreground"
-                              aria-label={`Download PDF report for ${group.name}`}
-                            >
-                              PDF
-                            </button>
-                            <button
-                              type="button"
-                              onClick={(e) => { e.stopPropagation(); onExport("csv", [group.id], group.name); }}
-                              className="h-8 rounded-xl border border-soft text-[11px] font-semibold text-secondary-fg/85 pressable hover:text-foreground"
-                              aria-label={`Download CSV report for ${group.name}`}
-                            >
-                              CSV
-                            </button>
-                          </div>
-                        </div>
-                      )}
+                                    </li>
+                                  );
+                                })}
+                              </ul>
+                              <div className="grid grid-cols-2 gap-2 px-4 py-3">
+                                <button
+                                  type="button"
+                                  onClick={(e) => { e.stopPropagation(); onExport("pdf", [group.id], group.name); }}
+                                  className="h-9 rounded-xl border border-soft text-[11px] font-semibold text-secondary-fg/85 pressable hover:text-foreground"
+                                  aria-label={`Download PDF report for ${group.name}`}
+                                >
+                                  PDF
+                                </button>
+                                <button
+                                  type="button"
+                                  onClick={(e) => { e.stopPropagation(); onExport("csv", [group.id], group.name); }}
+                                  className="h-9 rounded-xl border border-soft text-[11px] font-semibold text-secondary-fg/85 pressable hover:text-foreground"
+                                  aria-label={`Download CSV report for ${group.name}`}
+                                >
+                                  CSV
+                                </button>
+                              </div>
+                            </div>
+                          </motion.div>
+                        )}
+                      </AnimatePresence>
                     </li>
                   );
                 })}
@@ -797,7 +808,7 @@ function CategoryFilterChip({
       <button
         type="button"
         onClick={onOpen}
-        className={`flex items-center gap-2 h-9 px-3 rounded-full border text-[12.5px] font-medium pressable transition-colors min-w-0 ${
+        className={`flex items-center gap-2 h-9 px-3 rounded-full border text-[13px] font-medium pressable transition-colors min-w-0 ${
           isFiltered
             ? "border-primary/40 bg-primary/[0.08] text-foreground/95"
             : "border-border/40 bg-foreground/[0.03] text-foreground/85 hover:bg-foreground/[0.06]"

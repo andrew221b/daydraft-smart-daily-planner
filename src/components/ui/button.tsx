@@ -5,10 +5,12 @@ import { cva, type VariantProps } from "class-variance-authority";
 import { cn } from "@/lib/utils";
 
 const buttonVariants = cva(
-  // iOS 26 spring on release (cubic-bezier(0.34, 1.56, 0.64, 1)) gives the
-  // small overshoot users feel as "tactile". -webkit-tap-highlight-color is
-  // killed in :root so the default mobile grey flash doesn't fight our scale.
-  "inline-flex items-center justify-center gap-2 whitespace-nowrap rounded-md text-sm font-medium ring-offset-background transition-[color,background-color,box-shadow,transform,filter] duration-[220ms] ease-[cubic-bezier(0.34,1.56,0.64,1)] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 disabled:pointer-events-none disabled:opacity-50 [-webkit-tap-highlight-color:transparent] [&_svg]:pointer-events-none [&_svg]:size-4 [&_svg]:shrink-0",
+  // iOS-26 spring on release. y2=1.05 in the cubic-bezier is the *visible*
+  // overshoot — enough that the button feels "alive" but not so much that
+  // it looks rubbery. Press itself (active:scale-[0.965]) uses a separate
+  // 110ms transition with a 60ms delay so a touch that turns into a scroll
+  // never triggers the compression. Aligned with `.pressable` in index.css.
+  "inline-flex items-center justify-center gap-2 whitespace-nowrap rounded-md text-sm font-medium ring-offset-background transition-[color,background-color,box-shadow,transform,filter] duration-[200ms] ease-[cubic-bezier(0.25,0.46,0.45,1.05)] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 disabled:pointer-events-none disabled:opacity-50 active:transition-[transform,filter,background-color] active:duration-[110ms] active:delay-[60ms] active:ease-[cubic-bezier(0.25,0.46,0.45,0.94)] [-webkit-tap-highlight-color:transparent] [&_svg]:pointer-events-none [&_svg]:size-4 [&_svg]:shrink-0",
   {
     variants: {
       variant: {

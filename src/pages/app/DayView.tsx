@@ -239,7 +239,10 @@ export default function DayView() {
 
   const sensors = useSensors(
     useSensor(MouseSensor, { activationConstraint: { distance: 8 } }),
-    useSensor(TouchSensor, { activationConstraint: { delay: 250, tolerance: 8 } })
+    // tolerance: 12 (was 8) — gives finger micro-jitter during the 250ms
+    // long-press window more headroom, so a steady press doesn't get
+    // cancelled by sub-pixel drift before it activates.
+    useSensor(TouchSensor, { activationConstraint: { delay: 250, tolerance: 12 } })
   );
 
   useEffect(() => {
@@ -1198,7 +1201,7 @@ export default function DayView() {
         {!planMissing && !isFuture && firstUnfinishedTask && (
           <Button
             onClick={() => nav(`/focus/${firstUnfinishedTask.id}`)}
-            className="w-full h-12 rounded-2xl bg-primary hover:bg-primary/90 text-primary-foreground text-[15px] font-semibold pressable shadow-[0_8px_30px_-6px_hsl(var(--primary)/0.5)] border border-primary/20 mt-4 mb-1 active:scale-[0.98] transition-transform"
+            className="w-full h-12 rounded-2xl bg-primary hover:bg-primary/90 text-primary-foreground text-[15px] font-semibold pressable shadow-[0_8px_30px_-6px_hsl(var(--primary)/0.5)] border border-primary/20 mt-4 mb-1"
           >
             <Play className="h-4 w-4 mr-2" fill="currentColor" />
             {toneCopy(getTone(profile as any), doneTasks === 0 ? "start_first" : "start_next")}
@@ -1225,7 +1228,7 @@ export default function DayView() {
               <button
                 type="button"
                 onClick={() => setComposerOpen(true)}
-                className="btn-volumetric pressable inline-flex items-center justify-center gap-2 w-full h-12 rounded-[16px] text-primary-foreground text-[14px] font-semibold"
+                className="btn-volumetric pressable inline-flex items-center justify-center gap-2 w-full h-12 rounded-[18px] text-primary-foreground text-[14px] font-semibold"
               >
                 <ListPlus className="h-4 w-4" /> Add tasks
               </button>
@@ -1235,7 +1238,7 @@ export default function DayView() {
                   setAskAiContext("I have an empty day. Ask me one useful question that helps me decide what to add, without creating a schedule for me.");
                   setAskAiOpen(true);
                 }}
-                className="pressable inline-flex items-center justify-center gap-2 w-full h-11 rounded-[16px] text-[13px] font-semibold text-foreground/90 border border-border/50 bg-white/[0.07] dark:bg-white/[0.06] shadow-[inset_0_1px_1px_rgba(255,255,255,0.12),0_4px_12px_rgba(0,0,0,0.2)] backdrop-blur-sm"
+                className="pressable inline-flex items-center justify-center gap-2 w-full h-11 rounded-[18px] text-[13px] font-semibold text-foreground/90 border border-border/50 bg-white/[0.07] dark:bg-white/[0.06] shadow-[inset_0_1px_1px_rgba(255,255,255,0.12),0_4px_12px_rgba(0,0,0,0.2)] backdrop-blur-sm"
               >
                 <Wand2 className="h-4 w-4 text-primary" /> Ask AI
               </button>
@@ -1300,12 +1303,12 @@ export default function DayView() {
                       );
                     })}
                     {blocks.length === 0 && (
-                      <div className="text-center py-14 px-6 empty-state-fade">
-                        <div className="mx-auto mb-4 h-12 w-12 rounded-2xl border border-soft surface-card flex items-center justify-center breathe">
+                      <div className="text-center px-6 min-h-[42vh] flex flex-col items-center justify-center empty-state-fade">
+                        <div className="mb-4 h-12 w-12 rounded-2xl border border-soft surface-card flex items-center justify-center breathe">
                           <ListPlus className="h-5 w-5 text-secondary-fg/70" aria-hidden />
                         </div>
                         <p className="text-[15px] font-medium text-foreground/95">Nothing scheduled yet</p>
-                        <p className="text-[12.5px] text-secondary-fg/80 mt-1.5 leading-relaxed max-w-[280px] mx-auto">
+                        <p className="text-[13px] text-secondary-fg/80 mt-1.5 leading-relaxed max-w-[280px]">
                           Brain-dump your tasks below — DayDraft turns them into a timed plan.
                         </p>
                       </div>
@@ -1610,7 +1613,7 @@ export default function DayView() {
                 </div>
                 <div className="space-y-2.5 max-h-[48vh] overflow-y-auto pr-1 pb-2 pt-1">
                   {bulkRows.map((row, i) => (
-                    <div key={i} className="flex flex-col gap-2 rounded-[20px] border border-border/40 bg-surface-card px-4 py-3.5 shadow-sm">
+                    <div key={i} className="flex flex-col gap-2 rounded-[18px] border border-border/40 bg-surface-card px-4 py-3.5 shadow-sm">
                       <div className="flex items-center gap-2">
                         <input
                           value={row.title}
@@ -1628,13 +1631,13 @@ export default function DayView() {
                             setBulkStartTimeDraft(row.start_time || "09:00");
                             setBulkStartTimeEditIndex(i);
                           }}
-                          className="flex items-center gap-1.5 h-8 px-3 rounded-full border border-border/45 bg-muted/40 text-[12.5px] font-medium text-secondary-fg hover:text-foreground pressable transition-colors"
+                          className="flex items-center gap-1.5 h-8 px-3 rounded-full border border-border/45 bg-muted/40 text-[13px] font-medium text-secondary-fg hover:text-foreground pressable transition-colors"
                         >
                           <Clock className="h-3.5 w-3.5 opacity-70" />
                           {row.start_time ? fmtTime(row.start_time) : "Set time"}
                         </button>
                         <button type="button" onClick={() => setBulkDurationEditIndex(i)}
-                          className="flex items-center gap-1.5 h-8 px-3 rounded-full border border-border/45 bg-muted/40 text-[12.5px] font-medium tabular-nums text-secondary-fg hover:text-foreground pressable transition-colors"
+                          className="flex items-center gap-1.5 h-8 px-3 rounded-full border border-border/45 bg-muted/40 text-[13px] font-medium tabular-nums text-secondary-fg hover:text-foreground pressable transition-colors"
                         >
                           <Timer className="h-3.5 w-3.5 opacity-70" />
                           {row.duration < 60 ? `${row.duration}m` : `${Math.floor(row.duration / 60)}h${row.duration % 60 ? ` ${row.duration % 60}m` : ""}`}
@@ -1643,7 +1646,7 @@ export default function DayView() {
                     </div>
                   ))}
                   {bulkRows.length === 0 && (
-                    <p className="text-center text-[13px] text-secondary-fg py-10 bg-muted/20 rounded-[20px] border border-dashed border-border/45 mx-1">No tasks left.</p>
+                    <p className="text-center text-[13px] text-secondary-fg py-10 bg-muted/20 rounded-[18px] border border-dashed border-border/45 mx-1">No tasks left.</p>
                   )}
                 </div>
                 <div className="flex items-center gap-2 pt-3 border-t border-border/30 px-1">
@@ -1755,7 +1758,7 @@ export default function DayView() {
                 >
                   <div className="text-left min-w-0">
                     <div className="text-[14px] font-medium">Remind me</div>
-                    <div className="text-[11.5px] text-secondary-fg mt-0.5">
+                    <div className="text-[12px] text-secondary-fg mt-0.5">
                       {reminderCfg.enabled ? "On — alerts fire while the app is open" : "Off — no reminders for this task"}
                     </div>
                   </div>
@@ -1785,7 +1788,7 @@ export default function DayView() {
                             key={n}
                             type="button"
                             onClick={() => setAlerts(n, secondary && secondary !== n ? secondary : null)}
-                            className={`h-9 px-3.5 rounded-full text-[12.5px] font-medium pressable border tabular-nums ${
+                            className={`h-9 px-3.5 rounded-full text-[13px] font-medium pressable border tabular-nums ${
                               on ? "border-primary/45 bg-primary/12 text-primary" : "border-soft surface-soft text-foreground/80 hover:text-foreground"
                             }`}
                           >
@@ -1812,7 +1815,7 @@ export default function DayView() {
                       <button
                         type="button"
                         onClick={() => setAlerts(primary, null)}
-                        className={`h-9 px-3.5 rounded-full text-[12.5px] font-medium pressable border ${
+                        className={`h-9 px-3.5 rounded-full text-[13px] font-medium pressable border ${
                           secondary == null ? "border-primary/45 bg-primary/12 text-primary" : "border-soft surface-soft text-foreground/80"
                         }`}
                       >None</button>
@@ -1823,7 +1826,7 @@ export default function DayView() {
                             key={n}
                             type="button"
                             onClick={() => setAlerts(primary, n)}
-                            className={`h-9 px-3.5 rounded-full text-[12.5px] font-medium pressable border tabular-nums ${
+                            className={`h-9 px-3.5 rounded-full text-[13px] font-medium pressable border tabular-nums ${
                               on ? "border-primary/45 bg-primary/12 text-primary" : "border-soft surface-soft text-foreground/80 hover:text-foreground"
                             }`}
                           >
@@ -1932,7 +1935,7 @@ export default function DayView() {
             <div className="mt-4 space-y-4">
               <div>
                 <div className="text-[14px] font-medium text-foreground leading-tight">{trackPickerBlock.title}</div>
-                <div className="text-[11.5px] text-secondary-fg mt-1">
+                <div className="text-[12px] text-secondary-fg mt-1">
                   Pick a category. Time only starts counting when you open Focus on this task.
                 </div>
               </div>
@@ -1989,7 +1992,7 @@ export default function DayView() {
               )}
 
               <div>
-                <div className="text-[10.5px] uppercase tracking-[0.14em] text-secondary-fg/85 font-medium mb-1.5">
+                <div className="text-[11px] uppercase tracking-[0.14em] text-secondary-fg/85 font-medium mb-1.5">
                   New category
                 </div>
                 <div className="flex items-center gap-2">
