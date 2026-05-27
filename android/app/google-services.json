@@ -1,0 +1,29 @@
+{
+  "project_info": {
+    "project_number": "505829458158",
+    "project_id": "daydraft-e059a",
+    "storage_bucket": "daydraft-e059a.firebasestorage.app"
+  },
+  "client": [
+    {
+      "client_info": {
+        "mobilesdk_app_id": "1:505829458158:android:e5d0c1f73279dfc079b3ff",
+        "android_client_info": {
+          "package_name": "dev.daydraft.app"
+        }
+      },
+      "oauth_client": [],
+      "api_key": [
+        {
+          "current_key": "AIzaSyBO89K6qPOOvIwroE33hNAYcfJqVFh1m90"
+        }
+      ],
+      "services": {
+        "appinvite_service": {
+          "other_platform_oauth_client": []
+        }
+      }
+    }
+  ],
+  "configuration_version": "1"
+}

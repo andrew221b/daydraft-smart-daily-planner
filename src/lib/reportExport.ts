@@ -91,6 +91,48 @@ const fmtMoney = (amount: number, currency = "USD") => {
  * on mobile Safari / Chrome Android too.
  */
 export async function triggerDownload(blob: Blob, filename: string, mimeType: string) {
+  // 1. Capacitor native — write to the app's cache dir and hand the file
+  //    URI to the system share sheet. This unlocks "Save to Files",
+  //    AirDrop, Mail, Messages, etc. Web Share inside WKWebView is
+  //    unreliable for non-image MIME types (canShare often returns
+  //    false), so we bypass it when the native plugins are available.
+  try {
+    const { Capacitor } = await import("@capacitor/core");
+    if (Capacitor.isNativePlatform()) {
+      const [{ Filesystem, Directory, Encoding }, { Share }] = await Promise.all([
+        import("@capacitor/filesystem"),
+        import("@capacitor/share"),
+      ]);
+      const base64 = await blobToBase64(blob);
+      const writeRes = await Filesystem.writeFile({
+        path: filename,
+        data: base64,
+        directory: Directory.Cache,
+        // Encoding.UTF8 only works for text; binary needs no encoding
+        // and a base64 payload, which is what we pass above.
+        encoding: mimeType.startsWith("text/") ? Encoding.UTF8 : undefined,
+        recursive: true,
+      });
+      try {
+        await Share.share({
+          title: filename,
+          url: writeRes.uri,
+          dialogTitle: "Share or save",
+        });
+      } catch (err) {
+        // User dismissed the sheet — that's their choice, not a failure.
+        if (err instanceof Error && /cancel/i.test(err.message)) return;
+        throw err;
+      }
+      return;
+    }
+  } catch (e) {
+    // Fall through to web paths if the native plugin path fails for any reason.
+    console.warn("[triggerDownload] native share failed, falling back", e);
+  }
+
+  // 2. Web Share API — covers mobile Safari, Chrome Android, and any
+  //    desktop browser that supports file sharing.
   const nav = typeof navigator !== "undefined" ? navigator : null;
   if (nav && typeof nav.share === "function" && typeof nav.canShare === "function") {
     try {
@@ -107,6 +149,8 @@ export async function triggerDownload(blob: Blob, filename: string, mimeType: st
       // Anything else: fall through to the `<a download>` path below.
     }
   }
+
+  // 3. Anchor click — last resort for plain desktop browsers.
   const url = URL.createObjectURL(blob);
   const a = document.createElement("a");
   a.href = url;
@@ -115,6 +159,22 @@ export async function triggerDownload(blob: Blob, filename: string, mimeType: st
   a.click();
   a.remove();
   setTimeout(() => URL.revokeObjectURL(url), 1500);
+}
+
+/** Convert a Blob to a base64 string, stripping the `data:…;base64,` prefix
+ *  that FileReader prepends. The Filesystem plugin expects the bare base64
+ *  payload. */
+function blobToBase64(blob: Blob): Promise<string> {
+  return new Promise((resolve, reject) => {
+    const reader = new FileReader();
+    reader.onloadend = () => {
+      const result = typeof reader.result === "string" ? reader.result : "";
+      const comma = result.indexOf(",");
+      resolve(comma === -1 ? result : result.slice(comma + 1));
+    };
+    reader.onerror = () => reject(reader.error ?? new Error("blob read failed"));
+    reader.readAsDataURL(blob);
+  });
 }
 
 const fileSafe = (value: string) =>

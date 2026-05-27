@@ -259,10 +259,14 @@ export function AskAiSheet({
     <Sheet open={open} onOpenChange={onOpenChange}>
       <SheetContent
         side="bottom"
-        // will-change-transform promotes to its own GPU layer so backdrop-blur
-        // doesn't re-composite the whole screen when the keyboard opens/closes.
         className="rounded-t-[28px] border-border/30 bg-popover h-[82vh] flex flex-col p-0 will-change-transform"
-        style={{ WebkitBackdropFilter: "blur(36px)", backdropFilter: "blur(36px)" }}
+        style={{
+          // Slide content up by keyboard height so the input stays above the
+          // keyboard. padding-bottom steals from the inner flex layout
+          // (fixed h-[82vh]) — no layout reflow outside the sheet.
+          paddingBottom: "var(--keyboard-inset, 0px)",
+          transition: "padding-bottom 220ms cubic-bezier(0.32, 0.72, 0, 1)",
+        }}
         // iOS WKWebView fires a synthetic pointer event outside the sheet content
         // when the software keyboard opens — Radix Dialog interprets this as
         // "user tapped outside, close dialog". Prevent that spurious dismiss.

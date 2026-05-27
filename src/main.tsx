@@ -7,6 +7,7 @@ import { applySavedVisualMode } from "./lib/visualMode";
 import { installPressFeedback } from "./lib/pressFeedback";
 import { ThemeProvider } from "./lib/theme";
 import { RootErrorBoundary } from "@/components/app/RootErrorBoundary";
+import { initSentry } from "./lib/sentry";
 import { attachVisualViewportInset } from "./lib/visualViewport";
 import { markTTI } from "./lib/perfMonitor";
 import { startOfflineQueueDrainer } from "./lib/offlineQueue";
@@ -23,6 +24,8 @@ import { registerServiceWorker } from "./lib/swUpdate";
  * below so it never competes with React mount or initial network.
  * ──────────────────────────────────────────────────────────────────── */
 try {
+  // Sentry first — so any error in the rest of the bootstrap is reported.
+  initSentry();
   document.body.addEventListener("touchstart", () => {}, { passive: true });
   applyNativeDocumentHints();
   applySavedVisualMode();

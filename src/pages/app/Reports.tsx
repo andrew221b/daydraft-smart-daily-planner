@@ -3,7 +3,9 @@ import { keepPreviousData, useQuery } from "@tanstack/react-query";
 import { useAuth } from "@/hooks/useAuth";
 import { supabase } from "@/integrations/supabase/client";
 import { Button } from "@/components/ui/button";
-import { BarChart3, ChevronDown, Download, FileText, ListFilter, ChevronRight } from "lucide-react";
+import { BarChart3, ChevronDown, Download, FileText, ListFilter, ChevronRight, Timer } from "lucide-react";
+import { useNavigate } from "react-router-dom";
+import { EmptyState } from "@/components/app/EmptyState";
 import { useExchangeRates, convertCurrency } from "@/hooks/useExchangeRates";
 import { CurrencyPickerSheet } from "@/components/app/CurrencyPickerSheet";
 import { motion, AnimatePresence } from "framer-motion";
@@ -131,6 +133,7 @@ type CategoryGroup = {
 
 export default function Reports() {
   const { user } = useAuth();
+  const nav = useNavigate();
   const { isPro } = useEntitlement();
   // Categories already live in the TimeTrackerProvider — reading them from the
   // shared context avoids a Reports-only fetch on every tab switch.
@@ -503,7 +506,7 @@ export default function Reports() {
               Total tracked
             </p>
             <div className="mt-1.5 flex items-end justify-between gap-3">
-              <p className="font-display text-[40px] font-semibold tabular-nums leading-none overflow-hidden">
+              <p className="font-display text-[40px] font-semibold tabular-nums leading-none whitespace-nowrap">
                 <TickingNumber value={fmtHM(totalSec)} />
               </p>
               {earningsByCurrency.size > 0 && (() => {
@@ -578,7 +581,7 @@ export default function Reports() {
                       <button
                         type="button"
                         onClick={() => toggleCategoryExpanded(group.id)}
-                        className="flex w-full items-start gap-3 px-3 py-3 text-left pressable"
+                        className="flex w-full items-start gap-3 px-3 py-3 text-left"
                         aria-expanded={isOpen}
                       >
                         <span
@@ -688,13 +691,18 @@ export default function Reports() {
               </ul>
             </section>
           ) : (
-            <section className="rounded-2xl border border-dashed border-soft px-4 py-8 text-center">
-              <BarChart3 className="h-6 w-6 mx-auto text-secondary-fg/60 mb-2" />
-              <p className="text-[13px] text-secondary-fg/85">No tracked time in this period</p>
-              <p className="text-[11px] text-secondary-fg/60 mt-1">
-                Start a timer on the Track tab to fill this in.
-              </p>
-            </section>
+            <EmptyState
+              icon={Timer}
+              tone="primary"
+              eyebrow={range.label}
+              title="No tracked time yet"
+              body="Start a timer on the Track tab and your work will show up here — by category, by day, with billing totals."
+              primaryAction={{
+                label: "Open Tracker",
+                onClick: () => nav("/tracker"),
+                icon: Timer,
+              }}
+            />
           )}
 
           {period !== "day" && perDay.length > 1 && (

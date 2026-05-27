@@ -18,6 +18,18 @@
                 <action android:name="android.intent.action.MAIN" />
                 <category android:name="android.intent.category.LAUNCHER" />
             </intent-filter>
+            <!--
+              Custom URL scheme — mirrors the iOS CFBundleURLSchemes entry so
+              daydraft://focus/<blockId>, daydraft://today, etc. open the app
+              on tap. Used by local / push notifications to deep-link into a
+              specific screen.
+            -->
+            <intent-filter android:autoVerify="false">
+                <action android:name="android.intent.action.VIEW" />
+                <category android:name="android.intent.category.DEFAULT" />
+                <category android:name="android.intent.category.BROWSABLE" />
+                <data android:scheme="daydraft" />
+            </intent-filter>
         </activity>
 
         <provider

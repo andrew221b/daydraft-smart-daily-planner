@@ -6,12 +6,13 @@ import { LiveElapsed } from "@/components/app/LiveElapsed";
 import { Sheet, SheetContent, SheetHeader, SheetTitle } from "@/components/ui/sheet";
 import { Input } from "@/components/ui/input";
 import { Button } from "@/components/ui/button";
-import { Textarea } from "@/components/ui/textarea";
 import { useEntitlement } from "@/hooks/useEntitlement";
 import { UpgradeSheet } from "@/components/app/UpgradeSheet";
 import { categoryBillingToDraft } from "@/lib/categoryBilling";
 import { haptics } from "@/lib/haptics";
 import { toast } from "sonner";
+import { PaymentMethodFields, type PaymentFieldsValue } from "@/components/app/PaymentMethodFields";
+import { getPaymentMethod } from "@/lib/paymentMethods";
 
 function fmtMoney(amount: number, currency: string): string {
   try {
@@ -114,20 +115,6 @@ const currencyOptions = [
   "USD", "EUR", "GBP", "CHF", "CAD", "AUD", "NZD", "JPY", "PLN", "UAH", "AED", "SEK", "NOK", "DKK", "CZK", "GEL", "TRY", "SGD", "HKD", "MXN", "BRL", "INR", "CNY", "KZT",
   "USDT", "USDC", "DAI", "EURC", "BTC", "ETH", "SOL", "BNB", "TON", "TRX", "MATIC", "LTC", "XRP", "ADA", "DOGE",
 ];
-
-const paymentMethodOptions = ["", "Bank transfer", "IBAN", "Wise", "PayPal", "Stripe link", "Crypto wallet", "Other"];
-
-/**
- * Earlier builds listed "USDT" and "USDC" as payment methods, which conflated
- * stablecoins (currencies — they already live in the Currency dropdown) with
- * rails. The list has been cleaned up to rails only. Keep any legacy saved
- * value visible in the dropdown so a user still sees their previous choice
- * and can pick the new "Crypto wallet" rail without the select going blank.
- */
-function paymentMethodOptionsFor(current: string): string[] {
-  if (!current || paymentMethodOptions.includes(current)) return paymentMethodOptions;
-  return [...paymentMethodOptions, current];
-}
 
 export function HomeTrackerHero({ onOpenDetails }: { onOpenDetails: () => void }) {
   const { isPro } = useEntitlement();
@@ -480,16 +467,48 @@ export function HomeTrackerHero({ onOpenDetails }: { onOpenDetails: () => void }
                     </select>
                   </label>
                 </div>
-                <label className="block space-y-1">
+                <div className="space-y-1">
                   <span className="text-[10px] text-secondary-fg/70">Payment method</span>
-                  <select
-                    value={draftPaymentMethod}
-                    onChange={(e) => setDraftPaymentMethod(e.target.value)}
-                    className="h-9 w-full rounded-xl border border-border/40 bg-card/40 px-2 text-[12px] text-foreground outline-none focus:border-primary/50"
+                  <button
+                    type="button"
+                    onClick={() => {
+                      if (!isPro) { setUpgradeOpen(true); return; }
+                      setBillingOpen(true);
+                    }}
+                    className="group relative flex w-full items-center gap-2.5 rounded-xl border border-border/40 bg-card/40 px-3 py-2 text-left pressable hover:border-border/65 hover:bg-card/60 transition-colors"
                   >
-                    {paymentMethodOptionsFor(draftPaymentMethod).map((method) => <option key={method || "blank"} value={method}>{method || "Not set"}</option>)}
-                  </select>
-                </label>
+                    {(() => {
+                      const m = getPaymentMethod(draftPaymentMethod);
+                      if (m) {
+                        const Icon = m.Icon;
+                        return (
+                          <>
+                            <span
+                              className="flex h-6 w-6 shrink-0 items-center justify-center rounded-lg"
+                              style={{ background: `hsl(${m.accent} / 0.18)`, color: `hsl(${m.accent})` }}
+                            >
+                              <Icon className="h-3.5 w-3.5" strokeWidth={2.4} />
+                            </span>
+                            <span className="min-w-0 flex-1 text-[12px] font-medium text-foreground truncate">
+                              {m.label}
+                            </span>
+                          </>
+                        );
+                      }
+                      return (
+                        <>
+                          <span className="flex h-6 w-6 shrink-0 items-center justify-center rounded-lg bg-foreground/[0.06] text-foreground/50">
+                            <Wallet className="h-3.5 w-3.5" strokeWidth={2} />
+                          </span>
+                          <span className="min-w-0 flex-1 text-[12px] font-medium text-secondary-fg/75 truncate">
+                            Choose payment method
+                          </span>
+                        </>
+                      );
+                    })()}
+                    <ChevronDown className="h-3.5 w-3.5 -rotate-90 text-secondary-fg/55 shrink-0 transition-transform group-hover:translate-x-0.5" />
+                  </button>
+                </div>
                 <div className="flex gap-2">
                   <Button
                     type="button"
@@ -607,89 +626,48 @@ export function HomeTrackerHero({ onOpenDetails }: { onOpenDetails: () => void }
       </Sheet>
 
       <Sheet open={billingOpen} onOpenChange={setBillingOpen}>
-        <SheetContent side="bottom" className="rounded-t-[28px] border-border/45 bg-popover max-h-[88vh] overflow-y-auto">
-          <SheetHeader className="text-left">
-            <SheetTitle className="text-[17px]">
-              Payment · {selectedCat?.name ?? "Category"}
-            </SheetTitle>
-          </SheetHeader>
-          <p className="text-[12px] text-secondary-fg mt-1 mb-3">
-            Saved on this category. Pro exports merge these fields with your global payment profile where you leave blanks. Use a payment link for cards — never raw card numbers.
-          </p>
-          <div className="space-y-3 pb-4">
-            <div className="grid grid-cols-2 gap-2">
-              <label className="block space-y-1">
-                <span className="text-[10px] text-secondary-fg/80">Currency</span>
+        <SheetContent side="bottom" className="rounded-t-[28px] border-border/45 bg-popover max-h-[90vh] overflow-y-auto p-0">
+          <div className="px-5 pt-6 pb-4">
+            <SheetHeader className="text-left space-y-0">
+              <p className="text-[10px] font-semibold uppercase tracking-[0.16em] text-secondary-fg/70">
+                Payment for
+              </p>
+              <SheetTitle className="font-display text-[22px] font-semibold tracking-tight mt-1">
+                {selectedCat?.name ?? "Category"}
+              </SheetTitle>
+            </SheetHeader>
+            <p className="text-[12px] text-secondary-fg/85 mt-2 leading-relaxed">
+              Pick how this client pays you — only the relevant fields will appear. Use a payment link for cards, never raw card numbers.
+            </p>
+          </div>
+
+          <div className="px-5 pb-6 space-y-4">
+            <label className="block space-y-1.5">
+              <span className="text-[10px] font-semibold uppercase tracking-[0.14em] text-secondary-fg/70 px-0.5">
+                Currency
+              </span>
+              <div className="relative">
                 <select
                   value={paymentDetails.currency}
                   onChange={(e) => setPaymentDetails((p) => ({ ...p, currency: e.target.value }))}
-                  className="h-10 w-full rounded-xl border border-border/45 bg-card px-2 text-[12px] text-foreground outline-none focus:border-primary/50"
+                  className="h-11 w-full appearance-none rounded-2xl border border-border/45 bg-card/55 pl-4 pr-9 text-[14px] font-medium tabular-nums text-foreground outline-none transition-colors focus:border-primary/55 focus:bg-card/75"
                 >
                   {currencyOptions.map((code) => <option key={code} value={code}>{code}</option>)}
                 </select>
-              </label>
-              <label className="block space-y-1">
-                <span className="text-[10px] text-secondary-fg/80">Method</span>
-                <select
-                  value={paymentDetails.payment_method}
-                  onChange={(e) => setPaymentDetails((p) => ({ ...p, payment_method: e.target.value }))}
-                  className="h-10 w-full rounded-xl border border-border/45 bg-card px-2 text-[12px] text-foreground outline-none focus:border-primary/50"
-                >
-                  {paymentMethodOptionsFor(paymentDetails.payment_method).map((method) => <option key={method || "blank"} value={method}>{method || "Not set"}</option>)}
-                </select>
-              </label>
-            </div>
-            <Input
-              value={paymentDetails.display_name}
-              onChange={(e) => setPaymentDetails((p) => ({ ...p, display_name: e.target.value }))}
-              placeholder="Payee name"
-              className="rounded-xl"
+                <ChevronDown className="pointer-events-none absolute right-3 top-1/2 h-4 w-4 -translate-y-1/2 text-secondary-fg/65" />
+              </div>
+            </label>
+
+            <PaymentMethodFields
+              value={paymentDetails as PaymentFieldsValue}
+              onChange={(field, val) => setPaymentDetails((p) => ({ ...p, [field]: val }))}
             />
-            <div className="grid grid-cols-2 gap-2">
-              <Input
-                value={paymentDetails.bank_name}
-                onChange={(e) => setPaymentDetails((p) => ({ ...p, bank_name: e.target.value }))}
-                placeholder="Bank"
-                className="rounded-xl"
-              />
-              <Input
-                value={paymentDetails.iban}
-                onChange={(e) => setPaymentDetails((p) => ({ ...p, iban: e.target.value }))}
-                placeholder="IBAN"
-                className="rounded-xl"
-              />
-            </div>
-            <div className="grid grid-cols-2 gap-2">
-              <Input
-                value={paymentDetails.crypto_network}
-                onChange={(e) => setPaymentDetails((p) => ({ ...p, crypto_network: e.target.value }))}
-                placeholder="Crypto network"
-                className="rounded-xl"
-              />
-              <Input
-                value={paymentDetails.crypto_wallet}
-                onChange={(e) => setPaymentDetails((p) => ({ ...p, crypto_wallet: e.target.value }))}
-                placeholder="Wallet"
-                className="rounded-xl"
-              />
-            </div>
-            <Input
-              value={paymentDetails.payment_link}
-              onChange={(e) => setPaymentDetails((p) => ({ ...p, payment_link: e.target.value }))}
-              placeholder="Payment link (Stripe, Wise…)"
-              className="rounded-xl"
-            />
-            <Textarea
-              value={paymentDetails.notes}
-              onChange={(e) => setPaymentDetails((p) => ({ ...p, notes: e.target.value }))}
-              placeholder="Notes for client"
-              className="min-h-[72px] rounded-xl"
-            />
+
             <Button
               type="button"
               disabled={paymentSaving}
               onClick={() => void savePaymentDetails()}
-              className="w-full h-11 rounded-xl"
+              className="w-full h-12 rounded-2xl text-[14px] font-semibold gleam btn-volumetric"
             >
               {paymentSaving ? "Saving…" : "Save payment details"}
             </Button>

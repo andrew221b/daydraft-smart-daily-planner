@@ -2,6 +2,7 @@ import { ReactNode, useEffect } from "react";
 import { useLocation, useNavigationType } from "react-router-dom";
 import { TabBar } from "./TabBar";
 import { TimerRescheduleSheet } from "./TimerRescheduleSheet";
+import { OfflineBanner } from "./OfflineBanner";
 
 /** Routes that sit one level deeper than the tab bar — drill-ins. */
 const DRILL_IN_PREFIXES = ["/focus", "/today/plan", "/settings/delete-account"];
@@ -70,6 +71,7 @@ export const Shell = ({
       {!hideTabBar && <TabBar />}
       <TimerRescheduleSheet />
     </div>
+    <OfflineBanner />
   </div>
   );
 };

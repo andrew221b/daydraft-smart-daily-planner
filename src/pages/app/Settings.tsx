@@ -5,7 +5,7 @@ import { Input } from "@/components/ui/input";
 import { Button } from "@/components/ui/button";
 import { useEffect, useState } from "react";
 import { ThemeToggle } from "@/components/app/ThemeToggle";
-import { Fingerprint, Sparkles, Bell, FileText, Shield, Trash2, HelpCircle } from "lucide-react";
+import { Fingerprint, Sparkles, Bell, FileText, Shield, Trash2, HelpCircle, Download, Loader2 } from "lucide-react";
 import { Link, useNavigate, useLocation } from "react-router-dom";
 import { NativeBiometric } from "@capgo/capacitor-native-biometric";
 import { toast } from "sonner";
@@ -15,6 +15,8 @@ import { Sheet, SheetContent, SheetHeader, SheetTitle, SheetDescription } from "
 import { UpgradeSheet } from "@/components/app/UpgradeSheet";
 import { ProFeatureHighlights } from "@/components/app/ProFeatureHighlights";
 import { enablePush, disablePush, pushAvailability, pushAvailabilityCopy } from "@/lib/push";
+import { supabase } from "@/integrations/supabase/client";
+import { triggerDownload } from "@/lib/reportExport";
 import { useTour, TOUR_TODAY } from "@/components/app/Tour";
 import { VisualMode, useVisualMode } from "@/lib/visualMode";
 import { PerfDebugPanel } from "@/components/app/PerfDebugPanel";
@@ -37,6 +39,25 @@ export default function Settings() {
   // Hidden developer panel — tap the version label 10× in 3s to open.
   const [versionTaps, setVersionTaps] = useState(0);
   const [perfPanelOpen, setPerfPanelOpen] = useState(false);
+  const [exporting, setExporting] = useState(false);
+
+  const handleExportData = async () => {
+    if (exporting) return;
+    setExporting(true);
+    try {
+      const { data, error } = await supabase.functions.invoke("export-user-data");
+      if (error) throw error;
+      const json = JSON.stringify(data, null, 2);
+      const blob = new Blob([json], { type: "application/json" });
+      const filename = `daydraft-export-${new Date().toISOString().slice(0, 10)}.json`;
+      await triggerDownload(blob, filename, "application/json");
+      toast.success("Export downloaded");
+    } catch (e: unknown) {
+      toast.error(e instanceof Error ? e.message : "Export failed");
+    } finally {
+      setExporting(false);
+    }
+  };
   useEffect(() => {
     if (versionTaps === 0) return;
     const id = window.setTimeout(() => setVersionTaps(0), 3000);
@@ -253,6 +274,20 @@ export default function Settings() {
                 <span className="text-[14px] flex-1">Terms</span>
                 <span className="text-secondary-fg">›</span>
               </Link>
+              <button
+                type="button"
+                onClick={handleExportData}
+                disabled={exporting}
+                className="w-full flex items-center gap-3 px-4 py-3 ios-row text-left disabled:opacity-60"
+              >
+                {exporting
+                  ? <Loader2 className="h-4 w-4 text-secondary-fg animate-spin" />
+                  : <Download className="h-4 w-4 text-secondary-fg" />}
+                <span className="text-[14px] flex-1">
+                  {exporting ? "Preparing your export…" : "Export my data"}
+                </span>
+                <span className="text-secondary-fg">›</span>
+              </button>
               <Link to="/settings/delete-account" className="flex items-center gap-3 px-4 py-3 ios-row text-destructive">
                 <Trash2 className="h-4 w-4" />
                 <span className="text-[14px] flex-1">Delete account</span>

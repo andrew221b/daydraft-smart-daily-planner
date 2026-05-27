@@ -19,6 +19,7 @@ import { fetchRollingEntries, rollingEntriesQueryKey } from "@/lib/timeEntriesQu
 import { triggerDownload } from "@/lib/reportExport";
 import { useTabVisible } from "@/components/app/PersistentTabs";
 import { UpgradeSheet } from "@/components/app/UpgradeSheet";
+import { PaymentMethodFields, type PaymentFieldsValue } from "@/components/app/PaymentMethodFields";
 import { haptics } from "@/lib/haptics";
 import {
   AlertDialog,
@@ -42,6 +43,7 @@ type Entry = {
 
 type PaymentDetailsDraft = {
   currency: string;
+  payment_method: string;
   display_name: string;
   bank_name: string;
   iban: string;
@@ -53,6 +55,7 @@ type PaymentDetailsDraft = {
 
 const emptyPaymentDetails: PaymentDetailsDraft = {
   currency: "USD",
+  payment_method: "",
   display_name: "",
   bank_name: "",
   iban: "",
@@ -839,8 +842,8 @@ function TrackerInner({ embedded = false, onClose }: { embedded?: boolean; onClo
                               maxLength={3}
                             />
                           </div>
-                          <div className="rounded-xl border border-soft bg-black/[0.02] dark:bg-black/30 px-2.5 py-2">
-                            <div className="mb-1.5 flex items-center justify-between gap-2">
+                          <div className="rounded-xl border border-soft bg-black/[0.02] dark:bg-black/30 px-2.5 py-2.5">
+                            <div className="mb-2 flex items-center justify-between gap-2">
                               <span className="text-[11px] font-semibold text-secondary-fg">Payment for this category</span>
                               {!isPro && <span className="text-[10px] font-semibold text-primary">Pro</span>}
                             </div>
@@ -853,54 +856,11 @@ function TrackerInner({ embedded = false, onClose }: { embedded?: boolean; onClo
                                 Unlock payment details
                               </button>
                             ) : (
-                              <div className="grid grid-cols-1 gap-2">
-                                <Input
-                                  value={paymentDetails.display_name}
-                                  onChange={(e) => updatePaymentField("display_name", e.target.value)}
-                                  placeholder="Payee name or company"
-                                  className="h-8 bg-transparent border-0 px-0 text-[12px] focus-visible:ring-0 shadow-none"
-                                />
-                                <div className="grid grid-cols-2 gap-2">
-                                  <Input
-                                    value={paymentDetails.bank_name}
-                                    onChange={(e) => updatePaymentField("bank_name", e.target.value)}
-                                    placeholder="Bank / Wise"
-                                    className="h-8 bg-transparent border-0 px-0 text-[12px] focus-visible:ring-0 shadow-none"
-                                  />
-                                  <Input
-                                    value={paymentDetails.iban}
-                                    onChange={(e) => updatePaymentField("iban", e.target.value)}
-                                    placeholder="IBAN"
-                                    className="h-8 bg-transparent border-0 px-0 text-[12px] focus-visible:ring-0 shadow-none"
-                                  />
-                                </div>
-                                <div className="grid grid-cols-2 gap-2">
-                                  <Input
-                                    value={paymentDetails.crypto_network}
-                                    onChange={(e) => updatePaymentField("crypto_network", e.target.value)}
-                                    placeholder="Crypto network"
-                                    className="h-8 bg-transparent border-0 px-0 text-[12px] focus-visible:ring-0 shadow-none"
-                                  />
-                                  <Input
-                                    value={paymentDetails.crypto_wallet}
-                                    onChange={(e) => updatePaymentField("crypto_wallet", e.target.value)}
-                                    placeholder="Wallet address"
-                                    className="h-8 bg-transparent border-0 px-0 text-[12px] focus-visible:ring-0 shadow-none"
-                                  />
-                                </div>
-                                <Input
-                                  value={paymentDetails.payment_link}
-                                  onChange={(e) => updatePaymentField("payment_link", e.target.value)}
-                                  placeholder="Payment link: Stripe, PayPal, Wise..."
-                                  className="h-8 bg-transparent border-0 px-0 text-[12px] focus-visible:ring-0 shadow-none"
-                                />
-                                <Input
-                                  value={paymentDetails.notes}
-                                  onChange={(e) => updatePaymentField("notes", e.target.value)}
-                                  placeholder="Notes for client: terms, memo, preferred method..."
-                                  className="h-8 bg-transparent border-0 px-0 text-[12px] focus-visible:ring-0 shadow-none"
-                                />
-                              </div>
+                              <PaymentMethodFields
+                                compact
+                                value={paymentDetails as PaymentFieldsValue}
+                                onChange={(field, val) => updatePaymentField(field as keyof PaymentDetailsDraft, val)}
+                              />
                             )}
                           </div>
                           <div className="flex items-center gap-2">

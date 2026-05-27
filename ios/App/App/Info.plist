@@ -62,6 +62,21 @@
 				<string>com.googleusercontent.apps.648113837751-59o4n1kc29naeagt0d4ehcocjfp5s96k</string>
 			</array>
 		</dict>
+		<!--
+		  DayDraft custom URL scheme. Powers in-app deep links like
+		    daydraft://focus/<blockId>
+		    daydraft://today
+		  Used by local / push notifications to open a specific task or
+		  screen on tap, and by share-back flows from external apps.
+		-->
+		<dict>
+			<key>CFBundleURLName</key>
+			<string>dev.daydraft.app</string>
+			<key>CFBundleURLSchemes</key>
+			<array>
+				<string>daydraft</string>
+			</array>
+		</dict>
 	</array>
 	<!--
 	  Required by iOS when the app calls LocalAuthentication / NativeBiometric

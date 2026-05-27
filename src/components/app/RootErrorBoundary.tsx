@@ -1,4 +1,5 @@
 import { Component, type ErrorInfo, type ReactNode } from "react";
+import { captureComponentError } from "@/lib/sentry";
 
 type Props = { children: ReactNode };
 type State = { error: Error | null };
@@ -33,24 +34,57 @@ export class RootErrorBoundary extends Component<Props, State> {
     };
     console.error("[RootErrorBoundary] caught", dump);
     console.error("[RootErrorBoundary] componentStack", info.componentStack);
+    captureComponentError(error, info.componentStack);
   }
 
   render() {
     if (this.state.error) {
       return (
         <div className="min-h-screen w-full bg-background text-foreground flex items-center justify-center px-5">
-          <div className="max-w-md text-center">
-            <p className="font-display text-lg font-semibold">App failed to load</p>
-            <p className="mt-2 text-sm text-secondary-fg">
-              Something crashed during startup. Please reload. If it repeats, check console for
-              [RootErrorBoundary] details.
-            </p>
-            <button
-              className="mt-5 h-10 rounded-xl px-4 bg-primary text-primary-foreground"
-              onClick={() => window.location.reload()}
+          <div className="relative max-w-sm w-full text-center px-6 py-10 rounded-[28px] hero-glass border border-border/35 overflow-hidden">
+            <div
+              aria-hidden
+              className="pointer-events-none absolute inset-x-0 -top-20 h-48 blur-3xl opacity-70"
+              style={{ background: "radial-gradient(50% 50% at 50% 50%, hsl(0 85% 60% / 0.18), transparent 70%)" }}
+            />
+            <div
+              className="relative mx-auto mb-5 flex h-14 w-14 items-center justify-center rounded-2xl"
+              style={{
+                background: "hsl(0 85% 60% / 0.12)",
+                boxShadow: "0 0 0 1px hsl(0 85% 60% / 0.32), 0 14px 28px -16px hsl(0 85% 60% / 0.35)",
+              }}
             >
-              Reload
-            </button>
+              <span className="text-[24px]" aria-hidden>!</span>
+            </div>
+            <p className="relative font-display text-[18px] font-semibold tracking-tight">
+              Something went wrong
+            </p>
+            <p className="relative mt-2 text-[13px] leading-relaxed text-secondary-fg/85">
+              The app hit an unexpected error. Reloading usually fixes it — if it repeats,
+              signing out and back in clears any stuck session state.
+            </p>
+            <div className="relative mt-6 space-y-2">
+              <button
+                type="button"
+                onClick={() => window.location.reload()}
+                className="w-full h-11 rounded-2xl bg-primary text-primary-foreground text-[13px] font-semibold pressable shadow-[0_6px_18px_-8px_hsl(var(--primary)/0.55)]"
+              >
+                Reload app
+              </button>
+              <button
+                type="button"
+                onClick={async () => {
+                  try {
+                    const keys = Object.keys(localStorage).filter((k) => k.startsWith("sb-") || k.startsWith("supabase."));
+                    keys.forEach((k) => localStorage.removeItem(k));
+                  } catch { /* ignore */ }
+                  window.location.href = "/auth";
+                }}
+                className="w-full h-10 rounded-2xl border border-border/35 text-[12.5px] font-medium text-secondary-fg/85 hover:text-foreground pressable"
+              >
+                Sign out and start fresh
+              </button>
+            </div>
           </div>
         </div>
       );

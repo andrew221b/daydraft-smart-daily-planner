@@ -1,6 +1,8 @@
 import { createContext, useContext, useEffect, useState, ReactNode } from "react";
 import { supabase } from "@/integrations/supabase/client";
 import type { Session, User } from "@supabase/supabase-js";
+import { setSentryUser } from "@/lib/sentry";
+import { registerNativePush, unregisterNativePush } from "@/lib/nativePush";
 
 interface Ctx { user: User | null; session: Session | null; loading: boolean; signOut: () => Promise<void>; }
 const AuthCtx = createContext<Ctx>({ user: null, session: null, loading: true, signOut: async () => {} });
@@ -13,10 +15,14 @@ export const AuthProvider = ({ children }: { children: ReactNode }) => {
     let mounted = true;
     let unsubscribe: (() => void) | null = null;
     try {
-      const { data: sub } = supabase.auth.onAuthStateChange((_e, s) => {
+      const { data: sub } = supabase.auth.onAuthStateChange((event, s) => {
         if (!mounted) return;
         setSession(s);
+        setSentryUser(s?.user?.id ?? null, s?.user?.email ?? null);
         setLoading(false);
+        if (s?.user?.id && (event === "SIGNED_IN" || event === "TOKEN_REFRESHED")) {
+          void registerNativePush(s.user.id);
+        }
       });
       unsubscribe = () => sub.subscription.unsubscribe();
     } catch {
@@ -41,7 +47,12 @@ export const AuthProvider = ({ children }: { children: ReactNode }) => {
           ),
         ]);
         if (!mounted) return;
-        if (result) setSession(result.data.session);
+        if (result) {
+          const sess = result.data.session;
+          setSession(sess);
+          setSentryUser(sess?.user?.id ?? null, sess?.user?.email ?? null);
+          if (sess?.user?.id) void registerNativePush(sess.user.id);
+        }
       } catch {
         // Network/auth error: leave session untouched (likely null on first
         // load anyway). Do not force a sign-out.
@@ -58,7 +69,20 @@ export const AuthProvider = ({ children }: { children: ReactNode }) => {
     };
   }, []);
   return (
-    <AuthCtx.Provider value={{ user: session?.user ?? null, session, loading, signOut: async () => { await supabase.auth.signOut(); } }}>
+    <AuthCtx.Provider
+      value={{
+        user: session?.user ?? null,
+        session,
+        loading,
+        signOut: async () => {
+          const uid = session?.user?.id;
+          if (uid) {
+            try { await unregisterNativePush(uid); } catch { /* never block sign-out */ }
+          }
+          await supabase.auth.signOut();
+        },
+      }}
+    >
       {children}
     </AuthCtx.Provider>
   );

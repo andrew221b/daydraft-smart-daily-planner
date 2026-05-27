@@ -46,4 +46,25 @@ class AppDelegate: UIResponder, UIApplicationDelegate {
         return ApplicationDelegateProxy.shared.application(application, continue: userActivity, restorationHandler: restorationHandler)
     }
 
+    // MARK: - Push Notifications
+    //
+    // Forward APNs registration callbacks to the Capacitor
+    // PushNotifications plugin via the documented NotificationCenter
+    // names. Without these callbacks the plugin's `registration` /
+    // `registrationError` listeners on the JS side never fire.
+
+    func application(_ application: UIApplication, didRegisterForRemoteNotificationsWithDeviceToken deviceToken: Data) {
+        NotificationCenter.default.post(
+            name: Notification.Name(rawValue: "didRegisterForRemoteNotificationsWithDeviceToken"),
+            object: deviceToken
+        )
+    }
+
+    func application(_ application: UIApplication, didFailToRegisterForRemoteNotificationsWithError error: Error) {
+        NotificationCenter.default.post(
+            name: Notification.Name(rawValue: "didFailToRegisterForRemoteNotificationsWithError"),
+            object: error
+        )
+    }
+
 }

@@ -1,7 +1,9 @@
-import { Suspense, type ReactNode } from "react";
+import { Suspense, useEffect, type ReactNode } from "react";
 import { Capacitor } from "@capacitor/core";
 import { keepPreviousData, QueryClient, QueryClientProvider } from "@tanstack/react-query";
-import { BrowserRouter, Navigate, Route, Routes, useLocation } from "react-router-dom";
+import { BrowserRouter, Navigate, Route, Routes, useLocation, useNavigate } from "react-router-dom";
+import { attachDeepLinkListener } from "@/lib/deepLinks";
+import { setPushDeepLinkHandler } from "@/lib/nativePush";
 import { Toaster as Sonner } from "@/components/ui/sonner";
 import { TooltipProvider } from "@/components/ui/tooltip";
 import NotFound from "./pages/NotFound";
@@ -88,6 +90,23 @@ const RootRedirect = () => {
   return <Navigate to={user ? "/home" : "/auth"} replace />;
 };
 
+/** Mounts once inside the router so `useNavigate` is available, and
+ *  routes any incoming custom-scheme / Universal Link URL into the
+ *  in-app navigator. Also wires push-notification taps through the
+ *  same router so a tapped notification opens the right screen. */
+const DeepLinkBridge = () => {
+  const navigate = useNavigate();
+  useEffect(() => {
+    const unsubscribe = attachDeepLinkListener((path) => navigate(path));
+    setPushDeepLinkHandler((path) => navigate(path));
+    return () => {
+      unsubscribe();
+      setPushDeepLinkHandler(null);
+    };
+  }, [navigate]);
+  return null;
+};
+
 const ThemedToaster = () => {
   const { resolved } = useTheme();
   return <Sonner theme={resolved} position="top-center" />;
@@ -131,6 +150,7 @@ const AppContent = () => {
         <TimeTrackerProvider>
           <AppLock>
             <EagerPrefetcher />
+            <DeepLinkBridge />
             {/* One-time post-auth opt-in for Face ID / Fingerprint.
                 Self-gates on user + onboarded + native + not-yet-asked, so
                 it's safe to leave mounted at the app root; it only shows

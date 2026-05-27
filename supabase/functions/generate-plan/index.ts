@@ -113,28 +113,9 @@ serve(async (req) => {
             : "grammatically unfinished";
         return { line, reason, suggestion };
       });
-      const unresolved = findings.filter((f) => !f.suggestion);
-      if (unresolved.length) {
-        const flaggedPreview = taskLines.map((line) => {
-          const f = findings.find((x) => x.line === line);
-          if (!f) return line;
-          if (f.suggestion) return f.suggestion;
-          return `${line} [clarify: finish this task so planning is accurate]`;
-        }).join("\n");
-        return new Response(
-          JSON.stringify({
-            error: `Please clarify ${unresolved.length} incomplete task${unresolved.length === 1 ? "" : "s"} before planning.`,
-            code: "INCOMPLETE_TASKS_NEED_CLARIFICATION",
-            flagged_tasks: findings,
-            suggested_raw_input: flaggedPreview,
-          }),
-          { status: 200, headers: { ...corsHeaders, "Content-Type": "application/json" } }
-        );
-      }
-      // All incomplete lines were confidently auto-completed from context clues.
+        // Apply available auto-completions; leave unresolvable lines as-is.
       const rewrites = new Map(findings.map((f) => [f.line, f.suggestion || f.line]));
       const rewritten = taskLines.map((line) => rewrites.get(line) || line).join("\n");
-      // Use rewritten input for planning; include a note in subtext via context.
       raw_input = rewritten;
     }
 

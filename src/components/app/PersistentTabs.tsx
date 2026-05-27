@@ -113,12 +113,19 @@ export function PersistentTabs() {
   // user taps a tab to the right of the current one, backward (back) if left.
   const tabRefs = useRef<Map<TabKey, HTMLDivElement>>(new Map());
   const prevKeyRef = useRef<TabKey | null>(null);
+  // Stores the animation class for a tab that hasn't mounted yet (first visit).
+  // The ref callback picks it up the moment the div appears in the DOM.
+  const pendingAnimCls = useRef<string | null>(null);
+
+  const applyAnim = (el: HTMLDivElement, cls: string) => {
+    el.scrollTop = 0;
+    el.classList.remove("page-transition-tab", "page-transition-tab-fwd", "page-transition-tab-back");
+    void el.offsetWidth;
+    el.classList.add(cls);
+  };
 
   useEffect(() => {
     if (!activeKey) return;
-    const el = tabRefs.current.get(activeKey);
-    if (!el) return;
-    el.scrollTop = 0;
 
     const prev = prevKeyRef.current;
     const cls =
@@ -127,9 +134,14 @@ export function PersistentTabs() {
         : "page-transition-tab-back";
     prevKeyRef.current = activeKey;
 
-    el.classList.remove("page-transition-tab", "page-transition-tab-fwd", "page-transition-tab-back");
-    void el.offsetWidth;
-    el.classList.add(cls);
+    const el = tabRefs.current.get(activeKey);
+    if (el) {
+      applyAnim(el, cls);
+      pendingAnimCls.current = null;
+    } else {
+      // Tab not yet mounted — the ref callback will apply when the div appears.
+      pendingAnimCls.current = cls;
+    }
   }, [activeKey]);
 
   return (
@@ -142,8 +154,15 @@ export function PersistentTabs() {
           <div
             key={tab.key}
             ref={(el) => {
-              if (el) tabRefs.current.set(tab.key, el);
-              else tabRefs.current.delete(tab.key);
+              if (el) {
+                tabRefs.current.set(tab.key, el);
+                if (tab.key === activeKey && pendingAnimCls.current) {
+                  applyAnim(el, pendingAnimCls.current);
+                  pendingAnimCls.current = null;
+                }
+              } else {
+                tabRefs.current.delete(tab.key);
+              }
             }}
             className={`absolute inset-0 overflow-y-auto overscroll-y-contain no-scrollbar ${isActive ? "" : "hidden"}`}
             aria-hidden={!isActive}
