@@ -1334,8 +1334,15 @@ export function TrackerView() {
 export function TrackerSheet({ open, onOpenChange }: { open: boolean; onOpenChange: (v: boolean) => void }) {
   return (
     <Sheet open={open} onOpenChange={onOpenChange}>
-      <SheetContent side="bottom" className="rounded-t-[24px] p-0 border-soft max-h-[92vh] overflow-y-auto bg-background/95 backdrop-blur-xl">
-        <TrackerInner onClose={() => onOpenChange(false)} />
+      <SheetContent
+        side="bottom"
+        className="rounded-t-[24px] p-0 border-soft max-h-[92vh] flex flex-col bg-background/95 backdrop-blur-xl"
+        style={{ paddingBottom: "var(--keyboard-inset, 0px)" }}
+      >
+        <SheetTitle className="sr-only">Time tracker</SheetTitle>
+        <div className="flex-1 overflow-y-auto">
+          <TrackerInner onClose={() => onOpenChange(false)} />
+        </div>
       </SheetContent>
     </Sheet>
   );

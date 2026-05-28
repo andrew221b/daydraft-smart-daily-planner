@@ -11,6 +11,11 @@ import { CurrencyPickerSheet } from "@/components/app/CurrencyPickerSheet";
 import { motion, AnimatePresence } from "framer-motion";
 import { DateRangePickerSheet } from "@/components/app/DateRangePickerSheet";
 import { CategoryFilterSheet } from "@/components/app/CategoryFilterSheet";
+import { useReportCurrencyOverrides } from "@/hooks/useReportCurrency";
+import { ReportCurrencyMismatchDialog } from "@/components/app/ReportCurrencyMismatchDialog";
+import { Sheet, SheetContent, SheetTitle } from "@/components/ui/sheet";
+import { PaymentMethodFields, type PaymentFieldsValue } from "@/components/app/PaymentMethodFields";
+import { categoryBillingToDraft } from "@/lib/categoryBilling";
 
 // Recharts is its own ~100kB chunk. Lazy-load it so the Reports first paint
 // shows headline numbers + the per-day list while the chart streams in.
@@ -123,7 +128,14 @@ type CategoryGroup = {
   id: string;
   name: string;
   color: string;
+  /** Tracker currency — what the hourly_rate is denominated in. Source of
+   *  truth for "what was actually earned at the timer's rate". */
   currency: string;
+  /** Report-display currency. Defaults to `currency`, but the user can
+   *  override per-category via the row chip. When `reportCurrency` differs
+   *  from `currency`, earnings get FX-converted for display, and the export
+   *  flow will prompt the user to update payment details to match. */
+  reportCurrency: string;
   hourlyRate: number | null;
   sec: number;
   earnings: number;
@@ -137,7 +149,7 @@ export default function Reports() {
   const { isPro } = useEntitlement();
   // Categories already live in the TimeTrackerProvider — reading them from the
   // shared context avoids a Reports-only fetch on every tab switch.
-  const { categories } = useTimeTracker();
+  const { categories, updateCategoryBilling } = useTimeTracker();
   // Subscribing to elapsedSec keeps live totals (running timer in the active
   // category) ticking inside Reports without a per-tab Supabase query.
   useTimeTrackerElapsed();
@@ -167,6 +179,22 @@ export default function Reports() {
   );
   const [currencyPickerOpen, setCurrencyPickerOpen] = useState(false);
   const { data: rates = {}, isLoading: ratesLoading } = useExchangeRates();
+  // Per-category report-currency overrides — independent from each
+  // category's tracker currency (which drives the live timer rate). See
+  // useReportCurrency.ts for the full data-flow story.
+  const { effectiveCurrency: getReportCurrency, setOverride: setCatOverride, clearOverride: clearCatOverride } = useReportCurrencyOverrides();
+  // Which category row is currently editing its report currency. `null` = sheet
+  // closed. Holds catId + the row's tracker currency so the picker has both.
+  const [reportCurrencyTarget, setReportCurrencyTarget] = useState<{ catId: string; trackerCurrency: string } | null>(null);
+  // Export-time mismatch flow state.
+  const [pendingExport, setPendingExport] = useState<{ kind: "pdf" | "csv"; categoryIds?: string[]; scopeLabel?: string } | null>(null);
+  const [mismatchDialogOpen, setMismatchDialogOpen] = useState(false);
+  const [mismatchList, setMismatchList] = useState<import("@/components/app/ReportCurrencyMismatchDialog").CurrencyMismatch[]>([]);
+  // When the user accepts the "update payment details" flow, we walk the
+  // mismatch list one at a time. `editIdx` points at the current one;
+  // `editDraft` holds the working payment data for that category.
+  const [editIdx, setEditIdx] = useState(0);
+  const [editDraft, setEditDraft] = useState<PaymentFieldsValue | null>(null);
   const range = useMemo(() => periodRange(period, customFrom, customTo), [period, customFrom, customTo]);
 
   const { data: rollingEntries = [] } = useQuery({
@@ -243,11 +271,16 @@ export default function Reports() {
       earnedTotal += earned;
       let group = groups.get(id);
       if (!group) {
+        const trackerCurrency = (cat?.currency || "USD").toUpperCase();
         group = {
           id,
           name: cat?.name || "Uncategorized",
           color: cat?.color || "hsl(var(--muted-foreground))",
-          currency: cat?.currency || "USD",
+          currency: trackerCurrency,
+          // Report currency = override (if any) or the tracker currency.
+          // Stored on the group so downstream renderers and the export
+          // payload builder both read from one place.
+          reportCurrency: getReportCurrency(id, trackerCurrency),
           hourlyRate: rate,
           sec: 0,
           earnings: 0,
@@ -286,7 +319,7 @@ export default function Reports() {
       perDay,
       earningsByCurrency: byCurrency,
     };
-  }, [periodEntries, catMap]);
+  }, [periodEntries, catMap, getReportCurrency]);
 
   const toggleCategoryExpanded = (id: string) => {
     setExpandedCategoryIds((prev) => {
@@ -337,49 +370,73 @@ export default function Reports() {
           ? { paymentDetails: paymentSections[0].details, paymentSections: null as ReportPaymentSection[] | null }
           : { paymentDetails: null as ReportPaymentDetails | null, paymentSections };
 
+    // Sum earnings in each report currency for the export totals — when the
+    // user has overridden one category to a different currency, the top-line
+    // total needs to reflect the converted numbers, not the raw tracker sums.
+    let totalEarningsConverted = 0;
+    for (const c of filteredCategories) {
+      const reportCur = c.reportCurrency;
+      const converted = reportCur !== c.currency
+        ? convertCurrency(c.earnings, c.currency, reportCur, rates)
+        : c.earnings;
+      totalEarningsConverted += converted;
+    }
+
     return {
       periodLabel: range.periodLabel,
       rangeLabel: range.label,
       scopeLabel,
       totalSeconds: filteredTotal,
-      totalEarnings: filteredEarnings,
+      totalEarnings: totalEarningsConverted,
       ...paymentBlock,
-      categories: filteredCategories.map((c) => ({
-        name: c.name,
-        color: c.color,
-        seconds: c.sec,
-        currency: c.currency,
-        hourlyRate: c.hourlyRate,
-        earnings: c.earnings,
-        pct: filteredTotal > 0 ? c.sec / filteredTotal : 0,
-      })),
+      categories: filteredCategories.map((c) => {
+        const converted = c.reportCurrency !== c.currency
+          ? convertCurrency(c.earnings, c.currency, c.reportCurrency, rates)
+          : c.earnings;
+        const convertedRate = c.hourlyRate && c.reportCurrency !== c.currency
+          ? convertCurrency(c.hourlyRate, c.currency, c.reportCurrency, rates)
+          : c.hourlyRate;
+        return {
+          name: c.name,
+          color: c.color,
+          seconds: c.sec,
+          currency: c.reportCurrency,
+          hourlyRate: convertedRate,
+          earnings: converted,
+          pct: filteredTotal > 0 ? c.sec / filteredTotal : 0,
+        };
+      }),
       entries: filteredEntries.map((e) => {
         const s = new Date(e.started_at);
         const en = e.ended_at ? new Date(e.ended_at) : new Date();
         const cat = e.category_id ? catMap.get(e.category_id) : undefined;
         const durationMin = Math.max(0, Math.round((en.getTime() - s.getTime()) / 60000));
         const hourlyRate = cat?.hourly_rate ?? null;
-        const currency = cat?.currency || "USD";
+        const trackerCur = (cat?.currency || "USD").toUpperCase();
+        const reportCur = cat ? getReportCurrency(cat.id, trackerCur) : trackerCur;
+        const earningsTracker = ((hourlyRate || 0) * durationMin) / 60;
+        const earnings = reportCur !== trackerCur
+          ? convertCurrency(earningsTracker, trackerCur, reportCur, rates)
+          : earningsTracker;
+        const displayedRate = hourlyRate && reportCur !== trackerCur
+          ? convertCurrency(hourlyRate, trackerCur, reportCur, rates)
+          : hourlyRate;
         return {
           date: s.toLocaleDateString(),
           startedAt: s.toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" }),
           endedAt: en.toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" }),
           category: cat?.name || "Uncategorized",
           durationMin,
-          currency,
-          hourlyRate,
-          earnings: ((hourlyRate || 0) * durationMin) / 60,
+          currency: reportCur,
+          hourlyRate: displayedRate,
+          earnings,
           note: e.note ?? null,
         };
       }),
     };
   };
 
-  const onExport = async (kind: "pdf" | "csv", categoryIds?: string[], scopeLabel?: string) => {
-    if (!isPro) {
-      setUpgradeOpen(true);
-      return;
-    }
+  const runExport = async (kind: "pdf" | "csv", categoryIds?: string[], scopeLabel?: string) => {
     const payload = buildPayload(categoryIds, scopeLabel || "All categories");
     try {
       if (kind === "pdf") await downloadReportPdf(payload);
@@ -388,6 +445,129 @@ export default function Reports() {
     } catch (e: any) {
       toast.error(e?.message || "Export failed");
     }
+  };
+
+  /**
+   * Find categories in scope where the report currency the user picked
+   * doesn't match the tracker currency that owns the payment details. These
+   * are the rows whose payment block in the exported PDF would otherwise
+   * disagree with the displayed earnings.
+   */
+  const findMismatches = (categoryIds?: string[]): import("@/components/app/ReportCurrencyMismatchDialog").CurrencyMismatch[] => {
+    const idSet = categoryIds?.length ? new Set(categoryIds) : null;
+    const scope = idSet
+      ? categoryGroups.filter((c) => idSet.has(c.id))
+      : categoryGroups;
+    return scope
+      .filter((c) => c.id !== "uncategorized" && c.reportCurrency !== c.currency)
+      .map((c) => ({
+        catId: c.id,
+        catName: c.name,
+        catColor: c.color,
+        trackerCurrency: c.currency,
+        reportCurrency: c.reportCurrency,
+      }));
+  };
+
+  const onExport = async (kind: "pdf" | "csv", categoryIds?: string[], scopeLabel?: string) => {
+    if (!isPro) {
+      setUpgradeOpen(true);
+      return;
+    }
+    const mismatches = findMismatches(categoryIds);
+    if (mismatches.length > 0) {
+      // Pause the export, let the user choose update-or-skip via the dialog.
+      // The dialog's callbacks call runExport (or sequential-edit flow) once
+      // the decision is made.
+      setPendingExport({ kind, categoryIds, scopeLabel });
+      setMismatchList(mismatches);
+      setMismatchDialogOpen(true);
+      return;
+    }
+    await runExport(kind, categoryIds, scopeLabel);
+  };
+
+  // ── Mismatch-flow handlers ────────────────────────────────────────────
+  // Open the first PaymentMethodFields sheet, pre-filled with the cat's
+  // existing billing data but with currency set to the report currency.
+  const beginEditFlow = () => {
+    setMismatchDialogOpen(false);
+    if (!mismatchList.length) return;
+    setEditIdx(0);
+    openEditSheetFor(0);
+  };
+
+  const openEditSheetFor = (idx: number) => {
+    const m = mismatchList[idx];
+    if (!m) return;
+    const row = catMap.get(m.catId) as CategoryBillingRow | undefined;
+    const draft = categoryBillingToDraft(row);
+    // Pre-set the currency to the report currency so the picker / fields
+    // make sense for the new account.
+    draft.currency = m.reportCurrency;
+    // If the new currency is a different kind (crypto vs fiat), wipe the
+    // old payment_method so PaymentMethodFields' auto-detect can pick a
+    // valid one for the new kind.
+    draft.payment_method = "";
+    setEditDraft(draft);
+  };
+
+  const saveCurrentEdit = async () => {
+    const m = mismatchList[editIdx];
+    if (!m || !editDraft) return;
+    try {
+      await updateCategoryBilling(m.catId, {
+        currency: editDraft.currency,
+        payment_method: editDraft.payment_method,
+        display_name: editDraft.display_name,
+        bank_name: editDraft.bank_name,
+        iban: editDraft.iban,
+        crypto_network: editDraft.crypto_network,
+        crypto_wallet: editDraft.crypto_wallet,
+        payment_link: editDraft.payment_link,
+        notes: editDraft.notes,
+      });
+      // Override is now redundant — tracker matches report. Clear it.
+      clearCatOverride(m.catId);
+    } catch (e: any) {
+      toast.error(e?.message || "Could not save payment details");
+      return;
+    }
+    advanceEditFlow();
+  };
+
+  const advanceEditFlow = () => {
+    const nextIdx = editIdx + 1;
+    if (nextIdx >= mismatchList.length) {
+      // All done — close sheet, kick off the actual export.
+      setEditDraft(null);
+      const pe = pendingExport;
+      setPendingExport(null);
+      setMismatchList([]);
+      if (pe) void runExport(pe.kind, pe.categoryIds, pe.scopeLabel);
+      return;
+    }
+    setEditIdx(nextIdx);
+    openEditSheetFor(nextIdx);
+  };
+
+  const skipCurrentEdit = () => {
+    // User declined to update this category — keep the override and move on.
+    advanceEditFlow();
+  };
+
+  const exportAsIs = async () => {
+    setMismatchDialogOpen(false);
+    const pe = pendingExport;
+    setPendingExport(null);
+    setMismatchList([]);
+    if (pe) await runExport(pe.kind, pe.categoryIds, pe.scopeLabel);
+  };
+
+  const cancelExport = () => {
+    setMismatchDialogOpen(false);
+    setPendingExport(null);
+    setMismatchList([]);
   };
 
   return (
@@ -573,11 +753,11 @@ export default function Reports() {
                   />
                 ))}
               </div>
-              <ul className="space-y-2 enter-stagger">
+              <ul className="space-y-2 enter-stagger reports-category-list">
                 {categoryGroups.map((group) => {
                   const isOpen = expandedCategoryIds.has(group.id);
                   return (
-                    <li key={group.id} className="overflow-hidden rounded-2xl border border-soft/50 surface-soft card-volumetric">
+                    <li key={group.id} className="reports-category-card overflow-hidden rounded-2xl border border-soft/50 surface-soft card-volumetric">
                       <button
                         type="button"
                         onClick={() => toggleCategoryExpanded(group.id)}
@@ -585,19 +765,19 @@ export default function Reports() {
                         aria-expanded={isOpen}
                       >
                         <span
-                          className="mt-1.5 h-2.5 w-2.5 rounded-full shrink-0"
+                          className="reports-cat-dot mt-1.5 h-2.5 w-2.5 rounded-full shrink-0"
                           style={{ background: group.color }}
                         />
                         <div className="min-w-0 flex-1">
                           <div className="flex items-baseline justify-between gap-3">
-                            <span className="text-[13px] font-semibold text-foreground/95 truncate">
+                            <span className="text-[13.5px] font-semibold text-foreground truncate">
                               {group.name}
                             </span>
-                            <span className="text-[12px] tabular-nums text-secondary-fg/85 shrink-0">
+                            <span className="reports-cat-total text-[12px] font-semibold tabular-nums text-foreground/85 shrink-0">
                               {fmtHM(group.sec)}
                             </span>
                           </div>
-                          <div className="mt-1 flex flex-wrap items-center gap-x-3 gap-y-1 text-[11px] tabular-nums text-secondary-fg/70">
+                          <div className="reports-cat-meta mt-1 flex flex-wrap items-center gap-x-3 gap-y-1 text-[11px] tabular-nums text-secondary-fg/75">
                             <span>{(group.pct * 100).toFixed(0)}% of period</span>
                             <span>
                               {group.entries.length} session{group.entries.length === 1 ? "" : "s"}
@@ -607,11 +787,62 @@ export default function Reports() {
                             ) : (
                               <span>No rate</span>
                             )}
-                            {group.earnings > 0 && (
-                              <span className="font-semibold text-success">
-                                {fmtMoney(group.earnings, group.currency)} earned
-                              </span>
-                            )}
+                            {group.earnings > 0 && (() => {
+                              // Convert earnings to report currency for display
+                              // when override differs. Falls back to original
+                              // amount silently if rates aren't loaded yet.
+                              const shouldConvert = group.reportCurrency !== group.currency;
+                              const displayedAmount = shouldConvert
+                                ? convertCurrency(group.earnings, group.currency, group.reportCurrency, rates)
+                                : group.earnings;
+                              return (
+                                <span className="font-semibold text-success">
+                                  {fmtMoney(displayedAmount, group.reportCurrency)} earned
+                                </span>
+                              );
+                            })()}
+                            {/* Report-currency chip — taps to override the
+                                display currency for this category's report.
+                                Has a subtle accent ring when an override is
+                                active (report ≠ tracker). */}
+                            <button
+                              type="button"
+                              onClick={(e) => {
+                                e.stopPropagation();
+                                if (group.id === "uncategorized") return;
+                                setReportCurrencyTarget({ catId: group.id, trackerCurrency: group.currency });
+                              }}
+                              disabled={group.id === "uncategorized"}
+                              aria-label={`Change report currency for ${group.name}`}
+                              className={[
+                                "inline-flex items-center gap-1 rounded-md px-1.5 py-0.5 text-[10px] font-semibold tabular-nums tracking-[0.04em]",
+                                "transition-[transform,box-shadow,background-color] duration-150 ease-[cubic-bezier(0.32,0.72,0,1)] active:scale-[0.96]",
+                                group.id === "uncategorized" ? "cursor-default" : "pressable",
+                              ].join(" ")}
+                              style={
+                                group.reportCurrency !== group.currency
+                                  ? {
+                                      background:
+                                        "linear-gradient(180deg, hsl(var(--primary) / 0.18) 0%, hsl(var(--primary) / 0.08) 100%)",
+                                      boxShadow: [
+                                        "inset 0 1px 0 hsl(0 0% 100% / 0.12)",
+                                        "inset 0 -1px 0 hsl(var(--primary) / 0.30)",
+                                        "0 0 0 1px hsl(var(--primary) / 0.40)",
+                                      ].join(", "),
+                                      color: "hsl(var(--primary))",
+                                    }
+                                  : {
+                                      background: "hsl(var(--foreground) / 0.05)",
+                                      boxShadow: "inset 0 0 0 1px hsl(var(--border) / 0.40)",
+                                      color: "hsl(var(--foreground) / 0.65)",
+                                    }
+                              }
+                            >
+                              {group.reportCurrency}
+                              {group.id !== "uncategorized" && (
+                                <ChevronDown className="h-2.5 w-2.5 opacity-70" />
+                              )}
+                            </button>
                           </div>
                         </div>
                         <ChevronDown
@@ -653,11 +884,16 @@ export default function Reports() {
                                         <span className="block text-[12px] tabular-nums text-secondary-fg/85">
                                           {fmtHM(sec)}
                                         </span>
-                                        {earned > 0 && (
-                                          <span className="block text-[10px] tabular-nums text-success">
-                                            {fmtMoney(earned, group.currency)}
-                                          </span>
-                                        )}
+                                        {earned > 0 && (() => {
+                                          const display = group.reportCurrency !== group.currency
+                                            ? convertCurrency(earned, group.currency, group.reportCurrency, rates)
+                                            : earned;
+                                          return (
+                                            <span className="block text-[10px] tabular-nums text-success">
+                                              {fmtMoney(display, group.reportCurrency)}
+                                            </span>
+                                          );
+                                        })()}
                                       </span>
                                     </li>
                                   );
@@ -776,6 +1012,96 @@ export default function Reports() {
         initialSelected={appliedCatIds}
         onApply={setAppliedCatIds}
       />
+      {/* Per-row report-currency picker. Opens when user taps a category's
+          currency chip; picking a code stores an override (or clears it
+          when the chosen code matches the tracker currency). */}
+      <CurrencyPickerSheet
+        open={!!reportCurrencyTarget}
+        onOpenChange={(o) => { if (!o) setReportCurrencyTarget(null); }}
+        selected={reportCurrencyTarget ? getReportCurrency(reportCurrencyTarget.catId, reportCurrencyTarget.trackerCurrency) : "USD"}
+        rates={rates}
+        ratesLoading={ratesLoading}
+        onSelect={(code) => {
+          if (!reportCurrencyTarget) return;
+          // If the picked code matches tracker currency, drop the override.
+          // Otherwise store it. Either way, close the picker.
+          const upper = code.toUpperCase();
+          const trackerUpper = reportCurrencyTarget.trackerCurrency.toUpperCase();
+          if (upper === trackerUpper) {
+            clearCatOverride(reportCurrencyTarget.catId);
+          } else {
+            setCatOverride(reportCurrencyTarget.catId, upper, trackerUpper);
+          }
+          setReportCurrencyTarget(null);
+        }}
+      />
+      {/* Pre-export gate when report currency differs from tracker for any
+          in-scope category. */}
+      <ReportCurrencyMismatchDialog
+        open={mismatchDialogOpen}
+        mismatches={mismatchList}
+        onCancel={cancelExport}
+        onExportAsIs={exportAsIs}
+        onUpdatePaymentDetails={beginEditFlow}
+      />
+      {/* Sequential PaymentMethodFields sheet — one mismatched category at a
+          time. Saving advances; skipping leaves the override in place and
+          moves on. After the last one we fire the original export. */}
+      <Sheet
+        open={editDraft !== null}
+        onOpenChange={(o) => { if (!o) { setEditDraft(null); setPendingExport(null); setMismatchList([]); } }}
+      >
+        <SheetContent
+          side="bottom"
+          className="rounded-t-[28px] border-border/45 bg-popover max-h-[90vh] flex flex-col p-0"
+        >
+          <SheetTitle className="sr-only">
+            Update payment details
+          </SheetTitle>
+          <div className="flex-1 overflow-y-auto">
+          {editDraft && mismatchList[editIdx] && (
+            <>
+              <div className="px-5 pt-6 pb-3">
+                <p className="text-[10px] font-semibold uppercase tracking-[0.16em] text-secondary-fg/70">
+                  Step {editIdx + 1} of {mismatchList.length}
+                </p>
+                <h2 className="mt-1.5 font-display text-[20px] font-semibold tracking-tight">
+                  Payment for {mismatchList[editIdx].catName}
+                </h2>
+                <p className="mt-1 text-[12.5px] text-secondary-fg/85 leading-relaxed">
+                  Report shows{" "}
+                  <span className="font-semibold text-foreground">{mismatchList[editIdx].reportCurrency}</span>{" "}
+                  but tracker holds{" "}
+                  <span className="font-semibold text-foreground">{mismatchList[editIdx].trackerCurrency}</span> details. Update below — or skip to keep the old account.
+                </p>
+              </div>
+              <div className="px-5 pb-6 space-y-4">
+                <PaymentMethodFields
+                  value={editDraft}
+                  onChange={(field, val) => setEditDraft((p) => (p ? { ...p, [field]: val } : p))}
+                />
+                <div className="flex items-center gap-2 pt-1">
+                  <button
+                    type="button"
+                    onClick={skipCurrentEdit}
+                    className="flex-1 h-11 rounded-xl border border-border/45 bg-card/40 text-[12.5px] font-medium text-secondary-fg/90 hover:text-foreground transition-colors"
+                  >
+                    Skip this one
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => void saveCurrentEdit()}
+                    className="flex-[2] h-11 rounded-xl bg-primary text-primary-foreground text-[13px] font-semibold pressable shadow-[0_8px_22px_-12px_hsl(var(--primary)/0.55)]"
+                  >
+                    Save and continue
+                  </button>
+                </div>
+              </div>
+            </>
+          )}
+          </div>
+        </SheetContent>
+      </Sheet>
     </>
   );
 }

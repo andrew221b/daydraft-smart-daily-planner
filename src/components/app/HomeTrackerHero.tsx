@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useRef, useState, type CSSProperties, type FormEvent } from "react";
 import { AnimatePresence, motion } from "framer-motion";
-import { Check, Play, Square, Plus, Search, ChevronDown, Wallet } from "lucide-react";
+import { Check, Play, Square, Plus, Search, ChevronDown, Wallet, Pencil, Trash2 } from "lucide-react";
 import { useTimeTracker, subscribeElapsed, getElapsedSec, fmtHMS, fmtHM } from "@/hooks/useTimeTracker";
 import { LiveElapsed } from "@/components/app/LiveElapsed";
 import { Sheet, SheetContent, SheetHeader, SheetTitle } from "@/components/ui/sheet";
@@ -13,6 +13,16 @@ import { haptics } from "@/lib/haptics";
 import { toast } from "sonner";
 import { PaymentMethodFields, type PaymentFieldsValue } from "@/components/app/PaymentMethodFields";
 import { getPaymentMethod } from "@/lib/paymentMethods";
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+} from "@/components/ui/alert-dialog";
 
 function fmtMoney(amount: number, currency: string): string {
   try {
@@ -111,11 +121,6 @@ const emptyPaymentDetails: PaymentDetailsDraft = {
   notes: "",
 };
 
-const currencyOptions = [
-  "USD", "EUR", "GBP", "CHF", "CAD", "AUD", "NZD", "JPY", "PLN", "UAH", "AED", "SEK", "NOK", "DKK", "CZK", "GEL", "TRY", "SGD", "HKD", "MXN", "BRL", "INR", "CNY", "KZT",
-  "USDT", "USDC", "DAI", "EURC", "BTC", "ETH", "SOL", "BNB", "TON", "TRX", "MATIC", "LTC", "XRP", "ADA", "DOGE",
-];
-
 export function HomeTrackerHero({ onOpenDetails }: { onOpenDetails: () => void }) {
   const { isPro } = useEntitlement();
   const {
@@ -125,6 +130,8 @@ export function HomeTrackerHero({ onOpenDetails }: { onOpenDetails: () => void }
     stop,
     switchCategory,
     addCategory,
+    deleteCategory,
+    renameCategory,
     todayTotalSec,
     updateCategoryRate,
     updateCategoryBilling,
@@ -138,16 +145,23 @@ export function HomeTrackerHero({ onOpenDetails }: { onOpenDetails: () => void }
   const [focusNewCategory, setFocusNewCategory] = useState(false);
   const newCategoryInputRef = useRef<HTMLInputElement | null>(null);
   const [draftRate, setDraftRate] = useState("");
-  const [draftCurrency, setDraftCurrency] = useState("USD");
-  const [draftPaymentMethod, setDraftPaymentMethod] = useState("");
   const [billingOpen, setBillingOpen] = useState(false);
   const [billingExpanded, setBillingExpanded] = useState(false);
   const [paymentDetails, setPaymentDetails] = useState<PaymentDetailsDraft>(emptyPaymentDetails);
   const [paymentSaving, setPaymentSaving] = useState(false);
-  const [categorySaving, setCategorySaving] = useState(false);
+  const [rateSaving, setRateSaving] = useState(false);
   const [upgradeOpen, setUpgradeOpen] = useState(false);
+  // Picker-sheet inline manage state — long-press a row to edit/delete it
+  // without leaving the picker. Surfaces what was previously only
+  // discoverable via the tracker page's swipe-row affordance.
+  const [manageCatId, setManageCatId] = useState<string | null>(null);
+  const [manageName, setManageName] = useState("");
+  const [manageBusy, setManageBusy] = useState(false);
+  const [confirmDeleteId, setConfirmDeleteId] = useState<string | null>(null);
 
   const selectedCat = categories.find((c) => c.id === selectedCategoryId) || null;
+  const savedRateStr = selectedCat?.hourly_rate == null ? "" : String(selectedCat.hourly_rate);
+  const rateDirty = draftRate.replace(",", ".").trim() !== savedRateStr;
   const accent = activeCat?.color || selectedCat?.color || "hsl(var(--primary))";
   const topCats = categories.slice(0, 4);
   const moreCats = categories.slice(4);
@@ -175,8 +189,6 @@ export function HomeTrackerHero({ onOpenDetails }: { onOpenDetails: () => void }
   useEffect(() => {
     if (!selectedCat) return;
     setDraftRate(selectedCat.hourly_rate == null ? "" : String(selectedCat.hourly_rate));
-    setDraftCurrency(String(selectedCat.currency || "USD"));
-    setDraftPaymentMethod(String(selectedCat.payment_method || ""));
   }, [selectedCat]);
 
   useEffect(() => {
@@ -184,27 +196,20 @@ export function HomeTrackerHero({ onOpenDetails }: { onOpenDetails: () => void }
     setPaymentDetails(categoryBillingToDraft(selectedCat));
   }, [billingOpen, selectedCat]);
 
-  const saveCategoryBilling = async () => {
+  const saveRate = async (silent = false) => {
     if (!selectedCat) return;
     const cleaned = draftRate.replace(",", ".").trim();
     const rateNum = cleaned === "" ? null : Number(cleaned);
     const rateNorm =
       rateNum === null || !Number.isFinite(rateNum) || rateNum < 0 ? null : Math.round(rateNum * 100) / 100;
-    setCategorySaving(true);
+    setRateSaving(true);
     try {
-      await Promise.all([
-        updateCategoryRate(selectedCat.id, rateNorm),
-        updateCategoryBilling(selectedCat.id, {
-          ...categoryBillingToDraft(selectedCat),
-          currency: draftCurrency,
-          payment_method: draftPaymentMethod,
-        }),
-      ]);
-      toast.success("Saved for this category");
+      await updateCategoryRate(selectedCat.id, rateNorm);
+      if (!silent) toast.success("Hourly rate saved");
     } catch (e: unknown) {
       toast.error(e instanceof Error ? e.message : "Save failed");
     } finally {
-      setCategorySaving(false);
+      setRateSaving(false);
     }
   };
 
@@ -216,13 +221,54 @@ export function HomeTrackerHero({ onOpenDetails }: { onOpenDetails: () => void }
     }
     setPaymentSaving(true);
     try {
+      // Sheet is now the single source of truth for currency + method + fields.
+      // All three travel together so the editor can never leave the row in a
+      // half-saved state where the method belongs to the wrong rail.
       await updateCategoryBilling(selectedCat.id, paymentDetails);
-      toast.success("Payment details saved for this category");
+      toast.success("Payment details saved");
       setBillingOpen(false);
     } catch (e: unknown) {
       toast.error(e instanceof Error ? e.message : "Could not save");
     } finally {
       setPaymentSaving(false);
+    }
+  };
+
+  const beginManage = (id: string, name: string) => {
+    setManageCatId(id);
+    setManageName(name);
+  };
+
+  const commitManageRename = async () => {
+    if (!manageCatId) return;
+    const next = manageName.trim();
+    const current = categories.find((c) => c.id === manageCatId);
+    if (!current || !next || next === current.name) {
+      setManageCatId(null);
+      return;
+    }
+    setManageBusy(true);
+    try {
+      await renameCategory(manageCatId, next);
+      toast.success("Renamed");
+    } catch (e: unknown) {
+      toast.error(e instanceof Error ? e.message : "Couldn't rename");
+    } finally {
+      setManageBusy(false);
+      setManageCatId(null);
+    }
+  };
+
+  const performDelete = async () => {
+    if (!confirmDeleteId) return;
+    const id = confirmDeleteId;
+    setConfirmDeleteId(null);
+    setManageCatId(null);
+    try {
+      await deleteCategory(id);
+      toast.success("Category deleted");
+    } catch (e: unknown) {
+      toast.error(e instanceof Error ? e.message : "Couldn't delete");
     }
   };
 
@@ -433,8 +479,8 @@ export function HomeTrackerHero({ onOpenDetails }: { onOpenDetails: () => void }
               </span>
               <div className="flex items-center gap-2">
                 {selectedCat.hourly_rate != null && (
-                  <span className="text-[12px] font-medium text-foreground/65 tabular-nums">
-                    {selectedCat.hourly_rate}/{selectedCat.currency || "USD"}/h
+                  <span className="text-[12px] font-semibold text-foreground/70 tabular-nums">
+                    {fmtMoney(selectedCat.hourly_rate, selectedCat.currency || "USD")}/h
                   </span>
                 )}
                 <ChevronDown
@@ -445,28 +491,37 @@ export function HomeTrackerHero({ onOpenDetails }: { onOpenDetails: () => void }
 
             {billingExpanded && (
               <div className="px-3.5 pb-3.5 space-y-2.5 border-t border-border/25 pt-3">
-                <div className="grid grid-cols-[1fr_100px] gap-2">
-                  <label className="space-y-1 block min-w-0">
-                    <span className="text-[10px] text-secondary-fg/70">Rate / h</span>
+                {/* Rate field — auto-saves on blur when dirty, no button needed
+                    in the common case. Save button appears only after typing. */}
+                <div className="flex items-end gap-2">
+                  <label className="flex-1 space-y-1 block min-w-0">
+                    <span className="text-[10px] text-secondary-fg/70">
+                      Rate / h{selectedCat.currency ? ` · ${selectedCat.currency.toUpperCase()}` : ""}
+                    </span>
                     <Input
                       inputMode="decimal"
                       value={draftRate}
                       onChange={(e) => setDraftRate(e.target.value)}
+                      onBlur={() => { if (rateDirty && !rateSaving) void saveRate(true); }}
                       placeholder="—"
-                      className="h-9 rounded-xl border-border/40 bg-card/40 text-[13px]"
+                      className={`h-9 rounded-xl border-border/40 bg-card/40 text-[13px] transition-colors ${rateDirty ? "border-primary/50 ring-1 ring-primary/20" : ""}`}
                     />
                   </label>
-                  <label className="space-y-1 block min-w-0">
-                    <span className="text-[10px] text-secondary-fg/70">Currency</span>
-                    <select
-                      value={draftCurrency}
-                      onChange={(e) => setDraftCurrency(e.target.value)}
-                      className="h-9 w-full rounded-xl border border-border/40 bg-card/40 px-2 text-[12px] text-foreground outline-none focus:border-primary/50"
+                  {rateDirty && (
+                    <Button
+                      type="button"
+                      size="sm"
+                      disabled={rateSaving}
+                      onClick={() => void saveRate(false)}
+                      className="h-9 rounded-xl text-[12px] font-semibold px-4"
                     >
-                      {currencyOptions.map((code) => <option key={code} value={code}>{code}</option>)}
-                    </select>
-                  </label>
+                      {rateSaving ? "Saving…" : "Save"}
+                    </Button>
+                  )}
                 </div>
+
+                {/* Single source of truth for currency + method + reqs.
+                    Trigger displays current state; tap opens the unified sheet. */}
                 <div className="space-y-1">
                   <span className="text-[10px] text-secondary-fg/70">Payment method</span>
                   <button
@@ -475,60 +530,45 @@ export function HomeTrackerHero({ onOpenDetails }: { onOpenDetails: () => void }
                       if (!isPro) { setUpgradeOpen(true); return; }
                       setBillingOpen(true);
                     }}
-                    className="group relative flex w-full items-center gap-2.5 rounded-xl border border-border/40 bg-card/40 px-3 py-2 text-left pressable hover:border-border/65 hover:bg-card/60 transition-colors"
+                    className="group relative flex w-full items-center gap-2.5 rounded-xl border border-border/40 bg-card/40 px-3 py-2.5 text-left pressable hover:border-border/65 hover:bg-card/60 transition-colors"
                   >
                     {(() => {
-                      const m = getPaymentMethod(draftPaymentMethod);
+                      const m = getPaymentMethod(selectedCat.payment_method);
+                      const cur = (selectedCat.currency || "USD").toUpperCase();
                       if (m) {
                         const Icon = m.Icon;
                         return (
                           <>
                             <span
-                              className="flex h-6 w-6 shrink-0 items-center justify-center rounded-lg"
+                              className="flex h-7 w-7 shrink-0 items-center justify-center rounded-lg"
                               style={{ background: `hsl(${m.accent} / 0.18)`, color: `hsl(${m.accent})` }}
                             >
                               <Icon className="h-3.5 w-3.5" strokeWidth={2.4} />
                             </span>
-                            <span className="min-w-0 flex-1 text-[12px] font-medium text-foreground truncate">
+                            <span className="min-w-0 flex-1 text-[13px] font-semibold text-foreground truncate leading-tight">
                               {m.label}
+                            </span>
+                            <span className="shrink-0 inline-flex items-center rounded-md bg-foreground/[0.06] px-1.5 py-0.5 text-[10.5px] font-semibold tabular-nums tracking-[0.04em] text-foreground/75">
+                              {cur}
                             </span>
                           </>
                         );
                       }
                       return (
                         <>
-                          <span className="flex h-6 w-6 shrink-0 items-center justify-center rounded-lg bg-foreground/[0.06] text-foreground/50">
+                          <span className="flex h-7 w-7 shrink-0 items-center justify-center rounded-lg bg-foreground/[0.06] text-foreground/55">
                             <Wallet className="h-3.5 w-3.5" strokeWidth={2} />
                           </span>
-                          <span className="min-w-0 flex-1 text-[12px] font-medium text-secondary-fg/75 truncate">
-                            Choose payment method
+                          <span className="min-w-0 flex-1 text-[13px] font-medium text-secondary-fg/85 truncate leading-tight">
+                            Add payment details
+                          </span>
+                          <span className="shrink-0 inline-flex items-center rounded-md bg-foreground/[0.04] px-1.5 py-0.5 text-[10.5px] font-semibold tabular-nums tracking-[0.04em] text-secondary-fg/65">
+                            {cur}
                           </span>
                         </>
                       );
                     })()}
-                    <ChevronDown className="h-3.5 w-3.5 -rotate-90 text-secondary-fg/55 shrink-0 transition-transform group-hover:translate-x-0.5" />
-                  </button>
-                </div>
-                <div className="flex gap-2">
-                  <Button
-                    type="button"
-                    size="sm"
-                    disabled={categorySaving}
-                    onClick={() => void saveCategoryBilling()}
-                    className="flex-1 h-9 rounded-xl text-[12px] font-semibold"
-                  >
-                    {categorySaving ? "Saving…" : "Save"}
-                  </Button>
-                  <button
-                    type="button"
-                    onClick={() => {
-                      if (!isPro) { setUpgradeOpen(true); return; }
-                      setBillingOpen(true);
-                    }}
-                    className="flex-1 inline-flex items-center justify-center gap-1.5 rounded-xl border border-border/40 bg-card/35 text-[12px] font-medium text-secondary-fg/80 pressable hover:text-foreground"
-                  >
-                    <Wallet className="h-3.5 w-3.5" />
-                    Details
+                    <ChevronDown className="h-4 w-4 -rotate-90 text-secondary-fg/55 shrink-0 transition-transform group-hover:translate-x-0.5" />
                   </button>
                 </div>
               </div>
@@ -547,9 +587,9 @@ export function HomeTrackerHero({ onOpenDetails }: { onOpenDetails: () => void }
         <SheetContent side="bottom" className="rounded-t-[28px] p-0 max-h-[84vh] overflow-hidden bg-background border-border/45">
           <div className="flex max-h-[84vh] flex-col">
             <div className="px-5 pt-7 pb-4 border-b border-border/35">
-              <h3 className="font-display text-[20px] font-semibold tracking-tight">
+              <SheetTitle className="font-display text-[20px] font-semibold tracking-tight">
                 {active ? "Switch category" : "Choose category"}
-              </h3>
+              </SheetTitle>
               <p className="text-[13px] text-secondary-fg/80 mt-1">
                 {active ? "Pick a category and the current session will continue there." : "Pick a category, then press Start tracking."}
               </p>
@@ -572,22 +612,101 @@ export function HomeTrackerHero({ onOpenDetails }: { onOpenDetails: () => void }
                   {filteredCategories.map((c) => {
                     const isCurrent = active?.category_id === c.id;
                     const isSelected = !active && selectedCategoryId === c.id;
+                    const isManaging = manageCatId === c.id;
+                    // Each row turns into an inline rename + delete editor when
+                    // the user taps the pencil icon — keeps category mgmt inside
+                    // the picker instead of bouncing to a hidden tracker page.
+                    if (isManaging) {
+                      return (
+                        <div
+                          key={c.id}
+                          className="rounded-2xl border border-primary/40 bg-primary/[0.06] px-3.5 py-3 space-y-2.5"
+                          style={{ borderColor: `${c.color}88` }}
+                        >
+                          <div className="flex items-center gap-3">
+                            <span className="h-2.5 w-2.5 rounded-full shrink-0" style={{ background: c.color }} />
+                            <Input
+                              value={manageName}
+                              onChange={(e) => setManageName(e.target.value)}
+                              autoFocus
+                              maxLength={40}
+                              className="flex-1 h-9 bg-card/55 border-border/40 rounded-xl text-[14px] font-semibold"
+                              onKeyDown={(e) => {
+                                if (e.key === "Enter") void commitManageRename();
+                                if (e.key === "Escape") setManageCatId(null);
+                              }}
+                            />
+                          </div>
+                          <div className="flex items-center gap-2">
+                            <Button
+                              type="button"
+                              size="sm"
+                              disabled={manageBusy || !manageName.trim()}
+                              onClick={() => void commitManageRename()}
+                              className="flex-1 h-9 rounded-xl text-[12px] font-semibold"
+                            >
+                              {manageBusy ? "Saving…" : "Save"}
+                            </Button>
+                            <button
+                              type="button"
+                              onClick={() => setManageCatId(null)}
+                              className="h-9 px-3.5 rounded-xl border border-border/40 bg-card/40 text-[12px] font-medium text-secondary-fg/85 pressable hover:text-foreground"
+                            >
+                              Cancel
+                            </button>
+                            {!c.is_default && !isCurrent && (
+                              <button
+                                type="button"
+                                onClick={() => setConfirmDeleteId(c.id)}
+                                className="h-9 w-9 inline-flex items-center justify-center rounded-xl border border-destructive/30 bg-destructive/5 text-destructive pressable hover:bg-destructive/10"
+                                aria-label="Delete category"
+                              >
+                                <Trash2 className="h-3.5 w-3.5" />
+                              </button>
+                            )}
+                          </div>
+                          {c.is_default && (
+                            <p className="text-[11px] text-secondary-fg/70 leading-snug">
+                              This is your default category — it can be renamed but not deleted.
+                            </p>
+                          )}
+                          {isCurrent && !c.is_default && (
+                            <p className="text-[11px] text-secondary-fg/70 leading-snug">
+                              Stop tracking before deleting this category.
+                            </p>
+                          )}
+                        </div>
+                      );
+                    }
                     return (
-                      <button
+                      <div
                         key={c.id}
-                        type="button"
-                        onClick={() => chooseCategory(c.id)}
-                        disabled={isCurrent}
-                        className={`flex items-center gap-3 rounded-2xl border border-border/45 bg-card/60 px-3.5 py-3.5 text-left pressable transition-colors ${
-                          isCurrent ? "opacity-70" : isSelected ? "ring-1 ring-primary/25 bg-primary/10" : "hover:bg-card/90"
+                        className={`group flex items-stretch gap-1 rounded-2xl border border-border/45 bg-card/60 transition-colors ${
+                          isCurrent ? "opacity-90" : isSelected ? "ring-1 ring-primary/25 bg-primary/10" : "hover:bg-card/90"
                         }`}
                         style={{ borderColor: `${c.color}55` }}
                       >
-                        <span className="h-2.5 w-2.5 rounded-full shrink-0" style={{ background: c.color }} />
-                        <span className="min-w-0 flex-1 truncate text-[14px] font-semibold text-foreground/95">{c.name}</span>
-                        {isCurrent && <span className="text-[11px] font-semibold text-primary">Current</span>}
-                        {isSelected && <span className="text-[11px] font-semibold text-primary">Selected</span>}
-                      </button>
+                        <button
+                          type="button"
+                          onClick={() => chooseCategory(c.id)}
+                          disabled={isCurrent}
+                          className="flex flex-1 items-center gap-3 px-3.5 py-3.5 text-left pressable rounded-l-2xl min-w-0"
+                        >
+                          <span className="h-2.5 w-2.5 rounded-full shrink-0" style={{ background: c.color }} />
+                          <span className="min-w-0 flex-1 truncate text-[14px] font-semibold text-foreground/95">{c.name}</span>
+                          {isCurrent && <span className="text-[11px] font-semibold text-primary shrink-0">Current</span>}
+                          {isSelected && !isCurrent && <span className="text-[11px] font-semibold text-primary shrink-0">Selected</span>}
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => beginManage(c.id, c.name)}
+                          className="shrink-0 px-3 inline-flex items-center justify-center text-secondary-fg/65 hover:text-foreground pressable rounded-r-2xl"
+                          aria-label={`Rename or delete ${c.name}`}
+                          title="Rename or delete"
+                        >
+                          <Pencil className="h-3.5 w-3.5" />
+                        </button>
+                      </div>
                     );
                   })}
                 </div>
@@ -626,56 +745,71 @@ export function HomeTrackerHero({ onOpenDetails }: { onOpenDetails: () => void }
       </Sheet>
 
       <Sheet open={billingOpen} onOpenChange={setBillingOpen}>
-        <SheetContent side="bottom" className="rounded-t-[28px] border-border/45 bg-popover max-h-[90vh] overflow-y-auto p-0">
-          <div className="px-5 pt-6 pb-4">
-            <SheetHeader className="text-left space-y-0">
-              <p className="text-[10px] font-semibold uppercase tracking-[0.16em] text-secondary-fg/70">
-                Payment for
+        <SheetContent
+          side="bottom"
+          className="rounded-t-[28px] border-border/45 bg-popover max-h-[90vh] flex flex-col p-0"
+          style={{ paddingBottom: "var(--keyboard-inset, 0px)" }}
+        >
+          <div className="flex-1 overflow-y-auto">
+            <div className="px-5 pt-6 pb-4">
+              <SheetHeader className="text-left space-y-0">
+                <p className="text-[10px] font-semibold uppercase tracking-[0.16em] text-secondary-fg/70">
+                  Payment for
+                </p>
+                <SheetTitle className="font-display text-[22px] font-semibold tracking-tight mt-1">
+                  {selectedCat?.name ?? "Category"}
+                </SheetTitle>
+              </SheetHeader>
+              <p className="text-[12px] text-secondary-fg/85 mt-2 leading-relaxed">
+                Pick how this client pays you — only the relevant fields will appear. Use a payment link for cards, never raw card numbers.
               </p>
-              <SheetTitle className="font-display text-[22px] font-semibold tracking-tight mt-1">
-                {selectedCat?.name ?? "Category"}
-              </SheetTitle>
-            </SheetHeader>
-            <p className="text-[12px] text-secondary-fg/85 mt-2 leading-relaxed">
-              Pick how this client pays you — only the relevant fields will appear. Use a payment link for cards, never raw card numbers.
-            </p>
-          </div>
+            </div>
 
-          <div className="px-5 pb-6 space-y-4">
-            <label className="block space-y-1.5">
-              <span className="text-[10px] font-semibold uppercase tracking-[0.14em] text-secondary-fg/70 px-0.5">
-                Currency
-              </span>
-              <div className="relative">
-                <select
-                  value={paymentDetails.currency}
-                  onChange={(e) => setPaymentDetails((p) => ({ ...p, currency: e.target.value }))}
-                  className="h-11 w-full appearance-none rounded-2xl border border-border/45 bg-card/55 pl-4 pr-9 text-[14px] font-medium tabular-nums text-foreground outline-none transition-colors focus:border-primary/55 focus:bg-card/75"
-                >
-                  {currencyOptions.map((code) => <option key={code} value={code}>{code}</option>)}
-                </select>
-                <ChevronDown className="pointer-events-none absolute right-3 top-1/2 h-4 w-4 -translate-y-1/2 text-secondary-fg/65" />
-              </div>
-            </label>
+            <div className="px-5 pb-6 space-y-4">
+              <PaymentMethodFields
+                value={paymentDetails as PaymentFieldsValue}
+                onChange={(field, val) => setPaymentDetails((p) => ({ ...p, [field]: val }))}
+              />
 
-            <PaymentMethodFields
-              value={paymentDetails as PaymentFieldsValue}
-              onChange={(field, val) => setPaymentDetails((p) => ({ ...p, [field]: val }))}
-            />
-
-            <Button
-              type="button"
-              disabled={paymentSaving}
-              onClick={() => void savePaymentDetails()}
-              className="w-full h-12 rounded-2xl text-[14px] font-semibold gleam btn-volumetric"
-            >
-              {paymentSaving ? "Saving…" : "Save payment details"}
-            </Button>
+              <Button
+                type="button"
+                disabled={paymentSaving}
+                onClick={() => void savePaymentDetails()}
+                className="w-full h-12 rounded-2xl text-[14px] font-semibold gleam btn-volumetric"
+              >
+                {paymentSaving ? "Saving…" : "Save payment details"}
+              </Button>
+            </div>
           </div>
         </SheetContent>
       </Sheet>
 
       <UpgradeSheet open={upgradeOpen} onOpenChange={setUpgradeOpen} reason="feature" />
+
+      <AlertDialog open={!!confirmDeleteId} onOpenChange={(o) => !o && setConfirmDeleteId(null)}>
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>Delete this category?</AlertDialogTitle>
+            <AlertDialogDescription>
+              {(() => {
+                const target = categories.find((c) => c.id === confirmDeleteId);
+                return target
+                  ? `“${target.name}” will be removed. Any time tracked under it stays in your history but won't be assignable to this category anymore.`
+                  : "This category will be removed.";
+              })()}
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel>Cancel</AlertDialogCancel>
+            <AlertDialogAction
+              onClick={() => void performDelete()}
+              className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
+            >
+              Delete
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
     </section>
   );
 }

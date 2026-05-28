@@ -1925,7 +1925,12 @@ export default function DayView() {
           Note: picking a category *earmarks* it for this block; the timer
           only starts later, when the user opens Focus on this task. */}
       <Sheet open={!!trackPickerBlock} onOpenChange={(v) => { if (!v) { setTrackPickerBlock(null); setNewCatName(""); } }}>
-        <SheetContent side="bottom" className="rounded-t-[28px] border-border/45 bg-popover max-h-[85vh] overflow-y-auto">
+        <SheetContent
+          side="bottom"
+          className="rounded-t-[28px] border-border/45 bg-popover max-h-[85vh] flex flex-col"
+          style={{ paddingBottom: "var(--keyboard-inset, 0px)" }}
+        >
+          <div className="flex-1 overflow-y-auto p-6">
           <SheetHeader className="text-left">
             <SheetTitle className="flex items-center gap-2 text-[16px]">
               <Play className="h-4 w-4 text-primary" fill="currentColor" /> Tracker category
@@ -2018,6 +2023,7 @@ export default function DayView() {
               </div>
             </div>
           )}
+          </div>
         </SheetContent>
       </Sheet>
 

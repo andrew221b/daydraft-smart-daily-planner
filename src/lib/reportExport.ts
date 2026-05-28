@@ -120,8 +120,13 @@ export async function triggerDownload(blob: Blob, filename: string, mimeType: st
           dialogTitle: "Share or save",
         });
       } catch (err) {
-        // User dismissed the sheet — that's their choice, not a failure.
-        if (err instanceof Error && /cancel/i.test(err.message)) return;
+        // User dismissed the share sheet — not a failure. Capacitor's Share
+        // plugin throws a plain object {message, errorMessage} (NOT an Error
+        // instance) when the user cancels, so we check both shapes.
+        const msg = err instanceof Error
+          ? err.message
+          : (err as any)?.message ?? (err as any)?.errorMessage ?? "";
+        if (/cancel/i.test(String(msg))) return;
         throw err;
       }
       return;
@@ -279,14 +284,76 @@ function hexToRgb(hex: string): [number, number, number] {
 
 type RGB = [number, number, number];
 
+// ── Font embedding (Unicode-safe) ─────────────────────────────
+// jsPDF's built-in helvetica is WinAnsi-only; Cyrillic, Greek, anything
+// outside Latin-1 renders as gibberish ("? ? ? > 3 > B >"). To produce a
+// report that actually reads in Russian/Ukrainian/etc. we embed Inter
+// (Apache 2.0 via Google Fonts) as a TTF and register it as the active
+// font for every text operation.
+//
+// The TTFs live in `public/fonts/` and are fetched lazily on first PDF
+// export, then cached in-memory for the rest of the session. ~325KB per
+// face — only paid by users who actually export PDFs.
+const FONT_FAMILY = "Inter";
+let cachedFonts: { regular: string; bold: string } | null = null;
+let cachedFontPromise: Promise<{ regular: string; bold: string } | null> | null = null;
+
+async function loadInterFonts(): Promise<{ regular: string; bold: string } | null> {
+  if (cachedFonts) return cachedFonts;
+  if (cachedFontPromise) return cachedFontPromise;
+  cachedFontPromise = (async () => {
+    try {
+      const [regResp, boldResp] = await Promise.all([
+        fetch("/fonts/Inter-Regular.ttf"),
+        fetch("/fonts/Inter-Bold.ttf"),
+      ]);
+      if (!regResp.ok || !boldResp.ok) throw new Error("Font HTTP error");
+      const [regBuf, boldBuf] = await Promise.all([regResp.arrayBuffer(), boldResp.arrayBuffer()]);
+      const toBase64 = (buf: ArrayBuffer): string => {
+        const bytes = new Uint8Array(buf);
+        let bin = "";
+        const chunk = 0x8000;
+        for (let i = 0; i < bytes.length; i += chunk) {
+          bin += String.fromCharCode.apply(null, Array.from(bytes.subarray(i, i + chunk)));
+        }
+        return btoa(bin);
+      };
+      cachedFonts = { regular: toBase64(regBuf), bold: toBase64(boldBuf) };
+      return cachedFonts;
+    } catch (e) {
+      console.warn("[reportExport] Inter fetch failed — falling back to helvetica", e);
+      return null;
+    } finally {
+      cachedFontPromise = null;
+    }
+  })();
+  return cachedFontPromise;
+}
+
+function registerFonts(doc: JsPdfType, fonts: { regular: string; bold: string } | null): string {
+  if (!fonts) return "helvetica";
+  try {
+    doc.addFileToVFS("Inter-Regular.ttf", fonts.regular);
+    doc.addFont("Inter-Regular.ttf", FONT_FAMILY, "normal");
+    doc.addFileToVFS("Inter-Bold.ttf", fonts.bold);
+    doc.addFont("Inter-Bold.ttf", FONT_FAMILY, "bold");
+    return FONT_FAMILY;
+  } catch (e) {
+    console.warn("[reportExport] Font registration failed — falling back to helvetica", e);
+    return "helvetica";
+  }
+}
+
 export async function downloadReportPdf(report: ReportPayload) {
   // Lazy-load the heavyweight PDF deps. Vite splits these into a
   // separate chunk that only ships when the user actually exports.
-  const [{ default: jsPDF }, { default: autoTable }] = await Promise.all([
+  const [{ default: jsPDF }, { default: autoTable }, fonts] = await Promise.all([
     import("jspdf"),
     import("jspdf-autotable"),
+    loadInterFonts(),
   ]);
   const doc: JsPdfType = new jsPDF({ unit: "pt", format: "a4" } as jsPDFOptions);
+  const FONT = registerFonts(doc, fonts);
   const pageW = doc.internal.pageSize.getWidth();
   const pageH = doc.internal.pageSize.getHeight();
   const margin = 44;
@@ -295,15 +362,15 @@ export async function downloadReportPdf(report: ReportPayload) {
   // Editorial light theme. Single accent (indigo) + emerald for money.
   // Everything else lives on a tight neutral ramp so totals + numbers do
   // the visual heavy lifting.
-  const ink: RGB         = [18, 20, 28];     // headlines, primary values
-  const body: RGB        = [42, 46, 60];     // body copy
-  const sub: RGB         = [110, 115, 130];  // labels, captions
+  const ink: RGB         = [17, 20, 32];     // headlines, primary values
+  const body: RGB        = [50, 55, 70];     // body copy
+  const sub: RGB         = [115, 120, 138];  // labels, captions
   const faint: RGB       = [180, 184, 200];  // page-number, hairlines
   const hairline: RGB    = [228, 231, 240];  // row separators, dividers
   const soft: RGB        = [248, 249, 252];  // alternating rows
-  const cardBg: RGB      = [243, 245, 250];  // stat card surface
+  const cardBorder: RGB  = [225, 228, 240];  // stat-card outline
   const accent: RGB      = [99, 102, 241];   // indigo-500
-  const accentSoft: RGB  = [148, 113, 240];  // mid-tone for the second card
+  const accentSoft: RGB  = [139, 92, 246];   // violet-500 (second card)
   const success: RGB     = [16, 185, 129];   // emerald-500 (earnings)
   const white: RGB       = [255, 255, 255];
 
@@ -311,13 +378,13 @@ export async function downloadReportPdf(report: ReportPayload) {
 
   // ── Helpers ───────────────────────────────────────────────
   const sectionTitle = (text: string, y: number) => {
-    doc.setFont("helvetica", "bold");
-    doc.setFontSize(9.5);
+    doc.setFont(FONT, "bold");
+    doc.setFontSize(8.5);
     doc.setTextColor(...sub);
-    doc.text(text.toUpperCase(), margin, y, { charSpace: 1.8 });
+    doc.text(text.toUpperCase(), margin, y, { charSpace: 2 });
     doc.setDrawColor(...hairline);
     doc.setLineWidth(0.5);
-    doc.line(margin, y + 7, pageW - margin, y + 7);
+    doc.line(margin, y + 8, pageW - margin, y + 8);
   };
 
   const ensureRoom = (cursorY: number, need: number): number => {
@@ -327,57 +394,63 @@ export async function downloadReportPdf(report: ReportPayload) {
   };
 
   // ── Header band ───────────────────────────────────────────
+  // Solid dark block, indigo hairline underneath, brand badge top-left,
+  // period title large, range smaller below. Right rail carries the
+  // generation date + scope label as quiet metadata.
   doc.setFillColor(...ink);
-  doc.rect(0, 0, pageW, 138, "F");
+  doc.rect(0, 0, pageW, 144, "F");
   doc.setFillColor(...accent);
-  doc.rect(0, 138, pageW, 2, "F");
+  doc.rect(0, 144, pageW, 2, "F");
 
-  // Brand badge — small rounded mark + wordmark, mimics the app icon
+  // Brand badge — rounded mark + wordmark, mimics the app icon.
   const markX = margin;
   const markY = 36;
   doc.setFillColor(...accent);
-  doc.roundedRect(markX, markY, 20, 20, 5, 5, "F");
+  doc.roundedRect(markX, markY, 22, 22, 6, 6, "F");
   doc.setFillColor(255, 255, 255);
-  doc.circle(markX + 10, markY + 10, 3.5, "F");
+  doc.circle(markX + 11, markY + 11, 3.8, "F");
 
-  doc.setFont("helvetica", "bold");
-  doc.setFontSize(11);
+  doc.setFont(FONT, "bold");
+  doc.setFontSize(11.5);
   doc.setTextColor(...white);
-  doc.text("DayDraft", markX + 28, markY + 9);
-  doc.setFont("helvetica", "normal");
-  doc.setFontSize(8);
-  doc.setTextColor(190, 192, 215);
-  doc.text("TIME REPORT", markX + 28, markY + 21, { charSpace: 1.8 });
+  doc.text("DayDraft", markX + 32, markY + 9);
+  doc.setFont(FONT, "normal");
+  doc.setFontSize(7.5);
+  doc.setTextColor(180, 184, 210);
+  doc.text("TIME REPORT", markX + 32, markY + 21, { charSpace: 2 });
 
-  // Period (large) + range (small) — left-aligned hero text
-  doc.setFont("helvetica", "bold");
-  doc.setFontSize(28);
+  // Period (large) + range (small) — left-aligned hero text.
+  doc.setFont(FONT, "bold");
+  doc.setFontSize(30);
   doc.setTextColor(...white);
-  doc.text(report.periodLabel, margin, 100);
+  doc.text(report.periodLabel, margin, 104);
 
-  doc.setFont("helvetica", "normal");
+  doc.setFont(FONT, "normal");
   doc.setFontSize(11);
-  doc.setTextColor(195, 198, 220);
-  doc.text(report.rangeLabel, margin, 120);
+  doc.setTextColor(190, 193, 215);
+  doc.text(report.rangeLabel, margin, 124);
 
-  // Right-rail meta — generation date + scope (if set)
+  // Right-rail meta — generation date + scope (if set).
   const generated = new Date().toLocaleDateString(undefined, {
     year: "numeric", month: "short", day: "numeric",
   });
-  doc.setFont("helvetica", "normal");
-  doc.setFontSize(9);
-  doc.setTextColor(180, 184, 205);
+  doc.setFont(FONT, "normal");
+  doc.setFontSize(8.5);
+  doc.setTextColor(170, 174, 200);
   doc.text(`Generated ${generated}`, pageW - margin, 40, { align: "right" });
   if (report.scopeLabel) {
-    doc.setFont("helvetica", "bold");
-    doc.setFontSize(9);
+    doc.setFont(FONT, "bold");
+    doc.setFontSize(9.5);
     doc.setTextColor(...white);
     doc.text(report.scopeLabel, pageW - margin, 56, { align: "right" });
   }
 
   // ── Stat cards ────────────────────────────────────────────
-  const cardsY = 168;
-  const cardH = 102;
+  // Outlined cards instead of solid fills — calmer, lets the typography
+  // be the focal point. Coloured accent strip on the left edge keys each
+  // card to its semantic role (time / sessions / earnings).
+  const cardsY = 176;
+  const cardH = 96;
   const gap = 14;
   const hasEarnings = (report.totalEarnings || 0) > 0;
   const sessionCount = report.entries.length;
@@ -385,27 +458,31 @@ export async function downloadReportPdf(report: ReportPayload) {
   const cardW = (usableW - gap * (cardCount - 1)) / cardCount;
 
   const drawCard = (x: number, label: string, value: string, dot: RGB) => {
-    doc.setFillColor(...cardBg);
-    doc.roundedRect(x, cardsY, cardW, cardH, 14, 14, "F");
-    // Accent dot top-right
+    // Card body — white fill + soft hairline border. Looks like a printed
+    // card stock rather than the heavier filled-grey blocks.
+    doc.setFillColor(...white);
+    doc.setDrawColor(...cardBorder);
+    doc.setLineWidth(0.8);
+    doc.roundedRect(x, cardsY, cardW, cardH, 14, 14, "FD");
+    // Accent strip on the left edge — 3pt wide, full height.
     doc.setFillColor(...dot);
-    doc.circle(x + cardW - 20, cardsY + 20, 4.2, "F");
+    doc.roundedRect(x, cardsY, 3, cardH, 1.5, 1.5, "F");
     // Label
-    doc.setFont("helvetica", "bold");
-    doc.setFontSize(8);
+    doc.setFont(FONT, "bold");
+    doc.setFontSize(7.5);
     doc.setTextColor(...sub);
-    doc.text(label.toUpperCase(), x + 20, cardsY + 32, { charSpace: 1.5 });
-    // Value (autoscale a touch for long monetary strings)
-    const targetMaxW = cardW - 40;
+    doc.text(label.toUpperCase(), x + 22, cardsY + 30, { charSpace: 1.8 });
+    // Value — autoscale a touch for long monetary strings (CA$1,234.56).
+    const targetMaxW = cardW - 44;
     let valueSize = 28;
-    doc.setFont("helvetica", "bold");
+    doc.setFont(FONT, "bold");
     doc.setFontSize(valueSize);
     while (valueSize > 16 && doc.getTextWidth(value) > targetMaxW) {
       valueSize -= 1.5;
       doc.setFontSize(valueSize);
     }
     doc.setTextColor(...ink);
-    doc.text(value, x + 20, cardsY + 76);
+    doc.text(value, x + 22, cardsY + 72);
   };
 
   let xCursor = margin;
@@ -421,77 +498,131 @@ export async function downloadReportPdf(report: ReportPayload) {
   let cursorY = cardsY + cardH + 34;
 
   // ── Time distribution: stacked bar + legend ──────────────
+  // The bar visualises pct-of-total; the legend below is a uniform grid
+  // (rather than a flowing chip strip) so labels don't collide with each
+  // other when category names are long.
   if (report.categories.length > 0 && report.totalSeconds > 0) {
-    cursorY = ensureRoom(cursorY, 110);
+    cursorY = ensureRoom(cursorY, 130);
     sectionTitle("Time distribution", cursorY);
-    cursorY += 24;
+    cursorY += 22;
 
     const barH = 12;
-    // Bar background
+    // Bar background — slightly inset rounded rect.
     doc.setFillColor(...soft);
     doc.roundedRect(margin, cursorY, usableW, barH, 6, 6, "F");
-    // Segments — drawn left to right, no individual rounding (the
-    // background's rounded corners are masked by Adobe / Preview anyway).
+    // Segments left → right. Skip near-zero slices so a 0% category
+    // doesn't leave a smear of off-colour pixels at the join.
     let segX = margin;
     for (const c of report.categories) {
       const segW = c.pct * usableW;
-      if (segW < 0.5) continue;
+      if (segW < 1) continue;
       const [r, g, b] = hexToRgb(c.color || "#6366f1");
       doc.setFillColor(r, g, b);
       doc.rect(segX, cursorY, segW, barH, "F");
       segX += segW;
     }
-    cursorY += barH + 18;
+    cursorY += barH + 20;
 
-    // Legend chips — dot + name + percent, wraps to next line if needed.
-    doc.setFont("helvetica", "normal");
+    // Legend grid — 3 columns on A4, wraps to additional rows. Each cell
+    // gets a fixed width so long names truncate cleanly with an ellipsis
+    // instead of running into neighbouring chips.
+    doc.setFont(FONT, "normal");
     doc.setFontSize(9.5);
-    const lineH = 16;
-    let chipX = margin;
-    for (const c of report.categories) {
-      const label = `${c.name}  ${(c.pct * 100).toFixed(0)}%`;
-      const labelW = doc.getTextWidth(label);
-      const chipW = 12 + labelW + 20; // dot + label + right gap
-      if (chipX + chipW > pageW - margin) {
-        chipX = margin;
-        cursorY += lineH;
-      }
+    const legendCols = 3;
+    const legendGap = 16;
+    const legendColW = (usableW - legendGap * (legendCols - 1)) / legendCols;
+    const legendRowH = 18;
+    const visible = report.categories.filter((c) => c.pct >= 0.005 || c.seconds > 0);
+    for (let i = 0; i < visible.length; i++) {
+      const c = visible[i];
+      const col = i % legendCols;
+      const row = Math.floor(i / legendCols);
+      const cellX = margin + col * (legendColW + legendGap);
+      const cellY = cursorY + row * legendRowH;
       const [r, g, b] = hexToRgb(c.color || "#6366f1");
       doc.setFillColor(r, g, b);
-      doc.circle(chipX + 4, cursorY + 4, 3.2, "F");
+      doc.circle(cellX + 4, cellY + 4, 3.4, "F");
+      // Truncate long names so the percent stays anchored to the right.
+      const pctText = `${(c.pct * 100).toFixed(0)}%`;
+      doc.setFont(FONT, "bold");
+      doc.setFontSize(9.5);
+      doc.setTextColor(...sub);
+      const pctW = doc.getTextWidth(pctText);
+      doc.setFont(FONT, "normal");
       doc.setTextColor(...body);
-      doc.text(label, chipX + 13, cursorY + 7);
-      chipX += chipW;
+      const nameMaxW = legendColW - 14 - pctW - 8;
+      let name = c.name;
+      while (doc.getTextWidth(name) > nameMaxW && name.length > 1) {
+        name = name.slice(0, -1);
+      }
+      if (name.length < c.name.length) name = name.slice(0, Math.max(1, name.length - 1)) + "…";
+      doc.text(name, cellX + 13, cellY + 7);
+      doc.setFont(FONT, "bold");
+      doc.setTextColor(...sub);
+      doc.text(pctText, cellX + legendColW, cellY + 7, { align: "right" });
     }
-    cursorY += lineH + 18;
+    cursorY += Math.ceil(visible.length / legendCols) * legendRowH + 16;
   }
 
   // ── Payment details ──────────────────────────────────────
+  // Per-section header carries the category scope inline (no shouty
+  // "PAYMENT — Work" eyebrow that broke layout on Cyrillic before).
+  // Rows are quiet key/value pairs in a soft card; sub-eyebrow shows
+  // which categories this block applies to when there's more than one.
   const sections = report.paymentSections?.length
     ? report.paymentSections
     : report.paymentDetails
       ? [{ title: "Payment details", details: report.paymentDetails }]
       : [];
 
-  for (const sec of sections) {
+  for (let si = 0; si < sections.length; si++) {
+    const sec = sections[si];
     const paymentRows = paymentDetailRows(sec.details);
     if (!paymentRows.length) continue;
-    cursorY = ensureRoom(cursorY, 80);
-    sectionTitle(sec.title, cursorY);
-    cursorY += 14;
+    cursorY = ensureRoom(cursorY, 96);
+    // Section title is always just "Payment details"; the scope is shown
+    // as a sub-eyebrow underneath so the layout doesn't collapse when the
+    // category names are long or Cyrillic.
+    sectionTitle(sections.length === 1 ? "Payment details" : `Payment details · ${si + 1} of ${sections.length}`, cursorY);
+    cursorY += 16;
+    // Scope sub-eyebrow — strip the "Payment — " prefix the caller adds.
+    const scopeLabel = sec.title.replace(/^Payment\s*—\s*/i, "").trim();
+    if (scopeLabel) {
+      doc.setFont(FONT, "bold");
+      doc.setFontSize(10.5);
+      doc.setTextColor(...ink);
+      doc.text(scopeLabel, margin, cursorY + 4);
+      cursorY += 14;
+    }
     autoTable(doc, {
       startY: cursorY,
       body: paymentRows,
       margin: { left: margin, right: margin },
-      styles: { font: "helvetica", fontSize: 10, cellPadding: 9, textColor: body, lineColor: hairline, lineWidth: 0, valign: "middle" },
-      columnStyles: { 0: { fontStyle: "bold", textColor: sub, cellWidth: 140 }, 1: { textColor: ink } },
+      styles: {
+        font: FONT,
+        fontSize: 10,
+        cellPadding: { top: 9, bottom: 9, left: 14, right: 14 },
+        textColor: body,
+        lineColor: hairline,
+        lineWidth: 0,
+        valign: "middle",
+        overflow: "linebreak",
+      },
+      columnStyles: {
+        0: { fontStyle: "bold", textColor: sub, cellWidth: 140, fontSize: 9 },
+        1: { textColor: ink, fontStyle: "bold" },
+      },
       alternateRowStyles: { fillColor: soft },
       theme: "plain",
     });
-    cursorY = ((doc as { lastAutoTable?: { finalY: number } }).lastAutoTable?.finalY || cursorY) + 26;
+    cursorY = ((doc as { lastAutoTable?: { finalY: number } }).lastAutoTable?.finalY || cursorY) + 24;
   }
 
   // ── Category breakdown ───────────────────────────────────
+  // Each row: colour dot · category name (truncates) · time · share %
+  // · hourly rate · total earned. Right-aligned numeric columns share a
+  // baseline; non-numeric values left-align. Empty values render as a
+  // muted "—" so the column stays predictable.
   if (report.categories.length) {
     cursorY = ensureRoom(cursorY, 120);
     sectionTitle("Category breakdown", cursorY);
@@ -509,29 +640,45 @@ export async function downloadReportPdf(report: ReportPayload) {
         c.earnings && c.earnings > 0 ? fmtMoney(c.earnings, c.currency || "USD") : "—",
       ]),
       margin: { left: margin, right: margin },
-      styles: { font: "helvetica", fontSize: 10.5, cellPadding: 11, textColor: ink, lineColor: hairline, lineWidth: 0, valign: "middle" },
+      styles: {
+        font: FONT,
+        fontSize: 10.5,
+        cellPadding: { top: 11, bottom: 11, left: 10, right: 10 },
+        textColor: ink,
+        lineColor: hairline,
+        lineWidth: 0,
+        valign: "middle",
+        overflow: "ellipsize",
+      },
       headStyles: {
         fillColor: white,
         textColor: sub,
         fontStyle: "bold",
-        fontSize: 8,
-        cellPadding: 8,
+        fontSize: 7.5,
+        cellPadding: { top: 6, bottom: 8, left: 10, right: 10 },
         lineColor: hairline,
         lineWidth: 0,
       },
       alternateRowStyles: { fillColor: soft },
       columnStyles: {
-        0: { cellWidth: 22 },
-        2: { halign: "right", cellWidth: 72 },
+        0: { cellWidth: 24 },
+        1: { fontStyle: "bold", textColor: ink },
+        2: { halign: "right", cellWidth: 70, fontStyle: "bold" },
         3: { halign: "right", cellWidth: 58, textColor: sub },
-        4: { halign: "right", cellWidth: 78, textColor: sub },
+        4: { halign: "right", cellWidth: 86, textColor: sub },
         5: { halign: "right", cellWidth: 96, fontStyle: "bold" },
       },
       theme: "plain",
       didParseCell: (data) => {
-        // Underline header row with a hairline by drawing it after the cell.
-        if (data.section === "head") {
-          data.cell.styles.cellPadding = 8;
+        // Mute placeholder "—" cells so absent rate/earnings read as
+        // "no data" instead of competing with real numbers.
+        if (
+          data.section === "body" &&
+          (data.column.index === 4 || data.column.index === 5) &&
+          data.cell.raw === "—"
+        ) {
+          data.cell.styles.textColor = faint;
+          data.cell.styles.fontStyle = "normal";
         }
       },
       didDrawCell: (data) => {
@@ -559,9 +706,15 @@ export async function downloadReportPdf(report: ReportPayload) {
   }
 
   // ── Activity log ─────────────────────────────────────────
+  // Note column expands to fill remaining width and wraps to multi-line
+  // when long — fixes the old "0;0;K;A;..." bleed where mojibake spilled
+  // across columns because there was no overflow handling.
   if (report.entries.length) {
     cursorY = ensureRoom(cursorY, 100);
-    sectionTitle(`Activity log · ${report.entries.length} ${report.entries.length === 1 ? "session" : "sessions"}`, cursorY);
+    sectionTitle(
+      `Activity log · ${report.entries.length} ${report.entries.length === 1 ? "session" : "sessions"}`,
+      cursorY,
+    );
     cursorY += 14;
 
     autoTable(doc, {
@@ -576,37 +729,50 @@ export async function downloadReportPdf(report: ReportPayload) {
         e.earnings && e.earnings > 0 ? fmtMoney(e.earnings, e.currency || "USD") : "—",
         e.note ?? "",
       ]),
-      margin: { left: margin, right: margin, bottom: 50 },
+      margin: { left: margin, right: margin, bottom: 56 },
       styles: {
-        font: "helvetica",
+        font: FONT,
         fontSize: 9,
-        cellPadding: 8,
+        cellPadding: { top: 8, bottom: 8, left: 8, right: 8 },
         textColor: body,
         lineColor: hairline,
         lineWidth: 0,
         valign: "middle",
+        overflow: "linebreak",
       },
       headStyles: {
         fillColor: white,
         textColor: sub,
         fontStyle: "bold",
-        fontSize: 8,
-        cellPadding: 8,
+        fontSize: 7.5,
+        cellPadding: { top: 6, bottom: 8, left: 8, right: 8 },
         lineColor: hairline,
         lineWidth: 0,
       },
       alternateRowStyles: { fillColor: soft },
       columnStyles: {
-        0: { textColor: ink, fontStyle: "bold", cellWidth: 70 },
-        1: { textColor: sub, cellWidth: 50 },
-        2: { textColor: sub, cellWidth: 50 },
-        4: { halign: "right", textColor: ink, fontStyle: "bold", cellWidth: 70 },
-        5: { halign: "right", textColor: ink, fontStyle: "bold", cellWidth: 80 },
-        6: { textColor: sub },
+        0: { textColor: ink, fontStyle: "bold", cellWidth: 66 },
+        1: { textColor: sub, cellWidth: 44, halign: "right" },
+        2: { textColor: sub, cellWidth: 44, halign: "right" },
+        3: { textColor: ink, cellWidth: 90, overflow: "ellipsize" },
+        4: { halign: "right", textColor: ink, fontStyle: "bold", cellWidth: 56 },
+        5: { halign: "right", textColor: ink, fontStyle: "bold", cellWidth: 68 },
+        6: { textColor: sub, fontSize: 8.5 },
       },
       theme: "plain",
+      didParseCell: (data) => {
+        if (
+          data.section === "body" &&
+          data.column.index === 5 &&
+          data.cell.raw === "—"
+        ) {
+          data.cell.styles.textColor = faint;
+          data.cell.styles.fontStyle = "normal";
+        }
+      },
       didDrawCell: (data) => {
-        // Header underline once
+        // Header underline once (drawn after the last header cell so it
+        // spans the full width and isn't repeated per-cell).
         if (data.section === "head" && data.column.index === 6) {
           doc.setDrawColor(...hairline);
           doc.setLineWidth(0.6);
@@ -620,7 +786,7 @@ export async function downloadReportPdf(report: ReportPayload) {
     sectionTitle("Activity log", cursorY);
     cursorY += 30;
     doc.setTextColor(...sub);
-    doc.setFont("helvetica", "italic");
+    doc.setFont(FONT, "normal");
     doc.setFontSize(10.5);
     doc.text("No tracker entries in this period yet.", margin, cursorY);
   }
@@ -631,20 +797,20 @@ export async function downloadReportPdf(report: ReportPayload) {
     doc.setPage(i);
     doc.setDrawColor(...hairline);
     doc.setLineWidth(0.5);
-    doc.line(margin, pageH - 32, pageW - margin, pageH - 32);
+    doc.line(margin, pageH - 34, pageW - margin, pageH - 34);
 
     // Brand mark (small)
     doc.setFillColor(...accent);
-    doc.roundedRect(margin, pageH - 23, 10, 10, 2.5, 2.5, "F");
-    doc.setFont("helvetica", "bold");
-    doc.setFontSize(8);
+    doc.roundedRect(margin, pageH - 24, 10, 10, 2.5, 2.5, "F");
+    doc.setFont(FONT, "bold");
+    doc.setFontSize(7.5);
     doc.setTextColor(...sub);
-    doc.text("DAYDRAFT", margin + 16, pageH - 15, { charSpace: 1.5 });
+    doc.text("DAYDRAFT", margin + 16, pageH - 16, { charSpace: 1.8 });
 
-    doc.setFont("helvetica", "normal");
+    doc.setFont(FONT, "normal");
     doc.setFontSize(8);
     doc.setTextColor(...faint);
-    doc.text(`Page ${i} of ${pageCount}`, pageW - margin, pageH - 15, { align: "right" });
+    doc.text(`Page ${i} of ${pageCount}`, pageW - margin, pageH - 16, { align: "right" });
   }
 
   // `doc.save()` calls the same `<a download>` trick we route around in

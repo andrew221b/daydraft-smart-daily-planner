@@ -4,7 +4,7 @@ import { NativeBiometric } from "@capgo/capacitor-native-biometric";
 import { Fingerprint, ScanFace } from "lucide-react";
 import { motion } from "framer-motion";
 import { toast } from "sonner";
-import { Sheet, SheetContent } from "@/components/ui/sheet";
+import { Sheet, SheetContent, SheetTitle } from "@/components/ui/sheet";
 import { useAuth } from "@/hooks/useAuth";
 import { useProfile } from "@/hooks/useProfile";
 import { haptics } from "@/lib/haptics";
@@ -29,8 +29,11 @@ const BIOMETRY_FACE_AUTH_ANDROID = 4;
  *   2. Biometric hardware is available + enrolled
  *   3. There IS a logged-in user
  *   4. The user has finished onboarding (so we don't interrupt that flow)
- *   5. App Lock isn't already enabled
- *   6. We haven't already asked this user
+ *   5. The Home tour has been seen — without this gate the biometric sheet
+ *      raced the auto-starting tour and the user saw both overlays stacked
+ *      on top of each other on first login.
+ *   6. App Lock isn't already enabled
+ *   7. We haven't already asked this user
  *
  * Tapping "Not now" sets the prompt flag so we don't ask again — they can
  * still enable App Lock manually from Settings later.
@@ -47,6 +50,9 @@ export function BiometricOptInSheet() {
     if (!Capacitor.isNativePlatform()) return;
     if (!user?.id) return;
     if (profile?.onboarded !== true) return;
+    // Wait for the Home tour to finish before prompting — otherwise the
+    // tour spotlight and this sheet land at the same time.
+    if (profile?.tour_seen?.["today"] !== true) return;
 
     let cancelledTimer: number | null = null;
     try {
@@ -78,7 +84,7 @@ export function BiometricOptInSheet() {
     return () => {
       if (cancelledTimer !== null) window.clearTimeout(cancelledTimer);
     };
-  }, [user?.id, profile?.onboarded]);
+  }, [user?.id, profile?.onboarded, profile?.tour_seen]);
 
   const markPrompted = () => {
     if (!user?.id) return;
@@ -146,6 +152,7 @@ export function BiometricOptInSheet() {
         className="rounded-t-[32px] border-border/45 bg-popover p-0 flex flex-col"
         onOpenAutoFocus={(e) => e.preventDefault()}
       >
+        <SheetTitle className="sr-only">Enable biometric lock</SheetTitle>
         <div className="px-6 pt-10 pb-8 flex flex-col items-center text-center">
           
           {/* Beautiful Biometric Animation (2D Embossed) */}
@@ -163,11 +170,14 @@ export function BiometricOptInSheet() {
             {/* Inner ring (Physical 3D Glass block using purely 2D shadows/gradients) */}
             <div className="relative z-10 h-36 w-36 rounded-[40px] bg-gradient-to-br from-background/90 to-background/50 backdrop-blur-xl border border-white/20 dark:border-white/5 flex items-center justify-center overflow-hidden shadow-[0_24px_48px_-12px_rgba(0,0,0,0.4),inset_0_4px_8px_rgba(255,255,255,0.25),inset_0_-8px_16px_rgba(0,0,0,0.25),inset_0_0_24px_hsl(var(--primary)/0.15)]">
               
-              {/* Scanning line animation */}
+              {/* Scanning line — sweeps full height of the container (h-36 = 144px).
+                  Positioned at top-0, translated from -72px (above) to +138px (below fold). */}
               <motion.div
-                animate={{ y: ["-100%", "100%", "-100%"] }}
-                transition={{ duration: 3, repeat: Infinity, ease: "linear" }}
-                className="absolute inset-0 w-full h-[6px] bg-primary/90 blur-[2px] shadow-[0_0_24px_hsl(var(--primary))]"
+                initial={{ y: -72 }}
+                animate={{ y: [-72, 138, -72] }}
+                transition={{ duration: 2.8, repeat: Infinity, ease: "linear" }}
+                className="absolute left-0 right-0 top-0 h-[4px] bg-gradient-to-r from-transparent via-primary to-transparent blur-[1px]"
+                style={{ boxShadow: "0 0 12px 3px hsl(var(--primary) / 0.6), 0 0 24px 6px hsl(var(--primary) / 0.25)" }}
               />
               
               {/* The Biometric Icon with Heavy Extrusion Shadows */}
