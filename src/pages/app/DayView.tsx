@@ -1046,8 +1046,15 @@ export default function DayView() {
       return;
     }
     if (intent.kind === "carry-missed") {
+      // Carry-missed includes both still-open tasks AND tasks already marked
+      // as "missed". The latter is the whole point of the pill: when the user
+      // taps Move on a missed slot, they want those exact missed tasks moved.
       const candidates = blocks.filter(
-        (b) => isUserTask(b) && isOpenUserTask(b) && !b.is_calendar_event,
+        (b) =>
+          isUserTask(b) &&
+          !b.is_calendar_event &&
+          !isUserTaskDone(b) &&
+          (isOpenUserTask(b) || (b as ExBlock).resolution === "missed"),
       );
       if (!candidates.length) {
         toast("Nothing left to carry forward");
@@ -1951,7 +1958,16 @@ export default function DayView() {
           dayPickerIntent?.kind === "move-task"
             ? "We'll put it at the end of that day's plan."
             : dayPickerIntent?.kind === "carry-missed"
-              ? `${missedTasks.length || blocks.filter((b) => isUserTask(b) && isOpenUserTask(b) && !b.is_calendar_event).length} task${(missedTasks.length || blocks.filter((b) => isUserTask(b) && isOpenUserTask(b) && !b.is_calendar_event).length) === 1 ? "" : "s"} will be added there and marked moved here.`
+              ? (() => {
+                  const count = blocks.filter(
+                    (b) =>
+                      isUserTask(b) &&
+                      !b.is_calendar_event &&
+                      !isUserTaskDone(b) &&
+                      (isOpenUserTask(b) || (b as ExBlock).resolution === "missed"),
+                  ).length;
+                  return `${count} task${count === 1 ? "" : "s"} will be added there and marked moved here.`;
+                })()
               : undefined
         }
         pastDays={dayPickerIntent?.kind === "navigate" ? 7 : 0}
