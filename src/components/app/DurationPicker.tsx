@@ -1,6 +1,6 @@
-import { useEffect, useState } from "react";
-import { Sheet, SheetContent, SheetHeader, SheetTitle } from "@/components/ui/sheet";
-import { Button } from "@/components/ui/button";
+import { useEffect, useState, type CSSProperties } from "react";
+import { Clock } from "lucide-react";
+import { Sheet, SheetContent, SheetTitle } from "@/components/ui/sheet";
 import { haptics } from "@/lib/haptics";
 
 const PRESETS = [15, 30, 45, 60, 90, 120];
@@ -25,57 +25,143 @@ const fromTimeStr = (s: string): number => {
   return Math.max(0, h * 60 + m);
 };
 
+const presetLabel = (mins: number) =>
+  mins < 60 ? `${mins} min` : mins === 60 ? "1 hr" : mins % 60 === 0 ? `${mins / 60} hr` : `${Math.floor(mins / 60)}h ${mins % 60}m`;
+
 export function DurationPicker({ open, onClose, value, onChange, title = "Duration" }: Props) {
-  // Local draft so the user can scrub the native wheel without each tick
-  // round-tripping through the parent. Committed on "Set".
   const [draft, setDraft] = useState(value);
 
   useEffect(() => {
     if (open) setDraft(value);
   }, [open, value]);
 
+  const setPreset = (mins: number) => {
+    haptics.selection();
+    setDraft(mins);
+  };
+
   const commit = (mins: number) => {
     const clamped = Math.max(5, Math.min(480, mins));
     onChange(clamped);
-    haptics.selection();
+    haptics.notify("success");
     onClose();
+  };
+
+  const draftH = Math.floor(draft / 60);
+  const draftM = draft % 60;
+
+  // Selected pill style — glassy primary gradient with glow.
+  const presetOnStyle: CSSProperties = {
+    background: "linear-gradient(180deg, hsl(var(--primary)/0.92) 0%, hsl(var(--primary)) 100%)",
+    boxShadow:
+      "inset 0 1px 0 hsl(0 0% 100% / 0.18), 0 8px 24px -8px hsl(var(--primary)/0.55), 0 0 0 1.5px hsl(var(--primary)/0.55)",
+    color: "hsl(var(--primary-foreground))",
+  };
+
+  const presetOffStyle: CSSProperties = {
+    background: "linear-gradient(180deg, hsl(var(--card)/0.6) 0%, hsl(var(--card)/0.35) 100%)",
+    boxShadow:
+      "inset 0 1px 0 hsl(0 0% 100% / 0.06), 0 0 0 1px hsl(var(--border)/0.45), 0 2px 6px -3px hsl(0 0% 0% / 0.18)",
+    color: "hsl(var(--foreground) / 0.9)",
   };
 
   return (
     <Sheet open={open} onOpenChange={(o) => { if (!o) onClose(); }}>
-      <SheetContent side="bottom" className="rounded-t-[28px] border-border/45 bg-popover pb-8">
-        <SheetHeader className="text-left">
-          <SheetTitle className="text-[16px]">{title}</SheetTitle>
-        </SheetHeader>
+      <SheetContent
+        side="bottom"
+        className="rounded-t-[28px] border-border/45 bg-popover p-0 flex flex-col"
+        hideClose
+      >
+        <SheetTitle className="sr-only">{title}</SheetTitle>
 
-        <div className="mt-4 space-y-4">
-          {/* Quick presets */}
-          <div className="grid grid-cols-3 gap-2">
-            {PRESETS.map((p) => (
-              <button
-                key={p}
-                type="button"
-                onClick={() => commit(p)}
-                className={`h-12 rounded-[14px] border pressable text-[14px] font-medium tabular-nums transition-colors ${
-                  value === p
-                    ? "bg-primary text-primary-foreground border-primary shadow-card"
-                    : "surface-card border-soft text-foreground hover:border-primary/40"
-                }`}
-              >
-                {p < 60 ? `${p} min` : p === 60 ? "1 hr" : p === 90 ? "1h 30m" : `${p / 60} hr`}
-              </button>
-            ))}
+        {/* Header */}
+        <div className="px-5 pt-6 pb-3 flex items-center gap-3">
+          <div className="h-10 w-10 rounded-[12px] flex items-center justify-center bg-primary/12 border border-primary/22 shrink-0">
+            <Clock className="h-[18px] w-[18px] text-primary" strokeWidth={2} />
           </div>
+          <div className="min-w-0 flex-1">
+            <div className="font-display text-[19px] font-semibold tracking-tight leading-tight">{title}</div>
+            <div className="text-[12px] text-secondary-fg/70 mt-0.5">
+              How long should this task take?
+            </div>
+          </div>
+          <button
+            type="button"
+            onClick={onClose}
+            className="h-8 w-8 rounded-full flex items-center justify-center text-secondary-fg/60 hover:text-foreground hover:bg-foreground/[0.06] transition-colors pressable shrink-0 text-[18px]"
+            aria-label="Close"
+          >
+            ×
+          </button>
+        </div>
 
-          {/* Native HH:MM picker — iOS / Android show the system wheel/spinner,
-              matching the start-time editor elsewhere in the app. */}
-          <div className="rounded-[18px] border border-soft surface-card px-4 py-3.5 flex items-center justify-between gap-3">
+        {/* Hero value display */}
+        <div className="px-5 pb-1">
+          <div
+            className="rounded-2xl px-5 py-5 flex items-baseline justify-center gap-1.5"
+            style={{
+              background: "linear-gradient(180deg, hsl(var(--primary)/0.12) 0%, hsl(var(--primary)/0.04) 100%)",
+              boxShadow: "inset 0 1px 0 hsl(0 0% 100% / 0.06), 0 0 0 1px hsl(var(--primary)/0.22), 0 8px 24px -16px hsl(var(--primary)/0.35)",
+            }}
+          >
+            {draftH > 0 && (
+              <>
+                <span className="font-display text-[48px] font-bold tabular-nums tracking-tight leading-none text-foreground">
+                  {draftH}
+                </span>
+                <span className="text-[14px] font-semibold text-secondary-fg/75 mr-1">h</span>
+              </>
+            )}
+            {(draftM > 0 || draftH === 0) && (
+              <>
+                <span className="font-display text-[48px] font-bold tabular-nums tracking-tight leading-none text-foreground">
+                  {draftM}
+                </span>
+                <span className="text-[14px] font-semibold text-secondary-fg/75">min</span>
+              </>
+            )}
+          </div>
+        </div>
+
+        {/* Preset grid */}
+        <div className="px-5 pt-4">
+          <div className="text-[11px] font-bold uppercase tracking-[0.16em] text-secondary-fg/80 mb-2.5 px-0.5">
+            Quick pick
+          </div>
+          <div className="grid grid-cols-3 gap-2">
+            {PRESETS.map((p) => {
+              const on = draft === p;
+              return (
+                <button
+                  key={p}
+                  type="button"
+                  onClick={() => setPreset(p)}
+                  style={on ? presetOnStyle : presetOffStyle}
+                  className="h-[52px] rounded-[14px] pressable text-[14px] font-semibold tabular-nums transition-[box-shadow,background-color] duration-150"
+                >
+                  {presetLabel(p)}
+                </button>
+              );
+            })}
+          </div>
+        </div>
+
+        {/* Custom input */}
+        <div className="px-5 pt-5">
+          <div className="text-[11px] font-bold uppercase tracking-[0.16em] text-secondary-fg/80 mb-2.5 px-0.5">
+            Custom
+          </div>
+          <label
+            className="rounded-2xl px-4 py-3.5 flex items-center justify-between gap-3 cursor-pointer block"
+            style={{
+              background: "linear-gradient(180deg, hsl(var(--card)/0.6) 0%, hsl(var(--card)/0.35) 100%)",
+              boxShadow: "inset 0 1px 0 hsl(0 0% 100% / 0.05), 0 0 0 1px hsl(var(--border)/0.4)",
+            }}
+          >
             <div className="min-w-0">
-              <div className="text-[10px] font-semibold uppercase tracking-[0.14em] text-secondary-fg/70">
-                Custom
-              </div>
-              <div className="mt-0.5 text-[13px] text-foreground/85 tabular-nums">
-                {Math.floor(draft / 60)}h {draft % 60}m
+              <div className="text-[13px] font-semibold text-foreground/90">Pick exact time</div>
+              <div className="text-[11.5px] text-secondary-fg/70 mt-0.5 tabular-nums">
+                Hours : minutes
               </div>
             </div>
             <input
@@ -83,26 +169,34 @@ export function DurationPicker({ open, onClose, value, onChange, title = "Durati
               step={60}
               value={toTimeStr(draft)}
               onChange={(e) => setDraft(fromTimeStr(e.target.value))}
-              // 24h, no AM/PM, native wheel on touch devices.
               lang="en-GB"
-              className="h-11 px-3 rounded-[12px] bg-background/60 border border-border/50 text-[15px] tabular-nums text-foreground focus:outline-none focus:border-primary/50 focus:ring-2 focus:ring-primary/15"
+              className="h-11 px-3 rounded-xl bg-background/60 text-[16px] font-mono font-semibold tabular-nums text-foreground focus:outline-none transition-colors"
+              style={{ boxShadow: "inset 0 1px 2px hsl(0 0% 0% / 0.1), inset 0 0 0 1px hsl(var(--border)/0.5)" }}
               aria-label="Pick duration (hours and minutes)"
             />
-          </div>
-
-          <div className="flex gap-2">
-            <Button variant="ghost" className="flex-1 h-12 rounded-[14px]" onClick={onClose}>
-              Cancel
-            </Button>
-            <Button
-              className="flex-1 h-12 rounded-[14px] bg-primary text-primary-foreground hover:bg-primary/92 font-semibold"
-              onClick={() => commit(draft)}
-              disabled={draft <= 0}
-            >
-              Set
-            </Button>
-          </div>
+          </label>
         </div>
+
+        {/* Footer buttons */}
+        <div className="px-5 pt-5 pb-3 flex gap-2.5">
+          <button
+            type="button"
+            onClick={onClose}
+            className="flex-1 h-[52px] rounded-[16px] border border-border/40 bg-card/30 text-[14px] font-medium text-secondary-fg/85 hover:text-foreground hover:bg-card/50 pressable transition-colors"
+          >
+            Cancel
+          </button>
+          <button
+            type="button"
+            onClick={() => commit(draft)}
+            disabled={draft <= 0}
+            className="flex-1 h-[52px] rounded-[16px] bg-primary text-primary-foreground text-[14px] font-semibold pressable shadow-[0_10px_28px_-8px_hsl(var(--primary)/0.55)] disabled:opacity-40 disabled:pointer-events-none transition-opacity"
+          >
+            Set duration
+          </button>
+        </div>
+
+        <div className="shrink-0" style={{ paddingBottom: "max(env(safe-area-inset-bottom), 12px)" }} />
       </SheetContent>
     </Sheet>
   );
