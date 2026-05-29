@@ -107,6 +107,7 @@ export default function DayView() {
   const [moreOpen, setMoreOpen] = useState(false);
   const [tappedBlock, setTappedBlock] = useState<ExBlock | null>(null);
   const [reminderBlockId, setReminderBlockId] = useState<string | null>(null);
+  const [reminderAdvancedOpen, setReminderAdvancedOpen] = useState(false);
   const [reminderCfg, setReminderCfg] = useState<ReminderConfig>({
     enabled: true,
     leadsMin: [2],
@@ -1703,7 +1704,7 @@ export default function DayView() {
         </AlertDialogContent>
       </AlertDialog>
 
-      <Sheet open={!!reminderBlockId} onOpenChange={(v) => !v && setReminderBlockId(null)}>
+      <Sheet open={!!reminderBlockId} onOpenChange={(v) => { if (!v) { setReminderBlockId(null); setReminderAdvancedOpen(false); } }}>
         <SheetContent
           side="bottom"
           className="rounded-t-[28px] border-border/45 bg-popover p-0 flex flex-col max-h-[90vh]"
@@ -1752,7 +1753,7 @@ export default function DayView() {
                   </div>
                   <button
                     type="button"
-                    onClick={() => setReminderBlockId(null)}
+                    onClick={() => { setReminderBlockId(null); setReminderAdvancedOpen(false); }}
                     className="h-8 w-8 rounded-full flex items-center justify-center text-secondary-fg/60 hover:text-foreground hover:bg-foreground/[0.06] transition-colors pressable shrink-0 text-[18px]"
                     aria-label="Close"
                   >
@@ -1814,15 +1815,17 @@ export default function DayView() {
                         {PRIMARY_OPTIONS.map((n) => {
                           const on = primary === n;
                           return (
-                            <button
+                            <motion.button
                               key={n}
                               type="button"
                               onClick={() => setAlerts(n, secondary && secondary !== n ? secondary : null)}
+                              whileTap={{ scale: 0.94 }}
+                              transition={{ type: "spring", stiffness: 500, damping: 24 }}
                               style={on ? chipStyleOn : chipStyleOff}
                               className={`${chipBase} ${on ? chipOn : chipOff}`}
                             >
                               {n === 0 ? "At start" : `${n} min`}
-                            </button>
+                            </motion.button>
                           );
                         })}
                       </div>
@@ -1843,80 +1846,114 @@ export default function DayView() {
                         )}
                       </div>
                       <div className="flex flex-wrap gap-1.5">
-                        <button
+                        <motion.button
                           type="button"
                           onClick={() => setAlerts(primary, null)}
+                          whileTap={{ scale: 0.94 }}
+                          transition={{ type: "spring", stiffness: 500, damping: 24 }}
                           style={secondary == null ? chipStyleOn : chipStyleOff}
                           className={`${chipBase} ${secondary == null ? chipOn : chipOff}`}
-                        >None</button>
+                        >None</motion.button>
                         {SECONDARY_OPTIONS.filter((n) => n !== primary).map((n) => {
                           const on = secondary === n;
                           return (
-                            <button
+                            <motion.button
                               key={n}
                               type="button"
                               onClick={() => setAlerts(primary, n)}
+                              whileTap={{ scale: 0.94 }}
+                              transition={{ type: "spring", stiffness: 500, damping: 24 }}
                               style={on ? chipStyleOn : chipStyleOff}
                               className={`${chipBase} ${on ? chipOn : chipOff}`}
                             >
                               {n === 0 ? "At start" : `${n} min`}
-                            </button>
+                            </motion.button>
                           );
                         })}
                       </div>
                     </section>
 
-                    {/* Advanced */}
-                    <details className="group rounded-2xl overflow-hidden" style={{
-                      background: "linear-gradient(180deg, hsl(var(--card)/0.5) 0%, hsl(var(--card)/0.3) 100%)",
-                      boxShadow: "inset 0 1px 0 hsl(0 0% 100% / 0.04), 0 0 0 1px hsl(var(--border)/0.4)",
-                    }}>
-                      <summary className="flex items-center justify-between px-4 py-3.5 cursor-pointer pressable list-none">
+                    {/* Advanced — animated reveal */}
+                    <div
+                      className="rounded-2xl overflow-hidden"
+                      style={{
+                        background: "linear-gradient(180deg, hsl(var(--card)/0.5) 0%, hsl(var(--card)/0.3) 100%)",
+                        boxShadow: "inset 0 1px 0 hsl(0 0% 100% / 0.04), 0 0 0 1px hsl(var(--border)/0.4)",
+                      }}
+                    >
+                      <button
+                        type="button"
+                        onClick={() => { haptics.selection(); setReminderAdvancedOpen((v) => !v); }}
+                        className="w-full flex items-center justify-between px-4 py-3.5 pressable text-left"
+                      >
                         <div className="min-w-0 flex-1">
                           <div className="text-[13.5px] font-semibold text-foreground/90">Advanced</div>
                           <div className="text-[11.5px] text-secondary-fg/70 mt-0.5 leading-snug truncate">
                             End-of-slot ping in {reminderCfg.endAlertLeadMin}m · repeat {reminderCfg.repeats === 0 ? "off" : `${reminderCfg.repeats}×`}
                           </div>
                         </div>
-                        <span className="text-secondary-fg/70 transition-transform group-open:rotate-90 text-[14px] shrink-0 ml-2">›</span>
-                      </summary>
-                      <div className="px-4 pb-4 pt-2 space-y-4 border-t border-border/30">
-                        <div>
-                          <div className="text-[11px] font-bold uppercase tracking-[0.16em] text-secondary-fg/80 mb-2.5 px-0.5">Before window ends</div>
-                          <div className="flex flex-wrap gap-1.5">
-                            {[0, 2, 5, 10, 15, 30].map((n) => {
-                              const on = (reminderCfg.endAlertLeadMin ?? 5) === n;
-                              return (
-                                <button
-                                  key={n}
-                                  type="button"
-                                  onClick={() => saveReminders({ ...reminderCfg, endAlertLeadMin: n })}
-                                  style={on ? chipStyleOn : chipStyleOff}
-                                  className={`${smallChipBase} ${on ? chipOn : chipOff}`}
-                                >{n === 0 ? "At end" : `${n} min`}</button>
-                              );
-                            })}
-                          </div>
-                        </div>
-                        <div>
-                          <div className="text-[11px] font-bold uppercase tracking-[0.16em] text-secondary-fg/80 mb-2.5 px-0.5">Repeat after start</div>
-                          <div className="flex flex-wrap gap-1.5">
-                            {REPEAT_OPTIONS.map((n) => {
-                              const on = reminderCfg.repeats === n;
-                              return (
-                                <button
-                                  key={n}
-                                  type="button"
-                                  onClick={() => saveReminders({ ...reminderCfg, repeats: n })}
-                                  style={on ? chipStyleOn : chipStyleOff}
-                                  className={`${smallChipBase} ${on ? chipOn : chipOff}`}
-                                >{n === 0 ? "Don't repeat" : `${n}×`}</button>
-                              );
-                            })}
-                          </div>
-                        </div>
-                      </div>
-                    </details>
+                        <motion.span
+                          animate={{ rotate: reminderAdvancedOpen ? 90 : 0 }}
+                          transition={{ type: "spring", stiffness: 380, damping: 28 }}
+                          className="text-secondary-fg/70 text-[14px] shrink-0 ml-2 inline-block"
+                        >
+                          ›
+                        </motion.span>
+                      </button>
+                      <AnimatePresence initial={false}>
+                        {reminderAdvancedOpen && (
+                          <motion.div
+                            key="advanced-body"
+                            initial={{ height: 0, opacity: 0 }}
+                            animate={{ height: "auto", opacity: 1 }}
+                            exit={{ height: 0, opacity: 0 }}
+                            transition={{ duration: 0.22, ease: [0.32, 0.72, 0, 1] }}
+                            className="overflow-hidden"
+                          >
+                            <div className="px-4 pb-4 pt-2 space-y-4 border-t border-border/30">
+                              <div>
+                                <div className="text-[11px] font-bold uppercase tracking-[0.16em] text-secondary-fg/80 mb-2.5 px-0.5">Before window ends</div>
+                                <div className="flex flex-wrap gap-1.5">
+                                  {[0, 2, 5, 10, 15, 30].map((n) => {
+                                    const on = (reminderCfg.endAlertLeadMin ?? 5) === n;
+                                    return (
+                                      <motion.button
+                                        key={n}
+                                        type="button"
+                                        onClick={() => saveReminders({ ...reminderCfg, endAlertLeadMin: n })}
+                                        whileTap={{ scale: 0.94 }}
+                                        transition={{ type: "spring", stiffness: 500, damping: 24 }}
+                                        style={on ? chipStyleOn : chipStyleOff}
+                                        className={`${smallChipBase} ${on ? chipOn : chipOff}`}
+                                      >{n === 0 ? "At end" : `${n} min`}</motion.button>
+                                    );
+                                  })}
+                                </div>
+                              </div>
+                              <div>
+                                <div className="text-[11px] font-bold uppercase tracking-[0.16em] text-secondary-fg/80 mb-2.5 px-0.5">Repeat after start</div>
+                                <div className="flex flex-wrap gap-1.5">
+                                  {REPEAT_OPTIONS.map((n) => {
+                                    const on = reminderCfg.repeats === n;
+                                    return (
+                                      <motion.button
+                                        key={n}
+                                        type="button"
+                                        onClick={() => saveReminders({ ...reminderCfg, repeats: n })}
+                                        whileTap={{ scale: 0.94 }}
+                                        transition={{ type: "spring", stiffness: 500, damping: 24 }}
+                                        style={on ? chipStyleOn : chipStyleOff}
+                                        className={`${smallChipBase} ${on ? chipOn : chipOff}`}
+                                      >{n === 0 ? "Don't repeat" : `${n}×`}</motion.button>
+                                    );
+                                  })}
+                                </div>
+                              </div>
+                            </div>
+                          </motion.div>
+                        )}
+                      </AnimatePresence>
+                    </div>
                   </div>
 
                   <p className="text-[11px] text-secondary-fg/60 leading-relaxed text-center pt-1">

@@ -1,16 +1,12 @@
 import { corsHeaders } from "../_shared/cors.ts";
 
-const SYSTEM = `You are a sharp, warm personal assistant living inside the user's daily planner. You help them think through their day — not by making decisions for them, but by being the smart friend who asks the right question or gives a grounded take.
+const SYSTEM = `You are a sharp, warm AI companion inside DayDraft. You talk like a smart friend — not a productivity robot, not a corporate assistant.
 
-Your strengths:
-- Time estimates that feel honest ("that's probably 90 min, not 30")
-- Breaking tasks into steps that are actually actionable
-- Spotting the one thing that'll derail the day before it does
-- Giving real opinions when asked, not just options
+When context prefixed "Context (not shown to user):" is present, use it to personalise your answer naturally. Never quote it back, never say "I see that you…" or "Based on your context". Just know it and talk accordingly.
 
-Tone: natural and direct. Like a smart colleague who knows your work style. Not a corporate chatbot. Not a cheerleader. If something sounds hard, say so. If a plan looks solid, say that too.
+Answer any question the user asks — planning, general, creative, personal. If it's not about planning, answer it fully and only tie it back to time/focus if it fits naturally. Don't force the connection.
 
-Format: conversational prose by default. Use a short list only when it genuinely helps (steps, comparisons). No markdown headers. Keep it tight — but don't cut yourself off if the answer needs room. Never say "I have created / scheduled / added" — you cannot touch the plan. End with a follow-up only when it moves the conversation forward.`;
+Keep replies short by default: 2–4 sentences for most things. Use bullet points only for actual lists of steps or options. No headers, no padded summaries, no "Great question!", no "As an AI". Give honest opinions. Say when something sounds hard or unrealistic. End without a follow-up question unless it genuinely moves the conversation forward.`;
 
 Deno.serve(async (req) => {
   if (req.method === "OPTIONS") return new Response("ok", { headers: corsHeaders });
@@ -21,12 +17,27 @@ Deno.serve(async (req) => {
 
     const body = await req.json();
     const messages = Array.isArray(body?.messages) ? body.messages : [];
+    const personalContext = typeof body?.personalContext === "string" ? body.personalContext.trim().slice(0, 2000) : "";
+    const seedContext = typeof body?.seedContext === "string" ? body.seedContext.trim().slice(0, 2000) : "";
     if (!messages.length) {
       return new Response(JSON.stringify({ error: "messages required" }), {
         status: 400,
         headers: { ...corsHeaders, "Content-Type": "application/json" },
       });
     }
+
+    // Compose the system prompt with per-request context. Keeping context in
+    // the SYSTEM message (not as a fake "user" message) avoids two
+    // consecutive user turns — which Gemini's chat API can reject — and
+    // makes role alternation clean.
+    const systemParts = [SYSTEM];
+    if (personalContext) {
+      systemParts.push(`\nUSER CONTEXT (background, never quote back):\n${personalContext}`);
+    }
+    if (seedContext) {
+      systemParts.push(`\nCURRENT MOMENT (background, never quote back):\n${seedContext}`);
+    }
+    const systemPrompt = systemParts.join("\n");
 
     const safeMessages = messages
       .filter((m: any) => m && typeof m.content === "string" && (m.role === "user" || m.role === "assistant"))
@@ -42,7 +53,7 @@ Deno.serve(async (req) => {
       body: JSON.stringify({
         model: "gemini-2.5-flash",
         stream: true,
-        messages: [{ role: "system", content: SYSTEM }, ...safeMessages],
+        messages: [{ role: "system", content: systemPrompt }, ...safeMessages],
       }),
     });
 

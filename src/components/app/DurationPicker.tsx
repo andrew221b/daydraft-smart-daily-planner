@@ -1,5 +1,6 @@
 import { useEffect, useState, type CSSProperties } from "react";
 import { Clock } from "lucide-react";
+import { motion } from "framer-motion";
 import { Sheet, SheetContent, SheetTitle } from "@/components/ui/sheet";
 import { haptics } from "@/lib/haptics";
 
@@ -97,30 +98,45 @@ export function DurationPicker({ open, onClose, value, onChange, title = "Durati
 
         {/* Hero value display */}
         <div className="px-5 pb-1">
-          <div
+          <motion.div
             className="rounded-2xl px-5 py-5 flex items-baseline justify-center gap-1.5"
             style={{
               background: "linear-gradient(180deg, hsl(var(--primary)/0.12) 0%, hsl(var(--primary)/0.04) 100%)",
               boxShadow: "inset 0 1px 0 hsl(0 0% 100% / 0.06), 0 0 0 1px hsl(var(--primary)/0.22), 0 8px 24px -16px hsl(var(--primary)/0.35)",
             }}
+            initial={{ opacity: 0, y: 6 }}
+            animate={{ opacity: 1, y: 0 }}
+            transition={{ type: "spring", stiffness: 320, damping: 26, delay: 0.05 }}
           >
             {draftH > 0 && (
               <>
-                <span className="font-display text-[48px] font-bold tabular-nums tracking-tight leading-none text-foreground">
+                <motion.span
+                  key={`h-${draftH}`}
+                  initial={{ opacity: 0.4, scale: 0.85, y: -4 }}
+                  animate={{ opacity: 1, scale: 1, y: 0 }}
+                  transition={{ type: "spring", stiffness: 480, damping: 24, mass: 0.6 }}
+                  className="font-display text-[48px] font-bold tabular-nums tracking-tight leading-none text-foreground"
+                >
                   {draftH}
-                </span>
+                </motion.span>
                 <span className="text-[14px] font-semibold text-secondary-fg/75 mr-1">h</span>
               </>
             )}
             {(draftM > 0 || draftH === 0) && (
               <>
-                <span className="font-display text-[48px] font-bold tabular-nums tracking-tight leading-none text-foreground">
+                <motion.span
+                  key={`m-${draftM}`}
+                  initial={{ opacity: 0.4, scale: 0.85, y: -4 }}
+                  animate={{ opacity: 1, scale: 1, y: 0 }}
+                  transition={{ type: "spring", stiffness: 480, damping: 24, mass: 0.6 }}
+                  className="font-display text-[48px] font-bold tabular-nums tracking-tight leading-none text-foreground"
+                >
                   {draftM}
-                </span>
+                </motion.span>
                 <span className="text-[14px] font-semibold text-secondary-fg/75">min</span>
               </>
             )}
-          </div>
+          </motion.div>
         </div>
 
         {/* Preset grid */}
@@ -129,18 +145,22 @@ export function DurationPicker({ open, onClose, value, onChange, title = "Durati
             Quick pick
           </div>
           <div className="grid grid-cols-3 gap-2">
-            {PRESETS.map((p) => {
+            {PRESETS.map((p, i) => {
               const on = draft === p;
               return (
-                <button
+                <motion.button
                   key={p}
                   type="button"
                   onClick={() => setPreset(p)}
                   style={on ? presetOnStyle : presetOffStyle}
-                  className="h-[52px] rounded-[14px] pressable text-[14px] font-semibold tabular-nums transition-[box-shadow,background-color] duration-150"
+                  initial={{ opacity: 0, y: 8 }}
+                  animate={{ opacity: 1, y: 0 }}
+                  transition={{ type: "spring", stiffness: 360, damping: 26, delay: 0.08 + i * 0.04 }}
+                  whileTap={{ scale: 0.95 }}
+                  className="h-[52px] rounded-[14px] text-[14px] font-semibold tabular-nums transition-[box-shadow,background-color] duration-150"
                 >
                   {presetLabel(p)}
-                </button>
+                </motion.button>
               );
             })}
           </div>

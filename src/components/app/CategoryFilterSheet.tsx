@@ -1,7 +1,7 @@
 import { useEffect, useState } from "react";
 import { Check } from "lucide-react";
 import { motion } from "framer-motion";
-import { Sheet, SheetContent } from "@/components/ui/sheet";
+import { Sheet, SheetContent, SheetTitle } from "@/components/ui/sheet";
 import { haptics } from "@/lib/haptics";
 
 type Category = { id: string; name: string; color: string };
@@ -68,6 +68,7 @@ export function CategoryFilterSheet({
         onOpenAutoFocus={(e) => e.preventDefault()}
         hideClose
       >
+        <SheetTitle className="sr-only">Filter by category</SheetTitle>
         {/* Header */}
         <div className="shrink-0 px-5 pt-5 pb-3 flex items-center justify-between">
           <button

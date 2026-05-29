@@ -48,4 +48,29 @@ export async function initCapacitor(): Promise<void> {
   const { StatusBar, Style } = await import("@capacitor/status-bar");
   await StatusBar.setOverlaysWebView({ overlay: true });
   await StatusBar.setStyle({ style: Style.Dark });
+
+  // Keyboard: kill the two big sources of first-tap input lag on iOS WKWebView.
+  //
+  //   1. setScroll({ isDisabled: true }) — by default WKWebView scrolls the
+  //      whole page when an input gains focus, which can take 300–800ms of
+  //      main-thread work right when the keyboard is sliding up. Our own
+  //      visualViewport handler in src/lib/visualViewport.ts already keeps
+  //      the focused area visible via padding, so the built-in scroll is
+  //      just wasted work.
+  //   2. setAccessoryBarVisible({ isVisible: false }) — drops the
+  //      Previous/Next/Done toolbar above the keyboard. That bar has its
+  //      own slide-in animation; hiding it makes the keyboard summon
+  //      noticeably snappier and frees ~44px of vertical space.
+  //
+  // Wrapped in try/catch because the plugin is only present on native
+  // builds; web bundles import this file too.
+  try {
+    const { Keyboard } = await import("@capacitor/keyboard");
+    if (Capacitor.getPlatform() === "ios") {
+      await Keyboard.setScroll({ isDisabled: true });
+      await Keyboard.setAccessoryBarVisible({ isVisible: false });
+    }
+  } catch (e) {
+    console.warn("[keyboard] init failed", e);
+  }
 }

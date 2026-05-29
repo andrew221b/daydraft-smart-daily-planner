@@ -135,57 +135,75 @@ serve(async (req) => {
 
     const { data: debProf } = await supabase
       .from("profiles")
-      .select("ai_planning_rules")
+      .select("ai_planning_rules, ai_context_custom")
       .eq("id", user.id)
       .maybeSingle();
     const debPrefs =
       typeof debProf?.ai_planning_rules === "string" && debProf.ai_planning_rules.trim()
         ? `\nHonor these recurring user planning preferences where relevant:\n${String(debProf.ai_planning_rules).trim().slice(0, 800)}`
         : "";
+    // Personal context (sphere of work, lifestyle, preferences) — pulled from
+    // the same field the planner reads, so insights and plans speak with one
+    // voice. Treated as background only; never quoted verbatim.
+    const debPersonal =
+      typeof (debProf as { ai_context_custom?: string } | null)?.ai_context_custom === "string" &&
+      (debProf as { ai_context_custom: string }).ai_context_custom.trim()
+        ? `\nPersonal context about this user (use as background, never quote verbatim):\n${(debProf as { ai_context_custom: string }).ai_context_custom.trim().slice(0, 500)}`
+        : "";
 
-    // Tightened system prompt. The previous version was too permissive —
-    // produced bullets like "You had a productive day, keep it up" because
-    // nothing forbade hype and nothing required specifics. The new contract:
-    //   1. Every bullet must include EITHER a specific task title OR a
-    //      specific number (count, minutes, time). Generic bullets are out.
-    //   2. The action bullet is anchored to today, names a task, and is one
-    //      concrete next step — not a platitude.
-    //   3. If the data is thin, return fewer bullets. Padding to 3 is worse
-    //      than returning 2 honest ones.
-    //   4. Hard-banned hype vocabulary.
-    const system = `You are DayDraft's debrief assistant. Tone: a thoughtful colleague who skimmed the data — observant, plain, never cheerful.${debPrefs}
-Return 2 or 3 bullets that report concrete observations from yesterday's planned-vs-actual.
+    // Insights contract — three short fields the morning card renders as
+    // separate sections (yesterday recap, today's tip, motivational spark).
+    //
+    //   1. `yesterday`: 1–2 concrete observations from planned-vs-actual.
+    //      Must each include EITHER a task title in single quotes OR a number
+    //      (count, minutes, HH:MM). No hype.
+    //   2. `today_tip`: ONE actionable line for today, anchored to a real
+    //      task title from yesterday OR to the user's start time. Not
+    //      generic — never "pick one task".
+    //   3. `spark`: ONE short, lightly motivating sentence (≤14 words). Can
+    //      be a one-line quote, a vivid metaphor, or a sharp observation
+    //      from productivity / craft / philosophy. Plain text, no attribution
+    //      unless the quote is famous enough to skip ambiguity.
+    const system = `You are DayDraft's morning Insights writer. Tone: a thoughtful colleague who skimmed the data — observant, plain, never cheerful.${debPrefs}${debPersonal}
 
-Required:
-- Each bullet must include EITHER a specific task title (quoted in single quotes) OR a specific number (count, minutes, or HH:MM time). Bullets without specifics are rejected.
-- Exactly one bullet is an action bullet for today. It must name a specific task title from the data and propose one concrete next step (start earlier / shorten estimate / move to morning / split into a smaller first step / reschedule). Generic actions like "pick one task" are rejected.
-- 1 sentence per bullet, ≤ 14 words, plain text, no leading "-" or "•" or "*".
+Write three things from yesterday's planned-vs-actual data:
+- yesterday: 1–2 bullet observations. Each MUST include EITHER a specific task title (in single quotes) OR a specific number (count, minutes, HH:MM). ≤14 words each.
+- today_tip: ONE concrete action for today. Name a real task title from the data when possible, or anchor to the user's start time. ≤16 words.
+- spark: ONE short motivating line — can be a one-line quote, a vivid metaphor, or a sharp observation about focus / craft / time. ≤14 words. Plain text.
 
 Banned vocabulary (auto-rejected): productive, great, well done, good job, nice work, kudos, awesome, amazing, fantastic, wonderful, congrats, keep it up, you crushed, you smashed.
 
-If you can't produce 3 bullets that each carry a specific observation, return 2. Never pad.
+If yesterday's data is thin, return ONE yesterday observation instead of two — never pad.
 
 Output ONLY the structured tool call.`;
 
     const tools = [{
       type: "function",
       function: {
-        name: "build_debrief",
-        description: "Create concise yesterday debrief bullets.",
+        name: "build_insights",
+        description: "Yesterday recap + today's tip + motivational spark.",
         parameters: {
           type: "object",
           properties: {
-            bullets: {
+            yesterday: {
               type: "array",
-              minItems: 2,
-              maxItems: 3,
+              minItems: 1,
+              maxItems: 2,
               items: {
                 type: "string",
-                description: "One observation bullet. Must contain a task title in single quotes OR a number (count, minutes, HH:MM). ≤14 words.",
+                description: "Observation bullet. Task title in 'quotes' OR a number. ≤14 words.",
               },
             },
+            today_tip: {
+              type: "string",
+              description: "One concrete action for today anchored to a real task or time. ≤16 words.",
+            },
+            spark: {
+              type: "string",
+              description: "Short motivating line — quote, metaphor, or sharp observation. ≤14 words.",
+            },
           },
-          required: ["bullets"],
+          required: ["yesterday", "today_tip", "spark"],
           additionalProperties: false,
         },
       },
@@ -216,7 +234,9 @@ Output ONLY the structured tool call.`;
       skipped_titles: skipped.slice(0, 5),
     };
 
-    let bullets: string[] = [];
+    let modelYesterday: string[] = [];
+    let modelTip = "";
+    let modelSpark = "";
     try {
       const resp = await fetch("https://generativelanguage.googleapis.com/v1beta/openai/chat/completions", {
         method: "POST",
@@ -229,26 +249,28 @@ Output ONLY the structured tool call.`;
               role: "user",
               content:
                 `Yesterday's data (JSON):\n${JSON.stringify(userPayload, null, 2)}\n\n` +
-                `Write 2 or 3 bullets per the contract above.`,
+                `Write yesterday + today_tip + spark per the contract.`,
             },
           ],
           tools,
-          tool_choice: { type: "function", function: { name: "build_debrief" } },
+          tool_choice: { type: "function", function: { name: "build_insights" } },
         }),
       });
       if (resp.ok) {
         const data = await resp.json();
         const call = data.choices?.[0]?.message?.tool_calls?.[0];
         const args = call ? JSON.parse(call.function.arguments) : {};
-        bullets = Array.isArray(args?.bullets) ? args.bullets : [];
+        modelYesterday = Array.isArray(args?.yesterday) ? args.yesterday : [];
+        modelTip = typeof args?.today_tip === "string" ? args.today_tip : "";
+        modelSpark = typeof args?.spark === "string" ? args.spark : "";
       }
     } catch {
       // fallback below
     }
 
-    // Post-validation: enforce the contract client-side too. A bullet that
-    // contains banned vocabulary OR neither a number nor a task-title quote
-    // is filtered out — better to drop a bullet than ship a generic one.
+    // Post-validation: bullets must mention a number or a real task title;
+    // banned cheerleader vocabulary is rejected outright. Better to drop a
+    // line than to ship hype.
     const BANNED = /\b(productive|great|well done|good job|nice work|kudos|awesome|amazing|fantastic|wonderful|congrats|keep it up|you crushed|you smashed)\b/i;
     const HAS_NUMBER = /\d/;
     const HAS_QUOTED_TITLE = /['‘’"][^'‘’"]{2,}['‘’"]/;
@@ -260,41 +282,82 @@ Output ONLY the structured tool call.`;
       }
       return false;
     };
+    const trim = (s: string, max = 140) =>
+      s.length > max ? s.slice(0, max - 3).trimEnd() + "…" : s;
+    const cleanLine = (s: string) =>
+      String(s || "").trim().replace(/^[-•*]\s*/, "").replace(/\s+/g, " ");
 
-    const cleaned = bullets
-      .map((b) => String(b || "").trim().replace(/^[-•*]\s*/, "").replace(/\s+/g, " "))
+    const yesterdayClean = modelYesterday
+      .map(cleanLine)
       .filter(Boolean)
       .filter((b) => !BANNED.test(b))
       .filter((b) => HAS_NUMBER.test(b) || HAS_QUOTED_TITLE.test(b) || mentionsKnownTitle(b))
-      .map((b) => (b.length > 140 ? b.slice(0, 137).trimEnd() + "…" : b))
-      .slice(0, 3);
+      .map((b) => trim(b))
+      .slice(0, 2);
 
-    // Specific fallbacks — only used when the model returned nothing
-    // usable. Each line is anchored to a real data point we already have.
-    if (!cleaned.length) {
-      const fallbackParts: string[] = [];
-      fallbackParts.push(`Completed ${doneCount} of ${totalCount} planned tasks${lastCompletedLocal ? `, finishing by ${lastCompletedLocal}.` : "."}`);
+    let tipClean = cleanLine(modelTip);
+    if (tipClean && BANNED.test(tipClean)) tipClean = "";
+    tipClean = trim(tipClean, 160);
+
+    let sparkClean = cleanLine(modelSpark);
+    if (sparkClean && BANNED.test(sparkClean)) sparkClean = "";
+    sparkClean = trim(sparkClean, 140);
+
+    // Fallback ladder — only fired when the model returned nothing usable
+    // for a slot. Each fallback is anchored to a real data point so the card
+    // still reads as specific, not generic.
+    if (!yesterdayClean.length) {
+      const part = `Completed ${doneCount} of ${totalCount} planned tasks${lastCompletedLocal ? `, finishing by ${lastCompletedLocal}.` : "."}`;
+      yesterdayClean.push(part);
       if (biggestOverrun) {
-        fallbackParts.push(`'${biggestOverrun.title}' ran ${biggestOverrun.variance}m past its estimate.`);
+        yesterdayClean.push(`'${biggestOverrun.title}' ran ${biggestOverrun.variance}m past its estimate.`);
       } else if (deepUnderMin > 0 && deepDone.length > 0) {
-        fallbackParts.push(`Deep work finished ${deepUnderMin}m under estimate across ${deepDone.length} block${deepDone.length === 1 ? "" : "s"}.`);
+        yesterdayClean.push(`Deep work finished ${deepUnderMin}m under estimate across ${deepDone.length} block${deepDone.length === 1 ? "" : "s"}.`);
       }
+    }
+    if (!tipClean) {
       if (skipped.length) {
-        fallbackParts.push(`Today: restart '${skipped[0]}' as a 25-minute first block.`);
+        tipClean = `Restart '${skipped[0]}' as a 25-minute first block this morning.`;
       } else if (biggestOverrun) {
-        fallbackParts.push(`Today: pad '${biggestOverrun.title}' by ${Math.min(30, Math.round(biggestOverrun.variance / 5) * 5)}m on the calendar.`);
+        tipClean = `Pad '${biggestOverrun.title}' by ${Math.min(30, Math.round(biggestOverrun.variance / 5) * 5)}m on today's calendar.`;
       } else if (firstStart) {
-        fallbackParts.push(`Today: start your first block by ${firstStart} to match yesterday's rhythm.`);
+        tipClean = `Start your first block by ${firstStart} to match yesterday's rhythm.`;
+      } else {
+        tipClean = `Pick the one task that earns the most momentum and start it first.`;
       }
-      cleaned.push(...fallbackParts.slice(0, 3));
+    }
+    if (!sparkClean) {
+      // Curated rotating sparks — deterministic per date so the card doesn't
+      // change between two opens on the same day, but varies daily.
+      const SPARKS = [
+        "A finished draft beats a perfect outline.",
+        "Move the marble first; sharpen the chisel after.",
+        "Slow is smooth; smooth is fast.",
+        "Time will pass either way — pick your work.",
+        "Start before you feel ready; momentum is the teacher.",
+        "Decide once. Execute many.",
+        "The cost of waiting is paid in pieces no one notices.",
+        "Do the thing you can't outsource to your future self.",
+        "Small block, real progress — then earn the next one.",
+        "Don't tidy the desk. Open the file.",
+        "Energy compounds; willpower spends. Bank what you can.",
+        "Cross one thing off before you check the inbox.",
+      ];
+      const seed = yesterday.split("-").reduce((acc, p) => acc * 31 + parseInt(p, 10), 7) >>> 0;
+      sparkClean = SPARKS[seed % SPARKS.length];
     }
 
     return new Response(
       JSON.stringify({
         show: true,
         date: yesterday,
-        title: "Yesterday's debrief",
-        bullets: cleaned.slice(0, 3),
+        title: "Insights",
+        yesterday: yesterdayClean,
+        today_tip: tipClean,
+        spark: sparkClean,
+        // Legacy field — older clients render this as bullets. New clients
+        // ignore it in favour of the three structured fields above.
+        bullets: yesterdayClean,
       }),
       { headers: { ...corsHeaders, "Content-Type": "application/json" } }
     );

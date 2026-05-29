@@ -1,5 +1,6 @@
 import { useMemo, useRef, useEffect } from "react";
 import { CalendarDays } from "lucide-react";
+import { motion } from "framer-motion";
 import { Sheet, SheetContent, SheetTitle } from "@/components/ui/sheet";
 import { dateStr, parseDateStr, todayDateStr } from "@/lib/daydraft";
 import { haptics } from "@/lib/haptics";
@@ -162,11 +163,13 @@ export function DayPickerSheet({
                   </span>
                 </div>
                 {g.cells.map((c) => (
-                  <button
+                  <motion.button
                     key={c.ymd}
                     type="button"
                     data-selected={c.isSelected}
                     onClick={() => { haptics.selection(); onPick(c.ymd); onOpenChange(false); }}
+                    whileTap={{ scale: 0.94 }}
+                    transition={{ type: "spring", stiffness: 500, damping: 24 }}
                     style={{
                       touchAction: "pan-x",
                       ...(c.isSelected ? {
@@ -199,7 +202,7 @@ export function DayPickerSheet({
                     </span>
                     {/* Today dot */}
                     <span className={`h-[4px] w-[4px] rounded-full transition-opacity ${c.isToday && !c.isSelected ? "opacity-100 bg-primary" : "opacity-0 bg-transparent"}`} aria-hidden />
-                  </button>
+                  </motion.button>
                 ))}
               </div>
             ))}

@@ -1,9 +1,14 @@
 import { memo, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { Sheet, SheetContent, SheetTitle } from "@/components/ui/sheet";
-import { Sparkles, ArrowUp, ChevronRight } from "lucide-react";
+import { Sparkles, ArrowUp, ChevronRight, Lock, Zap, Compass, Brain } from "lucide-react";
 import { useAbortOnUnmount } from "@/hooks/useAbortOnUnmount";
 import { toast } from "sonner";
 import { supabase } from "@/integrations/supabase/client";
+import { useEntitlement } from "@/hooks/useEntitlement";
+import { useProfileData } from "@/hooks/useProfile";
+import { UpgradeSheet } from "@/components/app/UpgradeSheet";
+import { useSheetSwipeDown } from "@/hooks/useSheetSwipeDown";
+import { haptics } from "@/lib/haptics";
 
 type Msg = { role: "user" | "assistant"; content: string };
 
@@ -53,9 +58,16 @@ const ChatInput = memo(function ChatInput({
   return (
     // bg-popover matches the sheet background exactly so the safe-area zone
     // below the input blends in instead of looking like a black strip.
+    // translateZ(0) promotes the input region into its own GPU compositor
+    // layer — on iOS WKWebView this prevents the first-keystroke jank where
+    // the keyboard summon repaints the entire sheet.
     <div
       className="shrink-0 px-3 pt-2 bg-popover"
-      style={{ paddingBottom: "max(env(safe-area-inset-bottom, 0px), 12px)" }}
+      style={{
+        paddingBottom: "max(env(safe-area-inset-bottom, 0px), 12px)",
+        transform: "translateZ(0)",
+        willChange: "transform",
+      }}
     >
       <div className={[
         "flex items-center gap-2 rounded-[18px] border px-4 py-2 transition-[border-color,box-shadow] duration-150",
@@ -119,6 +131,15 @@ export function AskAiSheet({
   initialPrompt?: string | null;
   seedContext?: string | null;
 }) {
+  const { isPro } = useEntitlement();
+  const { profile } = useProfileData();
+  // Mirror the profile into a ref so `send` reads the latest value without
+  // needing `profile` in its dependency array. Without this the useCallback
+  // closure captures a stale profile (often null on first mount), and the AI
+  // never sees the user's "About me" context.
+  const profileRef = useRef(profile);
+  useEffect(() => { profileRef.current = profile; }, [profile]);
+  const [upgradeOpen, setUpgradeOpen] = useState(false);
   const [messages, setMessages] = useState<Msg[]>([]);
   const [loading, setLoading] = useState(false);
   const [presetInput, setPresetInput] = useState("");
@@ -136,9 +157,20 @@ export function AskAiSheet({
   const streamBufRef = useRef("");
   const rafRef = useRef<number | null>(null);
 
+  // Reset chat state ONLY when the sheet flips from closed → open. Previously
+  // this fired on every prop change (initialPrompt, seedContext) which caused
+  // an unnecessary re-render right when iOS WKWebView was still initialising
+  // the soft keyboard — that wasted frame made the first keystroke feel like
+  // it stalled. Now we snapshot `initialPrompt` only at the moment of opening.
+  const prevOpenRef = useRef(false);
   useEffect(() => {
-    if (open) { setPresetInput(initialPrompt || ""); setMessages([]); }
-  }, [open, initialPrompt, seedContext]);
+    if (open && !prevOpenRef.current) {
+      setPresetInput(initialPrompt || "");
+      setMessages([]);
+    }
+    prevOpenRef.current = open;
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [open]);
 
   useEffect(() => {
     if (scrollerRef.current) scrollerRef.current.scrollTop = scrollerRef.current.scrollHeight;
@@ -157,14 +189,16 @@ export function AskAiSheet({
       const { data: { session } } = await supabase.auth.getSession();
       const token = session?.access_token ?? (import.meta.env.VITE_SUPABASE_ANON_KEY as string);
 
-      const payload: Msg[] = seedContextRef.current
-        ? [{ role: "user", content: `Context (not shown to user): ${seedContextRef.current}` }, ...next]
-        : next;
+      // Context goes in dedicated fields — the function folds them into the
+      // system prompt. Sending them as fake "user" messages caused two
+      // consecutive user turns which Gemini's chat API sometimes rejects.
+      const personalContext = profileRef.current?.ai_context_custom?.trim() || "";
+      const seedContext = seedContextRef.current || "";
 
       const res = await fetch(`${import.meta.env.VITE_SUPABASE_URL}/functions/v1/ai-assist`, {
         method: "POST",
         headers: { "Content-Type": "application/json", "Authorization": `Bearer ${token}` },
-        body: JSON.stringify({ messages: payload }),
+        body: JSON.stringify({ messages: next, personalContext, seedContext }),
         signal,
       });
 
@@ -215,7 +249,18 @@ export function AskAiSheet({
       flush();
     } catch (e: unknown) {
       if (signal.aborted) return;
-      toast.error((e as Error)?.message || "AI is unavailable");
+      // Translate raw fetch/network errors into something the user can act on.
+      // iOS WKWebView surfaces network failures as "Load failed" / "TypeError"
+      // which read like a crash; map those to a calm copy that hints at the
+      // real cause (offline / flaky link).
+      const raw = (e as Error)?.message || "";
+      const friendly =
+        /Load failed|Failed to fetch|NetworkError|TypeError|net::|ENOTFOUND|ECONNREFUSED/i.test(raw)
+          ? "Couldn't reach the assistant — check your connection and try again."
+          : /rate.?limit|429/i.test(raw)
+            ? "Too many requests — give it a moment."
+            : raw || "AI is unavailable";
+      toast.error(friendly);
       setMessages((m) => {
         if (m[m.length - 1]?.role === "assistant" && !m[m.length - 1].content) return m.slice(0, -1);
         return m;
@@ -255,6 +300,8 @@ export function AskAiSheet({
   const hasEmptyAssistant = messages.some((m) => m.role === "assistant" && m.content === "");
   const isEmpty = messages.length === 0 && !loading;
 
+  const swipe = useSheetSwipeDown(() => onOpenChange(false));
+
   return (
     <Sheet open={open} onOpenChange={onOpenChange}>
       <SheetContent
@@ -265,27 +312,34 @@ export function AskAiSheet({
           // keyboard. padding-bottom steals from the inner flex layout
           // (fixed h-[82vh]) — no layout reflow outside the sheet.
           paddingBottom: "var(--keyboard-inset, 0px)",
-          transition: "padding-bottom 220ms cubic-bezier(0.32, 0.72, 0, 1)",
+          transition: swipe.sheetStyle
+            ? swipe.sheetStyle.transition
+            : "padding-bottom 220ms cubic-bezier(0.32, 0.72, 0, 1)",
+          ...(swipe.sheetStyle?.transform ? { transform: swipe.sheetStyle.transform } : null),
         }}
         // iOS WKWebView fires a synthetic pointer event outside the sheet content
         // when the software keyboard opens — Radix Dialog interprets this as
         // "user tapped outside, close dialog". Prevent that spurious dismiss.
         onPointerDownOutside={(e) => e.preventDefault()}
         onInteractOutside={(e) => e.preventDefault()}
+        // Don't steal focus on open. Radix's default focuses the first
+        // interactive element which, on iOS WKWebView, queues a focus event
+        // for the textarea — that work fights with the slide-up animation
+        // and stalls the first tap. Letting the user's tap drive focus
+        // makes the first keystroke instant.
+        onOpenAutoFocus={(e) => e.preventDefault()}
         hideClose
       >
         <SheetTitle className="sr-only">Ask AI</SheetTitle>
 
-        {/* ── Drag handle + close ── */}
-        <div className="relative flex justify-center pt-[10px] pb-0 shrink-0">
+        {/* ── Drag handle — swipe down to dismiss; visible affordance for it. ── */}
+        <div
+          className="relative flex justify-center pt-[10px] pb-2 shrink-0 -mb-2"
+          {...swipe.handleProps}
+          aria-label="Swipe down to close"
+          role="button"
+        >
           <div className="h-1 w-9 rounded-full bg-foreground/15" aria-hidden />
-          <button
-            type="button"
-            onClick={() => onOpenChange(false)}
-            className="absolute right-4 top-1/2 -translate-y-1/2 text-[13px] font-medium text-foreground/45 hover:text-foreground/70 pressable transition-colors px-2 py-1"
-          >
-            Done
-          </button>
         </div>
 
         {/* ── Header ── */}
@@ -310,68 +364,140 @@ export function AskAiSheet({
         <div className="shrink-0 h-px bg-border/12 mx-5" />
 
         {/* ── Content ── */}
-        <div ref={scrollerRef} className="min-h-0 flex-1 overflow-y-auto">
+        {isPro ? (
+          <>
+            <div ref={scrollerRef} className="min-h-0 flex-1 overflow-y-auto">
 
-          {/* Empty state: use a flex-col so suggestions sit at the BOTTOM
-              of the scrollable area, close to the input — not floating at top. */}
-          {isEmpty && (
-            <div className="h-full min-h-[280px] flex flex-col justify-end px-4 pb-4">
-              <p className="text-[11px] uppercase tracking-[0.12em] text-foreground/28 font-semibold px-1 pb-2">Suggestions</p>
-              <div className="space-y-2">
-                {quickPrompts.map((p) => (
-                  <button
-                    key={p.label}
-                    type="button"
-                    onClick={() => p.send ? void send(p.prompt) : setPresetInput(p.prompt)}
-                    className="w-full text-left rounded-2xl border border-border/30 bg-surface/60 px-4 py-3 pressable transition-[border-color,background-color] duration-200 hover:border-primary/22 hover:bg-primary/[0.04]"
-                  >
-                    <div className="flex items-center gap-2">
-                      <div className="min-w-0 flex-1">
-                        <p className="text-[14px] font-medium text-foreground/90 leading-snug">{p.label}</p>
-                        <p className="text-[12px] text-foreground/38 mt-[3px] leading-snug">{p.hint}</p>
-                      </div>
-                      {p.send
-                        ? <ChevronRight className="h-3.5 w-3.5 text-foreground/20 shrink-0" />
-                        : <span className="text-[10px] text-primary/50 font-medium shrink-0">Edit →</span>
-                      }
-                    </div>
-                  </button>
-                ))}
-              </div>
-            </div>
-          )}
-
-          {/* Conversation */}
-          {!isEmpty && (
-            <div className="px-4 pt-3 pb-4 space-y-2.5">
-              {messages.map((m, i) => (
-                <div key={i} className={`bubble-in flex ${m.role === "user" ? "justify-end" : "justify-start"}`}>
-                  <div className={[
-                    "max-w-[84%] rounded-[18px] px-4 py-2.5 text-[14px] leading-[1.6] whitespace-pre-wrap",
-                    m.role === "user"
-                      ? "bg-primary text-primary-foreground shadow-[0_4px_16px_hsl(var(--primary)/0.26)] rounded-tr-[6px]"
-                      : "bg-surface text-foreground/95 border border-border/30 rounded-tl-[6px]",
-                  ].join(" ")}>
-                    {m.content || (m.role === "assistant" ? <ThinkingDots /> : null)}
-                  </div>
-                </div>
-              ))}
-
-              {loading && !hasEmptyAssistant && (
-                <div className="flex justify-start bubble-in">
-                  <div className="rounded-[18px] rounded-tl-[6px] bg-surface border border-border/30 px-4 py-3.5">
-                    <ThinkingDots />
+              {/* Empty state: use a flex-col so suggestions sit at the BOTTOM
+                  of the scrollable area, close to the input — not floating at top. */}
+              {isEmpty && (
+                <div className="h-full min-h-[280px] flex flex-col justify-end px-4 pb-4">
+                  <p className="text-[11px] uppercase tracking-[0.12em] text-foreground/28 font-semibold px-1 pb-2">Suggestions</p>
+                  <div className="space-y-2">
+                    {quickPrompts.map((p) => (
+                      <button
+                        key={p.label}
+                        type="button"
+                        onClick={() => p.send ? void send(p.prompt) : setPresetInput(p.prompt)}
+                        className="w-full text-left rounded-2xl border border-border/30 bg-surface/60 px-4 py-3 pressable transition-[border-color,background-color] duration-200 hover:border-primary/22 hover:bg-primary/[0.04]"
+                      >
+                        <div className="flex items-center gap-2">
+                          <div className="min-w-0 flex-1">
+                            <p className="text-[14px] font-medium text-foreground/90 leading-snug">{p.label}</p>
+                            <p className="text-[12px] text-foreground/38 mt-[3px] leading-snug">{p.hint}</p>
+                          </div>
+                          {p.send
+                            ? <ChevronRight className="h-3.5 w-3.5 text-foreground/20 shrink-0" />
+                            : <span className="text-[10px] text-primary/50 font-medium shrink-0">Edit →</span>
+                          }
+                        </div>
+                      </button>
+                    ))}
                   </div>
                 </div>
               )}
+
+              {/* Conversation */}
+              {!isEmpty && (
+                <div className="px-4 pt-3 pb-4 space-y-2.5">
+                  {messages.map((m, i) => (
+                    <div key={i} className={`bubble-in flex ${m.role === "user" ? "justify-end" : "justify-start"}`}>
+                      <div className={[
+                        "max-w-[84%] rounded-[18px] px-4 py-2.5 text-[14px] leading-[1.6] whitespace-pre-wrap",
+                        m.role === "user"
+                          ? "bg-primary text-primary-foreground shadow-[0_4px_16px_hsl(var(--primary)/0.26)] rounded-tr-[6px]"
+                          : "bg-surface text-foreground/95 border border-border/30 rounded-tl-[6px]",
+                      ].join(" ")}>
+                        {m.content || (m.role === "assistant" ? <ThinkingDots /> : null)}
+                      </div>
+                    </div>
+                  ))}
+
+                  {loading && !hasEmptyAssistant && (
+                    <div className="flex justify-start bubble-in">
+                      <div className="rounded-[18px] rounded-tl-[6px] bg-surface border border-border/30 px-4 py-3.5">
+                        <ThinkingDots />
+                      </div>
+                    </div>
+                  )}
+                </div>
+              )}
             </div>
-          )}
-        </div>
 
-        <div className="shrink-0 h-px bg-border/12" />
+            <div className="shrink-0 h-px bg-border/12" />
 
-        <ChatInput onSend={send} loading={loading} externalValue={presetInput} />
+            <ChatInput onSend={send} loading={loading} externalValue={presetInput} />
+          </>
+        ) : (
+          <AskAiPaywall
+            onUpgrade={() => { haptics.selection(); setUpgradeOpen(true); }}
+          />
+        )}
       </SheetContent>
+
+      <UpgradeSheet open={upgradeOpen} onOpenChange={setUpgradeOpen} reason="feature" />
     </Sheet>
+  );
+}
+
+/**
+ * Premium paywall shown to free users when they open the AskAi sheet.
+ * Mirrors the chat sheet's premium aesthetic — same drag handle, header,
+ * and divider — so the upsell feels native to the sheet, not bolted on.
+ * Sells what they'd get (three concrete bullets, each with an icon),
+ * leaves the divider line so the sheet still has its three-row rhythm.
+ */
+function AskAiPaywall({ onUpgrade }: { onUpgrade: () => void }) {
+  const PERKS = [
+    { Icon: Brain,    label: "Conversational AI",      blurb: "Ask anything — about your day or the world." },
+    { Icon: Compass,  label: "Smart, contextual help", blurb: "Time estimates, breakdowns, and grounded takes." },
+    { Icon: Zap,      label: "Unlimited prompts",      blurb: "No daily caps, no rate-limited free tier." },
+  ];
+  return (
+    <div className="min-h-0 flex-1 overflow-y-auto px-5 pb-6">
+      <div className="mt-2 flex justify-center">
+        <span className="inline-flex items-center gap-1.5 rounded-full bg-primary/[0.10] border border-primary/25 px-3 py-1 text-[10px] font-semibold uppercase tracking-[0.16em] text-primary">
+          <Lock className="h-3 w-3" /> Pro feature
+        </span>
+      </div>
+
+      <h2 className="mt-5 font-display text-[26px] font-semibold tracking-tight text-foreground text-center leading-tight">
+        Unlock the AI<br />companion
+      </h2>
+      <p className="mt-2 text-[13px] text-secondary-fg/80 text-center leading-relaxed max-w-[300px] mx-auto">
+        DayDraft's AI lives inside Pro — a thoughtful assistant for your day, not just a chatbot.
+      </p>
+
+      <ul className="mt-6 space-y-2.5">
+        {PERKS.map(({ Icon, label, blurb }) => (
+          <li
+            key={label}
+            className="flex items-start gap-3 rounded-2xl border border-border/35 bg-card/35 px-3.5 py-3"
+          >
+            <span className="mt-0.5 inline-flex h-8 w-8 shrink-0 items-center justify-center rounded-xl bg-primary/[0.14] text-primary">
+              <Icon className="h-4 w-4" strokeWidth={2.2} />
+            </span>
+            <div className="min-w-0 flex-1">
+              <p className="text-[13.5px] font-semibold text-foreground/95 leading-tight">{label}</p>
+              <p className="mt-0.5 text-[12px] text-secondary-fg/75 leading-snug">{blurb}</p>
+            </div>
+          </li>
+        ))}
+      </ul>
+
+      <button
+        type="button"
+        onClick={onUpgrade}
+        className="mt-6 w-full h-12 rounded-2xl bg-gradient-to-br from-primary to-primary-glow text-primary-foreground text-[14px] font-semibold pressable shadow-[0_8px_28px_-8px_hsl(var(--primary)/0.55)]"
+      >
+        <span className="inline-flex items-center justify-center gap-2">
+          <Sparkles className="h-4 w-4" />
+          Upgrade to Pro
+        </span>
+      </button>
+      <p className="mt-2.5 text-[11px] text-secondary-fg/60 text-center">
+        Cancel anytime · 7-day free trial
+      </p>
+    </div>
   );
 }

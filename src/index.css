@@ -62,7 +62,10 @@ body.dd-dnd-scroll-lock {
     --shadow-tab: 0 16px 56px -14px rgba(4,8,28,0.62), inset 0 1px 0 rgba(255,255,255,0.1);
     --gradient-primary: linear-gradient(132deg, hsl(var(--primary)) 0%, hsl(var(--primary-glow)) 100%);
     --gradient-glow: radial-gradient(62% 46% at 50% -8%, hsl(var(--primary) / 0.2), transparent 72%);
-    --gradient-floor: radial-gradient(ellipse 76% 50% at 50% 100%, hsl(var(--primary-glow) / 0.06), transparent 68%);
+    /* Floor mirrors the top: same hue (--primary) so the bar doesn't sit on a
+       differently-coloured wash, narrower vertical reach so the glow stays
+       hugged to the bottom edge, gentler centre opacity for a softer halo. */
+    --gradient-floor: radial-gradient(46% 34% at 50% 108%, hsl(var(--primary) / 0.10), transparent 78%);
     --motion-page-switch-ms: 300ms;
     --motion-section-in-ms: 240ms;
     --motion-tab-indicator-s: 7s;
@@ -115,7 +118,7 @@ body.dd-dnd-scroll-lock {
     --shadow-elevated: 0 24px 48px -12px rgba(18,28,56,0.18), 0 8px 16px -4px rgba(18,28,56,0.08);
     --shadow-tab: 0 12px 36px -16px rgba(18,28,56,0.14), inset 0 1px 0 rgba(255,255,255,0.98);
     --gradient-glow: radial-gradient(56% 40% at 50% -6%, hsl(var(--primary) / 0.22), transparent 72%);
-    --gradient-floor: radial-gradient(ellipse 72% 44% at 50% 100%, hsl(var(--primary-glow) / 0.05), transparent 72%);
+    --gradient-floor: radial-gradient(44% 30% at 50% 108%, hsl(var(--primary) / 0.08), transparent 80%);
     --glass-blur: 28px;
     --glass-saturate: 1.4;
     --hero-glass-blur: 36px;
@@ -135,7 +138,7 @@ body.dd-dnd-scroll-lock {
     --shadow-elevated: 0 24px 64px rgba(5,8,30,0.85), 0 8px 28px rgba(12,18,42,0.5);
     --shadow-glow: 0 0 0 4px hsl(var(--primary) / 0.28), 0 0 32px hsl(var(--primary-glow) / 0.38);
     --gradient-glow: radial-gradient(72% 56% at 50% -10%, hsl(var(--primary) / 0.36), transparent 72%);
-    --gradient-floor: radial-gradient(ellipse 82% 56% at 50% 100%, hsl(var(--primary-glow) / 0.09), transparent 66%);
+    --gradient-floor: radial-gradient(48% 34% at 50% 108%, hsl(var(--primary) / 0.14), transparent 78%);
     --motion-page-switch-ms: 280ms;
     --motion-section-in-ms: 240ms;
     --motion-glow-breathe-s: 14s;
@@ -178,7 +181,7 @@ body.dd-dnd-scroll-lock {
     --shadow-glow: 0 0 0 3px hsl(var(--primary) / 0.18), 0 0 24px hsl(var(--primary-glow) / 0.12);
     --shadow-tab: 0 10px 32px -12px rgba(18,28,56,0.12), inset 0 1px 0 rgba(255,255,255,0.96);
     --gradient-glow: radial-gradient(64% 48% at 50% -8%, hsl(var(--primary) / 0.1), transparent 75%);
-    --gradient-floor: radial-gradient(ellipse 75% 48% at 50% 100%, hsl(var(--primary-glow) / 0.03), transparent 75%);
+    --gradient-floor: radial-gradient(44% 30% at 50% 108%, hsl(var(--primary) / 0.05), transparent 82%);
 
     --glass-blur: 24px;
     --glass-saturate: 1.35;
@@ -790,15 +793,25 @@ body.dd-dnd-scroll-lock {
     background: var(--gradient-glow);
     mix-blend-mode: screen;
   }
+  /* Floor glow — capsule-shaped halo behind the TabBar.
+     Mask geometry mirrors the TabBar pill (max ~424 px wide, centred,
+     rounded ends) so the glow tapers smoothly past the pill's edges
+     instead of being hard-cut at the screen sides. Opacity is also
+     lower than the previous 0.32 — the user reported the wash felt too
+     loud against the otherwise calm background. */
   .shell-glow-floor {
     background: var(--gradient-floor);
-    opacity: 0.55;
+    opacity: 0.22;
     mix-blend-mode: screen;
+    -webkit-mask-image:
+      radial-gradient(48% 80% at 50% 100%, black 0%, black 22%, transparent 92%);
+    mask-image:
+      radial-gradient(48% 80% at 50% 100%, black 0%, black 22%, transparent 92%);
   }
   /* screen blend is a no-op on near-white; switch to normal so the tinted
      gradient actually paints colour onto the light background. */
   :root.light .shell-glow-top  { mix-blend-mode: normal; opacity: 0.75; }
-  :root.light .shell-glow-floor { mix-blend-mode: normal; opacity: 0.45; }
+  :root.light .shell-glow-floor { mix-blend-mode: normal; opacity: 0.18; }
 
   /**
    * Edge chrome — sits above content (z-18) but below tab bar (z-40).
@@ -854,6 +867,43 @@ body.dd-dnd-scroll-lock {
       hsl(var(--primary) / 0.07) 60%,
       transparent 100%
     );
+  }
+
+  /**
+   * Reports → category card contrast on light theme.
+   * The dark theme already reads well; on light the secondary-fg tokens at
+   * 70–85% opacity were too pale against the surface-soft wash, making the
+   * row meta (percent, sessions, rate) feel washed out. Bump:
+   *  - card surface to crisp white with a subtle shadow lip,
+   *  - hairline border to the strong end of the border token,
+   *  - meta text to the muted-foreground value at near-full opacity,
+   *  - dot to a visible ring so it stays distinct on white,
+   *  - duration total to the body text colour (was secondary-fg/85).
+   */
+  :root.light .reports-category-card {
+    background-color: hsl(var(--surface));
+    border-color: hsl(var(--border) / 0.9);
+    box-shadow:
+      0 1px 0 hsl(0 0% 100% / 0.8) inset,
+      0 6px 16px -10px hsl(220 30% 24% / 0.18),
+      0 1px 2px hsl(220 30% 24% / 0.04);
+  }
+  :root.light .reports-category-card .reports-cat-meta {
+    color: hsl(var(--muted-foreground));
+  }
+  :root.light .reports-category-card .reports-cat-meta > span {
+    color: hsl(var(--muted-foreground));
+  }
+  :root.light .reports-category-card .reports-cat-meta .text-success {
+    color: hsl(var(--success));
+  }
+  :root.light .reports-category-card .reports-cat-total {
+    color: hsl(var(--foreground));
+  }
+  :root.light .reports-category-card .reports-cat-dot {
+    box-shadow:
+      0 0 0 2px hsl(var(--surface)),
+      0 0 0 3px hsl(var(--border));
   }
 
   /* Capacitor iOS: soften top blur for WKWebView compositor budget */
@@ -1219,7 +1269,7 @@ body.dd-dnd-scroll-lock {
     --hero-glass-blur: 12px;
     --hero-glass-saturate: 1.06;
     --gradient-glow: radial-gradient(62% 48% at 50% -8%, hsl(var(--primary) / 0.2), transparent 74%);
-    --gradient-floor: radial-gradient(ellipse 74% 48% at 50% 100%, hsl(var(--primary-glow) / 0.05), transparent 70%);
+    --gradient-floor: radial-gradient(44% 30% at 50% 108%, hsl(var(--primary) / 0.08), transparent 80%);
   }
 
   .tab-indicator-luxe {
@@ -1245,7 +1295,7 @@ body.dd-dnd-scroll-lock {
   --hero-glass-blur: 12px;
   --hero-glass-saturate: 1.06;
   --gradient-glow: radial-gradient(64% 50% at 50% -6%, hsl(var(--primary) / 0.28), transparent 76%);
-  --gradient-floor: radial-gradient(ellipse 76% 50% at 50% 100%, hsl(var(--primary-glow) / 0.09), transparent 72%);
+  --gradient-floor: radial-gradient(46% 34% at 50% 108%, hsl(var(--primary) / 0.11), transparent 78%);
 }
 
 

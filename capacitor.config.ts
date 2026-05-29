@@ -30,7 +30,12 @@ const config: CapacitorConfig = {
       fadeOutDuration: 400,
     },
     Keyboard: {
-      resize: "body",
+      // 'none' = Capacitor does not touch the layout when the keyboard
+      // opens. We manage everything via `window.visualViewport` →
+      // `--keyboard-inset` CSS var (see src/lib/visualViewport.ts), so
+      // 'body' resize would conflict by shrinking the document while we
+      // also pad the sheet/page. Single source of truth wins.
+      resize: "none",
       resizeOnFullScreen: true,
     },
   },

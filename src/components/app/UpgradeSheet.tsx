@@ -1,5 +1,5 @@
 import { useEffect, useState } from "react";
-import { Sheet, SheetContent } from "@/components/ui/sheet";
+import { Sheet, SheetContent, SheetTitle } from "@/components/ui/sheet";
 import { Button } from "@/components/ui/button";
 import { Check, Sparkles } from "lucide-react";
 import { startCheckout } from "@/hooks/useEntitlement";
@@ -91,6 +91,7 @@ export const UpgradeSheet = ({
   return (
     <Sheet open={open} onOpenChange={onOpenChange}>
       <SheetContent side="bottom" className="rounded-t-[24px] border-soft bg-background/95 backdrop-blur-xl max-h-[92vh] overflow-y-auto p-0">
+        <SheetTitle className="sr-only">Upgrade to Pro</SheetTitle>
         <div className="relative px-6 pt-7 pb-6 rounded-t-[24px]" style={{ background: "var(--gradient-glow)" }}>
           <div className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full surface-accent border border-accent">
             <Sparkles className="h-3.5 w-3.5 text-primary" />

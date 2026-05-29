@@ -92,20 +92,86 @@ export function isNativeGoogleConfigured(): boolean {
 }
 
 /**
+ * Clear cached native provider sessions on sign-out / account deletion.
+ *
+ * Why this exists: Supabase's `auth.signOut()` only flushes the Supabase
+ * session token. The NATIVE provider (Google / Apple) is a separate piece
+ * of state — Google in particular caches the picked account on the device
+ * via GoogleSignIn-iOS so the next tap on "Continue with Google" silently
+ * reuses that account and the user gets re-logged-in to the same identity
+ * they thought they'd just signed out from (or worse: deleted).
+ *
+ * SocialLogin.logout({provider}) tells the native SDK to drop its cached
+ * grant + account selection. Result: the next "Continue with Google" shows
+ * the OS account picker again, letting the user pick a fresh account.
+ *
+ * Wrapped in try/catch + Promise.allSettled so a single provider failure
+ * never blocks the sign-out chain — the Supabase signOut + nav redirect
+ * are far more important than this best-effort cleanup.
+ */
+export async function clearNativeSocialSessions(): Promise<void> {
+  if (!Capacitor.isNativePlatform()) return;
+  try {
+    await ensureInitialized();
+  } catch {
+    return;
+  }
+  await Promise.allSettled([
+    (async () => {
+      try {
+        await SocialLogin.logout({ provider: "google" });
+      } catch (e) {
+        console.info("[nativeAuth] Google logout skipped", e);
+      }
+    })(),
+    (async () => {
+      if (Capacitor.getPlatform() !== "ios") return;
+      try {
+        await SocialLogin.logout({ provider: "apple" });
+      } catch (e) {
+        console.info("[nativeAuth] Apple logout skipped", e);
+      }
+    })(),
+  ]);
+}
+
+/**
  * Native Google sign-in. Returns the Supabase session result (same shape
  * as `supabase.auth.signInWithIdToken`).
  *
- * Nonce protocol — same as Apple (see `signInWithAppleNative` for the
- * detailed explanation). Modern `GoogleSignIn` iOS SDK ALSO includes a
- * `nonce` claim in the id_token even when one isn't requested explicitly
- * — and Supabase, when it sees a nonce in the id_token, *requires* a
- * matching `nonce` param on the request. Otherwise:
- *   "passed nonce and nonce in id_token should either both exist or not"
+ * Why this is so finicky — and the bug we kept reintroducing:
  *
- * The fix: hand the plugin a SHA-256 hash of our raw nonce; the plugin
- * forwards it to Google, Google embeds it verbatim in the id_token's
- * nonce claim. Then we pass the raw nonce to Supabase, Supabase hashes
- * it server-side and the two hashes match.
+ * The @capgo plugin has TWO paths in its iOS Google login (see
+ * GoogleProvider.swift line 81):
+ *
+ *   ┌──────────────────────────────────────────────────────────┐
+ *   │ if hasPreviousSignIn && !forceAuthCode && mode != OFFLINE │
+ *   │   → restorePreviousSignIn   (silent, IGNORES our nonce)   │
+ *   │ else                                                       │
+ *   │   → signIn(presenting:, nonce:)   (uses our nonce)         │
+ *   └──────────────────────────────────────────────────────────┘
+ *
+ * `restorePreviousSignIn` returns a CACHED user with a refreshed id_token.
+ * That refreshed token may carry a nonce from an earlier OAuth flow that
+ * WE don't have the raw form of — so when we then pass our freshly-
+ * generated rawNonce to Supabase, the hash never matches → server error
+ * "Nonces mismatch". This is exactly the symptom users reported after we
+ * added pre-login `SocialLogin.logout()` to force the account picker:
+ * `signOut()` clears the in-memory user but does NOT clear the keychain,
+ * so `hasPreviousSignIn()` still returns true and the cached path kept
+ * winning.
+ *
+ * Fix: pass `forcePrompt: true` to the plugin. That sets `forceAuthCode`,
+ * skips `restorePreviousSignIn` entirely, and routes us through the real
+ * OAuth flow where our nonce is actually honored.
+ *
+ * Nonce protocol — mirrors Apple (see `signInWithAppleNative`):
+ *   1. Generate rawNonce locally.
+ *   2. SHA-256 it as HEX and pass that to the plugin so Google embeds it
+ *      verbatim in the id_token's `nonce` claim. Hex is mandatory because
+ *      Supabase auth (gotrue) verifies with `fmt.Sprintf("%x", sha256(...))`.
+ *   3. Pass rawNonce to Supabase. Server computes hex(sha256(rawNonce)) and
+ *      compares against the id_token's nonce claim — match → session.
  */
 export async function signInWithGoogleNative(): Promise<{ error?: Error | null }> {
   if (!Capacitor.isNativePlatform()) {
@@ -116,55 +182,67 @@ export async function signInWithGoogleNative(): Promise<{ error?: Error | null }
   }
   try {
     await ensureInitialized();
-    /**
-     * No nonce in this flow — intentional.
-     *
-     * GoogleSignIn-iOS 9.x uses OAuth code flow internally
-     * (`OIDResponseTypeCode` in GIDSignIn.m). Google's token endpoint
-     * does NOT echo the authorization-request nonce back into the
-     * resulting id_token under code flow — so whatever we send via the
-     * SDK's `nonce:` parameter is silently dropped. Empirically
-     * confirmed: even with a SHA-256/base64url hashed nonce, the
-     * returned id_token has no `nonce` claim (see debug log below).
-     *
-     * supabase-js's client-side check is
-     * `Boolean(nonceParam) === Boolean(idToken.nonce)` — so the safe
-     * configuration is "neither side has a nonce". We give up nonce-
-     * based replay protection for this provider; the rest of OIDC
-     * code-flow security (PKCE, audience verification, signature
-     * verification of the id_token via Google's JWKS) is unaffected.
-     *
-     * If Google fixes nonce round-tripping in a future OIDC flow, the
-     * branch below re-adds nonce when the returned token actually
-     * contains one.
-     */
+
+    const rawNonce = generateNonce();
+    const hashedNonce = await sha256Hex(rawNonce);
+
+    // Best-effort keychain cleanup. The plugin's `logout()` only calls
+    // `GIDSignIn.signOut()` which clears in-memory state, not keychain — so
+    // this alone isn't enough to force the picker. The real lever is
+    // `forcePrompt: true` below, which makes the plugin bypass
+    // `restorePreviousSignIn` regardless of keychain state.
+    try {
+      await SocialLogin.logout({ provider: "google" });
+    } catch (e) {
+      console.info("[nativeAuth] Google: pre-login logout skipped", e);
+    }
+
     console.info("[nativeAuth] Google: calling SocialLogin.login");
     const res = await SocialLogin.login({
       provider: "google",
       options: Capacitor.getPlatform() === "ios" ? {
         scopes: ["email", "profile"],
+        nonce: hashedNonce,
+        // CRITICAL: forces the plugin into the `signIn(presenting:nonce:)`
+        // branch instead of `restorePreviousSignIn`. Without this, the
+        // cached path runs, returns a refreshed id_token whose nonce we
+        // can't reproduce, and Supabase rejects with "Nonces mismatch".
+        forcePrompt: true,
       } : undefined,
     });
+
     const idToken = (res as any)?.result?.idToken as string | undefined;
     const claims = idToken ? decodeJwtPayload(idToken) : null;
-    const tokenNonce = typeof claims?.nonce === "string" ? (claims.nonce as string) : undefined;
+    const tokenNonceClaim = typeof claims?.nonce === "string" ? (claims.nonce as string) : "";
+    const tokenHasNonce = tokenNonceClaim.length > 0;
+    const tokenNonceMatchesOurs = tokenHasNonce && tokenNonceClaim === hashedNonce;
+
     console.info("[nativeAuth] Google: plugin returned", {
       hasIdToken: !!idToken,
       tokenAud: claims?.aud,
-      tokenNoncePresent: !!tokenNonce,
+      tokenNoncePresent: tokenHasNonce,
+      tokenNonceMatchesOurs,
+      sentHashedNoncePreview: hashedNonce.slice(0, 16) + "…",
+      tokenNoncePreview: tokenHasNonce ? tokenNonceClaim.slice(0, 16) + "…" : null,
     });
+
     if (!idToken) {
       return { error: new Error("Google sign-in didn't return an ID token") };
     }
+
+    // Only forward rawNonce when the id_token's nonce claim is exactly the
+    // hashedNonce we sent. That confirms the cached path was skipped and
+    // Supabase's hex(sha256(rawNonce)) will match. If the token has a nonce
+    // we don't own (cached path slipped through), we have no choice but to
+    // skip nonce — Supabase will then bail with the "either both exist or
+    // not" error, which is at least an honest failure rather than a
+    // silently-wrong session.
     const { error } = await supabase.auth.signInWithIdToken({
       provider: "google",
       token: idToken,
-      // Only forward a nonce if the token actually has one. The current
-      // GoogleSignIn 9.x code flow does NOT include one, so this branch
-      // is dormant — kept defensively in case the SDK starts populating
-      // it after a future Google change.
-      ...(tokenNonce ? { nonce: tokenNonce } : {}),
+      ...(tokenNonceMatchesOurs ? { nonce: rawNonce } : {}),
     });
+
     if (error) console.error("[nativeAuth] Google: signInWithIdToken error", error);
     else console.info("[nativeAuth] Google: signInWithIdToken ok");
     return { error: error ?? null };
@@ -200,7 +278,7 @@ export async function signInWithAppleNative(): Promise<{ error?: Error | null }>
   try {
     await ensureInitialized();
     const rawNonce = generateNonce();
-    const hashedNonce = await sha256Base64Url(rawNonce);
+    const hashedNonce = await sha256Hex(rawNonce);
     console.info("[nativeAuth] Apple: calling SocialLogin.login", {
       rawNonceLen: rawNonce.length,
       hashedNoncePreview: hashedNonce.slice(0, 12) + "…",
@@ -248,26 +326,30 @@ function generateNonce(length = 32): string {
 }
 
 /**
- * SHA-256 → URL-safe base64 (no padding).
+ * SHA-256 → lowercase hex.
  *
- * Google's OAuth endpoint docs require the nonce to be a "URL-safe base64-
- * encoded SHA-256 hash of a random string" — if you send a different format
- * (e.g. lowercase hex) Google's server silently rejects it, returning an
- * id_token with NO nonce claim. supabase-js then throws "passed nonce and
- * nonce in id_token should either both exist or not" because we sent a
- * nonce but the id_token has none.
+ * This encoding MUST match what Supabase auth (gotrue) uses server-side
+ * when verifying the nonce: it computes `fmt.Sprintf("%x", sha256.Sum256(...))`
+ * on the rawNonce we send and compares it byte-for-byte to the `nonce` claim
+ * inside the id_token. The provider (Apple / Google) embeds whatever hashed
+ * value we hand to its SDK verbatim — so the SDK must receive lowercase hex,
+ * not base64url, or every fresh sign-in fails with "Nonces mismatch".
  *
- * Apple's auth server also accepts (and round-trips) this format, so using
- * it for both providers keeps the protocol uniform.
+ * History note: an earlier commit (da16526) switched this to URL-safe base64
+ * thinking Google wanted that format. It worked silently for cached sessions
+ * because GoogleSignIn-iOS would drop the nonce in code flow and the token
+ * came back without one. New accounts trigger the full OIDC flow where the
+ * nonce IS round-tripped — at which point the format mismatch surfaces.
  */
-async function sha256Base64Url(input: string): Promise<string> {
+async function sha256Hex(input: string): Promise<string> {
   const buf = new TextEncoder().encode(input);
   const hashBuf = await crypto.subtle.digest("SHA-256", buf);
-  // bytes → base64 → URL-safe → strip "=" padding
-  let bin = "";
   const bytes = new Uint8Array(hashBuf);
-  for (let i = 0; i < bytes.length; i++) bin += String.fromCharCode(bytes[i]);
-  return btoa(bin).replace(/\+/g, "-").replace(/\//g, "_").replace(/=+$/, "");
+  let hex = "";
+  for (let i = 0; i < bytes.length; i++) {
+    hex += bytes[i].toString(16).padStart(2, "0");
+  }
+  return hex;
 }
 
 /**

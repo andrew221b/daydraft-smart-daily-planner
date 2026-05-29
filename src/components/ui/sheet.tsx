@@ -65,20 +65,82 @@ interface SheetContentProps
 }
 
 const SheetContent = React.forwardRef<React.ElementRef<typeof SheetPrimitive.Content>, SheetContentProps>(
-  ({ side = "right", className, children, hideClose = false, ...props }, ref) => (
-    <SheetPortal>
-      <SheetOverlay />
-      <SheetPrimitive.Content ref={ref} className={cn(sheetVariants({ side }), className)} {...props}>
-        {children}
-        {!hideClose && (
-          <SheetPrimitive.Close className="absolute right-4 top-4 z-50 p-3 -m-3 min-h-[44px] min-w-[44px] flex items-center justify-center rounded-full opacity-70 ring-offset-background transition-[opacity,background-color] data-[state=open]:bg-secondary hover:opacity-100 hover:bg-secondary/50 focus:outline-none focus:ring-2 focus:ring-ring focus:ring-offset-2 disabled:pointer-events-none">
-            <X className="h-4 w-4" />
-            <span className="sr-only">Close</span>
-          </SheetPrimitive.Close>
-        )}
-      </SheetPrimitive.Content>
-    </SheetPortal>
-  ),
+  (
+    {
+      side = "right",
+      className,
+      children,
+      hideClose = false,
+      style,
+      onPointerDownOutside,
+      onInteractOutside,
+      ...props
+    },
+    ref,
+  ) => {
+    // Bottom sheets: slide the content above the soft keyboard by tracking
+    // the keyboard overlap via --keyboard-inset (set in visualViewport.ts).
+    // The per-sheet `style` prop merges on top so individual sheets can still
+    // override paddingBottom (e.g. AskAiSheet manages its own swipe-aware
+    // transition).
+    const kbStyle: React.CSSProperties =
+      side === "bottom"
+        ? {
+            paddingBottom: "var(--keyboard-inset, 0px)",
+            transition: "padding-bottom 220ms cubic-bezier(0.32, 0.72, 0, 1)",
+          }
+        : {};
+
+    // iOS WKWebView fires a synthetic pointer event OUTSIDE the sheet content
+    // whenever the soft keyboard opens. Without this guard, Radix treats that
+    // event as "user tapped outside → close dialog" — the sheet dismisses the
+    // moment the user taps an input. We prevent that ONLY when the keyboard is
+    // actually open (data-keyboard-open on <html>), so normal outside-tap
+    // dismiss still works when the keyboard is hidden.
+    const handlePointerDownOutside = React.useCallback(
+      (e: CustomEvent) => {
+        if (document.documentElement.hasAttribute("data-keyboard-open")) {
+          e.preventDefault();
+          return;
+        }
+        (onPointerDownOutside as ((e: CustomEvent) => void) | undefined)?.(e);
+      },
+      [onPointerDownOutside],
+    );
+
+    const handleInteractOutside = React.useCallback(
+      (e: CustomEvent) => {
+        if (document.documentElement.hasAttribute("data-keyboard-open")) {
+          e.preventDefault();
+          return;
+        }
+        (onInteractOutside as ((e: CustomEvent) => void) | undefined)?.(e);
+      },
+      [onInteractOutside],
+    );
+
+    return (
+      <SheetPortal>
+        <SheetOverlay />
+        <SheetPrimitive.Content
+          ref={ref}
+          className={cn(sheetVariants({ side }), className)}
+          style={{ ...kbStyle, ...style }}
+          onPointerDownOutside={handlePointerDownOutside as React.ComponentPropsWithoutRef<typeof SheetPrimitive.Content>["onPointerDownOutside"]}
+          onInteractOutside={handleInteractOutside as React.ComponentPropsWithoutRef<typeof SheetPrimitive.Content>["onInteractOutside"]}
+          {...props}
+        >
+          {children}
+          {!hideClose && (
+            <SheetPrimitive.Close className="absolute right-4 top-4 z-50 p-3 -m-3 min-h-[44px] min-w-[44px] flex items-center justify-center rounded-full opacity-70 ring-offset-background transition-[opacity,background-color] data-[state=open]:bg-secondary hover:opacity-100 hover:bg-secondary/50 focus:outline-none focus:ring-2 focus:ring-ring focus:ring-offset-2 disabled:pointer-events-none">
+              <X className="h-4 w-4" />
+              <span className="sr-only">Close</span>
+            </SheetPrimitive.Close>
+          )}
+        </SheetPrimitive.Content>
+      </SheetPortal>
+    );
+  },
 );
 SheetContent.displayName = SheetPrimitive.Content.displayName;
 

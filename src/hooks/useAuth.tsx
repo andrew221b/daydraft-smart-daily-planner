@@ -3,6 +3,7 @@ import { supabase } from "@/integrations/supabase/client";
 import type { Session, User } from "@supabase/supabase-js";
 import { setSentryUser } from "@/lib/sentry";
 import { registerNativePush, unregisterNativePush } from "@/lib/nativePush";
+import { clearNativeSocialSessions } from "@/lib/nativeAuth";
 
 interface Ctx { user: User | null; session: Session | null; loading: boolean; signOut: () => Promise<void>; }
 const AuthCtx = createContext<Ctx>({ user: null, session: null, loading: true, signOut: async () => {} });
@@ -80,6 +81,12 @@ export const AuthProvider = ({ children }: { children: ReactNode }) => {
             try { await unregisterNativePush(uid); } catch { /* never block sign-out */ }
           }
           await supabase.auth.signOut();
+          // After the Supabase session is cleared, also drop the cached native
+          // OAuth grant. Without this step, Google's iOS SDK keeps the picked
+          // account in its keychain and "Continue with Google" on the next
+          // launch silently re-signs the user back in — which made the
+          // delete-account flow appear broken (account "comes back").
+          try { await clearNativeSocialSessions(); } catch { /* best-effort */ }
         },
       }}
     >

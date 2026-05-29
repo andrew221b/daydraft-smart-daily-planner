@@ -2,6 +2,7 @@ import { useProfile } from "@/hooks/useProfile";
 import { useAuth } from "@/hooks/useAuth";
 import { Switch } from "@/components/ui/switch";
 import { Input } from "@/components/ui/input";
+import { Textarea } from "@/components/ui/textarea";
 import { Button } from "@/components/ui/button";
 import { useEffect, useState } from "react";
 import { ThemeToggle } from "@/components/app/ThemeToggle";
@@ -28,6 +29,12 @@ export default function Settings() {
   const nav = useNavigate();
   const location = useLocation();
   const [name, setName] = useState("");
+  // "About you" — sent to AI alongside every plan / morning insight so it can
+  // tailor advice to the user's actual life. Saved on demand (not on blur),
+  // because the input is multi-line and accidental focus losses on mobile
+  // would otherwise spam writes mid-thought.
+  const [aboutDraft, setAboutDraft] = useState("");
+  const [aboutSaving, setAboutSaving] = useState(false);
   const [hasPasskey, setHasPasskey] = useState(localStorage.getItem("daydraft.applock") === "true");
   const { entitlement, isPro, devSimulatePro, subscriptionPro, planQuotaUsed, planQuotaLimit, planQuotaRemaining } = useEntitlement();
   const [upgradeOpen, setUpgradeOpen] = useState(false);
@@ -64,6 +71,29 @@ export default function Settings() {
     return () => window.clearTimeout(id);
   }, [versionTaps]);
   useEffect(() => { if (profile) setName(profile.display_name || ""); }, [profile]);
+  useEffect(() => {
+    if (!profile) return;
+    setAboutDraft(profile.ai_context_custom || "");
+    // Only resync the draft when the server-side value actually changes —
+    // tracking the whole `profile` would clobber the user's typing on every
+    // unrelated profile mutation (theme toggle, push opt-in, etc.).
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [profile?.ai_context_custom]);
+
+  const aboutDirty = (profile?.ai_context_custom || "") !== aboutDraft;
+  const saveAbout = async () => {
+    if (!aboutDirty || aboutSaving) return;
+    setAboutSaving(true);
+    try {
+      const next = aboutDraft.trim();
+      await update({ ai_context_custom: next ? next : null });
+      toast.success(next ? "Saved — AI will use this in plans" : "Cleared");
+    } catch (e: unknown) {
+      toast.error(e instanceof Error ? e.message : "Couldn't save");
+    } finally {
+      setAboutSaving(false);
+    }
+  };
 
   useEffect(() => {
     const hash = location.hash;
@@ -197,6 +227,36 @@ export default function Settings() {
                   <p className="mt-2 text-[11px] text-secondary-fg leading-relaxed">
                     Standard — calm, clean interface. Neon — brighter accents and glow.
                   </p>
+                </div>
+              </div>
+            </div>
+          </Section>
+
+          {/* 3. About you — the personal context the AI uses for every plan + insight */}
+          <Section title="About you">
+            <div className="rounded-[18px] border border-border/35 hero-glass overflow-hidden">
+              <div className="px-4 py-3 space-y-2.5">
+                <div className="text-[11px] text-secondary-fg leading-relaxed">
+                  Your work, schedule quirks, hard constraints. Used by AI for every plan and morning insight.
+                </div>
+                <Textarea
+                  value={aboutDraft}
+                  onChange={(e) => setAboutDraft(e.target.value)}
+                  placeholder="e.g. I'm a freelance iOS designer in Lisbon. I walk my dog 1–2pm and don't take hard tasks after 5pm."
+                  maxLength={500}
+                  className="min-h-[96px] rounded-xl border-border/45 bg-card/45 text-[13.5px] leading-snug resize-none placeholder:text-secondary-fg/55 focus-visible:border-primary/55 focus-visible:ring-0"
+                />
+                <div className="flex items-center justify-between gap-3 pt-0.5">
+                  <span className="text-[11px] text-secondary-fg/70 tabular-nums">{aboutDraft.length}/500</span>
+                  <Button
+                    type="button"
+                    size="sm"
+                    disabled={!aboutDirty || aboutSaving}
+                    onClick={() => void saveAbout()}
+                    className="h-9 rounded-xl text-[12.5px] font-semibold px-4 disabled:opacity-50"
+                  >
+                    {aboutSaving ? "Saving…" : aboutDirty ? "Save" : "Saved"}
+                  </Button>
                 </div>
               </div>
             </div>

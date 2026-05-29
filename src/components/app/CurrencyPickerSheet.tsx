@@ -1,7 +1,8 @@
 import { useState, useMemo, useCallback, memo } from "react";
-import { Check, Search, TrendingUp } from "lucide-react";
-import { Sheet, SheetContent } from "@/components/ui/sheet";
+import { Check, Search, TrendingUp, Banknote } from "lucide-react";
+import { Sheet, SheetContent, SheetTitle } from "@/components/ui/sheet";
 import { haptics } from "@/lib/haptics";
+import { useSheetSwipeDown } from "@/hooks/useSheetSwipeDown";
 import type { RatesMap } from "@/hooks/useExchangeRates";
 
 export const CURRENCY_LABELS: Record<string, string> = {
@@ -90,60 +91,97 @@ export function CurrencyPickerSheet({
     onOpenChange(false);
   }, [onSelect, onOpenChange]);
 
+  const swipe = useSheetSwipeDown(() => onOpenChange(false));
+
   return (
     <Sheet open={open} onOpenChange={onOpenChange}>
       <SheetContent
         side="bottom"
-        className="rounded-t-[28px] border-border/45 bg-popover max-h-[82vh] p-0 flex flex-col"
+        className="rounded-t-[28px] border-border/45 bg-popover max-h-[82vh] p-0 flex flex-col overflow-hidden"
+        style={swipe.sheetStyle ?? undefined}
         onOpenAutoFocus={(e) => e.preventDefault()}
         hideClose
       >
-        {/* Drag handle */}
-        <div className="shrink-0 flex justify-center pt-3 pb-1">
+        <SheetTitle className="sr-only">Select currency</SheetTitle>
+        {/* Primary edge wash — matches premium cards across the app: a thin
+            gradient line + a faint inner halo that lifts the sheet off the
+            background without committing to a hard-coloured fill. */}
+        <span
+          aria-hidden
+          className="pointer-events-none absolute inset-x-0 top-0 h-px"
+          style={{
+            background:
+              "linear-gradient(90deg, transparent 0%, hsl(var(--primary) / 0.55) 50%, transparent 100%)",
+          }}
+        />
+        <div
+          aria-hidden
+          className="pointer-events-none absolute inset-x-0 top-0 h-[120px]"
+          style={{
+            background:
+              "radial-gradient(60% 100% at 50% 0%, hsl(var(--primary) / 0.10), transparent 72%)",
+          }}
+        />
+
+        {/* Drag handle — swipe down to dismiss */}
+        <div
+          className="relative shrink-0 flex justify-center pt-3 pb-2"
+          {...swipe.handleProps}
+          aria-label="Swipe down to close"
+          role="button"
+        >
           <div className="h-1 w-10 rounded-full bg-foreground/20" />
         </div>
 
         {/* Header */}
-        <div className="shrink-0 px-5 pt-2 pb-3 flex items-center justify-between gap-2">
+        <div className="relative shrink-0 px-5 pt-2 pb-3 flex items-center justify-between gap-2">
           <button
             type="button"
             onClick={() => onOpenChange(false)}
-            className="min-w-[56px] text-[15px] text-secondary-fg hover:text-foreground pressable py-1 transition-colors text-left"
+            className="min-w-[56px] text-[14px] font-medium text-secondary-fg hover:text-foreground pressable py-1 transition-colors text-left"
           >
             Cancel
           </button>
           <div className="flex-1 text-center">
-            <p className="text-[15px] font-semibold text-foreground/95">Display currency</p>
-            {ratesLoading && (
+            <p className="font-display text-[16px] font-semibold tracking-tight text-foreground/95">
+              Display currency
+            </p>
+            {ratesLoading ? (
               <p className="text-[11px] text-secondary-fg/55 mt-0.5">Loading live rates…</p>
+            ) : (
+              <p className="text-[11px] text-secondary-fg/60 mt-0.5">Live rates · refreshed daily</p>
             )}
           </div>
           <div className="min-w-[56px]" />
         </div>
 
         {/* Search */}
-        <div className="shrink-0 px-5 pb-3">
+        <div className="relative shrink-0 px-5 pb-3">
           <div className="relative">
-            <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-3.5 w-3.5 text-secondary-fg/55 pointer-events-none" />
+            <Search className="absolute left-3.5 top-1/2 -translate-y-1/2 h-3.5 w-3.5 text-secondary-fg/55 pointer-events-none" />
             <input
               type="text"
               placeholder="USD, Euro, Bitcoin…"
               value={query}
               onChange={(e) => setQuery(e.target.value)}
-              className="w-full h-10 pl-9 pr-3 rounded-2xl border border-border/40 bg-foreground/[0.04] text-[14px] placeholder:text-secondary-fg/45 focus:outline-none focus:border-primary/45 transition-colors"
+              className="w-full h-11 pl-10 pr-3 rounded-2xl border border-border/45 bg-foreground/[0.035] text-[14px] placeholder:text-secondary-fg/45 focus:outline-none focus:border-primary/45 focus:bg-foreground/[0.06] transition-colors shadow-[inset_0_1px_0_hsl(0_0%_100%/0.06)] dark:shadow-[inset_0_1px_0_hsl(0_0%_100%/0.05)]"
             />
           </div>
         </div>
 
         {/* List */}
         <div
-          className="flex-1 overflow-y-auto px-5 space-y-4"
+          className="relative flex-1 overflow-y-auto px-5 space-y-5 pt-1"
           style={{ paddingBottom: "max(24px, calc(16px + env(safe-area-inset-bottom, 0px)))" }}
         >
           {fiatFiltered.length > 0 && (
             <section>
-              <p className="text-[10px] font-semibold uppercase tracking-[0.18em] text-secondary-fg/55 mb-2 px-1">
+              <p className="text-[10px] font-semibold uppercase tracking-[0.18em] text-secondary-fg/65 mb-2.5 px-1 flex items-center gap-1.5">
+                <Banknote className="h-3 w-3" strokeWidth={2.4} />
                 Fiat
+                <span className="text-secondary-fg/45 font-medium tracking-normal normal-case ml-1">
+                  · {fiatFiltered.length}
+                </span>
               </p>
               <div className="space-y-1.5">
                 {fiatFiltered.map((code) => (
@@ -162,9 +200,12 @@ export function CurrencyPickerSheet({
 
           {cryptoFiltered.length > 0 && (
             <section>
-              <p className="text-[10px] font-semibold uppercase tracking-[0.18em] text-secondary-fg/55 mb-2 px-1 flex items-center gap-1.5">
-                <TrendingUp className="h-3 w-3" />
+              <p className="text-[10px] font-semibold uppercase tracking-[0.18em] text-secondary-fg/65 mb-2.5 px-1 flex items-center gap-1.5">
+                <TrendingUp className="h-3 w-3" strokeWidth={2.4} />
                 Crypto
+                <span className="text-secondary-fg/45 font-medium tracking-normal normal-case ml-1">
+                  · {cryptoFiltered.length}
+                </span>
               </p>
               <div className="space-y-1.5">
                 {cryptoFiltered.map((code) => (
@@ -209,37 +250,61 @@ const CurrencyRow = memo(function CurrencyRow({
     <button
       type="button"
       onClick={() => onPick(code)}
-      className={`w-full flex items-center gap-3 rounded-2xl border px-4 py-3 pressable transition-colors ${
+      aria-pressed={selected}
+      className={[
+        "group relative w-full flex items-center gap-3 rounded-2xl border px-3.5 py-3 pressable transition-[border-color,background-color,box-shadow,transform] duration-200",
         selected
-          ? "border-primary/35 bg-primary/[0.07]"
-          : "border-border/30 bg-foreground/[0.02] hover:bg-foreground/[0.05]"
-      }`}
+          ? "border-primary/45 bg-primary/[0.10] shadow-[0_0_0_1px_hsl(var(--primary)/0.20),0_10px_28px_-14px_hsl(var(--primary)/0.55)] dark:shadow-[0_0_0_1px_hsl(var(--primary)/0.28),0_12px_30px_-14px_hsl(var(--primary)/0.65)]"
+          : "border-border/40 bg-surface/55 hover:border-border/65 hover:bg-surface/85 dark:bg-card/35 dark:hover:bg-card/55 shadow-[inset_0_1px_0_hsl(0_0%_100%/0.04)] dark:shadow-[inset_0_1px_0_hsl(0_0%_100%/0.03)]",
+      ].join(" ")}
     >
+      {/* 3D code chip — dimensional avatar that reads on both themes. */}
       <span
-        className="h-6 w-6 rounded-full border-[1.5px] flex items-center justify-center shrink-0 transition-colors"
+        aria-hidden
+        className={[
+          "relative flex h-9 w-[44px] shrink-0 items-center justify-center rounded-[10px] text-[10px] font-bold tabular-nums tracking-[0.04em] transition-colors",
+          selected
+            ? "bg-gradient-to-br from-primary/22 to-primary/[0.08] text-primary"
+            : "bg-foreground/[0.06] text-foreground/75 group-hover:text-foreground/90 dark:bg-white/[0.05]",
+        ].join(" ")}
         style={{
-          borderColor: selected ? "hsl(var(--primary))" : "hsl(var(--border) / 0.55)",
-          background: selected ? "hsl(var(--primary) / 0.18)" : "transparent",
+          boxShadow: selected
+            ? "inset 0 1px 0 hsl(0 0% 100% / 0.10), inset 0 0 0 1px hsl(var(--primary) / 0.30), 0 2px 6px -2px hsl(var(--primary) / 0.30)"
+            : "inset 0 1px 0 hsl(0 0% 100% / 0.06), inset 0 0 0 1px hsl(var(--border) / 0.45)",
         }}
       >
+        {code.slice(0, 4)}
+      </span>
+
+      <div className="min-w-0 flex-1 text-left">
+        <p className="text-[14px] font-semibold text-foreground leading-tight">{code}</p>
+        {label && (
+          <p className="mt-0.5 text-[11px] text-secondary-fg/75 truncate">{label}</p>
+        )}
+      </div>
+
+      {rate && (
+        <p className="text-[11px] tabular-nums text-secondary-fg/65 shrink-0 mr-1">{rate}</p>
+      )}
+
+      <span
+        aria-hidden
+        className={[
+          "ml-1 flex h-6 w-6 shrink-0 items-center justify-center rounded-full transition-[background-color,box-shadow] duration-150",
+          selected
+            ? "bg-primary text-primary-foreground shadow-[0_4px_12px_hsl(var(--primary)/0.45)]"
+            : "bg-foreground/[0.04] ring-1 ring-inset ring-border/40",
+        ].join(" ")}
+      >
         <Check
-          className="h-3.5 w-3.5 text-primary transition-[opacity,transform] duration-150"
+          className="h-3.5 w-3.5 transition-[opacity,transform] duration-150"
           style={{
             opacity: selected ? 1 : 0,
-            transform: selected ? "scale(1)" : "scale(0.5)",
+            transform: selected ? "scale(1)" : "scale(0.6)",
           }}
           strokeWidth={3}
         />
       </span>
-
-      <div className="min-w-0 flex-1 text-left">
-        <p className="text-[14px] font-semibold text-foreground/95">{code}</p>
-        {label && <p className="text-[11px] text-secondary-fg/65 truncate">{label}</p>}
-      </div>
-
-      {rate && (
-        <p className="text-[11px] tabular-nums text-secondary-fg/55 shrink-0">{rate}</p>
-      )}
     </button>
   );
 });

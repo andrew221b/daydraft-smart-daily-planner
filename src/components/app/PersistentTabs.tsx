@@ -166,7 +166,15 @@ export function PersistentTabs() {
             }}
             className={`absolute inset-0 overflow-y-auto overscroll-y-contain no-scrollbar ${isActive ? "" : "hidden"}`}
             aria-hidden={!isActive}
-            style={{ paddingBottom: "calc(env(safe-area-inset-bottom) + 5rem)" }}
+            // padding-bottom snaps (no transition). Animating padding on a
+            // tall scroll container forces layout recalc for every frame of
+            // a 220ms transition, which makes typing visibly stutter on iOS
+            // WKWebView. The keyboard's own slide-in animation provides the
+            // visual smoothness; snapping the padding is invisible because
+            // it happens before the keyboard physically arrives.
+            style={{
+              paddingBottom: "calc(env(safe-area-inset-bottom) + 5rem + var(--keyboard-inset, 0px))",
+            }}
           >
             <TabVisibilityCtx.Provider value={isActive}>
               <div className="min-h-full flex flex-col">
