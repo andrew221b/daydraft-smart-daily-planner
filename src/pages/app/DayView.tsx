@@ -1249,7 +1249,7 @@ export default function DayView() {
                   setAskAiContext("I have an empty day. Ask me one useful question that helps me decide what to add, without creating a schedule for me.");
                   setAskAiOpen(true);
                 }}
-                className="pressable inline-flex items-center justify-center gap-2 w-full h-11 rounded-[18px] text-[13px] font-semibold text-foreground/90 border border-border/50 bg-white/[0.07] dark:bg-white/[0.06] shadow-[inset_0_1px_1px_rgba(255,255,255,0.12),0_4px_12px_rgba(0,0,0,0.2)] backdrop-blur-sm"
+                className="pressable inline-flex items-center justify-center gap-2 w-full h-11 rounded-[18px] text-[13px] font-semibold text-foreground/90 border border-soft bg-card dark:bg-white/[0.06] shadow-card dark:shadow-[inset_0_1px_1px_rgba(255,255,255,0.12),0_4px_12px_rgba(0,0,0,0.2)] backdrop-blur-sm"
               >
                 <Wand2 className="h-4 w-4 text-primary" /> Ask AI
               </button>
@@ -1352,9 +1352,9 @@ export default function DayView() {
                 <button
                   onClick={() => setComposerOpen(true)}
                   disabled={planMutating}
-                  className="inline-flex items-center justify-center gap-1.5 text-[12px] font-medium text-foreground/75 border border-border/40 rounded-2xl h-11 bg-transparent hover:bg-muted/35 pressable transition-colors disabled:opacity-50"
+                  className="inline-flex items-center justify-center gap-1.5 text-[12.5px] font-semibold text-foreground/85 border border-soft bg-card rounded-2xl h-11 hover:bg-muted/40 pressable transition-colors disabled:opacity-50 shadow-card"
                 >
-                  <ListPlus className="h-3.5 w-3.5 opacity-70" /> Add tasks
+                  <ListPlus className="h-3.5 w-3.5 opacity-80" /> Add tasks
                 </button>
                 <button
                   onClick={() => {
@@ -1370,7 +1370,7 @@ export default function DayView() {
                     setAskAiOpen(true);
                   }}
                   disabled={planMutating}
-                  className="inline-flex items-center justify-center gap-1.5 text-[12px] font-medium text-primary border border-primary/25 rounded-2xl h-11 bg-primary/10 hover:bg-primary/15 pressable transition-colors disabled:opacity-50"
+                  className="inline-flex items-center justify-center gap-1.5 text-[12.5px] font-semibold text-primary border border-primary/35 rounded-2xl h-11 bg-primary/12 hover:bg-primary/20 pressable transition-colors disabled:opacity-50 shadow-[0_4px_14px_-6px_hsl(var(--primary)/0.35)]"
                 >
                   <Wand2 className="h-3.5 w-3.5" /> Ask AI
                 </button>

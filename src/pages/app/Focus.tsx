@@ -471,20 +471,23 @@ export default function Focus() {
               <>
                 {/* Isometric 3D Ring Stack */}
                 <div className="absolute inset-0 pointer-events-none" style={{ transformStyle: "preserve-3d", transform: "rotateX(55deg)" }}>
-                  {/* Ambient glow behind ring */}
+                  {/* Ambient glow behind ring — bumped opacity so it actually
+                      reads on light backgrounds (was 0.15, vanished on paper). */}
                   <div
                     className="absolute inset-0 rounded-full"
                     style={{
                       transform: "translateZ(-40px)",
                       background: isOverTime
-                        ? "radial-gradient(circle, hsl(var(--destructive)/0.15) 0%, transparent 70%)"
-                        : "radial-gradient(circle, hsl(var(--primary)/0.15) 0%, transparent 70%)",
+                        ? "radial-gradient(circle, hsl(var(--destructive)/0.22) 0%, transparent 72%)"
+                        : "radial-gradient(circle, hsl(var(--primary)/0.24) 0%, transparent 72%)",
                     }}
                   />
                   {[0, 10, 20, 30].map((z, i) => (
                     <svg key={i} className="absolute inset-0 w-full h-full -rotate-90" style={{ transform: `translateZ(-${z}px)`, opacity: 1 - (i * 0.2) }} viewBox="0 0 240 240">
-                      {/* Track */}
-                      <circle cx="120" cy="120" r={RING_R} fill="none" stroke="hsl(var(--border)/0.55)" strokeWidth="9" />
+                      {/* Track — themed via .ring-track in index.css (light mode
+                          uses a measurably darker stroke so the ring stays
+                          visible on the off-white canvas). */}
+                      <circle cx="120" cy="120" r={RING_R} fill="none" className="ring-track" strokeWidth="9" />
                       {/* Progress fill - only on top layer */}
                       {i === 0 && (
                         <circle
@@ -551,7 +554,7 @@ export default function Focus() {
           <button
             type="button"
             onClick={() => setConfirmSkipOpen(true)}
-            className="w-full flex h-12 items-center justify-center rounded-[18px] border border-soft surface-soft text-[14px] font-medium text-secondary-fg pressable hover:text-foreground transition-colors"
+            className="w-full flex h-12 items-center justify-center rounded-[18px] border border-soft bg-card text-[14px] font-medium text-secondary-fg pressable hover:text-foreground hover:bg-muted/40 transition-colors shadow-card"
           >
             Skip
           </button>

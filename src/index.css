@@ -84,39 +84,44 @@ body.dd-dnd-scroll-lock {
     --content-inset-top: calc(var(--safe-area-inset-top) + var(--content-extra-top));
   }
 
-  /* Light mode — premium "paper" palette with measurable elevation steps. */
+  /* Light mode — premium "paper" palette with measurable elevation steps.
+     Tuned for native iOS Light Mode: warm-cool balanced shadows, crisp
+     borders, and a slightly darker base so white cards visibly lift off
+     the canvas instead of bleeding into it. */
   :root.light {
-    --background: 220 16% 95%;          /* Deeper, cooler off-white for crisp contrast */
-    --foreground: 224 30% 12%;          /* Rich dark slate, softer than pure black */
+    --background: 218 22% 93%;          /* Slightly darker so cards visibly lift */
+    --foreground: 224 32% 11%;          /* Rich dark slate, softer than pure black */
     --surface: 0 0% 100%;               /* Pure white for cards */
     --surface-elevated: 0 0% 100%;
     --card: 0 0% 100%;
-    --card-foreground: 224 30% 12%;
+    --card-foreground: 224 32% 11%;
     --popover: 0 0% 100%;
-    --popover-foreground: 224 30% 12%;
+    --popover-foreground: 224 32% 11%;
     --primary: 211 100% 50%;            /* Apple System Blue #007AFF */
     --primary-foreground: 0 0% 100%;
     --primary-glow: 253 100% 58%;       /* Apple System Indigo #5856D6 */
-    --secondary: 220 14% 92%;           /* Slightly deeper secondary fill */
+    --secondary: 220 18% 87%;           /* Deeper secondary so neutral chips read */
     --secondary-foreground: 224 30% 18%;
-    --muted: 220 14% 92%;
-    --muted-foreground: 222 18% 40%;    /* Better contrast for secondary text */
+    --muted: 220 16% 89%;               /* Distinct from background — fills now visible */
+    --muted-foreground: 222 18% 38%;    /* Stronger contrast for secondary text */
     --accent: 200 96% 38%;
     --accent-foreground: 0 0% 100%;
     --success: 156 64% 30%;
     --success-foreground: 0 0% 100%;
     --destructive: 3 78% 44%;
     --destructive-foreground: 0 0% 100%;
-    --border: 220 18% 86%;              /* Crisp hairline border */
-    --input: 220 18% 86%;
+    --border: 220 20% 80%;              /* Crisp hairline — visible even at 0.5 alpha */
+    --input: 220 20% 80%;
     --ring: 200 96% 38%;
     --type-deep: 200 96% 38%;
     --type-comm: 24 84% 42%;
     --type-routine: 230 22% 40%;
-    --shadow-card: 0 10px 32px -8px rgba(18,28,56,0.12), 0 2px 8px -2px rgba(18,28,56,0.06);
-    --shadow-card-inset: inset 0 1px 0 rgba(255,255,255,1), inset 0 -1px 0 rgba(0,0,0,0.03);
-    --shadow-elevated: 0 24px 48px -12px rgba(18,28,56,0.18), 0 8px 16px -4px rgba(18,28,56,0.08);
-    --shadow-tab: 0 12px 36px -16px rgba(18,28,56,0.14), inset 0 1px 0 rgba(255,255,255,0.98);
+    /* Cooler blue-tinted shadow stack so cards feel grounded on the paper,
+       not floating in flat grey. Multi-step shadow gives depth perception. */
+    --shadow-card: 0 1px 1.5px rgba(18,28,56,0.06), 0 4px 12px -2px rgba(24,40,72,0.10), 0 16px 36px -10px rgba(18,28,56,0.16);
+    --shadow-card-inset: inset 0 1px 0 rgba(255,255,255,1), inset 0 -1px 0 rgba(0,0,0,0.04);
+    --shadow-elevated: 0 2px 4px rgba(18,28,56,0.06), 0 12px 28px -8px rgba(24,40,72,0.16), 0 28px 60px -16px rgba(18,28,56,0.24);
+    --shadow-tab: 0 16px 40px -14px rgba(18,28,56,0.18), 0 2px 6px rgba(18,28,56,0.06), inset 0 1px 0 rgba(255,255,255,0.98);
     --gradient-glow: radial-gradient(56% 40% at 50% -6%, hsl(var(--primary) / 0.22), transparent 72%);
     --gradient-floor: radial-gradient(44% 30% at 50% 108%, hsl(var(--primary) / 0.08), transparent 80%);
     --glass-blur: 28px;
@@ -770,23 +775,33 @@ body.dd-dnd-scroll-lock {
   }
 
   :root.light .surface-soft {
-    background-color: hsl(var(--secondary) / 0.6);
+    /* Make the fill clearly distinct from --background so soft-filled chips
+       and "Skip"-style buttons read as a separate elevation, not a flat
+       wash that disappears into the canvas. */
+    background-color: hsl(220 18% 88%);
   }
   :root.light .surface-card {
     background-color: hsl(var(--surface));
   }
   :root.light .surface-accent {
-    background-color: hsl(var(--primary) / 0.08);
+    background-color: hsl(var(--primary) / 0.1);
   }
   :root.light .border-soft {
-    border-color: hsl(var(--border) / 0.82);
-  }
-  :root.light .border-strong {
     border-color: hsl(var(--border));
   }
-  :root.light .border-accent {
-    border-color: hsl(var(--primary) / 0.38);
+  :root.light .border-strong {
+    border-color: hsl(220 22% 70%);
   }
+  :root.light .border-accent {
+    border-color: hsl(var(--primary) / 0.45);
+  }
+
+  /* Focus-timer ring track — was using border/0.55 inline which evaporates
+     on the off-white canvas. Class-based stroke + light override gives the
+     ring a properly visible groove. Components should use className="ring-track"
+     on the <circle> instead of inline stroke=. */
+  .ring-track { stroke: hsl(var(--border) / 0.55); }
+  :root.light .ring-track { stroke: hsl(220 22% 78%); }
 
   /** Ambient layers behind the app column (Shell) */
   .shell-glow-top {
@@ -1231,7 +1246,14 @@ body.dd-dnd-scroll-lock {
       linear-gradient(168deg, hsl(var(--surface)) 0%, hsl(var(--surface-elevated)) 100%);
   }
   :root.light:not([data-visual-mode="neon"]) .bg-primary {
-    box-shadow: 0 1px 0 rgba(255,255,255,0.42), 0 8px 20px -12px hsl(var(--primary) / 0.55);
+    /* Stronger ambient glow + a second deeper shadow so primary buttons
+       feel volumetric on paper instead of looking like flat blue rectangles. */
+    box-shadow:
+      inset 0 1px 0 rgba(255,255,255,0.30),
+      inset 0 -1px 0 rgba(0,0,0,0.10),
+      0 1px 2px rgba(0,40,90,0.18),
+      0 6px 14px -4px hsl(var(--primary) / 0.42),
+      0 14px 32px -10px hsl(var(--primary) / 0.55);
   }
   /* Make divider/dotted borders carry their weight on white. */
   :root.light .divide-border\/50 > * + * { border-color: hsl(var(--border) / 0.85); }
