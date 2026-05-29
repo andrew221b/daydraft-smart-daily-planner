@@ -222,22 +222,81 @@ export default function Onboarding() {
 /*  Step 0 — Welcome                                                  */
 /* ------------------------------------------------------------------ */
 
-/** Small star dot that twinkles at a random phase. */
-function StarDot({ style }: { style: React.CSSProperties }) {
+/** Orbiting glow orb — drifts on a slow ellipse, glows with a soft halo,
+ *  and pulses opacity so it reads as a luminous mote rather than a static dot. */
+function OrbitOrb({
+  size = 6,
+  radius = 78,
+  startAngle = 0,
+  duration = 14,
+  hue = "primary",
+  pulseDelay = 0,
+}: {
+  size?: number;
+  radius?: number;
+  startAngle?: number;
+  duration?: number;
+  /** Either "primary" (Apple Blue), "indigo", or any HSL "h s% l%" triple. */
+  hue?: "primary" | "indigo" | string;
+  pulseDelay?: number;
+}) {
+  const color =
+    hue === "primary"
+      ? "hsl(var(--primary))"
+      : hue === "indigo"
+        ? "hsl(253 100% 65%)"
+        : `hsl(${hue})`;
+  // Parametric orbit: build keyframes around an ellipse so motion never snaps.
+  const points = Array.from({ length: 9 }, (_, i) => {
+    const t = ((startAngle + (i / 8) * 360) * Math.PI) / 180;
+    return { x: Math.cos(t) * radius, y: Math.sin(t) * radius * 0.78 };
+  });
   return (
     <motion.div
-      className="absolute h-1.5 w-1.5 rounded-full bg-primary"
+      className="absolute top-1/2 left-1/2 rounded-full"
+      style={{
+        width: size,
+        height: size,
+        marginLeft: -size / 2,
+        marginTop: -size / 2,
+        background: color,
+        boxShadow: `0 0 ${size * 2}px ${size * 0.5}px ${color}, 0 0 ${size * 4}px ${size}px ${color}55`,
+      }}
       animate={{
-        scale: [0.6, 1.4, 0.6],
-        opacity: [0.3, 1, 0.3],
+        x: points.map((p) => p.x),
+        y: points.map((p) => p.y),
+        opacity: [0.55, 1, 0.7, 1, 0.55, 0.85, 0.5, 0.95, 0.55],
+        scale: [0.85, 1.15, 0.95, 1.1, 0.85, 1.05, 0.8, 1.1, 0.85],
       }}
       transition={{
-        duration: 1.8 + Math.random() * 1.4,
+        duration,
+        repeat: Infinity,
+        ease: "linear",
+        delay: pulseDelay,
+      }}
+    />
+  );
+}
+
+/** Small star inside the icon box — twinkles in place with no positional motion. */
+function InnerStar({ style, delay = 0 }: { style: React.CSSProperties; delay?: number }) {
+  return (
+    <motion.div
+      className="absolute h-[3px] w-[3px] rounded-full bg-primary"
+      style={{
+        ...style,
+        boxShadow: "0 0 6px 1px hsl(var(--primary)/0.7), 0 0 12px 2px hsl(var(--primary)/0.35)",
+      }}
+      animate={{
+        opacity: [0.2, 1, 0.4, 1, 0.2],
+        scale: [0.7, 1.4, 0.9, 1.3, 0.7],
+      }}
+      transition={{
+        duration: 2.4 + Math.random() * 1.2,
         repeat: Infinity,
         ease: "easeInOut",
-        delay: Math.random() * 2,
+        delay,
       }}
-      style={style}
     />
   );
 }
@@ -246,66 +305,59 @@ function WelcomeStep({ onContinue, disabled }: { onContinue: () => void; disable
   return (
     <div className="flex-1 flex flex-col fade-in">
       <div className="flex-1 flex flex-col justify-center">
-        {/* Animated AI icon */}
-        <div className="relative w-36 h-36 mx-auto mb-8 flex items-center justify-center">
-          {/* Breathing outer glow blob */}
+        {/* AI icon stage — icon stays perfectly still; everything around it moves. */}
+        <div className="relative w-44 h-44 mx-auto mb-8 flex items-center justify-center">
+          {/* Background blobs — drift with rotation + scale + opacity so the
+              ambient field feels alive instead of "breathing in place". */}
           <motion.div
             className="absolute inset-0 rounded-full"
             style={{ background: "radial-gradient(circle, hsl(var(--primary)/0.55) 0%, hsl(250 80% 55%/0.35) 50%, transparent 75%)" }}
-            animate={{ scale: [1, 1.12, 1], opacity: [0.6, 1, 0.6] }}
-            transition={{ duration: 3.6, repeat: Infinity, ease: "easeInOut" }}
+            animate={{
+              scale: [1, 1.14, 1.05, 1.12, 1],
+              opacity: [0.55, 1, 0.75, 0.95, 0.55],
+              rotate: [0, 35, -10, 25, 0],
+            }}
+            transition={{ duration: 9, repeat: Infinity, ease: "easeInOut" }}
           />
-          {/* Slower secondary blob, offset phase */}
           <motion.div
             className="absolute inset-4 rounded-full"
-            style={{ background: "radial-gradient(circle, hsl(280 70% 60%/0.5) 0%, hsl(var(--primary)/0.3) 60%, transparent 80%)" }}
-            animate={{ scale: [1.05, 0.92, 1.05], opacity: [0.5, 0.85, 0.5] }}
-            transition={{ duration: 4.8, repeat: Infinity, ease: "easeInOut", delay: 0.8 }}
+            style={{ background: "radial-gradient(circle, hsl(280 75% 62%/0.55) 0%, hsl(var(--primary)/0.3) 60%, transparent 80%)" }}
+            animate={{
+              scale: [1.05, 0.9, 1.08, 0.95, 1.05],
+              opacity: [0.45, 0.9, 0.55, 0.85, 0.45],
+              rotate: [0, -25, 15, -10, 0],
+            }}
+            transition={{ duration: 7, repeat: Infinity, ease: "easeInOut", delay: 0.7 }}
           />
-          {/* Third inner glow */}
           <motion.div
-            className="absolute inset-8 rounded-full"
+            className="absolute inset-10 rounded-full"
             style={{ background: "radial-gradient(circle, hsl(var(--primary)/0.6) 0%, transparent 70%)" }}
-            animate={{ scale: [0.9, 1.15, 0.9], opacity: [0.4, 0.8, 0.4] }}
-            transition={{ duration: 2.4, repeat: Infinity, ease: "easeInOut", delay: 1.6 }}
+            animate={{
+              scale: [0.88, 1.2, 0.95, 1.15, 0.88],
+              opacity: [0.4, 0.85, 0.5, 0.8, 0.4],
+            }}
+            transition={{ duration: 5.5, repeat: Infinity, ease: "easeInOut", delay: 1.4 }}
           />
 
-          {/* Twinkling star dots around the icon */}
-          <StarDot style={{ top: "10%", left: "18%" }} />
-          <StarDot style={{ top: "8%", right: "20%" }} />
-          <StarDot style={{ bottom: "14%", left: "12%" }} />
-          <StarDot style={{ bottom: "10%", right: "16%" }} />
-          <StarDot style={{ top: "45%", left: "4%" }} />
-          <StarDot style={{ top: "42%", right: "3%" }} />
+          {/* Orbs orbiting around the icon — each on a slow ellipse, glowing
+              halo, pulsing opacity for that "fireflies around a lantern" feel. */}
+          <OrbitOrb size={7} radius={82} startAngle={0} duration={14} hue="primary" />
+          <OrbitOrb size={5} radius={70} startAngle={140} duration={11} hue="indigo" pulseDelay={1.2} />
+          <OrbitOrb size={6} radius={88} startAngle={220} duration={17} hue="primary" pulseDelay={0.4} />
+          <OrbitOrb size={4} radius={64} startAngle={310} duration={9} hue="indigo" pulseDelay={2.1} />
+          <OrbitOrb size={3.5} radius={92} startAngle={80} duration={20} hue="primary" pulseDelay={3.4} />
 
-          {/* Icon box — floats gently */}
-          <motion.div
-            className="relative z-10 w-[68px] h-[68px] rounded-[1.5rem] bg-background/95 border border-white/15 dark:border-white/8 backdrop-blur-xl flex items-center justify-center shadow-[0_12px_40px_rgba(0,0,0,0.22),inset_0_1px_1px_rgba(255,255,255,0.18)]"
-            animate={{ y: [-4, 4, -4] }}
-            transition={{ duration: 4, repeat: Infinity, ease: "easeInOut" }}
-          >
-            {/* Sparkles icon — periodic shimmer flash */}
-            <motion.div
-              animate={{
-                scale: [1, 1.18, 1, 1],
-                opacity: [1, 1, 1, 1],
-                filter: [
-                  "brightness(1)",
-                  "brightness(1.6) drop-shadow(0 0 8px hsl(var(--primary)))",
-                  "brightness(1.1)",
-                  "brightness(1)",
-                ],
-              }}
-              transition={{
-                duration: 0.7,
-                repeat: Infinity,
-                repeatDelay: 2.3,
-                ease: "easeInOut",
-              }}
-            >
-              <Sparkles className="h-8 w-8 text-primary" strokeWidth={1.6} />
-            </motion.div>
-          </motion.div>
+          {/* Icon box — completely static. Only the dots INSIDE twinkle. */}
+          <div className="relative z-10 w-[68px] h-[68px] rounded-[1.5rem] bg-background/95 border border-white/15 dark:border-white/8 backdrop-blur-xl flex items-center justify-center shadow-[0_12px_40px_rgba(0,0,0,0.22),inset_0_1px_1px_rgba(255,255,255,0.18)]">
+            {/* Twinkling stars inside the icon box — positioned in empty
+                corners around the Sparkles glyph, each on a different phase. */}
+            <InnerStar style={{ top: "16%", left: "20%" }} delay={0} />
+            <InnerStar style={{ top: "20%", right: "18%" }} delay={0.6} />
+            <InnerStar style={{ bottom: "18%", left: "22%" }} delay={1.1} />
+            <InnerStar style={{ bottom: "22%", right: "20%" }} delay={1.7} />
+
+            <Sparkles className="h-8 w-8 text-primary relative z-[1]" strokeWidth={1.6} />
+          </div>
         </div>
 
         <p className="eyebrow text-center">DayDraft</p>
