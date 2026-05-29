@@ -1,4 +1,4 @@
-import { Suspense, useEffect, type ReactNode } from "react";
+import { Suspense, useEffect, useRef, type ReactNode } from "react";
 import { Capacitor } from "@capacitor/core";
 import { keepPreviousData, QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { BrowserRouter, Navigate, Route, Routes, useLocation, useNavigate } from "react-router-dom";
@@ -107,6 +107,43 @@ const DeepLinkBridge = () => {
   return null;
 };
 
+/**
+ * iOS WKWebView prepares the keyboard UI lazily — the first ever focus in a
+ * session triggers a 1-3 second initialization. Pre-warm it by focusing a
+ * hidden off-screen input ~2 seconds after the app loads, before the user
+ * touches any real field. Native-only: on web this is a no-op.
+ */
+function KeyboardPrewarm() {
+  const ref = useRef<HTMLInputElement>(null);
+  useEffect(() => {
+    if (!Capacitor.isNativePlatform()) return;
+    const t = window.setTimeout(() => {
+      const el = ref.current;
+      if (!el) return;
+      el.focus();
+      window.setTimeout(() => el.blur(), 50);
+    }, 2000);
+    return () => window.clearTimeout(t);
+  }, []);
+  return (
+    <input
+      ref={ref}
+      aria-hidden="true"
+      readOnly
+      tabIndex={-1}
+      style={{
+        position: "fixed",
+        opacity: 0,
+        pointerEvents: "none",
+        top: "-9999px",
+        left: "-9999px",
+        width: "1px",
+        height: "1px",
+      }}
+    />
+  );
+}
+
 const ThemedToaster = () => {
   const { resolved } = useTheme();
   return <Sonner theme={resolved} position="top-center" />;
@@ -149,6 +186,7 @@ const AppContent = () => {
         <TourProvider>
         <TimeTrackerProvider>
           <AppLock>
+            <KeyboardPrewarm />
             <EagerPrefetcher />
             <DeepLinkBridge />
             {/* One-time post-auth opt-in for Face ID / Fingerprint.

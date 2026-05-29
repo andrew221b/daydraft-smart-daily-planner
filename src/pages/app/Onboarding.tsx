@@ -1,16 +1,11 @@
 import { useEffect, useMemo, useState } from "react";
 import { useNavigate } from "react-router-dom";
 import { Button } from "@/components/ui/button";
-import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
 import { useProfile } from "@/hooks/useProfile";
 import {
   ArrowRight,
   Sparkles,
-  Sun,
-  Moon,
-  Tag,
-  Check,
   ChevronLeft,
   Play,
   Square,
@@ -33,16 +28,6 @@ type StepIdx = 0 | 1 | 2 | 3 | 4;
 const DEFAULT_START = "09:00";
 const DEFAULT_END = "18:00";
 
-const CATEGORY_SUGGESTIONS: Array<{ name: string; color: string }> = [
-  { name: "Design", color: "#7C3AED" },
-  { name: "Development", color: "#0EA5E9" },
-  { name: "Writing", color: "#F59E0B" },
-  { name: "Client work", color: "#10B981" },
-  { name: "Meetings", color: "#EC4899" },
-  { name: "Study", color: "#6366F1" },
-  { name: "Admin", color: "#64748B" },
-  { name: "Side project", color: "#F43F5E" },
-];
 
 type Progress = {
   step: StepIdx;
@@ -83,10 +68,6 @@ export default function Onboarding() {
   const initial = useMemo(readProgress, []);
   const [step, setStep] = useState<StepIdx>(initial.step);
   const [aiAbout, setAiAbout] = useState(initial.aiAbout);
-  const [hoursStart, setHoursStart] = useState(initial.hoursStart);
-  const [hoursEnd, setHoursEnd] = useState(initial.hoursEnd);
-  const [categoryName, setCategoryName] = useState(initial.categoryName);
-  const [categoryColor, setCategoryColor] = useState(initial.categoryColor);
   const [plan, setPlan] = useState<"weekly" | "monthly" | "annual">("annual");
   const [finishing, setFinishing] = useState(false);
   const [busyCheckout, setBusyCheckout] = useState(false);
@@ -96,12 +77,12 @@ export default function Onboarding() {
 
   useEffect(() => {
     try {
-      const snapshot: Progress = { step, aiAbout, hoursStart, hoursEnd, categoryName, categoryColor };
+      const snapshot: Partial<Progress> = { step, aiAbout };
       sessionStorage.setItem(PROGRESS_KEY, JSON.stringify(snapshot));
     } catch {
       /* ignore — sessionStorage can fail in private mode */
     }
-  }, [step, aiAbout, hoursStart, hoursEnd, categoryName, categoryColor]);
+  }, [step, aiAbout]);
 
   const goTo = (s: StepIdx) => {
     haptics.selection();
@@ -137,8 +118,8 @@ export default function Onboarding() {
         notifications_enabled: pushEnabled,
         onboarded: true,
         timezone: tz,
-        active_hours_start: hoursStart,
-        active_hours_end: hoursEnd,
+        active_hours_start: DEFAULT_START,
+        active_hours_end: DEFAULT_END,
       };
 
       if (profile) {
@@ -152,23 +133,6 @@ export default function Onboarding() {
             .upsert({ id: uid, ...payload } as never, { onConflict: "id" });
           if (error) throw error;
           await refresh();
-        }
-      }
-
-      const trimmedCat = categoryName.trim();
-      if (trimmedCat) {
-        try {
-          const { data: { session } } = await supabase.auth.getSession();
-          const uid = session?.user?.id;
-          if (uid) {
-            await supabase.from("time_categories").insert({
-              user_id: uid,
-              name: trimmedCat,
-              color: categoryColor,
-            } as never);
-          }
-        } catch (e) {
-          console.warn("[onboarding] first category insert failed", e);
         }
       }
 
@@ -249,14 +213,6 @@ export default function Onboarding() {
             {step === 2 && <TrackShowcaseStep onContinue={() => goTo(3)} disabled={finishing} />}
             {step === 3 && (
               <SetupStep
-                hoursStart={hoursStart}
-                hoursEnd={hoursEnd}
-                onHoursStart={setHoursStart}
-                onHoursEnd={setHoursEnd}
-                categoryName={categoryName}
-                categoryColor={categoryColor}
-                onCategoryName={setCategoryName}
-                onCategoryColor={setCategoryColor}
                 aiAbout={aiAbout}
                 onAiAbout={setAiAbout}
                 onContinue={() => goTo(4)}
@@ -579,31 +535,15 @@ function TrackShowcaseStep({ onContinue, disabled }: { onContinue: () => void; d
 }
 
 /* ------------------------------------------------------------------ */
-/*  Step 3 — Setup (combined: hours + category + AI context)          */
+/*  Step 3 — AI personalisation                                       */
 /* ------------------------------------------------------------------ */
 
 function SetupStep({
-  hoursStart,
-  hoursEnd,
-  onHoursStart,
-  onHoursEnd,
-  categoryName,
-  categoryColor,
-  onCategoryName,
-  onCategoryColor,
   aiAbout,
   onAiAbout,
   onContinue,
   disabled,
 }: {
-  hoursStart: string;
-  hoursEnd: string;
-  onHoursStart: (v: string) => void;
-  onHoursEnd: (v: string) => void;
-  categoryName: string;
-  categoryColor: string;
-  onCategoryName: (v: string) => void;
-  onCategoryColor: (v: string) => void;
   aiAbout: string;
   onAiAbout: (v: string) => void;
   onContinue: () => void;
@@ -612,110 +552,46 @@ function SetupStep({
   return (
     <div className="flex-1 flex flex-col fade-in">
       <div className="flex-1 flex flex-col">
-        <p className="eyebrow">A few quick basics</p>
-        <h1 className="font-display text-[26px] font-semibold leading-tight tracking-tight mt-2 text-balance">
-          Let's set you up.
+        <div className="flex items-center justify-center mb-6 mt-2">
+          <motion.div
+            className="h-14 w-14 rounded-[18px] flex items-center justify-center"
+            style={{ background: "linear-gradient(135deg, hsl(var(--primary)/0.18) 0%, hsl(var(--primary)/0.08) 100%)", border: "1px solid hsl(var(--primary)/0.25)" }}
+            animate={{ scale: [1, 1.06, 1], opacity: [0.85, 1, 0.85] }}
+            transition={{ duration: 3, repeat: Infinity, ease: "easeInOut" }}
+          >
+            <Sparkles className="h-6 w-6 text-primary" strokeWidth={1.6} />
+          </motion.div>
+        </div>
+
+        <p className="eyebrow text-center">Personalise AI</p>
+        <h1 className="font-display text-[26px] font-semibold leading-tight tracking-tight mt-2 text-balance text-center">
+          Tell AI about your day.
         </h1>
-        <p className="text-secondary-fg mt-3 text-[14px] leading-[1.55] max-w-sm">
-          All of this is editable later in Settings.
+        <p className="text-secondary-fg mt-2 text-[14px] leading-snug text-center max-w-[280px] mx-auto">
+          The more context it has, the better your plans will fit your real life.
         </p>
 
-        {/* Working hours */}
-        <section className="mt-6">
-          <p className="text-[11px] font-semibold uppercase tracking-[0.16em] text-secondary-fg/85 mb-2.5">
-            Working hours
-          </p>
-          <div className="grid grid-cols-2 gap-3">
-            <label className="app-card px-4 py-3.5 space-y-1.5 block">
-              <span className="text-[10px] font-semibold uppercase tracking-[0.16em] text-secondary-fg/70 inline-flex items-center gap-1.5">
-                <Sun className="h-3 w-3 text-amber-400" /> Start
-              </span>
-              <input
-                type="time"
-                value={hoursStart}
-                onChange={(e) => onHoursStart(e.target.value || DEFAULT_START)}
-                className="w-full bg-transparent text-[20px] font-display font-semibold tabular-nums tracking-tight focus:outline-none"
-              />
-            </label>
-            <label className="app-card px-4 py-3.5 space-y-1.5 block">
-              <span className="text-[10px] font-semibold uppercase tracking-[0.16em] text-secondary-fg/70 inline-flex items-center gap-1.5">
-                <Moon className="h-3 w-3 text-indigo-400" /> End
-              </span>
-              <input
-                type="time"
-                value={hoursEnd}
-                onChange={(e) => onHoursEnd(e.target.value || DEFAULT_END)}
-                className="w-full bg-transparent text-[20px] font-display font-semibold tabular-nums tracking-tight focus:outline-none"
-              />
-            </label>
-          </div>
-        </section>
-
-        {/* First category */}
-        <section className="mt-6">
-          <p className="text-[11px] font-semibold uppercase tracking-[0.16em] text-secondary-fg/85 mb-2.5">
-            First category <span className="font-normal normal-case tracking-normal text-secondary-fg/55">· optional</span>
-          </p>
-          <div className="flex flex-wrap gap-1.5">
-            {CATEGORY_SUGGESTIONS.map((s) => {
-              const selected = categoryName === s.name;
-              return (
-                <button
-                  key={s.name}
-                  type="button"
-                  onClick={() => {
-                    haptics.selection();
-                    onCategoryName(s.name);
-                    onCategoryColor(s.color);
-                  }}
-                  className={[
-                    "inline-flex items-center gap-1.5 rounded-full border px-3 py-1.5 text-[12.5px] font-medium transition-[border-color,background-color,transform] pressable",
-                    selected
-                      ? "border-transparent bg-primary/12 text-foreground shadow-[0_0_0_1.5px_hsl(var(--primary)/0.45),0_8px_18px_-12px_hsl(var(--primary)/0.5)]"
-                      : "border-border/40 bg-card/45 text-foreground/80 hover:border-border/65 hover:bg-card/65",
-                  ].join(" ")}
-                >
-                  <span className="h-2 w-2 rounded-full shrink-0" style={{ background: s.color }} />
-                  {s.name}
-                  {selected && <Check className="h-3 w-3 text-primary" strokeWidth={3} />}
-                </button>
-              );
-            })}
-          </div>
-
-          <div className="mt-3 app-card px-3.5 py-3 flex items-center gap-2.5">
-            <Tag className="h-3.5 w-3.5 text-secondary-fg shrink-0" />
-            <Input
-              value={categoryName}
-              onChange={(e) => onCategoryName(e.target.value)}
-              placeholder="Or type your own…"
-              className="flex-1 h-8 bg-transparent border-0 px-0 text-[14px] focus-visible:ring-0 shadow-none"
-              maxLength={40}
-            />
-          </div>
-        </section>
-
-        {/* AI context */}
-        <section className="mt-6">
-          <p className="text-[11px] font-semibold uppercase tracking-[0.16em] text-secondary-fg/85 mb-2.5 inline-flex items-center gap-1.5">
-            <Sparkles className="h-3 w-3 text-primary" /> Tell AI about you
-            <span className="font-normal normal-case tracking-normal text-secondary-fg/55">· optional</span>
-          </p>
+        <div className="mt-8">
           <Textarea
             value={aiAbout}
             onChange={(e) => onAiAbout(e.target.value)}
-            placeholder="e.g. I work from home, walk the dog at 1pm, prefer no hard tasks after 4pm."
+            placeholder="e.g. I work from home, walk the dog at 1 pm, prefer no hard tasks after 4 pm."
             maxLength={500}
-            className="min-h-[88px] surface-card border-soft rounded-xl text-[14px] resize-none"
+            className="min-h-[120px] surface-card border-soft rounded-2xl text-[14px] resize-none leading-relaxed"
+            autoFocus={false}
           />
-          <p className="mt-1.5 text-[11px] text-secondary-fg/80">{aiAbout.length}/500 · sent privately with every plan</p>
-        </section>
+          <p className="mt-2 text-[11px] text-secondary-fg/60 text-right">{aiAbout.length}/500</p>
+        </div>
+
+        <p className="mt-4 text-[12px] text-secondary-fg/50 text-center leading-relaxed">
+          Sent privately with each plan · never stored beyond your session
+        </p>
       </div>
 
       <Button
         disabled={disabled}
         onClick={onContinue}
-        className="w-full h-[54px] rounded-[18px] bg-primary text-primary-foreground hover:bg-primary/92 pressable text-[15px] font-semibold shadow-card mt-7"
+        className="w-full h-[54px] rounded-[18px] bg-primary text-primary-foreground hover:bg-primary/92 pressable text-[15px] font-semibold shadow-card mt-6"
       >
         Continue <ArrowRight className="h-4 w-4 ml-1" />
       </Button>
