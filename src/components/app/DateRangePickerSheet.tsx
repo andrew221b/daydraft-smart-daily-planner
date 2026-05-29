@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import { AnimatePresence, motion } from "framer-motion";
 import { ChevronLeft, ChevronRight } from "lucide-react";
-import { Sheet, SheetContent } from "@/components/ui/sheet";
+import { Sheet, SheetContent, SheetTitle } from "@/components/ui/sheet";
 import { dateStr, parseDateStr, todayDateStr } from "@/lib/daydraft";
 import { haptics } from "@/lib/haptics";
 
@@ -181,6 +181,7 @@ export function DateRangePickerSheet({
         onOpenAutoFocus={(e) => e.preventDefault()}
         hideClose
       >
+        <SheetTitle className="sr-only">Select date range</SheetTitle>
         {/* Header */}
         <div className="shrink-0 px-5 pt-5 pb-3 flex items-center justify-between">
           <button
@@ -295,7 +296,7 @@ export function DateRangePickerSheet({
         </div>
 
         {/* Day grid */}
-        <div className="px-5 pb-5 flex-1 overflow-y-auto">
+        <div className="px-5 flex-1 overflow-y-auto" style={{ paddingBottom: "max(env(safe-area-inset-bottom), 20px)" }}>
           <div className="relative">
             <AnimatePresence mode="popLayout" initial={false}>
               <motion.div
