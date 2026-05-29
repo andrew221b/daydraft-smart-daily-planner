@@ -231,14 +231,19 @@ const AppContent = () => {
         </ProfileProvider>
         </AuthProvider>
       </BrowserRouter>
-      {/* Global home-indicator cover. Explicit primary-glow gradient so the
-          zone isn't pure black (backdrop-filter over #000 = black). */}
+      {/* Global home-indicator cover. Radial blue arc that mirrors the top
+          --gradient-glow halo. Uses --primary (Apple Blue), not --primary-glow
+          (which is Apple Indigo and reads as purple). The ellipse is set to
+          240% tall so the arc shape is visible even inside the thin
+          safe-area-inset strip — we see only the top sliver of a much taller
+          glow, exactly like the top arc bleeds down from above the screen. */}
       <div
         className="pointer-events-none fixed inset-x-0 bottom-0"
         style={{
           height: "env(safe-area-inset-bottom, 0px)",
           zIndex: 99999,
-          background: "linear-gradient(to top, hsl(var(--primary-glow) / 0.18), hsl(var(--primary-glow) / 0.06))",
+          background:
+            "radial-gradient(62% 240% at 50% 100%, hsl(var(--primary) / 0.32) 0%, hsl(var(--primary) / 0.14) 40%, hsl(var(--primary) / 0.04) 78%, transparent 100%)",
         }}
         aria-hidden
       />
