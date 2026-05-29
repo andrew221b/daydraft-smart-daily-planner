@@ -925,7 +925,14 @@ export default function DayView() {
       }
     } catch (e: any) {
       if (signal.aborted) return;
-      toast.error(e.message || "Failed to auto-schedule tasks");
+      const raw = (e?.message || "").toString();
+      const friendly =
+        /Failed to send a request|Load failed|Failed to fetch|NetworkError|TypeError|net::|ENOTFOUND|ECONNREFUSED/i.test(raw)
+          ? "Couldn't reach the AI — check your connection and try again."
+          : raw && !/AI gateway error/i.test(raw)
+            ? raw
+            : "Couldn't auto-schedule. Please try again.";
+      toast.error(friendly);
     } finally {
       if (!signal.aborted) setBulkAiLoading(false);
     }

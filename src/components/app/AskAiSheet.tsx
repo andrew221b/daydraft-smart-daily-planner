@@ -202,7 +202,17 @@ export function AskAiSheet({
         signal,
       });
 
-      if (!res.ok) throw new Error("AI gateway error");
+      if (!res.ok) {
+        // Server now returns { error: "<user-friendly message>" } on failure.
+        // Surface that exact text — it's already been translated server-side
+        // (rate limit, safety filter, transient 5xx, etc.).
+        let msg = "AI is unavailable";
+        try {
+          const payload = await res.json();
+          if (payload?.error && typeof payload.error === "string") msg = payload.error;
+        } catch { /* non-JSON body, fall back to generic */ }
+        throw new Error(msg);
+      }
 
       setLoading(false);
       setMessages((m) => [...m, { role: "assistant", content: "" }]);
@@ -257,9 +267,11 @@ export function AskAiSheet({
       const friendly =
         /Load failed|Failed to fetch|NetworkError|TypeError|net::|ENOTFOUND|ECONNREFUSED/i.test(raw)
           ? "Couldn't reach the assistant — check your connection and try again."
-          : /rate.?limit|429/i.test(raw)
-            ? "Too many requests — give it a moment."
-            : raw || "AI is unavailable";
+          // Server-side message already user-friendly (rate limit, safety, etc.) —
+          // pass it through verbatim. Fall back only if message is empty/raw.
+          : raw && !/AI gateway error/i.test(raw)
+            ? raw
+            : "AI is unavailable — try again.";
       toast.error(friendly);
       setMessages((m) => {
         if (m[m.length - 1]?.role === "assistant" && !m[m.length - 1].content) return m.slice(0, -1);

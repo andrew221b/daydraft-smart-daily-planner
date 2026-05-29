@@ -125,27 +125,46 @@ Be terse. No fluff. No greetings.`;
 Type: ${type || "unknown"}
 Allotted: ${duration_min || "?"} min${location ? `\nLocation: ${location}` : ""}${runtime_reason ? `\nRuntime reason: ${runtime_reason}` : ""}`;
 
-    const resp = await fetch("https://generativelanguage.googleapis.com/v1beta/openai/chat/completions", {
-      method: "POST",
-      headers: { Authorization: `Bearer ${GEMINI_API_KEY}`, "Content-Type": "application/json" },
-      body: JSON.stringify({
-        model: "gemini-2.5-flash",
-        messages: [
-          { role: "system", content: system },
-          { role: "user", content: userMsg },
-        ],
-        tools,
-        tool_choice: { type: "function", function: { name: "task_help" } },
-      }),
-    });
+    const MODEL_CHAIN = ["gemini-2.5-flash", "gemini-1.5-flash-latest"];
+    const isTransient = (s: number) => s === 500 || s === 502 || s === 503 || s === 504;
+    const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
 
-    if (!resp.ok) {
-      if (resp.status === 429) return new Response(JSON.stringify({ error: "Rate limit. Try again in a moment." }), { status: 429, headers: { ...corsHeaders, "Content-Type": "application/json" } });
-      if (resp.status === 402) return new Response(JSON.stringify({ error: "AI credits exhausted. Add credits in Workspace > Usage." }), { status: 402, headers: { ...corsHeaders, "Content-Type": "application/json" } });
-      const t = await resp.text();
-      console.error("AI error", resp.status, t);
-      return new Response(JSON.stringify({ error: "AI gateway error" }), { status: 500, headers: { ...corsHeaders, "Content-Type": "application/json" } });
+    let resp: Response | null = null;
+    let lastStatus = 0;
+    let lastBody = "";
+    for (const model of MODEL_CHAIN) {
+      for (let attempt = 0; attempt < 2; attempt++) {
+        const r = await fetch("https://generativelanguage.googleapis.com/v1beta/openai/chat/completions", {
+          method: "POST",
+          headers: { Authorization: `Bearer ${GEMINI_API_KEY}`, "Content-Type": "application/json" },
+          body: JSON.stringify({
+            model,
+            messages: [
+              { role: "system", content: system },
+              { role: "user", content: userMsg },
+            ],
+            tools,
+            tool_choice: { type: "function", function: { name: "task_help" } },
+          }),
+        });
+        if (r.ok) { resp = r; break; }
+        lastStatus = r.status;
+        try { lastBody = (await r.text()).slice(0, 1024); } catch { lastBody = ""; }
+        console.error("[task-assistant] upstream error", { model, attempt, status: r.status, body: lastBody });
+        if (r.status === 429 || (r.status >= 400 && r.status < 500)) break;
+        if (isTransient(r.status) && attempt === 0) { await sleep(400 + Math.floor(Math.random() * 300)); continue; }
+        break;
+      }
+      if (resp) break;
     }
+
+    if (!resp) {
+      if (lastStatus === 429) return new Response(JSON.stringify({ error: "Too many requests — give it a moment." }), { status: 429, headers: { ...corsHeaders, "Content-Type": "application/json" } });
+      if (lastStatus === 401 || lastStatus === 403) return new Response(JSON.stringify({ error: "AI is misconfigured on the server." }), { status: 500, headers: { ...corsHeaders, "Content-Type": "application/json" } });
+      if (lastStatus === 400 && /safety|blocked|harm/i.test(lastBody)) return new Response(JSON.stringify({ error: "That task hit a safety filter — try rephrasing." }), { status: 400, headers: { ...corsHeaders, "Content-Type": "application/json" } });
+      return new Response(JSON.stringify({ error: "AI is having a moment. Please try again." }), { status: 503, headers: { ...corsHeaders, "Content-Type": "application/json" } });
+    }
+
     const data = await resp.json();
     const call = data.choices?.[0]?.message?.tool_calls?.[0];
     if (!call) throw new Error("No tool call returned");
