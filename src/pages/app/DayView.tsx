@@ -1046,15 +1046,11 @@ export default function DayView() {
       return;
     }
     if (intent.kind === "carry-missed") {
-      // Carry-missed includes both still-open tasks AND tasks already marked
-      // as "missed". The latter is the whole point of the pill: when the user
-      // taps Move on a missed slot, they want those exact missed tasks moved.
+      // Carry everything the user hasn't actually finished: still-open,
+      // explicitly missed, AND skipped tasks. Only done tasks are excluded —
+      // there's no point moving something the user already completed.
       const candidates = blocks.filter(
-        (b) =>
-          isUserTask(b) &&
-          !b.is_calendar_event &&
-          !isUserTaskDone(b) &&
-          (isOpenUserTask(b) || (b as ExBlock).resolution === "missed"),
+        (b) => isUserTask(b) && !isUserTaskDone(b),
       );
       if (!candidates.length) {
         toast("Nothing left to carry forward");
@@ -1960,11 +1956,7 @@ export default function DayView() {
             : dayPickerIntent?.kind === "carry-missed"
               ? (() => {
                   const count = blocks.filter(
-                    (b) =>
-                      isUserTask(b) &&
-                      !b.is_calendar_event &&
-                      !isUserTaskDone(b) &&
-                      (isOpenUserTask(b) || (b as ExBlock).resolution === "missed"),
+                    (b) => isUserTask(b) && !isUserTaskDone(b),
                   ).length;
                   return `${count} task${count === 1 ? "" : "s"} will be added there and marked moved here.`;
                 })()
