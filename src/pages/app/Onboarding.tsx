@@ -25,17 +25,11 @@ const PROGRESS_KEY = "dd_onboarding_progress_v5";
 const STEPS = 5;
 type StepIdx = 0 | 1 | 2 | 3 | 4;
 
-const DEFAULT_START = "09:00";
-const DEFAULT_END = "18:00";
 
 
 type Progress = {
   step: StepIdx;
   aiAbout: string;
-  hoursStart: string;
-  hoursEnd: string;
-  categoryName: string;
-  categoryColor: string;
 };
 
 const readProgress = (): Progress => {
@@ -47,20 +41,9 @@ const readProgress = (): Progress => {
     return {
       step: validStep ? (p.step as StepIdx) : 0,
       aiAbout: typeof p.aiAbout === "string" ? p.aiAbout : "",
-      hoursStart: typeof p.hoursStart === "string" ? p.hoursStart : DEFAULT_START,
-      hoursEnd: typeof p.hoursEnd === "string" ? p.hoursEnd : DEFAULT_END,
-      categoryName: typeof p.categoryName === "string" ? p.categoryName : "",
-      categoryColor: typeof p.categoryColor === "string" ? p.categoryColor : CATEGORY_SUGGESTIONS[0].color,
     };
   } catch {
-    return {
-      step: 0,
-      aiAbout: "",
-      hoursStart: DEFAULT_START,
-      hoursEnd: DEFAULT_END,
-      categoryName: "",
-      categoryColor: CATEGORY_SUGGESTIONS[0].color,
-    };
+    return { step: 0, aiAbout: "" };
   }
 };
 
@@ -118,8 +101,6 @@ export default function Onboarding() {
         notifications_enabled: pushEnabled,
         onboarded: true,
         timezone: tz,
-        active_hours_start: DEFAULT_START,
-        active_hours_end: DEFAULT_END,
       };
 
       if (profile) {
