@@ -1701,16 +1701,15 @@ export default function DayView() {
       </AlertDialog>
 
       <Sheet open={!!reminderBlockId} onOpenChange={(v) => !v && setReminderBlockId(null)}>
-        <SheetContent side="bottom" className="rounded-t-[28px] border-border/45 bg-surface-elevated">
-          <SheetHeader>
-            <SheetTitle className="flex items-center gap-2"><Bell className="h-4 w-4 text-primary" /> Reminders</SheetTitle>
-          </SheetHeader>
+        <SheetContent
+          side="bottom"
+          className="rounded-t-[28px] border-border/45 bg-popover p-0 flex flex-col max-h-[90vh]"
+          hideClose
+        >
+          <SheetTitle className="sr-only">Reminders</SheetTitle>
           {(() => {
             const b = blocks.find(x => x.id === reminderBlockId);
             if (!b) return null;
-            // Apple-Calendar–style alerts: one primary, one optional secondary.
-            // The first entry in `leadsMin` is the primary alert; a second
-            // (different) entry becomes the secondary alert.
             const PRIMARY_OPTIONS = [0, 2, 5, 10, 15, 30, 60];
             const SECONDARY_OPTIONS = [0, 5, 10, 15, 30, 60];
             const sortedLeads = [...reminderCfg.leadsMin].sort((a, c) => c - a);
@@ -1720,172 +1719,210 @@ export default function DayView() {
               const next = s == null || s === p ? [p] : [p, s].sort((a, c) => c - a);
               saveReminders({ ...reminderCfg, leadsMin: next });
             };
-            const repeatLabel =
-              reminderCfg.repeats === 0 ? "Off" : `${reminderCfg.repeats}× every 5m`;
             const REPEAT_OPTIONS = [0, 1, 2, 3, 5];
+            const fmtDuration = (m: number) => m < 60 ? `${m}m` : `${Math.floor(m/60)}h${m%60 ? ` ${m%60}m` : ""}`;
+            const chipBase = "h-9 px-3.5 rounded-full text-[13px] font-semibold pressable tabular-nums transition-[box-shadow,background-color,color] duration-150";
+            const chipOn = "text-primary";
+            const chipOff = "text-foreground/80";
+            const chipStyleOn: React.CSSProperties = {
+              background: "linear-gradient(180deg, hsl(var(--primary)/0.18) 0%, hsl(var(--primary)/0.08) 100%)",
+              boxShadow: "inset 0 1px 0 hsl(0 0% 100% / 0.08), 0 0 0 1.5px hsl(var(--primary)/0.45), 0 4px 14px -8px hsl(var(--primary)/0.45)",
+            };
+            const chipStyleOff: React.CSSProperties = {
+              background: "linear-gradient(180deg, hsl(var(--card)/0.6) 0%, hsl(var(--card)/0.35) 100%)",
+              boxShadow: "inset 0 1px 0 hsl(0 0% 100% / 0.05), 0 0 0 1px hsl(var(--border)/0.45)",
+            };
+            const smallChipBase = "h-8 px-3 rounded-full text-[12px] font-semibold pressable tabular-nums transition-[box-shadow,background-color,color] duration-150";
+
             return (
-              <div className="mt-4 space-y-5">
-                <div>
-                  <div className="text-[15px] font-medium text-foreground">{b.title}</div>
-                  <div className="text-[12px] text-secondary-fg mt-0.5 tabular-nums">
-                    Starts at {fmtTime(b.start_time)} · {b.duration_min < 60 ? `${b.duration_min}m` : `${Math.floor(b.duration_min/60)}h${b.duration_min%60 ? ` ${b.duration_min%60}m` : ""}`}
+              <>
+                {/* Header */}
+                <div className="shrink-0 px-5 pt-6 pb-3 flex items-start gap-3">
+                  <div className="h-10 w-10 rounded-[12px] flex items-center justify-center bg-primary/12 border border-primary/22 shrink-0">
+                    <Bell className="h-[18px] w-[18px] text-primary" strokeWidth={2} />
                   </div>
+                  <div className="min-w-0 flex-1 pt-0.5">
+                    <div className="font-display text-[19px] font-semibold tracking-tight leading-tight">Reminders</div>
+                    <div className="text-[12px] text-secondary-fg/75 mt-0.5 truncate">
+                      {b.title} · {fmtTime(b.start_time)} · {fmtDuration(b.duration_min)}
+                    </div>
+                  </div>
+                  <button
+                    type="button"
+                    onClick={() => setReminderBlockId(null)}
+                    className="h-8 w-8 rounded-full flex items-center justify-center text-secondary-fg/60 hover:text-foreground hover:bg-foreground/[0.06] transition-colors pressable shrink-0 text-[18px]"
+                    aria-label="Close"
+                  >
+                    ×
+                  </button>
                 </div>
 
-                {/*
-                  Primary toggle. Previously a hand-rolled span+absolute
-                  thumb whose geometry rendered with the thumb hanging
-                  off the right edge of the track on iOS WKWebView.
-                  Replaced with the shared Radix-based <Switch> the rest
-                  of the app uses (Settings, etc.) — known good across
-                  all platforms. The whole row is still tappable.
-                */}
-                <div
-                  role="button"
-                  tabIndex={0}
-                  onClick={() => saveReminders({ ...reminderCfg, enabled: !reminderCfg.enabled })}
-                  onKeyDown={(e) => {
-                    if (e.key === "Enter" || e.key === " ") {
-                      e.preventDefault();
-                      saveReminders({ ...reminderCfg, enabled: !reminderCfg.enabled });
+                {/* Scrollable content */}
+                <div className="flex-1 overflow-y-auto px-5 pt-1 pb-2 space-y-5">
+                  {/* Primary toggle */}
+                  <div
+                    role="button"
+                    tabIndex={0}
+                    onClick={() => saveReminders({ ...reminderCfg, enabled: !reminderCfg.enabled })}
+                    onKeyDown={(e) => {
+                      if (e.key === "Enter" || e.key === " ") {
+                        e.preventDefault();
+                        saveReminders({ ...reminderCfg, enabled: !reminderCfg.enabled });
+                      }
+                    }}
+                    className="w-full flex items-center justify-between gap-4 rounded-2xl px-4 py-3.5 pressable cursor-pointer transition-[box-shadow,background-color] duration-200"
+                    style={
+                      reminderCfg.enabled
+                        ? {
+                            background: "linear-gradient(180deg, hsl(var(--primary)/0.16) 0%, hsl(var(--primary)/0.05) 100%)",
+                            boxShadow: "inset 0 1px 0 hsl(0 0% 100% / 0.08), 0 0 0 1.5px hsl(var(--primary)/0.4), 0 8px 24px -12px hsl(var(--primary)/0.4)",
+                          }
+                        : {
+                            background: "linear-gradient(180deg, hsl(var(--card)/0.5) 0%, hsl(var(--card)/0.3) 100%)",
+                            boxShadow: "inset 0 1px 0 hsl(0 0% 100% / 0.04), 0 0 0 1px hsl(var(--border)/0.4)",
+                          }
                     }
-                  }}
-                  className={`w-full flex items-center justify-between gap-4 rounded-2xl border px-4 py-3.5 pressable transition-colors cursor-pointer ${
-                    reminderCfg.enabled
-                      ? "border-primary/35 bg-primary/[0.07] text-foreground"
-                      : "border-soft surface-card text-foreground/85"
-                  }`}
-                >
-                  <div className="text-left min-w-0">
-                    <div className="text-[14px] font-medium">Remind me</div>
-                    <div className="text-[12px] text-secondary-fg mt-0.5">
-                      {reminderCfg.enabled ? "On — alerts fire while the app is open" : "Off — no reminders for this task"}
-                    </div>
-                  </div>
-                  <Switch
-                    checked={reminderCfg.enabled}
-                    onCheckedChange={(v) => saveReminders({ ...reminderCfg, enabled: v })}
-                    onClick={(e) => e.stopPropagation()}
-                    aria-label="Toggle reminders"
-                    className="shrink-0"
-                  />
-                </div>
-
-                <div className={reminderCfg.enabled ? "space-y-5" : "opacity-40 pointer-events-none space-y-5"}>
-                  {/* Primary alert — single choice */}
-                  <div>
-                    <div className="flex items-center justify-between mb-2">
-                      <div className="text-[11px] uppercase tracking-[0.14em] text-secondary-fg/85 font-medium">Alert</div>
-                      <div className="text-[11px] text-secondary-fg tabular-nums">
-                        {primary === 0 ? "at start" : `${primary} min before`}
+                  >
+                    <div className="text-left min-w-0">
+                      <div className={`text-[14.5px] font-semibold ${reminderCfg.enabled ? "text-foreground" : "text-foreground/85"}`}>Remind me</div>
+                      <div className="text-[12px] text-secondary-fg/75 mt-0.5 leading-snug">
+                        {reminderCfg.enabled ? "Alerts fire while the app is open" : "No reminders for this task"}
                       </div>
                     </div>
-                    <div className="flex flex-wrap gap-1.5">
-                      {PRIMARY_OPTIONS.map((n) => {
-                        const on = primary === n;
-                        return (
-                          <button
-                            key={n}
-                            type="button"
-                            onClick={() => setAlerts(n, secondary && secondary !== n ? secondary : null)}
-                            className={`h-9 px-3.5 rounded-full text-[13px] font-medium pressable border tabular-nums ${
-                              on ? "border-primary/45 bg-primary/12 text-primary" : "border-soft surface-soft text-foreground/80 hover:text-foreground"
-                            }`}
-                          >
-                            {n === 0 ? "At start" : `${n} min`}
-                          </button>
-                        );
-                      })}
-                    </div>
+                    <Switch
+                      checked={reminderCfg.enabled}
+                      onCheckedChange={(v) => saveReminders({ ...reminderCfg, enabled: v })}
+                      onClick={(e) => e.stopPropagation()}
+                      aria-label="Toggle reminders"
+                      className="shrink-0"
+                    />
                   </div>
 
-                  {/* Optional second alert */}
-                  <div>
-                    <div className="flex items-center justify-between mb-2">
-                      <div className="text-[11px] uppercase tracking-[0.14em] text-secondary-fg/85 font-medium">Second alert (optional)</div>
-                      {secondary != null && (
-                        <button
-                          type="button"
-                          onClick={() => setAlerts(primary, null)}
-                          className="text-[11px] text-primary pressable"
-                        >Remove</button>
-                      )}
-                    </div>
-                    <div className="flex flex-wrap gap-1.5">
-                      <button
-                        type="button"
-                        onClick={() => setAlerts(primary, null)}
-                        className={`h-9 px-3.5 rounded-full text-[13px] font-medium pressable border ${
-                          secondary == null ? "border-primary/45 bg-primary/12 text-primary" : "border-soft surface-soft text-foreground/80"
-                        }`}
-                      >None</button>
-                      {SECONDARY_OPTIONS.filter((n) => n !== primary).map((n) => {
-                        const on = secondary === n;
-                        return (
-                          <button
-                            key={n}
-                            type="button"
-                            onClick={() => setAlerts(primary, n)}
-                            className={`h-9 px-3.5 rounded-full text-[13px] font-medium pressable border tabular-nums ${
-                              on ? "border-primary/45 bg-primary/12 text-primary" : "border-soft surface-soft text-foreground/80 hover:text-foreground"
-                            }`}
-                          >
-                            {n === 0 ? "At start" : `${n} min`}
-                          </button>
-                        );
-                      })}
-                    </div>
-                  </div>
-
-                  {/* Advanced — collapsed by default */}
-                  <details className="group rounded-2xl border border-soft surface-card overflow-hidden">
-                    <summary className="flex items-center justify-between px-4 py-3 cursor-pointer pressable list-none">
-                      <div>
-                        <div className="text-[13px] font-medium text-foreground/90">Advanced</div>
-                        <div className="text-[11px] text-secondary-fg mt-0.5">
-                          End-of-slot ping in {reminderCfg.endAlertLeadMin}m · repeat after start {repeatLabel.toLowerCase()}
-                        </div>
+                  <div className={reminderCfg.enabled ? "space-y-5" : "opacity-40 pointer-events-none space-y-5"}>
+                    {/* Primary alert */}
+                    <section>
+                      <div className="flex items-baseline justify-between mb-2.5 px-0.5">
+                        <span className="text-[11px] font-bold uppercase tracking-[0.16em] text-secondary-fg/80">Alert</span>
+                        <span className="text-[11px] text-secondary-fg/75 tabular-nums">
+                          {primary === 0 ? "at start" : `${primary} min before`}
+                        </span>
                       </div>
-                      <span className="text-secondary-fg/80 transition-transform group-open:rotate-90">›</span>
-                    </summary>
-                    <div className="px-4 pb-4 pt-1 space-y-4 border-t border-border/40">
-                      <div>
-                        <div className="text-[11px] uppercase tracking-[0.14em] text-secondary-fg/85 font-medium mb-2">Before window ends</div>
-                        <div className="flex flex-wrap gap-1.5">
-                          {[0, 2, 5, 10, 15, 30].map((n) => {
-                            const on = (reminderCfg.endAlertLeadMin ?? 5) === n;
-                            return (
-                              <button
-                                key={n}
-                                type="button"
-                                onClick={() => saveReminders({ ...reminderCfg, endAlertLeadMin: n })}
-                                className={`h-8 px-3 rounded-full text-[12px] font-medium pressable border tabular-nums ${on ? "border-primary/45 bg-primary/12 text-primary" : "border-soft surface-soft text-foreground/80"}`}
-                              >{n === 0 ? "At end" : `${n} min`}</button>
-                            );
-                          })}
-                        </div>
-                      </div>
-                      <div>
-                        <div className="text-[11px] uppercase tracking-[0.14em] text-secondary-fg/85 font-medium mb-2">Repeat after start</div>
-                        <div className="flex flex-wrap gap-1.5">
-                          {REPEAT_OPTIONS.map((n) => (
+                      <div className="flex flex-wrap gap-1.5">
+                        {PRIMARY_OPTIONS.map((n) => {
+                          const on = primary === n;
+                          return (
                             <button
                               key={n}
                               type="button"
-                              onClick={() => saveReminders({ ...reminderCfg, repeats: n })}
-                              className={`h-8 px-3 rounded-full text-[12px] font-medium pressable border tabular-nums ${reminderCfg.repeats === n ? "border-primary/45 bg-primary/12 text-primary" : "border-soft surface-soft text-foreground/80"}`}
-                            >{n === 0 ? "Don't repeat" : `${n}×`}</button>
-                          ))}
+                              onClick={() => setAlerts(n, secondary && secondary !== n ? secondary : null)}
+                              style={on ? chipStyleOn : chipStyleOff}
+                              className={`${chipBase} ${on ? chipOn : chipOff}`}
+                            >
+                              {n === 0 ? "At start" : `${n} min`}
+                            </button>
+                          );
+                        })}
+                      </div>
+                    </section>
+
+                    {/* Second alert */}
+                    <section>
+                      <div className="flex items-baseline justify-between mb-2.5 px-0.5">
+                        <span className="text-[11px] font-bold uppercase tracking-[0.16em] text-secondary-fg/80">
+                          Second alert <span className="font-normal normal-case tracking-normal text-secondary-fg/55">· optional</span>
+                        </span>
+                        {secondary != null && (
+                          <button
+                            type="button"
+                            onClick={() => setAlerts(primary, null)}
+                            className="text-[11px] font-medium text-primary pressable"
+                          >Remove</button>
+                        )}
+                      </div>
+                      <div className="flex flex-wrap gap-1.5">
+                        <button
+                          type="button"
+                          onClick={() => setAlerts(primary, null)}
+                          style={secondary == null ? chipStyleOn : chipStyleOff}
+                          className={`${chipBase} ${secondary == null ? chipOn : chipOff}`}
+                        >None</button>
+                        {SECONDARY_OPTIONS.filter((n) => n !== primary).map((n) => {
+                          const on = secondary === n;
+                          return (
+                            <button
+                              key={n}
+                              type="button"
+                              onClick={() => setAlerts(primary, n)}
+                              style={on ? chipStyleOn : chipStyleOff}
+                              className={`${chipBase} ${on ? chipOn : chipOff}`}
+                            >
+                              {n === 0 ? "At start" : `${n} min`}
+                            </button>
+                          );
+                        })}
+                      </div>
+                    </section>
+
+                    {/* Advanced */}
+                    <details className="group rounded-2xl overflow-hidden" style={{
+                      background: "linear-gradient(180deg, hsl(var(--card)/0.5) 0%, hsl(var(--card)/0.3) 100%)",
+                      boxShadow: "inset 0 1px 0 hsl(0 0% 100% / 0.04), 0 0 0 1px hsl(var(--border)/0.4)",
+                    }}>
+                      <summary className="flex items-center justify-between px-4 py-3.5 cursor-pointer pressable list-none">
+                        <div className="min-w-0 flex-1">
+                          <div className="text-[13.5px] font-semibold text-foreground/90">Advanced</div>
+                          <div className="text-[11.5px] text-secondary-fg/70 mt-0.5 leading-snug truncate">
+                            End-of-slot ping in {reminderCfg.endAlertLeadMin}m · repeat {reminderCfg.repeats === 0 ? "off" : `${reminderCfg.repeats}×`}
+                          </div>
+                        </div>
+                        <span className="text-secondary-fg/70 transition-transform group-open:rotate-90 text-[14px] shrink-0 ml-2">›</span>
+                      </summary>
+                      <div className="px-4 pb-4 pt-2 space-y-4 border-t border-border/30">
+                        <div>
+                          <div className="text-[11px] font-bold uppercase tracking-[0.16em] text-secondary-fg/80 mb-2.5 px-0.5">Before window ends</div>
+                          <div className="flex flex-wrap gap-1.5">
+                            {[0, 2, 5, 10, 15, 30].map((n) => {
+                              const on = (reminderCfg.endAlertLeadMin ?? 5) === n;
+                              return (
+                                <button
+                                  key={n}
+                                  type="button"
+                                  onClick={() => saveReminders({ ...reminderCfg, endAlertLeadMin: n })}
+                                  style={on ? chipStyleOn : chipStyleOff}
+                                  className={`${smallChipBase} ${on ? chipOn : chipOff}`}
+                                >{n === 0 ? "At end" : `${n} min`}</button>
+                              );
+                            })}
+                          </div>
+                        </div>
+                        <div>
+                          <div className="text-[11px] font-bold uppercase tracking-[0.16em] text-secondary-fg/80 mb-2.5 px-0.5">Repeat after start</div>
+                          <div className="flex flex-wrap gap-1.5">
+                            {REPEAT_OPTIONS.map((n) => {
+                              const on = reminderCfg.repeats === n;
+                              return (
+                                <button
+                                  key={n}
+                                  type="button"
+                                  onClick={() => saveReminders({ ...reminderCfg, repeats: n })}
+                                  style={on ? chipStyleOn : chipStyleOff}
+                                  className={`${smallChipBase} ${on ? chipOn : chipOff}`}
+                                >{n === 0 ? "Don't repeat" : `${n}×`}</button>
+                              );
+                            })}
+                          </div>
                         </div>
                       </div>
-                    </div>
-                  </details>
+                    </details>
+                  </div>
+
+                  <p className="text-[11px] text-secondary-fg/60 leading-relaxed text-center pt-1">
+                    Reminders fire while the app is open · Saved on this device
+                  </p>
                 </div>
 
-                <p className="text-[11px] text-secondary-fg leading-relaxed">
-                  Reminders fire while the app is open. Saved on this device.
-                </p>
-              </div>
+                <div className="shrink-0" style={{ paddingBottom: "max(env(safe-area-inset-bottom), 12px)" }} />
+              </>
             );
           })()}
         </SheetContent>
