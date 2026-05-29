@@ -97,7 +97,7 @@ export function CurrencyPickerSheet({
     <Sheet open={open} onOpenChange={onOpenChange}>
       <SheetContent
         side="bottom"
-        className="rounded-t-[28px] border-border/45 bg-popover max-h-[82vh] p-0 flex flex-col overflow-hidden"
+        className="rounded-t-[28px] border-border/45 bg-popover max-h-[86vh] p-0 flex flex-col overflow-hidden"
         style={swipe.sheetStyle ?? undefined}
         onOpenAutoFocus={(e) => e.preventDefault()}
         hideClose
@@ -123,9 +123,11 @@ export function CurrencyPickerSheet({
           }}
         />
 
-        {/* Drag handle — swipe down to dismiss */}
+        {/* Drag handle — swipe down to dismiss. Generous top inset so the
+            handle clears the rounded corner curve and the header below
+            doesn't graze the sheet's top edge. */}
         <div
-          className="relative shrink-0 flex justify-center pt-3 pb-2"
+          className="relative shrink-0 flex justify-center pt-4 pb-2"
           {...swipe.handleProps}
           aria-label="Swipe down to close"
           role="button"
@@ -134,7 +136,7 @@ export function CurrencyPickerSheet({
         </div>
 
         {/* Header */}
-        <div className="relative shrink-0 px-5 pt-2 pb-3 flex items-center justify-between gap-2">
+        <div className="relative shrink-0 px-5 pt-3 pb-3 flex items-center justify-between gap-2">
           <button
             type="button"
             onClick={() => onOpenChange(false)}
