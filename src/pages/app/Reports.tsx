@@ -977,16 +977,18 @@ export default function Reports() {
               <Button
                 variant="outline"
                 onClick={() => onExport("pdf")}
-                className="h-11 rounded-2xl border-soft text-[13px] font-medium"
+                className="h-[52px] rounded-2xl border-border/30 bg-foreground/[0.02] hover:bg-foreground/[0.06] active:bg-primary/15 active:border-primary/30 active:text-primary transition-colors flex flex-col gap-0.5 justify-center items-center"
               >
-                <FileText className="h-4 w-4 mr-1.5" /> Export PDF
+                <span className="flex items-center text-[13px] font-semibold"><FileText className="h-[14px] w-[14px] mr-1.5 opacity-80" /> Export PDF</span>
+                <span className="text-[10px] text-secondary-fg/70 font-medium">All categories</span>
               </Button>
               <Button
                 variant="outline"
                 onClick={() => onExport("csv")}
-                className="h-11 rounded-2xl border-soft text-[13px] font-medium"
+                className="h-[52px] rounded-2xl border-border/30 bg-foreground/[0.02] hover:bg-foreground/[0.06] active:bg-primary/15 active:border-primary/30 active:text-primary transition-colors flex flex-col gap-0.5 justify-center items-center"
               >
-                <Download className="h-4 w-4 mr-1.5" /> Export CSV
+                <span className="flex items-center text-[13px] font-semibold"><Download className="h-[14px] w-[14px] mr-1.5 opacity-80" /> Export CSV</span>
+                <span className="text-[10px] text-secondary-fg/70 font-medium">All categories</span>
               </Button>
             </div>
           </section>

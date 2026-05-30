@@ -235,32 +235,35 @@ export default function Onboarding() {
 /* ================================================================ */
 
 /**
- * AppAuraIcon — A premium, Apple-like fluid gradient aura replacing the chaotic
- * particle system. It breathes and morphs smoothly behind a glassmorphic app icon.
+ * AppAuraIcon — A professional, cinematic animation sequence.
+ * 1. The icon starts monochrome and stationary.
+ * 2. After 1-2 seconds, 80 sparks fly in from random edges at different speeds.
+ * 3. When the sparks start hitting the center (around 2.5s), the icon lights up with color,
+ *    and the fluid animated background expands in diameter.
  */
-function SparkParticle({ angle, delay, duration }: { angle: number, delay: number, duration: number }) {
-  const dist = 500;
+const SPARK_COUNT = 80;
+const sparks = Array.from({ length: SPARK_COUNT }).map((_, i) => {
+  const angle = Math.random() * 360;
+  // Distribute particles far outside the container (edges of screen)
+  const dist = 220 + Math.random() * 280; 
   const rad = (angle * Math.PI) / 180;
   const x = Math.cos(rad) * dist;
   const y = Math.sin(rad) * dist;
   
-  return (
-    <motion.div
-      className="absolute top-1/2 left-1/2 w-1.5 h-1.5 rounded-full bg-white z-20 pointer-events-none"
-      style={{
-        boxShadow: "0 0 12px 3px rgba(255,255,255,0.8)",
-        marginLeft: -3,
-        marginTop: -3,
-      }}
-      initial={{ x, y, scale: 0, opacity: 0 }}
-      animate={{ x: 0, y: 0, scale: [0, 2, 0], opacity: [0, 1, 0] }}
-      transition={{ delay, duration, ease: "easeIn" }}
-    />
-  );
-}
+  // Wait 1 to 2.5 seconds before starting to fly in
+  const delay = 1.0 + Math.random() * 2.5;
+  // Flight duration from fast to slow (0.8s - 3.0s)
+  const duration = 0.8 + Math.random() * 2.2;
+
+  return { id: i, x, y, duration, delay };
+});
 
 function AppAuraIcon() {
   const containerSize = 176;
+
+  // The first sparks hit the center around 2.2s - 2.5s.
+  // This is when the color burst and aura expansion should trigger.
+  const BURST_TIME = 2.4; 
 
   return (
     <div
@@ -269,27 +272,37 @@ function AppAuraIcon() {
       aria-hidden
     >
       {/* Sparks flying in to assemble the center */}
-      <SparkParticle angle={-45} delay={0.2} duration={0.8} />
-      <SparkParticle angle={15}  delay={0.3} duration={0.7} />
-      <SparkParticle angle={135} delay={0.1} duration={0.9} />
-      <SparkParticle angle={190} delay={0.4} duration={0.6} />
-      <SparkParticle angle={260} delay={0.25} duration={0.75} />
+      {sparks.map((s) => (
+        <motion.div
+          key={s.id}
+          className="absolute top-1/2 left-1/2 rounded-full bg-white z-20 pointer-events-none"
+          style={{
+            width: 3, height: 3,
+            boxShadow: "0 0 12px 3px rgba(255,255,255,0.9)",
+            marginLeft: -1.5,
+            marginTop: -1.5,
+          }}
+          initial={{ x: s.x, y: s.y, scale: 0, opacity: 0 }}
+          animate={{ x: 0, y: 0, scale: [0, 1.5, 0], opacity: [0, 1, 0] }}
+          transition={{ delay: s.delay, duration: s.duration, ease: "easeIn" }}
+        />
+      ))}
 
-      {/* Central flash when sparks hit (t=1.0s) */}
+      {/* Central flash when sparks hit the center */}
       <motion.div
-        className="absolute top-1/2 left-1/2 w-[120px] h-[120px] bg-white rounded-full z-30 pointer-events-none"
-        style={{ marginLeft: -60, marginTop: -60, filter: "blur(20px)" }}
+        className="absolute top-1/2 left-1/2 w-[140px] h-[140px] bg-white rounded-full z-30 pointer-events-none"
+        style={{ marginLeft: -70, marginTop: -70, filter: "blur(24px)" }}
         initial={{ opacity: 0, scale: 0 }}
-        animate={{ opacity: [0, 1, 0], scale: [0.5, 1.5, 2] }}
-        transition={{ delay: 0.95, duration: 0.6, ease: "easeOut" }}
+        animate={{ opacity: [0, 1, 0], scale: [0.5, 2, 2.5] }}
+        transition={{ delay: BURST_TIME, duration: 1.2, ease: "easeOut" }}
       />
 
-      {/* Ambient fluid aura - scales up as sparks fly in */}
+      {/* Ambient fluid aura - expands and fades in exactly when sparks hit */}
       <motion.div 
         className="absolute inset-0 flex items-center justify-center"
         initial={{ opacity: 0, scale: 0 }} 
         animate={{ opacity: 1, scale: 1 }} 
-        transition={{ duration: 1.5, ease: "easeOut", delay: 0.4 }}
+        transition={{ duration: 3.0, ease: "easeOut", delay: BURST_TIME }}
       >
         <div className="relative w-full h-full" style={{ filter: "blur(32px)" }}>
           <motion.div
@@ -328,31 +341,52 @@ function AppAuraIcon() {
         </div>
       </motion.div>
 
-      {/* Main Emblem — Assembles exactly when the flash hits */}
+      {/* Main Emblem — Static position, colorless at first, fades into color and background */}
       <motion.div
-        className="relative z-10 flex items-center justify-center rounded-[32px] bg-background/40 backdrop-blur-xl border border-white/20 dark:border-white/10"
+        className="relative z-10 flex items-center justify-center rounded-[32px] border border-white/20 dark:border-white/10"
         style={{
           width: 76,
           height: 76,
-          background: "linear-gradient(135deg, hsl(var(--primary)/0.2) 0%, transparent 100%)",
           boxShadow: "0 16px 40px -8px rgba(0,0,0,0.3), inset 0 1px 1px rgba(255,255,255,0.5)",
+          background: "transparent",
         }}
-        initial={{ scale: 0, opacity: 0 }}
-        animate={{ scale: 1, opacity: 1 }}
+        initial={{ 
+          scale: 0, 
+          opacity: 0,
+        }}
+        animate={{ 
+          scale: 1, 
+          opacity: 1,
+        }}
         transition={{ 
-          scale: { type: "spring", stiffness: 300, damping: 20, delay: 1.0 },
-          opacity: { duration: 0.2, delay: 1.0 },
+          scale: { type: "spring", stiffness: 300, damping: 20, delay: 0.5 },
+          opacity: { duration: 0.4, delay: 0.5 },
         }}
       >
+        {/* The glassmorphic background gradient fades in when hit */}
+        <motion.div 
+          className="absolute inset-0 rounded-[32px]"
+          initial={{ opacity: 0 }}
+          animate={{ opacity: 1 }}
+          transition={{ duration: 2.0, delay: BURST_TIME }}
+          style={{
+            background: "linear-gradient(135deg, hsl(var(--primary)/0.2) 0%, transparent 100%)",
+            backdropFilter: "blur(16px)",
+            WebkitBackdropFilter: "blur(16px)",
+          }}
+        />
+        <div className="absolute inset-0 rounded-[32px] overflow-hidden pointer-events-none">
+           <div className="absolute -top-4 -right-4 w-16 h-16 bg-white/40 rounded-full blur-[16px]" />
+        </div>
+        
+        {/* The icon starts monochrome (grey/white), then gains full color */}
         <motion.div
-          animate={{ y: [0, -6, 0] }}
-          transition={{ duration: 6, repeat: Infinity, ease: "easeInOut", delay: 1.2 }}
-          className="absolute inset-0 flex items-center justify-center"
+          className="relative z-10 flex items-center justify-center"
+          initial={{ color: "hsl(var(--foreground) / 0.5)", filter: "grayscale(100%)" }}
+          animate={{ color: "hsl(var(--primary))", filter: "grayscale(0%)" }}
+          transition={{ duration: 2.0, delay: BURST_TIME }}
         >
-          <div className="absolute inset-0 rounded-[32px] overflow-hidden pointer-events-none">
-             <div className="absolute -top-4 -right-4 w-16 h-16 bg-white/40 rounded-full blur-[16px]" />
-          </div>
-          <Sparkles className="h-10 w-10 text-foreground drop-shadow-[0_0_12px_rgba(255,255,255,0.5)]" strokeWidth={1.5} />
+          <Sparkles className="h-10 w-10 drop-shadow-[0_0_12px_rgba(255,255,255,0.5)]" strokeWidth={1.5} />
         </motion.div>
       </motion.div>
     </div>
@@ -546,28 +580,24 @@ function MockBlock({
   from?: "left" | "right" | "bottom";
 }) {
   const initial =
-    from === "left"  ? { opacity: 0, x: -500, y: 0, scale: 0.95 } :
-    from === "right" ? { opacity: 0, x:  500, y: 0, scale: 0.95 } :
-                       { opacity: 0, x:   0, y: 400, scale: 0.95 };
+    from === "left"  ? { opacity: 0, x: -80, y: 0, scale: 0.5 } :
+    from === "right" ? { opacity: 0, x:  80, y: 0, scale: 0.5 } :
+                       { opacity: 0, x:   0, y: 80, scale: 0.5 };
   return (
     <motion.div
       initial={initial}
       animate={{ opacity: 1, x: 0, y: 0, scale: 1 }}
-      transition={{ delay, type: "spring", stiffness: 320, damping: 24, mass: 0.8 }}
+      transition={{ delay, type: "spring", stiffness: 450, damping: 14, mass: 0.8 }}
       className={[
-        "group app-card rounded-[18px] px-3.5 py-3.5 shadow-sm border transition-[border-color,box-shadow,transform] duration-300",
+        "group app-card rounded-[18px] px-3.5 py-3.5 border transition-[border-color,box-shadow,transform] duration-300 relative overflow-hidden",
         glow 
           ? "ring-[1.5px] ring-primary/40 bg-primary/[0.04] shadow-[0_0_32px_hsl(var(--primary)/0.12)] border-primary/20 scale-[1.02]" 
-          : "bg-[linear-gradient(165deg,hsl(var(--type-deep)/.06)_0%,hsl(var(--surface)/.72)_58%,hsl(var(--surface-elevated)/.65)_100%)] border-[hsl(var(--type-deep)/.22)]"
+          : "bg-surface/80 backdrop-blur-xl shadow-[0_8px_30px_rgba(0,0,0,0.12),inset_0_1px_1px_rgba(255,255,255,0.2)] dark:shadow-[0_8px_30px_rgba(0,0,0,0.5),inset_0_1px_1px_rgba(255,255,255,0.05)]"
       ].join(" ")}
-      style={{
-         ...(glow ? {} : {
-            background: `linear-gradient(165deg, hsl(${typeVar} / .06) 0%, hsl(var(--surface) / .72) 58%, hsl(var(--surface-elevated) / .65) 100%)`,
-            borderColor: `hsl(${typeVar} / .22)`
-         })
-      } as any}
+      style={glow ? {} : { borderColor: `hsl(${typeVar} / .3)` } as any}
     >
-      <div className="flex items-start gap-2">
+      {!glow && <div className="absolute inset-0 bg-gradient-to-br from-white/10 to-transparent pointer-events-none" />}
+      <div className="flex items-start gap-2 relative z-10">
         {/* Invisible drag handle placeholder for exact padding match */}
         <div className="w-6 h-8 shrink-0 flex items-center justify-center text-secondary-fg/30" aria-hidden>
           {glow && <span className="h-1.5 w-1.5 rounded-full bg-primary animate-pulse" />}
@@ -631,7 +661,7 @@ function MockBlock({
 }
 
 /** Live ticking tracker card matching HomeTrackerHero. */
-function LiveTrackerCard({ baseElapsed }: { baseElapsed: number }) {
+function LiveTrackerCard({ baseElapsed, delay = 0.55 }: { baseElapsed: number, delay?: number }) {
   const [elapsed, setElapsed] = useState(baseElapsed);
   const RATE = 80;
 
@@ -649,9 +679,9 @@ function LiveTrackerCard({ baseElapsed }: { baseElapsed: number }) {
 
   return (
     <motion.div
-      initial={{ opacity: 0, y: 500, scale: 0.95 }}
+      initial={{ opacity: 0, y: 150, scale: 0.5 }}
       animate={{ opacity: 1, y: 0, scale: 1 }}
-      transition={{ delay: 0.55, type: "spring", stiffness: 300, damping: 22, mass: 0.9 }}
+      transition={{ delay, type: "spring", stiffness: 400, damping: 15, mass: 0.8 }}
       className="relative overflow-hidden rounded-[28px] hero-glass border border-[color-mix(in_srgb,var(--hero-accent)_45%,hsl(var(--border)/0.5))] px-5 pt-6 pb-5 tracker-hero-clock shadow-[0_12px_40px_-12px_rgba(0,0,0,0.5)]"
       style={{ "--hero-accent": "hsl(var(--type-deep))" } as any}
     >
@@ -742,30 +772,20 @@ function FeaturesShowcaseStep({
                 title={b.title}
                 typeVar={b.typeVar}
                 mins={b.mins}
-                delay={0.15 + i * 0.22}
+                delay={1.0 + i * 0.6}
                 glow={false}
                 from={i === 0 ? "left" : "right"}
               />
             ))}
           </div>
 
-          {/* Small static divider — no animation, no bouncing dots */}
-          <div className="flex justify-center py-2.5">
-            <div className="flex gap-1">
-              {[0, 1, 2].map((i) => (
-                <motion.div
-                  key={i}
-                  className="h-[4px] w-[4px] rounded-full bg-primary/35"
-                  initial={{ opacity: 0, scale: 0 }}
-                  animate={{ opacity: 1, scale: 1 }}
-                  transition={{ delay: 0.65 + i * 0.06, type: "spring", stiffness: 400, damping: 20 }}
-                />
-              ))}
-            </div>
+          {/* Small static divider — elegant line instead of heavy animated dots */}
+          <div className="flex justify-center py-5">
+            <div className="w-12 h-px bg-gradient-to-r from-transparent via-border/60 to-transparent" />
           </div>
 
           <div className="relative z-20">
-            <LiveTrackerCard baseElapsed={BASE_ELAPSED} />
+            <LiveTrackerCard baseElapsed={BASE_ELAPSED} delay={2.2} />
           </div>
         </div>
       </div>
@@ -773,7 +793,7 @@ function FeaturesShowcaseStep({
       <motion.div
         initial={{ opacity: 0, y: 20 }}
         animate={{ opacity: 1, y: 0 }}
-        transition={{ delay: 1.5, type: "spring", stiffness: 340, damping: 22 }}
+        transition={{ delay: 2.8, type: "spring", stiffness: 340, damping: 22 }}
       >
         <Button
           disabled={disabled}

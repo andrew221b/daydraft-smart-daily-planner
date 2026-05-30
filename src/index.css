@@ -502,19 +502,20 @@ body.dd-dnd-scroll-lock {
   .tracker-hero-clock::before {
     content: "";
     position: absolute;
-    inset: -18%;
+    inset: -30%;
     border-radius: 50%;
     background: conic-gradient(
       from 0deg,
       transparent 0deg,
-      color-mix(in srgb, var(--hero-accent, hsl(var(--primary))) 55%, transparent) 50deg,
-      transparent 130deg,
+      color-mix(in srgb, var(--hero-accent, hsl(var(--primary))) 40%, transparent) 40deg,
+      transparent 90deg,
       transparent 220deg,
-      color-mix(in srgb, var(--hero-accent, hsl(var(--primary))) 38%, transparent) 295deg,
-      transparent 360deg
+      color-mix(in srgb, var(--hero-accent, hsl(var(--primary))) 35%, transparent) 290deg,
+      transparent 330deg
     );
-    filter: blur(34px);
-    opacity: 0.42;
+    -webkit-mask-image: radial-gradient(circle at center, black 25%, transparent 60%);
+    mask-image: radial-gradient(circle at center, black 25%, transparent 60%);
+    opacity: 0.7;
     pointer-events: none;
     z-index: 0;
     animation: trackerHeroClockSweep 22s linear infinite;
@@ -887,8 +888,8 @@ body.dd-dnd-scroll-lock {
     right: 0;
     z-index: 18;
     pointer-events: none;
-    backdrop-filter: blur(12px);
-    -webkit-backdrop-filter: blur(12px);
+    backdrop-filter: blur(4px);
+    -webkit-backdrop-filter: blur(4px);
   }
 
   /* ── Top edge ────────────────────────────────────────── */
@@ -1154,13 +1155,14 @@ body.dd-dnd-scroll-lock {
   /* Focus timer ring effects */
   .focus-timer-ring-active {
     animation: ringShimmer 6s linear infinite;
+    filter: drop-shadow(0 0 6px hsl(var(--primary) / 0.6));
   }
   .focus-timer-overtime {
     animation: warningPulse 1.8s ease-in-out infinite;
   }
   @keyframes ringShimmer {
-    0%, 100% { stroke-opacity: 0.92; filter: drop-shadow(0 0 2px hsl(var(--primary) / 0.4)); }
-    50% { stroke-opacity: 1; filter: drop-shadow(0 0 8px hsl(var(--primary) / 0.8)); }
+    0%, 100% { stroke-opacity: 0.92; }
+    50% { stroke-opacity: 1; }
   }
   @keyframes warningPulse {
     0%, 100% { stroke: hsl(var(--destructive)); filter: drop-shadow(0 0 2px hsl(var(--destructive) / 0.4)); }
@@ -1365,12 +1367,11 @@ body.dd-dnd-scroll-lock {
 
 
 
-/* Capacitor iOS: a 34px blur over a rotating gradient is the kind of
-   thing WKWebView promotes to a permanent compositor layer. Cut blur
-   in half and slow the rotation so the GPU isn't busy at idle. */
+/* Capacitor iOS: a rotating gradient is the kind of
+   thing WKWebView promotes to a permanent compositor layer. Slow the
+   rotation so the GPU isn't busy at idle. */
 :root[data-capacitor-ios="true"] .tracker-hero-clock::before {
-  filter: blur(22px);
-  opacity: 0.38;
+  opacity: 0.65;
   animation-duration: 28s;
 }
 
@@ -1379,6 +1380,14 @@ body.dd-dnd-scroll-lock {
 :root.light .card-volumetric,
 :root.light .hero-glass {
   border-color: transparent !important;
+  /* Add realistic inner rim highlights and depth to complete the volumetric look */
+  box-shadow: 
+    inset 0 2px 4px rgba(255, 255, 255, 1),
+    inset 0 -2px 6px rgba(160, 175, 190, 0.25),
+    inset 1px 0 3px rgba(255, 255, 255, 0.9),
+    inset -1px 0 3px rgba(255, 255, 255, 0.9),
+    0 4px 12px -2px rgba(20, 30, 45, 0.08),
+    0 14px 36px -10px rgba(20, 30, 45, 0.12) !important;
 }
 
 :root.light .app-card::after,
@@ -1388,14 +1397,16 @@ body.dd-dnd-scroll-lock {
   position: absolute;
   inset: 0;
   border-radius: inherit;
-  padding: 1px;
-  background: linear-gradient(135deg, 
+  padding: 1.5px;
+  /* Sharp contrast gradient simulating metallic reflections */
+  background: linear-gradient(145deg, 
     rgba(255,255,255,1) 0%, 
-    rgba(200,205,215,0.4) 25%, 
-    rgba(255,255,255,0.8) 48%, 
-    rgba(150,160,175,0.3) 52%, 
-    rgba(255,255,255,0.9) 80%, 
-    rgba(180,185,195,0.5) 100%
+    rgba(220,225,235,0.8) 12%, 
+    rgba(255,255,255,0.95) 24%, 
+    rgba(140,150,170,0.4) 48%, 
+    rgba(255,255,255,1) 52%, 
+    rgba(180,190,205,0.6) 75%,
+    rgba(255,255,255,0.9) 100%
   );
   -webkit-mask: linear-gradient(#fff 0 0) content-box, linear-gradient(#fff 0 0);
   -webkit-mask-composite: xor;

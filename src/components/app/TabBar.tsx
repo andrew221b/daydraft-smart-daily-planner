@@ -114,8 +114,8 @@ export const TabBar = () => {
         className="pointer-events-none absolute inset-x-0 bottom-0 z-[-1]"
         style={{
           height: "max(env(safe-area-inset-bottom), 10px)",
-          backdropFilter: "blur(16px)",
-          WebkitBackdropFilter: "blur(16px)",
+          backdropFilter: "blur(6px)",
+          WebkitBackdropFilter: "blur(6px)",
           maskImage: "linear-gradient(to bottom, transparent, black 80%)",
           WebkitMaskImage: "linear-gradient(to bottom, transparent, black 80%)",
         }}
@@ -124,15 +124,8 @@ export const TabBar = () => {
       <div className="mx-auto w-[min(calc(100vw-24px),424px)] px-px">
       {/* Inner pill — frosted glass */}
       <div
-        className="relative rounded-[28px] backdrop-blur-xl bg-background/62 shadow-[0_16px_48px_-12px_rgb(0,0,0,0.22)] dark:bg-background/58 dark:shadow-[0_16px_48px_-12px_rgb(0,0,0,0.55)]"
+        className="relative rounded-[28px] backdrop-blur-xl bg-background/62 border border-white/20 dark:border-white/10 shadow-[0_8px_32px_rgba(0,0,0,0.15),inset_0_1px_1px_rgba(255,255,255,0.4)] dark:shadow-[0_8px_32px_rgba(0,0,0,0.6),inset_0_1px_1px_rgba(255,255,255,0.1)]"
       >
-        {/* Gradient hairline — fades from transparent → border-color → transparent,
-            matching the top navigation fade instead of a hard solid border. */}
-        <div
-          className="pointer-events-none absolute inset-x-3 top-0 h-px rounded-full"
-          style={{ background: "linear-gradient(90deg, transparent 0%, hsl(var(--border) / 0.45) 35%, hsl(var(--border) / 0.45) 65%, transparent 100%)" }}
-          aria-hidden
-        />
         <div className="p-1.5">
           <div ref={rowRef} className="relative isolate flex min-h-[48px] gap-1.5">
             <motion.span

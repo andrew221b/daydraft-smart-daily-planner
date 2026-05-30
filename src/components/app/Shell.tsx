@@ -47,11 +47,11 @@ export const Shell = ({
       aria-hidden
     />
 
-    {/* Progressive edge blur — 1 compositor layer per edge, z-18. */}
-    <div className="edge-fade edge-fade-top"    aria-hidden />
-    <div className="edge-fade edge-fade-bottom" aria-hidden />
-
     <div className="relative z-10 w-full max-w-[440px] h-full flex flex-col px-1.5">
+      {/* Progressive edge blur — Moved inside z-10 wrapper so TabBar (z-40) renders OVER it */}
+      <div className="edge-fade edge-fade-top"    aria-hidden />
+      <div className="edge-fade edge-fade-bottom" aria-hidden />
+
       <div
         className="pointer-events-none absolute inset-x-0 top-2 h-32 rounded-[28px] opacity-55"
         style={{ background: "radial-gradient(70% 70% at 50% 0%, hsl(var(--primary) / 0.11), transparent 72%)" }}

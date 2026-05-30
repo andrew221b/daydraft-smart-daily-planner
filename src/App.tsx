@@ -18,6 +18,7 @@ import { EagerPrefetcher } from "@/components/app/EagerPrefetcher";
 import { Shell } from "@/components/app/Shell";
 import { PersistentTabs } from "@/components/app/PersistentTabs";
 import { NotificationBridge } from "@/components/app/NotificationBridge";
+import { AppLock } from "@/components/app/AppLock";
 import { lazyWithReload } from "@/lib/lazyWithReload";
 import ForgotPassword from "./pages/app/ForgotPassword";
 import ResetPassword from "./pages/app/ResetPassword";
@@ -113,7 +114,12 @@ const DeepLinkBridge = () => {
         if (currentPath === newPathname && (currentSearch === `?${newSearch}` || (!currentSearch && !newSearch))) {
           return;
         }
-        navigate(path, { replace: true });
+        // Defer navigation until the iOS WebView compositor is fully resumed.
+        // Synchronous React rendering during the appUrlOpen transition can cause
+        // the visual layer to freeze, ignoring subsequent TabBar clicks.
+        requestAnimationFrame(() => {
+          setTimeout(() => navigate(path, { replace: true }), 50);
+        });
       },
       (action) => {
         // "Stop" tapped inside the Tracker Live Activity. The tracker is the
@@ -130,43 +136,6 @@ const DeepLinkBridge = () => {
   }, [navigate]);
   return null;
 };
-
-/**
- * iOS WKWebView prepares the keyboard UI lazily — the first ever focus in a
- * session triggers a 1-3 second initialization. Pre-warm it by focusing a
- * hidden off-screen input ~2 seconds after the app loads, before the user
- * touches any real field. Native-only: on web this is a no-op.
- */
-function KeyboardPrewarm() {
-  const ref = useRef<HTMLInputElement>(null);
-  useEffect(() => {
-    if (!Capacitor.isNativePlatform()) return;
-    const t = window.setTimeout(() => {
-      const el = ref.current;
-      if (!el) return;
-      el.focus();
-      window.setTimeout(() => el.blur(), 50);
-    }, 2000);
-    return () => window.clearTimeout(t);
-  }, []);
-  return (
-    <input
-      ref={ref}
-      aria-hidden="true"
-      readOnly
-      tabIndex={-1}
-      style={{
-        position: "fixed",
-        opacity: 0,
-        pointerEvents: "none",
-        top: "-9999px",
-        left: "-9999px",
-        width: "1px",
-        height: "1px",
-      }}
-    />
-  );
-}
 
 const ThemedToaster = () => {
   const { resolved } = useTheme();
@@ -209,8 +178,7 @@ const AppContent = () => {
         <ProfileProvider>
         <TourProvider>
         <TimeTrackerProvider>
-        
-            <KeyboardPrewarm />
+          <AppLock>
             <EagerPrefetcher />
             <DeepLinkBridge />
             <NotificationBridge />
@@ -246,7 +214,7 @@ const AppContent = () => {
             <Route path="/settings/delete-account" element={<RequireAuth><SuspenseRoute><DeleteAccount /></SuspenseRoute></RequireAuth>} />
             <Route path="*" element={<NotFound />} />
           </Routes>
-        
+          </AppLock>
         </TimeTrackerProvider>
         </TourProvider>
         </ProfileProvider>

@@ -31,68 +31,96 @@ struct TrackerLiveActivityWidget: Widget {
 
             return DynamicIsland {
                 // ── Expanded Island ──────────────────────────────────────
+                // Radically redesigned for maximum visual impact and UX.
+                // We use leading/trailing for top-level context, and bottom for the main controls.
 
-                // Leading: dot + category name
                 DynamicIslandExpandedRegion(.leading) {
-                    HStack(spacing: 5) {
-                        SessionDot(color: accent, size: 7)
-                        Text(ctx.attributes.categoryName)
-                            .font(.system(size: 14, weight: .semibold, design: .rounded))
-                            .foregroundStyle(DD.white)
-                            .lineLimit(1)
+                    HStack(spacing: 6) {
+                        if #available(iOS 17.0, *) {
+                            Image(systemName: "waveform")
+                                .font(.system(size: 14, weight: .bold))
+                                .foregroundStyle(accent)
+                                .symbolEffect(.variableColor.iterative.dimInactiveLayers.nonReversing)
+                        } else {
+                            SessionDot(color: accent, size: 8)
+                        }
+                        Text("TRACKING")
+                            .font(.system(size: 12, weight: .bold, design: .rounded))
+                            .foregroundStyle(accent)
+                            .tracking(1.2)
                     }
-                    .padding(.leading, 2)
+                    .padding(.leading, 4)
+                    .padding(.top, 4)
                 }
 
-                // Trailing: hourly rate — only shown when one is set
                 DynamicIslandExpandedRegion(.trailing) {
-                    if ctx.attributes.hourlyRate > 0 {
-                        Text(ddRate(ctx.attributes.hourlyRate, ctx.attributes.currencyCode))
-                            .font(.system(size: 12, weight: .medium, design: .rounded))
-                            .foregroundStyle(DD.green)
-                            .padding(.trailing, 2)
-                    }
-                }
-
-                // Center: "Tracking" label so expanded island isn't lopsided
-                DynamicIslandExpandedRegion(.center) {
-                    Text("Tracking")
-                        .font(.system(size: 12, weight: .medium, design: .rounded))
-                        .foregroundStyle(DD.faint)
-                }
-
-                // Bottom: large live timer + Stop button
-                DynamicIslandExpandedRegion(.bottom) {
-                    HStack(alignment: .center) {
-                        Text(ctx.state.startedAt, style: .timer)
-                            .font(.system(size: 38, weight: .bold, design: .rounded))
-                            .monospacedDigit()
-                            .foregroundStyle(DD.white)
-                            .frame(maxWidth: .infinity, alignment: .leading)
-
-                        Link(destination: stopURL) {
-                            CircularButton(icon: "stop.fill", color: DD.red, size: 46)
+                    HStack(spacing: 6) {
+                        if ctx.attributes.hourlyRate > 0 {
+                            Text(ddRate(ctx.attributes.hourlyRate, ctx.attributes.currencyCode))
+                                .font(.system(size: 13, weight: .heavy, design: .rounded))
+                                .foregroundStyle(DD.green)
+                        } else {
+                            Image(systemName: "clock")
+                                .font(.system(size: 13, weight: .semibold))
+                                .foregroundStyle(DD.dim)
                         }
                     }
-                    .padding(.top, 8)
-                    .padding(.bottom, 4)
+                    .padding(.trailing, 4)
+                    .padding(.top, 4)
+                }
+
+                DynamicIslandExpandedRegion(.bottom) {
+                    HStack(alignment: .center) {
+                        VStack(alignment: .leading, spacing: 2) {
+                            Text(ctx.state.startedAt, style: .timer)
+                                .font(.system(size: 32, weight: .heavy, design: .rounded))
+                                .monospacedDigit()
+                                .foregroundStyle(DD.white)
+                                .contentTransition(.numericText())
+                            
+                            Text(ctx.attributes.categoryName)
+                                .font(.system(size: 14, weight: .semibold, design: .rounded))
+                                .foregroundStyle(DD.dim)
+                                .lineLimit(1)
+                        }
+                        
+                        Spacer()
+                        
+                        Link(destination: stopURL) {
+                            HStack(spacing: 6) {
+                                Image(systemName: "stop.fill")
+                                    .font(.system(size: 14, weight: .bold))
+                                Text("Stop")
+                                    .font(.system(size: 15, weight: .bold, design: .rounded))
+                            }
+                            .padding(.horizontal, 16)
+                            .padding(.vertical, 12)
+                            .background(DD.red.opacity(0.15))
+                            .foregroundStyle(DD.red)
+                            .clipShape(Capsule())
+                            .overlay(
+                                Capsule().stroke(DD.red.opacity(0.3), lineWidth: 1)
+                            )
+                        }
+                    }
+                    .padding(.horizontal, 8)
+                    .padding(.bottom, 8)
+                    .padding(.top, 12)
                 }
             } compactLeading: {
-                SessionDot(color: accent, size: 7)
-                    .padding(.leading, 3)
-
+                SessionDot(color: accent, size: 8)
+                    .padding(.leading, 4)
             } compactTrailing: {
                 Text(ctx.state.startedAt, style: .timer)
                     .font(.system(size: 13, weight: .semibold, design: .rounded))
                     .monospacedDigit()
                     .foregroundStyle(accent)
                     .frame(maxWidth: 60, alignment: .trailing)
-                    .padding(.trailing, 3)
-
+                    .padding(.trailing, 4)
             } minimal: {
                 // SF Symbol so the minimal island is recognisable, not just a dot
                 Image(systemName: "timer")
-                    .font(.system(size: 11, weight: .bold))
+                    .font(.system(size: 12, weight: .bold))
                     .foregroundStyle(accent)
             }
             .widgetURL(ddURL("tracker"))

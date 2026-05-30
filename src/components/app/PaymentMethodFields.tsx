@@ -437,15 +437,7 @@ function CurrencyPickerInline({
             className="overflow-hidden"
           >
             <div className="mt-2 rounded-2xl border border-border/60 bg-foreground/[0.025] p-2">
-              <div className="relative mb-2">
-                <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-3.5 w-3.5 text-secondary-fg/55 pointer-events-none" />
-                <input
-                  value={query}
-                  onChange={(e) => setQuery(e.target.value)}
-                  placeholder={kind === "fiat" ? "USD, Euro…" : "USDT, Bitcoin…"}
-                  className="field-recessed w-full h-9 pl-9 pr-3 rounded-xl border-0 text-[13px] placeholder:text-secondary-fg/45 focus:outline-none transition-colors"
-                />
-              </div>
+
               <div className="grid grid-cols-3 sm:grid-cols-4 gap-1.5 max-h-[200px] overflow-y-auto pt-1 pl-1 pb-1 pr-1">
                 {filtered.map((code) => {
                   const selected = code === displayValue;

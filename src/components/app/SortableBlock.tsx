@@ -1,5 +1,5 @@
 import type React from "react";
-import { useState } from "react";
+import { useState, memo } from "react";
 import { useSortable } from "@dnd-kit/sortable";
 import { CSS } from "@dnd-kit/utilities";
 import { AnimatePresence, motion } from "framer-motion";
@@ -36,7 +36,7 @@ type BlockExt = Block & {
   moved_to_date?: string | null;
 };
 
-export const SortableBlock = ({
+export const SortableBlock = memo(({
   block,
   editing,
   onTap,
@@ -503,7 +503,7 @@ export const SortableBlock = ({
       </AnimatePresence>
     </div>
   );
-};
+});
 
 /** Future-plan circle — dashed SVG outline, not interactive.
  *  Communicates "planned but not yet actionable" without aggressive iconography. */

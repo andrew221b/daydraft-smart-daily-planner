@@ -51,7 +51,7 @@ export function attachVisualViewportInset(): () => void {
         (el instanceof HTMLElement && el.isContentEditable)
       ) {
         try {
-          el.scrollIntoView({ behavior: "smooth", block: "center" });
+          el.scrollIntoView({ behavior: "auto", block: "center" });
         } catch {
           /* iOS WKWebView occasionally throws on cross-origin scroll roots */
         }

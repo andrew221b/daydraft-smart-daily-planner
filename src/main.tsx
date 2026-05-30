@@ -82,22 +82,37 @@ function tryFadeOverlay(): void {
 }
 
 if (Capacitor.isNativePlatform()) {
-  void import("@capacitor/splash-screen")
-    .then(({ SplashScreen }) => SplashScreen.hide())
-    .then(() => {
-      // .hide() resolves the moment the fade is initiated, not when it
-      // completes. Wait the fadeOutDuration before marking splash gone.
-      window.setTimeout(() => {
+  // Pre-warm the iOS WKWebView keyboard while the native splash screen
+  // is still covering the app. This eliminates the 1-3 second main-thread
+  // freeze that occurs the first time an input is focused in a session.
+  const prewarm = document.createElement("input");
+  prewarm.style.position = "fixed";
+  prewarm.style.top = "-9999px";
+  prewarm.style.opacity = "0";
+  document.body.appendChild(prewarm);
+  prewarm.focus();
+
+  window.setTimeout(() => {
+    prewarm.blur();
+    prewarm.remove();
+    
+    void import("@capacitor/splash-screen")
+      .then(({ SplashScreen }) => SplashScreen.hide())
+      .then(() => {
+        // .hide() resolves the moment the fade is initiated, not when it
+        // completes. Wait the fadeOutDuration before marking splash gone.
+        window.setTimeout(() => {
+          splashGone = true;
+          tryFadeOverlay();
+        }, NATIVE_SPLASH_FADE_MS);
+      })
+      .catch(() => {
+        // Plugin failed to load or hide rejected — fall through so the
+        // overlay can still fade and the app isn't stuck behind a splash.
         splashGone = true;
         tryFadeOverlay();
-      }, NATIVE_SPLASH_FADE_MS);
-    })
-    .catch(() => {
-      // Plugin failed to load or hide rejected — fall through so the
-      // overlay can still fade and the app isn't stuck behind a splash.
-      splashGone = true;
-      tryFadeOverlay();
-    });
+      });
+  }, 100);
   // Hard failsafe: if SplashScreen.hide never resolves at all, don't
   // leave the user staring at the boot loader forever.
   window.setTimeout(() => {

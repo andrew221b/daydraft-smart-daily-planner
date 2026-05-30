@@ -30,74 +30,51 @@ struct FocusLiveActivityWidget: Widget {
         } dynamicIsland: { ctx in
             DynamicIsland {
                 // ── Expanded Island ──────────────────────────────────────
+                // Radically redesigned for maximum visual impact and minimal height.
 
-                // Leading: glowing dot + "In Focus" caption
                 DynamicIslandExpandedRegion(.leading) {
-                    HStack(spacing: 5) {
-                        SessionDot(color: DD.blue, size: 7)
-                        Text("In Focus")
-                            .font(.system(size: 12, weight: .medium, design: .rounded))
-                            .foregroundStyle(DD.dim)
-                    }
-                    .padding(.leading, 2)
-                    .background(
-                        RadialGradient(colors: [DD.blue.opacity(0.15), .clear], center: .leading, startRadius: 10, endRadius: 100)
-                            .padding(-40)
-                    )
-                }
-
-                // Trailing: planned duration — faint, non-critical
-                DynamicIslandExpandedRegion(.trailing) {
-                    let dur = ddDuration(ctx.attributes.plannedMinutes)
-                    if !dur.isEmpty {
-                        Text("of \(dur)")
-                            .font(.system(size: 11, weight: .regular, design: .rounded))
-                            .foregroundStyle(DD.faint)
-                            .padding(.trailing, 2)
-                    }
-                }
-
-                // Center: task title — most important piece of info
-                DynamicIslandExpandedRegion(.center) {
-                    Text(ctx.attributes.taskTitle)
-                        .font(.system(size: 15, weight: .semibold, design: .rounded))
-                        .foregroundStyle(DD.white)
-                        .lineLimit(1)
-                        .truncationMode(.tail)
-                }
-
-                // Bottom: large live timer + Done action
-                DynamicIslandExpandedRegion(.bottom) {
-                    HStack(alignment: .center) {
-                        let end = ctx.state.startedAt.addingTimeInterval(Double(ctx.attributes.plannedMinutes * 60))
-                        if ctx.attributes.plannedMinutes > 0 {
-                            ProgressView(timerInterval: ctx.state.startedAt...end, countsDown: true)
-                                .progressViewStyle(.circular)
-                                .tint(DD.blue)
-                                .scaleEffect(1.2)
-                                .padding(.leading, 8)
-                        } else {
-                            Image(systemName: "timer")
-                                .font(.system(size: 24, weight: .bold))
-                                .foregroundStyle(DD.blue)
-                                .padding(.leading, 8)
+                    VStack(alignment: .leading, spacing: 2) {
+                        HStack(spacing: 6) {
+                            if #available(iOS 17.0, *) {
+                                Image(systemName: "waveform")
+                                    .font(.system(size: 13, weight: .bold))
+                                    .foregroundStyle(DD.blue)
+                                    .symbolEffect(.variableColor.iterative.dimInactiveLayers.nonReversing)
+                            } else {
+                                SessionDot(color: DD.blue, size: 7)
+                            }
+                            Text("Focus")
+                                .font(.system(size: 14, weight: .bold, design: .rounded))
+                                .foregroundStyle(DD.white)
                         }
+                        Text(ctx.attributes.taskTitle)
+                            .font(.system(size: 11, weight: .medium, design: .rounded))
+                            .foregroundStyle(DD.faint)
+                            .lineLimit(1)
+                    }
+                    .padding(.leading, 6)
+                    .padding(.top, 4)
+                }
 
-                        Text(ctx.state.startedAt, style: .timer)
-                            .font(.system(size: 34, weight: .bold, design: .rounded))
-                            .monospacedDigit()
-                            .foregroundStyle(DD.white)
-                            .padding(.leading, 12)
-                            .frame(maxWidth: .infinity, alignment: .leading)
-
+                DynamicIslandExpandedRegion(.trailing) {
+                    HStack(spacing: 8) {
                         if let url = ddFocusDoneURL(ctx.attributes.blockId) {
                             Link(destination: url) {
-                                CircularButton(icon: "checkmark", color: DD.blue, size: 44)
+                                Image(systemName: "checkmark.circle.fill")
+                                    .font(.system(size: 24))
+                                    .foregroundStyle(DD.blue)
                             }
                         }
                     }
-                    .padding(.top, 8)
-                    .padding(.bottom, 4)
+                    .padding(.trailing, 2)
+                    .padding(.top, 2)
+                }
+
+                DynamicIslandExpandedRegion(.center) {
+                    Text(ctx.state.startedAt, style: .timer)
+                        .font(.system(size: 24, weight: .heavy, design: .rounded))
+                        .monospacedDigit()
+                        .foregroundStyle(DD.blue)
                 }
             } compactLeading: {
                 let end = ctx.state.startedAt.addingTimeInterval(Double(ctx.attributes.plannedMinutes * 60))

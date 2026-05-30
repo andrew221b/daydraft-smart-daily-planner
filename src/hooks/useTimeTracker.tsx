@@ -740,7 +740,7 @@ export function TimeTrackerProvider({ children }: { children: ReactNode }) {
     // Stamp rate_set_at the first time a positive rate is assigned so that
     // previously-tracked time (before the rate existed) is not retroactively
     // counted toward earnings.
-    const prev = categoriesData.find((c) => c.id === id);
+    const prev = categories.find((c) => c.id === id);
     const wasUnrated = !prev?.hourly_rate;
     const nowRated = normalized !== null && normalized > 0;
     const rateSetAt = wasUnrated && nowRated ? new Date().toISOString() : undefined;
