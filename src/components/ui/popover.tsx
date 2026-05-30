@@ -27,8 +27,8 @@ const PopoverContent = React.forwardRef<
         "data-[state=open]:zoom-in-95 data-[state=closed]:zoom-out-95",
         "data-[side=bottom]:slide-in-from-top-1 data-[side=top]:slide-in-from-bottom-1",
         "data-[side=left]:slide-in-from-right-1 data-[side=right]:slide-in-from-left-1",
-        "data-[state=open]:duration-[180ms] data-[state=closed]:duration-[140ms]",
-        "data-[state=open]:[animation-timing-function:cubic-bezier(0.32,0.72,0,1)] data-[state=closed]:[animation-timing-function:cubic-bezier(0.4,0,0.4,1)]",
+        "data-[state=open]:duration-[220ms] data-[state=closed]:duration-[160ms]",
+        "data-[state=open]:[animation-timing-function:cubic-bezier(0.16,1,0.3,1)] data-[state=closed]:[animation-timing-function:cubic-bezier(0.4,0,0.8,0.5)]",
         className,
       )}
       {...props}

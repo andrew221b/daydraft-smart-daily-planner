@@ -11,14 +11,15 @@ import { AuthProvider, useAuth } from "@/hooks/useAuth";
 import { ProfileProvider, useProfile } from "@/hooks/useProfile";
 import { useTheme } from "@/lib/theme";
 import { TourProvider } from "@/components/app/Tour";
-import { TimeTrackerProvider } from "@/hooks/useTimeTracker";
+import { TimeTrackerProvider, useTimeTracker } from "@/hooks/useTimeTracker";
 import { PageFallback } from "@/components/app/PageFallback";
 import { RouteErrorBoundary } from "@/components/app/RouteErrorBoundary";
 import { EagerPrefetcher } from "@/components/app/EagerPrefetcher";
 import { Shell } from "@/components/app/Shell";
+import { PersistentTabs } from "@/components/app/PersistentTabs";
+import { NotificationBridge } from "@/components/app/NotificationBridge";
 import { AppLock } from "@/components/app/AppLock";
 import { BiometricOptInSheet } from "@/components/app/BiometricOptInSheet";
-import { PersistentTabs } from "@/components/app/PersistentTabs";
 import { lazyWithReload } from "@/lib/lazyWithReload";
 import ForgotPassword from "./pages/app/ForgotPassword";
 import ResetPassword from "./pages/app/ResetPassword";
@@ -96,8 +97,23 @@ const RootRedirect = () => {
  *  same router so a tapped notification opens the right screen. */
 const DeepLinkBridge = () => {
   const navigate = useNavigate();
+  const { stop } = useTimeTracker();
+  // Hold the latest stop() in a ref so the listener can be attached once and
+  // never churns when the tracker provider re-renders.
+  const stopRef = useRef(stop);
   useEffect(() => {
-    const unsubscribe = attachDeepLinkListener((path) => navigate(path));
+    stopRef.current = stop;
+  }, [stop]);
+  useEffect(() => {
+    const unsubscribe = attachDeepLinkListener(
+      (path) => navigate(path),
+      (action) => {
+        // "Stop" tapped inside the Tracker Live Activity. The tracker is the
+        // single global session, so no id is needed — stop() ends it and the
+        // tracker store tears the activity down.
+        if (action.type === "tracker_stop") void stopRef.current?.();
+      },
+    );
     setPushDeepLinkHandler((path) => navigate(path));
     return () => {
       unsubscribe();
@@ -185,14 +201,11 @@ const AppContent = () => {
         <ProfileProvider>
         <TourProvider>
         <TimeTrackerProvider>
-          <AppLock>
+        <AppLock>
             <KeyboardPrewarm />
             <EagerPrefetcher />
             <DeepLinkBridge />
-            {/* One-time post-auth opt-in for Face ID / Fingerprint.
-                Self-gates on user + onboarded + native + not-yet-asked, so
-                it's safe to leave mounted at the app root; it only shows
-                its sheet when the conditions all line up. */}
+            <NotificationBridge />
             <BiometricOptInSheet />
           <Routes>
             <Route path="/" element={<RootRedirect />} />
@@ -225,7 +238,7 @@ const AppContent = () => {
             <Route path="/settings/delete-account" element={<RequireAuth><SuspenseRoute><DeleteAccount /></SuspenseRoute></RequireAuth>} />
             <Route path="*" element={<NotFound />} />
           </Routes>
-          </AppLock>
+        </AppLock>
         </TimeTrackerProvider>
         </TourProvider>
         </ProfileProvider>
@@ -233,17 +246,17 @@ const AppContent = () => {
       </BrowserRouter>
       {/* Global home-indicator cover. Radial blue arc that mirrors the top
           --gradient-glow halo. Uses --primary (Apple Blue), not --primary-glow
-          (which is Apple Indigo and reads as purple). The ellipse is set to
-          240% tall so the arc shape is visible even inside the thin
-          safe-area-inset strip — we see only the top sliver of a much taller
-          glow, exactly like the top arc bleeds down from above the screen. */}
+          (which is Apple Indigo and reads as purple). The ellipse is 240% tall
+          so the arc shape shows inside the thin safe-area strip. Horizontal
+          radius is 34% (was 62%) so the colour is a centred spot that fades to
+          nothing ~20% before each screen side — no hard cut-off at the corners. */}
       <div
         className="pointer-events-none fixed inset-x-0 bottom-0"
         style={{
           height: "env(safe-area-inset-bottom, 0px)",
           zIndex: 99999,
           background:
-            "radial-gradient(62% 240% at 50% 100%, hsl(var(--primary) / 0.32) 0%, hsl(var(--primary) / 0.14) 40%, hsl(var(--primary) / 0.04) 78%, transparent 100%)",
+            "radial-gradient(34% 240% at 50% 100%, hsl(var(--primary) / 0.30) 0%, hsl(var(--primary) / 0.12) 42%, transparent 74%)",
         }}
         aria-hidden
       />

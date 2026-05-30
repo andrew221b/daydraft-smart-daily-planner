@@ -54,6 +54,7 @@ export const SortableBlock = ({
   onSaveTemplate,
   onDeleteBlock,
   isOverlay,
+  isFuturePlan = false,
 }: {
   block: BlockExt;
   editing: boolean;
@@ -71,6 +72,8 @@ export const SortableBlock = ({
   onAskAi?: (b: any) => void;
   onSaveTemplate?: (b: any) => void;
   onDeleteBlock?: (b: any) => void;
+  /** True when the plan date is in the future — completion is locked. */
+  isFuturePlan?: boolean;
   isOverlay?: boolean;
 }) => {
   const [expanded, setExpanded] = useState(false);
@@ -362,6 +365,8 @@ export const SortableBlock = ({
               <div className="h-7 w-7 rounded-full border border-destructive/35 bg-destructive/10 shrink-0" title="Missed" aria-hidden />
             ) : isDone || (block.completed && block.kind !== "task") ? (
               <CompleteCircleDone tourSpotlight={tourSpotlight} onToggle={() => onToggleComplete?.(block)} />
+            ) : isFuturePlan && isTask ? (
+              <CompleteCircleLocked />
             ) : (
               <CompleteCircleEmpty tourSpotlight={tourSpotlight} onToggle={() => onToggleComplete?.(block)} />
             )}
@@ -479,6 +484,29 @@ export const SortableBlock = ({
     </div>
   );
 };
+
+/** Future-plan circle — dashed SVG outline, not interactive.
+ *  Communicates "planned but not yet actionable" without aggressive iconography. */
+function CompleteCircleLocked() {
+  return (
+    <div
+      className="relative h-8 w-8 shrink-0 pointer-events-none select-none"
+      aria-label="Complete on the day"
+    >
+      <svg viewBox="0 0 32 32" className="absolute inset-0 w-full h-full opacity-35">
+        <circle
+          cx="16" cy="16" r="12.5"
+          fill="none"
+          stroke="currentColor"
+          strokeWidth="1.5"
+          strokeDasharray="3.5 2.8"
+          strokeLinecap="round"
+          className="text-foreground"
+        />
+      </svg>
+    </div>
+  );
+}
 
 function CompleteCircleEmpty({
   tourSpotlight,

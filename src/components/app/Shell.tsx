@@ -51,11 +51,9 @@ export const Shell = ({
       aria-hidden
     />
 
-    {/* Edge chrome — above content (z-[18]), below tab bar (z-40) */}
-    <div
-      className="pointer-events-none fixed inset-x-0 top-0 z-[18] shell-edge-top"
-      aria-hidden
-    />
+    {/* Progressive edge blur — 1 compositor layer per edge, z-18. */}
+    <div className="edge-fade edge-fade-top"    aria-hidden />
+    <div className="edge-fade edge-fade-bottom" aria-hidden />
 
     <div className="relative z-10 w-full max-w-[440px] h-full flex flex-col px-1.5">
       <div

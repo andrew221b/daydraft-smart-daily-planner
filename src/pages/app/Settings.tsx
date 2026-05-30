@@ -6,9 +6,16 @@ import { Textarea } from "@/components/ui/textarea";
 import { Button } from "@/components/ui/button";
 import { useEffect, useState } from "react";
 import { ThemeToggle } from "@/components/app/ThemeToggle";
-import { Fingerprint, Sparkles, Bell, FileText, Shield, Trash2, HelpCircle, Download, Loader2 } from "lucide-react";
+import { Sparkles, Bell, FileText, Shield, Trash2, HelpCircle, Download, Loader2, ScanFace, Fingerprint, Lock } from "lucide-react";
 import { Link, useNavigate, useLocation } from "react-router-dom";
+import { Capacitor } from "@capacitor/core";
 import { NativeBiometric } from "@capgo/capacitor-native-biometric";
+import {
+  getAppLockEnabled, setAppLockEnabled,
+  getGatePref, setGatePref,
+  getBiometricInfo, type BiometricInfo,
+} from "@/lib/biometricGate";
+import { haptics } from "@/lib/haptics";
 import { toast } from "sonner";
 import { useEntitlement } from "@/hooks/useEntitlement";
 import { isSimulateProUiAllowed, writeDevSimulatePro } from "@/lib/devEntitlement";
@@ -35,7 +42,6 @@ export default function Settings() {
   // would otherwise spam writes mid-thought.
   const [aboutDraft, setAboutDraft] = useState("");
   const [aboutSaving, setAboutSaving] = useState(false);
-  const [hasPasskey, setHasPasskey] = useState(localStorage.getItem("daydraft.applock") === "true");
   const { entitlement, isPro, devSimulatePro, subscriptionPro, planQuotaUsed, planQuotaLimit, planQuotaRemaining } = useEntitlement();
   const [upgradeOpen, setUpgradeOpen] = useState(false);
   const [proSheetOpen, setProSheetOpen] = useState(false);
@@ -43,6 +49,53 @@ export default function Settings() {
   const [visualMode, setVisualMode] = useVisualMode();
   const [pushState] = useState(() => pushAvailability());
   const pushReady = pushState === "ok";
+
+  // ── Biometric / Security ──────────────────────────────────────────────────
+  const [bioInfo, setBioInfo] = useState<BiometricInfo | null>(null);
+  const [appLockOn, setAppLockOn] = useState<boolean>(() => getAppLockEnabled());
+  const [gateProt, setGateProt] = useState<"on"|"off"|"unset">(() => getGatePref());
+  const [bioTogglingLock, setBioTogglingLock] = useState(false);
+
+  useEffect(() => {
+    if (!Capacitor.isNativePlatform()) return;
+    getBiometricInfo().then(setBioInfo);
+  }, []);
+
+  const toggleAppLock = async (enable: boolean) => {
+    if (bioTogglingLock) return;
+    if (enable) {
+      setBioTogglingLock(true);
+      try {
+        await NativeBiometric.verifyIdentity({
+          reason: enable ? "Enable App Lock" : "Disable App Lock",
+          title: "Confirm identity",
+          subtitle: enable ? "Verify to enable App Lock" : "Verify to disable App Lock",
+          description: "Keep your daily plans private.",
+        });
+        setAppLockEnabled(true);
+        setAppLockOn(true);
+        haptics.notify("success");
+      } catch {
+        /* user cancelled — stay as-is */
+      } finally {
+        setBioTogglingLock(false);
+      }
+    } else {
+      setAppLockEnabled(false);
+      setAppLockOn(false);
+      haptics.selection();
+    }
+  };
+
+  const toggleGateProtection = (enable: boolean) => {
+    const pref = enable ? "on" : "off";
+    setGatePref(pref);
+    setGateProt(pref);
+    haptics.selection();
+    if (enable) toast("Payment details will require Face ID / fingerprint to view.");
+    else        toast("Payment details will open without verification.");
+  };
+
   // Hidden developer panel — tap the version label 10× in 3s to open.
   const [versionTaps, setVersionTaps] = useState(0);
   const [perfPanelOpen, setPerfPanelOpen] = useState(false);
@@ -107,33 +160,6 @@ export default function Settings() {
     });
     return () => cancelAnimationFrame(id);
   }, [location.hash]);
-
-  const togglePasskey = async () => {
-    try {
-      const { isAvailable } = await NativeBiometric.isAvailable();
-      if (!isAvailable) {
-        toast.error("Biometrics not available or not configured on this device");
-        return;
-      }
-      
-      if (hasPasskey) {
-        localStorage.removeItem("daydraft.applock");
-        setHasPasskey(false);
-        toast.success("App Lock disabled");
-      } else {
-        // Require them to authenticate once to enable it
-        await NativeBiometric.verifyIdentity({
-          reason: "Verify identity to enable App Lock",
-          title: "Enable App Lock"
-        });
-        localStorage.setItem("daydraft.applock", "true");
-        setHasPasskey(true);
-        toast.success("App Lock enabled");
-      }
-    } catch (e: any) {
-      toast.error(e?.message || "Failed to configure App Lock");
-    }
-  };
 
   const togglePush = async (v: boolean) => {
     if (!user) return;
@@ -295,19 +321,54 @@ export default function Settings() {
                   </div>
                 )}
               </div>
-
-              <button onClick={togglePasskey}
-                className="w-full flex items-center justify-between px-4 py-3 ios-row">
-                <div className="flex items-center gap-3">
-                  <Fingerprint className="h-4 w-4 text-secondary-fg" />
-                  <div className="text-[14px] text-left">Face ID / fingerprint</div>
-                </div>
-                <span className={`text-[12px] font-medium ${hasPasskey ? "text-success" : "text-secondary-fg"}`}>
-                  {hasPasskey ? "On" : "Off"}
-                </span>
-              </button>
             </div>
           </Section>
+
+          {/* Security — only shown when device has enrolled biometrics */}
+          {Capacitor.isNativePlatform() && bioInfo?.available && (
+            <Section title="Security">
+              <div className="rounded-[18px] border border-border/35 hero-glass divide-y divide-border/35 overflow-hidden">
+                {/* App Lock */}
+                <div className="px-4 py-3 flex items-center gap-3">
+                  <div className="flex items-center justify-center h-8 w-8 rounded-[10px] bg-primary/10 border border-primary/18 shrink-0">
+                    {bioInfo.isFace
+                      ? <ScanFace className="h-4 w-4 text-primary" strokeWidth={1.8} />
+                      : <Lock className="h-4 w-4 text-primary" strokeWidth={1.8} />}
+                  </div>
+                  <div className="flex-1 min-w-0">
+                    <div className="text-[14px]">App Lock</div>
+                    <div className="text-[11px] text-secondary-fg/70 mt-0.5">
+                      Require {bioInfo.isFace
+                        ? (Capacitor.getPlatform() === "android" ? "Face Auth" : "Face ID")
+                        : (Capacitor.getPlatform() === "android" ? "fingerprint" : "Touch ID")} when you reopen the app
+                    </div>
+                  </div>
+                  <Switch
+                    checked={appLockOn}
+                    disabled={bioTogglingLock}
+                    onCheckedChange={toggleAppLock}
+                  />
+                </div>
+
+                {/* Payment & export gate */}
+                <div className="px-4 py-3 flex items-center gap-3">
+                  <div className="flex items-center justify-center h-8 w-8 rounded-[10px] bg-primary/10 border border-primary/18 shrink-0">
+                    <Fingerprint className="h-4 w-4 text-primary" strokeWidth={1.8} />
+                  </div>
+                  <div className="flex-1 min-w-0">
+                    <div className="text-[14px]">Protect payment details</div>
+                    <div className="text-[11px] text-secondary-fg/70 mt-0.5">
+                      Verify identity before viewing billing info or exporting reports
+                    </div>
+                  </div>
+                  <Switch
+                    checked={gateProt === "on"}
+                    onCheckedChange={toggleGateProtection}
+                  />
+                </div>
+              </div>
+            </Section>
+          )}
 
           {/* 6. Help + legal — quiet, terminal items */}
           <Section title="More">

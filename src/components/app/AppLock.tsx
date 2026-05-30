@@ -3,6 +3,7 @@ import { App as CapacitorApp } from "@capacitor/app";
 import { Capacitor } from "@capacitor/core";
 import { NativeBiometric } from "@capgo/capacitor-native-biometric";
 import { Fingerprint, ScanFace } from "lucide-react";
+import { getAppLockEnabled } from "@/lib/biometricGate";
 
 /** Background-lock grace period. Brief inactivity events (Face ID system
  *  prompt, Control Center pull-down, notification banner expand, even an
@@ -65,7 +66,7 @@ export function AppLock({ children }: { children: React.ReactNode }) {
       // within BACKGROUND_LOCK_DELAY_MS, we cancel it above. Only sustained
       // inactivity actually flips us to locked.
       if (lockTimerRef.current !== null) return; // already scheduled
-      if (localStorage.getItem("daydraft.applock") !== "true") return;
+      if (!getAppLockEnabled()) return;
       lockTimerRef.current = window.setTimeout(() => {
         lockTimerRef.current = null;
         setLocked(true);

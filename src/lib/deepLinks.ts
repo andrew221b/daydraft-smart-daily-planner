@@ -65,6 +65,13 @@ export function resolveDeepLink(rawUrl: string): Route | null {
       if (!blockId) return null;
       return `/focus/${encodeURIComponent(blockId)}`;
     }
+    case "focusdone": {
+      // Live Activity "Mark done" button. Open the Focus screen and signal
+      // it to run completion exactly as if Done were tapped in-app.
+      const blockId = rest[0];
+      if (!blockId) return null;
+      return `/focus/${encodeURIComponent(blockId)}?complete=1`;
+    }
     case "today":
       return rest[0] === "plan" ? "/today/plan" : "/today";
     case "tracker":
@@ -82,9 +89,31 @@ export function resolveDeepLink(rawUrl: string): Route | null {
 
 type Unsubscribe = () => void;
 
-/** Attach the Capacitor listener and forward resolved routes to the
+/** A non-navigational command carried by a deep link — e.g. a button tapped
+ *  inside a Live Activity. Handled by the caller, never routed. */
+export type AppAction = { type: "tracker_stop" };
+
+/** Recognise action-only deep links (`daydraft://trackerstop`). Returns null
+ *  for everything else so navigation parsing can take over. */
+export function resolveDeepLinkAction(rawUrl: string): AppAction | null {
+  if (!rawUrl) return null;
+  let parsed: URL;
+  try {
+    parsed = new URL(rawUrl);
+  } catch {
+    return null;
+  }
+  if (parsed.protocol !== "daydraft:") return null;
+  if (parsed.hostname === "trackerstop") return { type: "tracker_stop" };
+  return null;
+}
+
+/** Attach the Capacitor listener and forward resolved routes / actions to the
  *  caller. Returns an unsubscribe so React effects can clean up. */
-export function attachDeepLinkListener(onRoute: (path: string) => void): Unsubscribe {
+export function attachDeepLinkListener(
+  onRoute: (path: string) => void,
+  onAction?: (action: AppAction) => void,
+): Unsubscribe {
   // Bail early when running in a plain browser — the web routing is
   // already URL-driven, no listener needed.
   if (!Capacitor.isNativePlatform()) return () => {};
@@ -99,12 +128,18 @@ export function attachDeepLinkListener(onRoute: (path: string) => void): Unsubsc
     try {
       const launch = await App.getLaunchUrl();
       if (launch?.url) {
-        const route = resolveDeepLink(launch.url);
-        if (route) onRoute(route);
+        const action = resolveDeepLinkAction(launch.url);
+        if (action) onAction?.(action);
+        else {
+          const route = resolveDeepLink(launch.url);
+          if (route) onRoute(route);
+        }
       }
     } catch { /* getLaunchUrl rejects on platforms that don't support it */ }
 
     const handle = App.addListener("appUrlOpen", (event) => {
+      const action = resolveDeepLinkAction(event.url);
+      if (action) { onAction?.(action); return; }
       const route = resolveDeepLink(event.url);
       if (route) onRoute(route);
     });

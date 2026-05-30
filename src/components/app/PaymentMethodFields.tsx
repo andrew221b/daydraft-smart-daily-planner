@@ -36,6 +36,38 @@ type FieldKey = keyof Omit<PaymentFieldsValue, "payment_method" | "currency">;
 const FIAT_LIST = FIAT_CURRENCY_CODES as readonly string[];
 const CRYPTO_LIST = CRYPTO_CURRENCY_CODES as readonly string[];
 
+/** Detail-card swap motion. The card itself crossfades (mode="wait"); its
+ *  header + fields cascade in via staggerChildren so the panel feels like it
+ *  composes itself rather than blinking. Exit is quick + linear-out so the
+ *  next card isn't kept waiting. */
+const DETAIL_CARD_VARIANTS = {
+  initial: { opacity: 0, y: 10, scale: 0.985 },
+  animate: {
+    opacity: 1,
+    y: 0,
+    scale: 1,
+    transition: {
+      duration: 0.26,
+      ease: [0.16, 1, 0.3, 1] as [number, number, number, number],
+      staggerChildren: 0.04,
+      delayChildren: 0.05,
+    },
+  },
+  exit: {
+    opacity: 0,
+    y: -8,
+    scale: 0.985,
+    transition: { duration: 0.13, ease: [0.4, 0, 1, 1] as [number, number, number, number] },
+  },
+};
+
+/** Per-row reveal inside the detail card. */
+const DETAIL_ITEM_VARIANTS = {
+  initial: { opacity: 0, y: 8 },
+  animate: { opacity: 1, y: 0, transition: { type: "spring" as const, stiffness: 460, damping: 34 } },
+  exit: { opacity: 0 },
+};
+
 /**
  * Method-aware payment-fields editor with a top-level Fiat ↔ Crypto kind
  * toggle. The toggle drives:
@@ -159,28 +191,33 @@ export function PaymentMethodFields({
         />
       )}
 
-      <AnimatePresence mode="popLayout" initial={false}>
+      {/* mode="wait" crossfade: the leaving card fades + lifts away BEFORE the
+          new one rises in, so the two never overlap (which is what made the
+          old popLayout version look doubled/ragged). Variants stagger the
+          fields so the card "assembles" itself — pure transform+opacity, no
+          layout thrash. */}
+      <AnimatePresence mode="wait" initial={false}>
         {method && method.kind === kind ? (
           <motion.div
             key={method.id}
-            initial={{ opacity: 0, y: 6 }}
-            animate={{ opacity: 1, y: 0 }}
-            exit={{ opacity: 0, y: -4 }}
-            transition={{ type: "spring", stiffness: 360, damping: 30, mass: 0.7 }}
+            variants={DETAIL_CARD_VARIANTS}
+            initial="initial"
+            animate="animate"
+            exit="exit"
             className="relative overflow-hidden rounded-2xl p-3.5 space-y-2.5"
             style={{
               // Accent-tinted glass that holds the recessed inputs. Same
               // gradient direction as the pebble chips above (top → bottom)
               // so the whole sheet reads as one piece of lit hardware.
               background:
-                "linear-gradient(180deg, hsl(var(--m-accent) / 0.12) 0%, hsl(var(--background) / 0.55) 60%, hsl(var(--background) / 0.42) 100%)",
+                "linear-gradient(180deg, hsl(var(--m-accent) / 0.14) 0%, hsl(var(--card) / 0.92) 55%, hsl(var(--card) / 0.85) 100%)",
               boxShadow: [
                 // Subtle top highlight (light catches the top edge of the card)
-                "inset 0 1px 0 hsl(0 0% 100% / 0.07)",
+                "inset 0 1px 0 hsl(0 0% 100% / 0.5)",
                 // Faint bottom inset shadow (card sits in its own shade)
                 "inset 0 -1px 0 hsl(var(--m-accent) / 0.18)",
                 // Accent hairline ring around the whole shape
-                "0 0 0 1px hsl(var(--m-accent) / 0.28)",
+                "0 0 0 1px hsl(var(--m-accent) / 0.34)",
                 // Outer glow — lifts the card off the sheet's neutral bg
                 "0 14px 32px -18px hsl(var(--m-accent) / 0.45)",
                 "0 4px 12px -8px hsl(var(--m-accent) / 0.20)",
@@ -188,7 +225,7 @@ export function PaymentMethodFields({
               ["--m-accent" as string]: method.accent,
             } as CSSProperties}
           >
-            <div className="flex items-center gap-2 px-0.5">
+            <motion.div variants={DETAIL_ITEM_VARIANTS} className="flex items-center gap-2 px-0.5">
               <span
                 className="flex h-5 w-5 shrink-0 items-center justify-center rounded-md"
                 style={{ background: "hsl(var(--m-accent) / 0.20)", color: "hsl(var(--m-accent))" }}
@@ -198,9 +235,9 @@ export function PaymentMethodFields({
               <span className="text-[10px] font-semibold uppercase tracking-[0.14em] text-secondary-fg/80">
                 {method.detailTitle}
               </span>
-            </div>
+            </motion.div>
             <div className="space-y-2">
-              {method.fields.map((f, idx) => {
+              {method.fields.map((f) => {
                 // crypto_network options are derived from the selected coin
                 // so a user picking BTC sees Bitcoin/Lightning, USDT sees the
                 // top stablecoin chains, etc. — not the full 30-row menu.
@@ -219,7 +256,9 @@ export function PaymentMethodFields({
                       })()
                     : f;
                 return (
-                  <FieldRow key={f.key} field={effective} value={value[f.key as FieldKey] ?? ""} onChange={(v) => onChange(f.key as FieldKey, v)} />
+                  <motion.div key={f.key} variants={DETAIL_ITEM_VARIANTS}>
+                    <FieldRow field={effective} value={value[f.key as FieldKey] ?? ""} onChange={(v) => onChange(f.key as FieldKey, v)} />
+                  </motion.div>
                 );
               })}
             </div>
@@ -227,11 +266,11 @@ export function PaymentMethodFields({
         ) : (
           <motion.div
             key="no-method"
-            initial={{ opacity: 0 }}
-            animate={{ opacity: 1 }}
-            exit={{ opacity: 0 }}
-            transition={{ duration: 0.16 }}
-            className="rounded-2xl border border-dashed border-border/40 bg-background/25 px-4 py-5 text-center"
+            initial={{ opacity: 0, y: 6 }}
+            animate={{ opacity: 1, y: 0 }}
+            exit={{ opacity: 0, y: -4 }}
+            transition={{ duration: 0.16, ease: [0.16, 1, 0.3, 1] }}
+            className="rounded-2xl border border-dashed border-border/70 bg-foreground/[0.03] px-4 py-5 text-center"
           >
             <p className="text-[12px] text-secondary-fg/70 leading-relaxed">
               {kind === "fiat" ? (
@@ -272,19 +311,7 @@ function KindToggle({
       <div
         role="tablist"
         aria-label="Payment rail"
-        className="relative grid grid-cols-2 gap-1 rounded-2xl p-1"
-        style={{
-          // Track has the opposite of the pill — slightly recessed,
-          // top inset shadow, dark hairline on the bottom. Makes the pill
-          // look like it's sitting in a groove.
-          background:
-            "linear-gradient(180deg, hsl(var(--foreground) / 0.06) 0%, hsl(var(--foreground) / 0.03) 100%)",
-          boxShadow: [
-            "inset 0 1.5px 2px hsl(0 0% 0% / 0.10)",
-            "inset 0 -1px 0 hsl(0 0% 100% / 0.04)",
-            "0 0 0 1px hsl(var(--border) / 0.50)",
-          ].join(", "),
-        }}
+        className="groove-track relative grid grid-cols-2 gap-1 rounded-2xl p-1"
       >
         {/* Sliding pill — gradient-tinted by the active kind, plus the
             standard pebble shadow stack so the active rail visibly LIFTS
@@ -384,25 +411,23 @@ function CurrencyPickerInline({
         type="button"
         onClick={() => { setOpen((o) => !o); setQuery(""); }}
         aria-expanded={open}
-        className="w-full h-11 inline-flex items-center justify-between gap-2.5 rounded-2xl px-3.5 text-left transition-[transform,box-shadow,background-color] duration-150 ease-[cubic-bezier(0.32,0.72,0,1)] active:scale-[0.99]"
-        style={{
-          background: displayValue
-            ? `linear-gradient(180deg, hsl(${tintHsl} / 0.14) 0%, hsl(var(--card) / 0.55) 100%)`
-            : "linear-gradient(180deg, hsl(var(--card) / 0.65) 0%, hsl(var(--card) / 0.40) 100%)",
-          boxShadow: displayValue
-            ? [
-                "inset 0 1px 0 hsl(0 0% 100% / 0.10)",
-                `inset 0 -1px 0 hsl(${tintHsl} / 0.30)`,
-                `0 0 0 1.5px hsl(${tintHsl} / 0.42)`,
-                `0 4px 14px -8px hsl(${tintHsl} / 0.45)`,
-              ].join(", ")
-            : [
-                "inset 0 1px 0 hsl(0 0% 100% / 0.06)",
-                "inset 0 -1px 0 hsl(0 0% 0% / 0.10)",
-                "0 0 0 1px hsl(var(--border) / 0.55)",
-                "0 2px 6px -3px hsl(0 0% 0% / 0.18)",
-              ].join(", "),
-        }}
+        className={[
+          "w-full h-11 inline-flex items-center justify-between gap-2.5 rounded-2xl px-3.5 text-left transition-[transform,box-shadow,background-color] duration-150 ease-[cubic-bezier(0.32,0.72,0,1)] active:scale-[0.99]",
+          displayValue ? "" : "pebble-idle",
+        ].join(" ")}
+        style={
+          displayValue
+            ? {
+                background: `linear-gradient(180deg, hsl(${tintHsl} / 0.14) 0%, hsl(var(--card) / 0.55) 100%)`,
+                boxShadow: [
+                  "inset 0 1px 0 hsl(0 0% 100% / 0.10)",
+                  `inset 0 -1px 0 hsl(${tintHsl} / 0.30)`,
+                  `0 0 0 1.5px hsl(${tintHsl} / 0.42)`,
+                  `0 4px 14px -8px hsl(${tintHsl} / 0.45)`,
+                ].join(", "),
+              }
+            : undefined
+        }
       >
         <span className="flex items-center gap-2 min-w-0">
           <span
@@ -427,20 +452,20 @@ function CurrencyPickerInline({
             initial={{ opacity: 0, height: 0 }}
             animate={{ opacity: 1, height: "auto" }}
             exit={{ opacity: 0, height: 0 }}
-            transition={{ duration: 0.16, ease: [0.32, 0.72, 0, 1] }}
+            transition={{ type: "spring", stiffness: 400, damping: 36, mass: 0.7 }}
             className="overflow-hidden"
           >
-            <div className="mt-2 rounded-2xl border border-border/45 bg-background/60 p-2 shadow-[inset_0_1px_0_hsl(0_0%_100%/0.03)]">
+            <div className="mt-2 rounded-2xl border border-border/60 bg-foreground/[0.025] p-2">
               <div className="relative mb-2">
                 <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-3.5 w-3.5 text-secondary-fg/55 pointer-events-none" />
                 <input
                   value={query}
                   onChange={(e) => setQuery(e.target.value)}
                   placeholder={kind === "fiat" ? "USD, Euro…" : "USDT, Bitcoin…"}
-                  className="w-full h-9 pl-9 pr-3 rounded-xl border border-border/40 bg-card/55 text-[13px] placeholder:text-secondary-fg/45 focus:outline-none focus:border-primary/45 transition-colors"
+                  className="field-recessed w-full h-9 pl-9 pr-3 rounded-xl border-0 text-[13px] placeholder:text-secondary-fg/45 focus:outline-none transition-colors"
                 />
               </div>
-              <div className="grid grid-cols-3 sm:grid-cols-4 gap-1.5 max-h-[200px] overflow-y-auto pl-1 pb-1 pr-1">
+              <div className="grid grid-cols-3 sm:grid-cols-4 gap-1.5 max-h-[200px] overflow-y-auto pt-1 pl-1 pb-1 pr-1">
                 {filtered.map((code) => {
                   const selected = code === displayValue;
                   return (
@@ -453,7 +478,7 @@ function CurrencyPickerInline({
                         "h-9 inline-flex items-center justify-center rounded-xl text-[12px] font-semibold tabular-nums tracking-[0.02em]",
                         "transition-[transform,box-shadow,background-color] duration-150 ease-[cubic-bezier(0.32,0.72,0,1)]",
                         "active:scale-[0.96]",
-                        selected ? "text-foreground" : "text-foreground/85",
+                        selected ? "text-foreground" : "text-foreground/85 pebble-idle",
                       ].join(" ")}
                       style={
                         selected
@@ -468,16 +493,7 @@ function CurrencyPickerInline({
                               ].join(", "),
                               textShadow: `0 0 12px hsl(${tintHsl} / 0.30)`,
                             }
-                          : {
-                              background:
-                                "linear-gradient(180deg, hsl(var(--foreground) / 0.05) 0%, hsl(var(--foreground) / 0.02) 100%)",
-                              boxShadow: [
-                                "inset 0 1px 0 hsl(0 0% 100% / 0.06)",
-                                "inset 0 -1px 0 hsl(0 0% 0% / 0.08)",
-                                "0 0 0 1px hsl(var(--border) / 0.45)",
-                                "0 1px 3px -1px hsl(0 0% 0% / 0.12)",
-                              ].join(", "),
-                            }
+                          : undefined
                       }
                     >
                       {code}
@@ -545,30 +561,10 @@ function MethodGrid({
             key={legacy.id}
             type="button"
             onClick={onClearLegacy}
-            className="relative flex items-center gap-2 rounded-2xl px-2.5 py-2 text-left transition-[transform,box-shadow] duration-150 ease-[cubic-bezier(0.32,0.72,0,1)] active:scale-[0.97]"
+            className="pebble-idle relative flex items-center gap-2 rounded-2xl px-2.5 py-2 text-left transition-[transform,box-shadow] duration-150 ease-[cubic-bezier(0.32,0.72,0,1)] active:scale-[0.97]"
             title="Different rail — tap to clear"
-            style={{
-              background:
-                "linear-gradient(180deg, hsl(var(--foreground) / 0.04) 0%, hsl(var(--foreground) / 0.015) 100%)",
-              // Outer dashed-feel ring (faint) + soft inner highlight so the
-              // chip still reads as "alternative / removable" but matches
-              // the pebble vocabulary of its siblings.
-              boxShadow: [
-                "inset 0 1px 0 hsl(0 0% 100% / 0.05)",
-                "inset 0 -1px 0 hsl(0 0% 0% / 0.06)",
-                "0 0 0 1px hsl(var(--border) / 0.40)",
-                "0 1px 3px -1px hsl(0 0% 0% / 0.10)",
-              ].join(", "),
-            }}
           >
-            <span className="flex h-7 w-7 shrink-0 items-center justify-center rounded-xl text-foreground/60"
-              style={{
-                background:
-                  "linear-gradient(180deg, hsl(var(--foreground) / 0.07) 0%, hsl(var(--foreground) / 0.03) 100%)",
-                boxShadow:
-                  "inset 0 1px 0 hsl(0 0% 100% / 0.06), inset 0 -1px 0 hsl(0 0% 0% / 0.05)",
-              }}
-            >
+            <span className="pebble-icon flex h-7 w-7 shrink-0 items-center justify-center rounded-xl text-foreground/60">
               <ChevronDown className="h-3.5 w-3.5" />
             </span>
             <span className="min-w-0 flex-1">
@@ -628,41 +624,32 @@ function MethodChip({
         "group relative flex items-center gap-2 rounded-2xl px-2.5 py-2 text-left",
         "transition-[transform,box-shadow,background-color] duration-150 ease-[cubic-bezier(0.32,0.72,0,1)]",
         "active:scale-[0.97]",
-        selected ? "text-foreground" : "text-foreground/85",
+        selected ? "text-foreground" : "text-foreground/85 pebble-idle",
       ].join(" ")}
       style={
-        {
-          "--m-accent": method.accent,
-          // Convex fill — selected uses an accent-tinted glass, idle uses a
-          // neutral one. The white→transparent top highlight is the same in
-          // both so the "pebble" reads consistently.
-          background: selected
-            ? "linear-gradient(180deg, hsl(var(--m-accent) / 0.22) 0%, hsl(var(--m-accent) / 0.10) 55%, hsl(var(--m-accent) / 0.06) 100%)"
-            : "linear-gradient(180deg, hsl(var(--foreground) / 0.05) 0%, hsl(var(--foreground) / 0.02) 100%)",
-          boxShadow: selected
-            ? [
-                // top highlight (light catching the edge)
+        selected
+          ? ({
+              "--m-accent": method.accent,
+              // Convex accent-tinted glass for the selected rail.
+              background:
+                "linear-gradient(180deg, hsl(var(--m-accent) / 0.22) 0%, hsl(var(--m-accent) / 0.10) 55%, hsl(var(--m-accent) / 0.06) 100%)",
+              boxShadow: [
                 "inset 0 1px 0 hsl(0 0% 100% / 0.18)",
-                // bottom shadow (self-cast on the surface beneath the edge)
                 "inset 0 -1px 0 hsl(var(--m-accent) / 0.35)",
-                // crisp accent ring — the "selected" tell, not a border so it doesn't add geometry
                 "0 0 0 1.5px hsl(var(--m-accent) / 0.45)",
-                // outer drop shadow gives lift
                 "0 6px 18px -10px hsl(var(--m-accent) / 0.55)",
                 "0 2px 6px -2px hsl(var(--m-accent) / 0.25)",
-              ].join(", ")
-            : [
-                "inset 0 1px 0 hsl(0 0% 100% / 0.06)",
-                "inset 0 -1px 0 hsl(0 0% 0% / 0.10)",
-                "0 0 0 1px hsl(var(--border) / 0.55)",
-                "0 2px 6px -3px hsl(0 0% 0% / 0.18)",
               ].join(", "),
-        } as CSSProperties
+            } as CSSProperties)
+          : ({ "--m-accent": method.accent } as CSSProperties)
       }
     >
       {/* Icon disc — also pebble-styled to echo the parent shape */}
       <span
-        className="relative z-[1] flex h-7 w-7 shrink-0 items-center justify-center rounded-xl transition-colors duration-150"
+        className={[
+          "relative z-[1] flex h-7 w-7 shrink-0 items-center justify-center rounded-xl transition-colors duration-150",
+          selected ? "" : "pebble-icon",
+        ].join(" ")}
         style={
           selected
             ? {
@@ -672,12 +659,7 @@ function MethodChip({
                   "inset 0 1px 0 hsl(0 0% 100% / 0.18), inset 0 -1px 0 hsl(var(--m-accent) / 0.30), 0 0 0 1px hsl(var(--m-accent) / 0.35)",
                 color: `hsl(${method.accent})`,
               }
-            : {
-                background:
-                  "linear-gradient(180deg, hsl(var(--foreground) / 0.08) 0%, hsl(var(--foreground) / 0.04) 100%)",
-                boxShadow: "inset 0 1px 0 hsl(0 0% 100% / 0.08), inset 0 -1px 0 hsl(0 0% 0% / 0.06)",
-                color: "hsl(var(--foreground) / 0.7)",
-              }
+            : { color: "hsl(var(--foreground) / 0.7)" }
         }
       >
         <Icon className="h-3.5 w-3.5" strokeWidth={2.4} />
@@ -706,15 +688,9 @@ function FieldRow({
   value: string;
   onChange: (v: string) => void;
 }) {
-  // Inputs sit "recessed" inside the parent detail card: a soft top inset
-  // shadow makes them look like they're milled into the surface, opposite
-  // of the convex method chips above. Together the contrast (raised
-  // chips, sunken fields) reads as a single coherent piece of hardware.
-  const inputShadow = [
-    "inset 0 1px 2px hsl(0 0% 0% / 0.08)",
-    "inset 0 0 0 1px hsl(var(--border) / 0.45)",
-  ].join(", ");
-
+  // Inputs sit "recessed" inside the parent detail card via the theme-adaptive
+  // `.field-recessed` class — sunken fields against the raised method chips
+  // read as one coherent piece of hardware on both themes.
   if (field.options) {
     return (
       <label className="block space-y-1">
@@ -723,8 +699,7 @@ function FieldRow({
           <select
             value={value}
             onChange={(e) => onChange(e.target.value)}
-            className="h-10 w-full appearance-none rounded-xl border-0 bg-card/55 pl-3 pr-8 text-[13px] text-foreground outline-none transition-colors focus:bg-card/75"
-            style={{ boxShadow: inputShadow }}
+            className="field-recessed h-10 w-full appearance-none rounded-xl border-0 pl-3 pr-8 text-[13px] text-foreground outline-none transition-colors"
           >
             <option value="">{field.placeholder}</option>
             {field.options.map((opt) => (
@@ -745,8 +720,7 @@ function FieldRow({
           value={value}
           onChange={(e) => onChange(e.target.value)}
           placeholder={field.placeholder}
-          className="min-h-[68px] rounded-xl border-0 bg-card/55 text-[13px] leading-snug placeholder:text-secondary-fg/55 focus-visible:ring-0"
-          style={{ boxShadow: inputShadow }}
+          className="field-recessed min-h-[68px] rounded-xl border-0 text-[13px] leading-snug placeholder:text-secondary-fg/55 focus-visible:ring-0"
         />
       </label>
     );
@@ -759,8 +733,7 @@ function FieldRow({
         value={value}
         onChange={(e) => onChange(e.target.value)}
         placeholder={field.placeholder}
-        className="h-10 rounded-xl border-0 bg-card/55 text-[13px] placeholder:text-secondary-fg/55 focus-visible:ring-0"
-        style={{ boxShadow: inputShadow }}
+        className="field-recessed h-10 rounded-xl border-0 text-[13px] placeholder:text-secondary-fg/55 focus-visible:ring-0"
       />
     </label>
   );

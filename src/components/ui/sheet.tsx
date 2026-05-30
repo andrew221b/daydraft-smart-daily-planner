@@ -19,11 +19,10 @@ const SheetOverlay = React.forwardRef<
 >(({ className, ...props }, ref) => (
   <SheetPrimitive.Overlay
     className={cn(
-      // Softer scrim than pure black/80 — closer to iOS sheet behaviour where
-      // the background dims but stays legible. Faster fade-in (the scrim is
-      // there before the sheet lands), slightly delayed fade-out so the
-      // backdrop doesn't disappear before the sheet finishes sliding off.
-      "fixed inset-0 z-50 bg-black/55 data-[state=open]:animate-in data-[state=closed]:animate-out data-[state=closed]:fade-out-0 data-[state=open]:fade-in-0 data-[state=open]:duration-[160ms] data-[state=closed]:duration-[180ms]",
+      // Backdrop appears slightly before the sheet lands (200ms vs 440ms open),
+      // but lingers well after the sheet starts exiting so the dim doesn't
+      // vanish before the sheet finishes sliding off (320ms close).
+      "fixed inset-0 z-50 bg-black/55 data-[state=open]:animate-in data-[state=closed]:animate-out data-[state=closed]:fade-out-0 data-[state=open]:fade-in-0 data-[state=open]:duration-[200ms] data-[state=closed]:duration-[320ms] data-[state=open]:[animation-timing-function:cubic-bezier(0.16,1,0.3,1)] data-[state=closed]:[animation-timing-function:cubic-bezier(0.4,0,1,1)]",
       className,
     )}
     {...props}
@@ -33,17 +32,21 @@ const SheetOverlay = React.forwardRef<
 SheetOverlay.displayName = SheetPrimitive.Overlay.displayName;
 
 const sheetVariants = cva(
-  // iOS-native motion: the open curve mirrors UIKit's `defaultDamped` spring
-  // approximation — a confident decel that lands soft, with barely a hint of
-  // overshoot. Close is shorter and slightly more linear at the start so the
-  // user feels the dismiss the instant their finger leaves.
-  "fixed z-50 gap-4 bg-background p-6 shadow-lg data-[state=open]:animate-in data-[state=closed]:animate-out data-[state=open]:duration-[260ms] data-[state=closed]:duration-[200ms] data-[state=open]:[animation-timing-function:cubic-bezier(0.32,0.72,0,1)] data-[state=closed]:[animation-timing-function:cubic-bezier(0.4,0,0.4,1)] will-change-transform",
+  // Spring-physics motion — mirrors UIKit's high-stiffness spring:
+  // • Open: cubic-bezier(0.16,1,0.3,1) — shoots up fast, decelerates smoothly
+  //   into position like a spring finding its resting point. 440ms gives
+  //   the spring room to breathe; under ~300ms it just feels like a fast slide.
+  // • Close: cubic-bezier(0.4,0,0.8,0.5) — accelerates off the screen quickly
+  //   so the dismiss feels crisp and intentional.
+  "fixed z-50 gap-4 bg-background p-6 shadow-lg data-[state=open]:animate-in data-[state=closed]:animate-out data-[state=open]:duration-[440ms] data-[state=closed]:duration-[260ms] data-[state=open]:[animation-timing-function:cubic-bezier(0.16,1,0.3,1)] data-[state=closed]:[animation-timing-function:cubic-bezier(0.4,0,0.8,0.5)] will-change-transform",
   {
     variants: {
       side: {
         top: "inset-x-0 top-0 border-b data-[state=closed]:slide-out-to-top data-[state=open]:slide-in-from-top",
         bottom:
-          "inset-x-0 bottom-0 border-t data-[state=closed]:slide-out-to-bottom data-[state=open]:slide-in-from-bottom",
+          // zoom-in-[0.97]: sheet scales from 0.97→1 while rising — gives the
+          // feeling that it's "arriving" from depth, not just sliding up.
+          "inset-x-0 bottom-0 border-t data-[state=closed]:slide-out-to-bottom data-[state=open]:slide-in-from-bottom data-[state=open]:zoom-in-[0.97]",
         left: "inset-y-0 left-0 h-full w-3/4 border-r data-[state=closed]:slide-out-to-left data-[state=open]:slide-in-from-left sm:max-w-sm",
         right:
           "inset-y-0 right-0 h-full w-3/4  border-l data-[state=closed]:slide-out-to-right data-[state=open]:slide-in-from-right sm:max-w-sm",

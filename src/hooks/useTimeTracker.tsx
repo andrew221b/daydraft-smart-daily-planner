@@ -21,6 +21,7 @@ import {
 import { useAuth } from "./useAuth";
 import { toast } from "sonner";
 import { recordTimerDrift } from "@/lib/perfMonitor";
+import { liveActivity } from "@/lib/liveActivity";
 
 /* ─────────────────────────────────────────────────────────────────────────
  * Live elapsed pub/sub.
@@ -538,6 +539,22 @@ export function TimeTrackerProvider({ children }: { children: ReactNode }) {
         /* ignore */
       }
     }
+    // Surface the running tracker in the Dynamic Island / Lock Screen — but
+    // NOT when it was auto-started from a Focus session: Focus shows its own
+    // Live Activity (the task), and the native layer only allows one at a
+    // time. iOS-only; a no-op elsewhere.
+    if (opts?.source !== "focus") {
+      const catObj = categories.find((c) => c.id === entry.category_id);
+      if (catObj) {
+        void liveActivity.startTracker({
+          categoryName: catObj.name,
+          color: catObj.color,
+          hourlyRate: catObj.hourly_rate ?? 0,
+          currencyCode: catObj.currency ?? "USD",
+          startedAt: new Date(entry.started_at).getTime(),
+        });
+      }
+    }
   };
 
   const start: Ctx["start"] = async (categoryId, opts) => {
@@ -591,6 +608,10 @@ export function TimeTrackerProvider({ children }: { children: ReactNode }) {
       }
     }
     setActiveData(null);
+    // Tear down the tracker Live Activity. Safe to call unconditionally — if
+    // the session was started from Focus there's no tracker activity and this
+    // is a no-op (Focus owns its own activity and tears it down separately).
+    void liveActivity.stopTracker();
     queryClient.setQueryData<RollingEntry[]>(
       rollingEntriesQueryKey(user.id),
       (prev) =>

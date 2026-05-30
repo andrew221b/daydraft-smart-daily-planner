@@ -18,6 +18,7 @@ import {
   PopoverTrigger,
 } from "@/components/ui/popover";
 import { haptics } from "@/lib/haptics";
+import { liveActivity } from "@/lib/liveActivity";
 import { PreflightSheet } from "@/components/app/PreflightSheet";
 import { getAssignedCategoryId } from "@/lib/blockCategory";
 import { getCalmMode, setCalmMode } from "@/lib/calmMode";
@@ -56,6 +57,10 @@ export default function Focus() {
   const getAbortSignal = useAbortOnUnmount();
   const startedHereRef = useRef(false);
   const autoStartedRef = useRef(false);
+  // Guards so the Focus Live Activity (Dynamic Island) starts once per block,
+  // and the deep-link "Mark done" auto-completes only once.
+  const focusLAStartedRef = useRef(false);
+  const autoCompletedRef = useRef(false);
   const [confirmSkipOpen, setConfirmSkipOpen] = useState(false);
   const [confirmCancelOpen, setConfirmCancelOpen] = useState(false);
   // Wall-clock when the timer actually started ticking (after preflight).
@@ -69,10 +74,10 @@ export default function Focus() {
   const [trackerSkipped, setTrackerSkipped] = useState(false);
   /** Plan calendar day (YYYY-MM-DD) — for recap / back navigation off the default "today". */
   const [planDate, setPlanDate] = useState<string | null>(null);
+  // searchParams carries the Live Activity deep-link flag (?complete=1).
   const [searchParams] = useSearchParams();
   // "One thing mode" was removed from the product. Keep the variable so
   // existing branches stay dead without a large refactor.
-  void searchParams;
   const oneThingMode = false;
   const [oneThingDoneFlash, setOneThingDoneFlash] = useState(false);
   const calmAutoEnabledRef = useRef(false);
@@ -106,6 +111,8 @@ export default function Focus() {
     autoStartedRef.current = false;
     startedHereRef.current = false;
     actualStartMsRef.current = null;
+    focusLAStartedRef.current = false;
+    autoCompletedRef.current = false;
     guardrailToastShownRef.current = false;
     setPlanDate(null);
     (async () => {
@@ -135,9 +142,13 @@ export default function Focus() {
       const nextOpen = (rest || []).find((row) => isOpenUserTask(row as Block));
       setNext((nextOpen as Block) || null);
       // Show preflight on first visit per session — unless the user opted out.
-      // Skip on intra-session block transitions to avoid nagging.
+      // Skip on intra-session block transitions to avoid nagging. Also skip
+      // entirely when we arrived via the Live Activity "Mark done" deep link
+      // (?complete=1): the user already decided, so arm immediately and let
+      // the auto-complete effect run without a preflight flash.
+      const wantsComplete = searchParams.get("complete") === "1";
       const optedOut = (() => { try { return localStorage.getItem("dd_preflight_disabled") === "1"; } catch { return false; } })();
-      if (!optedOut && !sessionStorage.getItem("dd_preflight_seen") && !sessionStorage.getItem("dd_focus_active")) {
+      if (!wantsComplete && !optedOut && !sessionStorage.getItem("dd_preflight_seen") && !sessionStorage.getItem("dd_focus_active")) {
         setPreflightOpen(true);
       } else {
         setArmed(true);
@@ -208,6 +219,11 @@ export default function Focus() {
     return () => {
       // Stop tracking on unmount (leaving Focus entirely)
       if (startedHereRef.current && trackingRef.current) stopTracking();
+      // Tear down the Dynamic Island / Lock Screen activity. Moving between
+      // blocks keeps this component mounted (only the param changes), so this
+      // fires only when the user actually leaves Focus — exactly when we want
+      // the activity gone.
+      void liveActivity.stopFocus();
       sessionStorage.removeItem("dd_focus_active");
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -339,6 +355,34 @@ export default function Focus() {
       planDate && planDate !== todayDateStr() ? `/today/plan?date=${planDate}` : "/today/plan";
     nav(backPlan);
   };
+
+  // Start the Focus Live Activity (Dynamic Island + Lock Screen) once the
+  // session is armed. The native timer counts up from the same wall-clock the
+  // big ring uses, so the two never drift. iOS-only; a no-op everywhere else.
+  useEffect(() => {
+    if (!armed || !block || oneThingMode) return;
+    if (focusLAStartedRef.current) return;
+    focusLAStartedRef.current = true;
+    void liveActivity.startFocus({
+      taskTitle: block.title,
+      plannedMinutes: block.duration_min,
+      blockId: block.id,
+      startedAt: actualStartMsRef.current ?? Date.now(),
+    });
+  }, [armed, block?.id, oneThingMode]);
+
+  // Deep-link "Mark done" from the Live Activity lands here as ?complete=1.
+  // Fire the normal completion path exactly once, after the block is loaded
+  // and armed so all the same side-effects (tracker stop, actual_minutes,
+  // navigation) run identically to tapping Done in-app.
+  useEffect(() => {
+    if (autoCompletedRef.current) return;
+    if (!armed || !block) return;
+    if (searchParams.get("complete") !== "1") return;
+    autoCompletedRef.current = true;
+    void complete();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [armed, block?.id, searchParams]);
 
   const lateDeepWork = !!block && block.type === "deep_work" && new Date().getHours() >= 18;
   const longSession = !!block && block.duration_min >= 90;

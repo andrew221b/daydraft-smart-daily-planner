@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useRef, useState } from "react";
+import { motion, AnimatePresence } from "framer-motion";
 import { keepPreviousData, useQuery } from "@tanstack/react-query";
-import { Play, Pause, Plus, Check, Trash2, ChevronLeft, ChevronRight, Download, ChevronDown, Lock, Pencil, X, Clock, ListTodo } from "lucide-react";
+import { Play, Pause, Plus, Check, Trash2, ChevronLeft, ChevronRight, Download, ChevronDown, Lock, Pencil, X, Clock, ListTodo, Wallet } from "lucide-react";
 import { categoryBillingToDraft } from "@/lib/categoryBilling";
 import { useTimeTracker, getElapsedSec, fmtHMS, fmtHM, TimeCategory } from "@/hooks/useTimeTracker";
 import { LiveElapsed } from "@/components/app/LiveElapsed";
@@ -20,6 +21,8 @@ import { triggerDownload } from "@/lib/reportExport";
 import { useTabVisible } from "@/components/app/PersistentTabs";
 import { UpgradeSheet } from "@/components/app/UpgradeSheet";
 import { PaymentMethodFields, type PaymentFieldsValue } from "@/components/app/PaymentMethodFields";
+import { verifyBiometric, getGatePref } from "@/lib/biometricGate";
+import { BiometricGateSheet } from "@/components/app/BiometricGateSheet";
 import { haptics } from "@/lib/haptics";
 import {
   AlertDialog,
@@ -89,6 +92,20 @@ const fmtMoney = (amount: number, currency = "USD") => {
     return `${safeCurrency} ${amount.toFixed(2)}`;
   }
 };
+/** True when a category has any sensitive payout data worth gating behind a
+ *  biometric check (an hourly rate alone is not sensitive). */
+function categoryHasSavedBilling(c: TimeCategory): boolean {
+  return !!(
+    c.payment_method ||
+    c.billing_iban ||
+    c.billing_crypto_wallet ||
+    c.billing_display_name ||
+    c.billing_bank_name ||
+    c.billing_payment_link ||
+    c.billing_notes
+  );
+}
+
 const parseRateInput = (value: string) => {
   const cleaned = value.replace(",", ".").trim();
   if (!cleaned) return null;
@@ -144,6 +161,12 @@ function TrackerInner({ embedded = false, onClose }: { embedded?: boolean; onClo
   const [upgradeOpen, setUpgradeOpen] = useState(false);
   const [newName, setNewName] = useState("");
   const [editingCat, setEditingCat] = useState<string | null>(null);
+  // Saved payment details are gated behind a fresh biometric check. This flips
+  // true once the user verifies (or on devices that can't verify), per edit.
+  const [billingRevealed, setBillingRevealed] = useState(false);
+  const [billingUnlocking, setBillingUnlocking] = useState(false);
+  const [billingGateOpen, setBillingGateOpen] = useState(false);
+  const [exportGateOpen, setExportGateOpen] = useState(false);
   const [editingName, setEditingName] = useState("");
   const [editingRate, setEditingRate] = useState("");
   const [tab, setTab] = useState<Tab>("today");
@@ -200,12 +223,33 @@ function TrackerInner({ embedded = false, onClose }: { embedded?: boolean; onClo
   useEffect(() => {
     if (!editingCat) {
       setPaymentDetails(emptyPaymentDetails);
+      setBillingRevealed(false);
       return;
     }
     const cat = categories.find((c) => c.id === editingCat);
     if (!cat) return;
     setPaymentDetails(categoryBillingToDraft(cat));
-  }, [editingCat, categories]);
+    // Nothing sensitive saved yet → no gate. Existing details stay hidden
+    // until the user passes a biometric check.
+    setBillingRevealed(!categoryHasSavedBilling(cat));
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [editingCat]);
+
+  const unlockBilling = async () => {
+    if (billingUnlocking) return;
+    // First time: show the opt-in explanation sheet.
+    if (getGatePref() === "unset") {
+      setBillingGateOpen(true);
+      return;
+    }
+    setBillingUnlocking(true);
+    try {
+      const ok = await verifyBiometric("View saved payment details");
+      if (ok) setBillingRevealed(true);
+    } finally {
+      setBillingUnlocking(false);
+    }
+  };
 
   const todayDate = todayDateStr();
   const { data: todayPlanData } = useQuery({
@@ -469,8 +513,8 @@ function TrackerInner({ embedded = false, onClose }: { embedded?: boolean; onClo
   };
 
   // ----- PDF export -----
-  const exportPDF = async () => {
-    if (!isPro) { setUpgradeOpen(true); return; }
+  // Core export logic — no gate check. Called after verification is already done.
+  const runExport = async () => {
     setExporting(true);
     try {
       const [{ default: jsPDF }, { default: autoTable }] = await Promise.all([
@@ -597,6 +641,14 @@ function TrackerInner({ embedded = false, onClose }: { embedded?: boolean; onClo
     } finally {
       setExporting(false);
     }
+  };
+
+  // Gate wrapper: first time → show explanation sheet, otherwise verify and run.
+  const exportPDF = async () => {
+    if (!isPro) { setUpgradeOpen(true); return; }
+    if (getGatePref() === "unset") { setExportGateOpen(true); return; }
+    const allowed = await verifyBiometric("Export time tracking report");
+    if (allowed) void runExport();
   };
 
   const Wrapper: React.FC<{ children: React.ReactNode }> = ({ children }) =>
@@ -798,86 +850,192 @@ function TrackerInner({ embedded = false, onClose }: { embedded?: boolean; onClo
                 return (
                   <SwipeRow key={c.id} disabled={c.is_default || isActive || editingCat === c.id} onDelete={() => setConfirmDeleteCat(c.id)}>
                   <div className={`rounded-[18px] border transition-[border-color,background-color,box-shadow,transform] duration-300 shadow-card tracker-category-luxe ${isActive ? "border-accent surface-accent ring-2 ring-primary/12 ring-offset-2 ring-offset-background" : "border-soft surface-card"} overflow-hidden backdrop-blur-sm`}>
-                    <div className="flex items-center gap-2 px-3 py-2.5">
-                      {editingCat === c.id ? (
-                        <form
-                          onSubmit={async (e) => {
-                            e.preventDefault();
-                            const rateValue = parseRateInput(editingRate);
-                            if (editingName.trim() && editingName.trim() !== c.name) {
-                              await renameCategory(c.id, editingName);
-                            }
-                            if ((rateValue ?? null) !== (c.hourly_rate ?? null)) {
-                              await updateCategoryRate(c.id, rateValue);
-                            }
-                            const savedPaymentDetails = await savePaymentDetails();
-                            if (!savedPaymentDetails) return;
-                            setEditingCat(null);
-                          }}
-                          className="flex-1 space-y-2 min-w-0"
+                    <AnimatePresence mode="popLayout" initial={false}>
+                    {editingCat === c.id ? (
+                      /* ── Edit / billing form ──────────────────────── */
+                      <motion.form
+                        key="edit"
+                        onSubmit={async (e) => {
+                          e.preventDefault();
+                          const rateValue = parseRateInput(editingRate);
+                          if (editingName.trim() && editingName.trim() !== c.name) {
+                            await renameCategory(c.id, editingName);
+                          }
+                          if ((rateValue ?? null) !== (c.hourly_rate ?? null)) {
+                            await updateCategoryRate(c.id, rateValue);
+                          }
+                          const savedPaymentDetails = await savePaymentDetails();
+                          if (!savedPaymentDetails) return;
+                          setEditingCat(null);
+                        }}
+                        className="w-full min-w-0 px-3 pt-3 pb-2"
+                        initial={{ opacity: 0, y: 14 }}
+                        animate={{ opacity: 1, y: 0 }}
+                        exit={{ opacity: 0, y: -8 }}
+                        transition={{ type: "spring", stiffness: 400, damping: 34, mass: 0.75 }}
+                      >
+                        {/* ① Name row */}
+                        <motion.div
+                          className="flex items-center gap-2 mb-2"
+                          initial={{ opacity: 0, y: 8 }}
+                          animate={{ opacity: 1, y: 0 }}
+                          transition={{ delay: 0.04, type: "spring", stiffness: 400, damping: 32 }}
                         >
-                          <div className="flex items-center gap-2">
-                            <span className="h-3 w-3 rounded-full shrink-0" style={{ background: c.color }} />
-                            <Input
-                              value={editingName}
-                              onChange={(e) => setEditingName(e.target.value)}
-                              onKeyDown={(e) => { if (e.key === "Escape") setEditingCat(null); }}
-                              className="flex-1 h-8 bg-transparent border-0 px-0 text-[15px] font-medium focus-visible:ring-0 shadow-none"
-                            />
-                          </div>
-                          <div className="flex items-center gap-2 rounded-xl border border-soft bg-black/[0.03] dark:bg-black/40 px-2 py-1.5">
-                            <span className="text-[11px] font-semibold text-secondary-fg shrink-0">Rate / h</span>
-                            <Input
-                              inputMode="decimal"
-                              value={editingRate}
-                              onChange={(e) => setEditingRate(e.target.value)}
-                              placeholder="0"
-                              className="h-7 flex-1 bg-transparent border-0 px-0 text-right text-[13px] font-mono tabular-nums focus-visible:ring-0 shadow-none"
-                            />
-                            <Input
-                              value={paymentDetails.currency}
-                              onChange={(e) => updatePaymentField("currency", e.target.value.toUpperCase().slice(0, 3))}
-                              placeholder="USD"
-                              className="h-7 w-14 bg-transparent border-l border-soft rounded-none px-2 text-center text-[11px] font-semibold font-mono focus-visible:ring-0 shadow-none"
-                              maxLength={3}
-                            />
-                          </div>
-                          <div className="rounded-xl border border-soft bg-black/[0.02] dark:bg-black/30 px-2.5 py-2.5">
-                            <div className="mb-2 flex items-center justify-between gap-2">
-                              <span className="text-[11px] font-semibold text-secondary-fg">Payment for this category</span>
-                              {!isPro && <span className="text-[10px] font-semibold text-primary">Pro</span>}
-                            </div>
-                            {!isPro ? (
-                              <button
-                                type="button"
-                                onClick={() => setUpgradeOpen(true)}
-                                className="h-8 w-full rounded-lg border border-border/50 text-[11px] font-semibold text-primary pressable"
-                              >
-                                Unlock payment details
-                              </button>
-                            ) : (
-                              <PaymentMethodFields
-                                compact
-                                value={paymentDetails as PaymentFieldsValue}
-                                onChange={(field, val) => updatePaymentField(field as keyof PaymentDetailsDraft, val)}
-                              />
-                            )}
-                          </div>
-                          <div className="flex items-center gap-2">
-                            <button
-                              type="submit"
-                              disabled={paymentDetailsSaving}
-                              className="flex-1 h-9 rounded-xl bg-primary text-[12px] font-semibold text-primary-foreground pressable disabled:opacity-60"
-                              aria-label="Save category and billing details"
+                          <span className="h-3 w-3 rounded-full shrink-0" style={{ background: c.color }} />
+                          <Input
+                            value={editingName}
+                            onChange={(e) => setEditingName(e.target.value)}
+                            onKeyDown={(e) => { if (e.key === "Escape") setEditingCat(null); }}
+                            className="flex-1 h-8 bg-transparent border-0 px-0 text-[15px] font-medium focus-visible:ring-0 shadow-none"
+                          />
+                        </motion.div>
+
+                        {/* ② Rate row — raised pebble with primary accent, mirrors Start button depth */}
+                        <motion.div
+                          className="flex items-center gap-2 rounded-xl px-2.5 py-2 mb-2"
+                          initial={{ opacity: 0, y: 8 }}
+                          animate={{ opacity: 1, y: 0 }}
+                          transition={{ delay: 0.09, type: "spring", stiffness: 400, damping: 32 }}
+                          style={{
+                            background: "linear-gradient(180deg, hsl(var(--primary) / 0.12) 0%, hsl(var(--primary) / 0.05) 100%)",
+                            boxShadow: [
+                              "inset 0 1px 0 hsl(0 0% 100% / 0.12)",
+                              "inset 0 -1px 0 hsl(var(--primary) / 0.18)",
+                              "0 0 0 1.5px hsl(var(--primary) / 0.28)",
+                              "0 4px 10px -5px hsl(var(--primary) / 0.25)",
+                            ].join(", "),
+                          }}
+                        >
+                          <span className="text-[11px] font-semibold text-primary/80 shrink-0">Rate / h</span>
+                          <Input
+                            inputMode="decimal"
+                            value={editingRate}
+                            onChange={(e) => setEditingRate(e.target.value)}
+                            placeholder="0"
+                            className="h-7 flex-1 bg-transparent border-0 px-0 text-right text-[13px] font-mono tabular-nums focus-visible:ring-0 shadow-none"
+                          />
+                          <Input
+                            value={paymentDetails.currency}
+                            onChange={(e) => updatePaymentField("currency", e.target.value.toUpperCase().slice(0, 3))}
+                            placeholder="USD"
+                            className="h-7 w-14 bg-transparent border-l border-soft rounded-none px-2 text-center text-[11px] font-semibold font-mono focus-visible:ring-0 shadow-none"
+                            maxLength={3}
+                          />
+                        </motion.div>
+
+                        {/* ③ Billing section — recessed "well" so the reveal
+                            button / method chips visibly sit INSIDE it (groove
+                            inset shadow + faint top-down floor gradient). */}
+                        <motion.div
+                          className="groove-track rounded-xl px-2.5 py-2.5 mb-2"
+                          initial={{ opacity: 0, y: 10 }}
+                          animate={{ opacity: 1, y: 0 }}
+                          transition={{ delay: 0.14, type: "spring", stiffness: 400, damping: 34 }}
+                        >
+                          <div className="mb-2 flex items-center gap-2">
+                            <span
+                              className="flex h-5 w-5 shrink-0 items-center justify-center rounded-md text-primary"
+                              style={{
+                                background: "linear-gradient(180deg, hsl(var(--primary) / 0.22) 0%, hsl(var(--primary) / 0.10) 100%)",
+                                boxShadow: "inset 0 1px 0 hsl(0 0% 100% / 0.18), 0 0 0 1px hsl(var(--primary) / 0.28)",
+                              }}
                             >
-                              {paymentDetailsSaving ? "Saving..." : "Save"}
-                            </button>
-                            <button type="button" onClick={() => setEditingCat(null)} className="h-9 w-9 rounded-xl border border-border/40 text-secondary-fg pressable" aria-label="Cancel">
-                              <X className="mx-auto h-4 w-4" />
-                            </button>
+                              <Wallet className="h-3 w-3" strokeWidth={2.4} />
+                            </span>
+                            <span className="text-[11px] font-semibold text-secondary-fg flex-1">Payment for this category</span>
+                            {!isPro && <span className="text-[10px] font-semibold text-primary">Pro</span>}
                           </div>
-                        </form>
-                      ) : (
+                          {!isPro ? (
+                            <button
+                              type="button"
+                              onClick={() => setUpgradeOpen(true)}
+                              className="h-8 w-full rounded-lg border border-border/50 text-[11px] font-semibold text-primary pressable"
+                            >
+                              Unlock payment details
+                            </button>
+                          ) : (
+                            <AnimatePresence mode="wait" initial={false}>
+                              {billingRevealed ? (
+                                <motion.div
+                                  key="fields"
+                                  initial={{ opacity: 0, y: 8, scale: 0.98 }}
+                                  animate={{ opacity: 1, y: 0, scale: 1 }}
+                                  exit={{ opacity: 0, y: -4, scale: 0.98 }}
+                                  transition={{ type: "spring", stiffness: 320, damping: 26 }}
+                                >
+                                  <PaymentMethodFields
+                                    compact
+                                    value={paymentDetails as PaymentFieldsValue}
+                                    onChange={(field, val) => updatePaymentField(field as keyof PaymentDetailsDraft, val)}
+                                  />
+                                </motion.div>
+                              ) : (
+                                <motion.button
+                                  key="gate"
+                                  type="button"
+                                  onClick={unlockBilling}
+                                  disabled={billingUnlocking}
+                                  className="pebble-idle flex w-full items-center gap-3 rounded-xl px-3 py-3 text-left pressable disabled:opacity-60"
+                                  initial={{ opacity: 0, scale: 0.97 }}
+                                  animate={{ opacity: 1, scale: 1 }}
+                                  exit={{ opacity: 0, scale: 0.95 }}
+                                  transition={{ type: "spring", stiffness: 340, damping: 28 }}
+                                  whileTap={{ scale: 0.97 }}
+                                >
+                                  <motion.span
+                                    className="shrink-0 h-8 w-8 rounded-xl flex items-center justify-center text-primary"
+                                    style={{
+                                      background: "linear-gradient(180deg, hsl(var(--primary) / 0.22) 0%, hsl(var(--primary) / 0.10) 100%)",
+                                      boxShadow: "inset 0 1px 0 hsl(0 0% 100% / 0.18), inset 0 -1px 0 hsl(var(--primary) / 0.20), 0 0 0 1px hsl(var(--primary) / 0.28), 0 3px 8px -4px hsl(var(--primary) / 0.35)",
+                                    }}
+                                    animate={billingUnlocking ? { rotate: [0, -8, 8, -8, 8, 0] } : {}}
+                                    transition={{ duration: 0.5 }}
+                                  >
+                                    <Lock className="h-4 w-4" />
+                                  </motion.span>
+                                  <span className="min-w-0 flex-1">
+                                    <span className="block text-[12.5px] font-semibold text-foreground leading-tight">
+                                      {billingUnlocking ? "Verifying…" : "Payment details hidden"}
+                                    </span>
+                                    <span className="block text-[11px] text-secondary-fg/75 mt-0.5 leading-snug">
+                                      Tap to reveal with Face ID / fingerprint
+                                    </span>
+                                  </span>
+                                </motion.button>
+                              )}
+                            </AnimatePresence>
+                          )}
+                        </motion.div>
+
+                        {/* ④ Save / Cancel buttons */}
+                        <motion.div
+                          className="flex items-center gap-2"
+                          initial={{ opacity: 0, y: 8 }}
+                          animate={{ opacity: 1, y: 0 }}
+                          transition={{ delay: 0.20, type: "spring", stiffness: 400, damping: 34 }}
+                        >
+                          <button
+                            type="submit"
+                            disabled={paymentDetailsSaving}
+                            className="flex-1 h-9 rounded-xl bg-primary text-[12px] font-semibold text-primary-foreground pressable disabled:opacity-60"
+                            aria-label="Save category and billing details"
+                          >
+                            {paymentDetailsSaving ? "Saving..." : "Save"}
+                          </button>
+                          <button type="button" onClick={() => setEditingCat(null)} className="h-9 w-9 rounded-xl border border-border/40 text-secondary-fg pressable" aria-label="Cancel">
+                            <X className="mx-auto h-4 w-4" />
+                          </button>
+                        </motion.div>
+                      </motion.form>
+                    ) : (
+                      <motion.div
+                        key="row"
+                        className="flex items-center gap-2 px-3 py-2.5 w-full"
+                        initial={{ opacity: 0 }}
+                        animate={{ opacity: 1 }}
+                        exit={{ opacity: 0 }}
+                        transition={{ duration: 0.15 }}
+                      >
                         <LongPressButton
                           onClick={() => {
                             if (simpleMode) return;
@@ -924,70 +1082,67 @@ function TrackerInner({ embedded = false, onClose }: { embedded?: boolean; onClo
                           </span>
                           {!simpleMode && <ChevronDown className={`h-3.5 w-3.5 text-secondary-fg shrink-0 transition-transform ${isOpen ? "rotate-180" : ""}`} />}
                         </LongPressButton>
-                      )}
-                      {editingCat === c.id ? null : (
-                        <>
-                          <button
-                            onClick={() => {
-                              setEditingName(c.name);
-                              setEditingRate(c.hourly_rate == null ? "" : String(c.hourly_rate));
-                              setEditingCat(c.id);
-                            }}
-                            className="p-1.5 text-secondary-fg hover:text-foreground pressable"
-                            aria-label={`Edit ${c.name} rate`}
-                            title="Edit rate"
-                          >
-                            <Pencil className="h-3.5 w-3.5" />
+                        <button
+                          onClick={() => {
+                            setEditingName(c.name);
+                            setEditingRate(c.hourly_rate == null ? "" : String(c.hourly_rate));
+                            setEditingCat(c.id);
+                          }}
+                          className="p-1.5 text-secondary-fg hover:text-foreground pressable"
+                          aria-label={`Edit ${c.name} rate`}
+                          title="Edit rate"
+                        >
+                          <Pencil className="h-3.5 w-3.5" />
+                        </button>
+                        {isActive ? (
+                          <button disabled={stopBusy} onClick={handleStop} className="inline-flex items-center gap-1 h-9 px-3 rounded-lg bg-primary text-primary-foreground text-xs font-medium pressable disabled:opacity-50 disabled:pointer-events-none">
+                            <Pause className="h-3 w-3" fill="currentColor" /> Stop
                           </button>
-                          {isActive ? (
-                            <button disabled={stopBusy} onClick={handleStop} className="inline-flex items-center gap-1 h-9 px-3 rounded-lg bg-primary text-primary-foreground text-xs font-medium pressable disabled:opacity-50 disabled:pointer-events-none">
-                              <Pause className="h-3 w-3" fill="currentColor" /> Stop
-                            </button>
-                          ) : (
-                            <>
-                          {!simpleMode && (
-                            <button
-                              onClick={() => setManualForCat(manualForCat === c.id ? null : c.id)}
-                              className="p-1.5 text-secondary-fg hover:text-foreground pressable"
-                              aria-label="Add past time"
-                              title="Log past time"
-                            >
-                              <Plus className="h-3.5 w-3.5" />
-                            </button>
-                          )}
-                          {!active && !c.is_default && (
-                            <button
-                              onClick={() => setConfirmDeleteCat(c.id)}
-                              className="p-1.5 text-secondary-fg hover:text-destructive pressable"
-                              aria-label={`Delete category ${c.name}`}
-                              title="Delete category"
-                            >
-                              <Trash2 className="h-3.5 w-3.5" />
-                            </button>
-                          )}
-                          {!active && (
-                            <button
-                              disabled={!!categoryBusyId}
-                              onClick={async () => {
-                                if (categoryBusyId) return;
-                                setCategoryBusyId(c.id);
-                                try {
-                                  await start(c.id);
-                                  haptics.impact("medium");
-                                } finally {
-                                  setCategoryBusyId(null);
-                                }
-                              }}
-                              className="gleam btn-volumetric inline-flex items-center gap-1 h-9 px-3 rounded-lg text-primary-foreground text-xs font-medium pressable disabled:opacity-50 disabled:pointer-events-none"
-                            >
-                              <Play className="h-3 w-3" fill="currentColor" /> Start
-                            </button>
-                          )}
-                            </>
-                          )}
-                        </>
-                      )}
-                    </div>
+                        ) : (
+                          <>
+                            {!simpleMode && (
+                              <button
+                                onClick={() => setManualForCat(manualForCat === c.id ? null : c.id)}
+                                className="p-1.5 text-secondary-fg hover:text-foreground pressable"
+                                aria-label="Add past time"
+                                title="Log past time"
+                              >
+                                <Plus className="h-3.5 w-3.5" />
+                              </button>
+                            )}
+                            {!active && !c.is_default && (
+                              <button
+                                onClick={() => setConfirmDeleteCat(c.id)}
+                                className="p-1.5 text-secondary-fg hover:text-destructive pressable"
+                                aria-label={`Delete category ${c.name}`}
+                                title="Delete category"
+                              >
+                                <Trash2 className="h-3.5 w-3.5" />
+                              </button>
+                            )}
+                            {!active && (
+                              <button
+                                disabled={!!categoryBusyId}
+                                onClick={async () => {
+                                  if (categoryBusyId) return;
+                                  setCategoryBusyId(c.id);
+                                  try {
+                                    await start(c.id);
+                                    haptics.impact("medium");
+                                  } finally {
+                                    setCategoryBusyId(null);
+                                  }
+                                }}
+                                className="gleam btn-volumetric inline-flex items-center gap-1 h-9 px-3 rounded-lg text-primary-foreground text-xs font-medium pressable disabled:opacity-50 disabled:pointer-events-none"
+                              >
+                                <Play className="h-3 w-3" fill="currentColor" /> Start
+                              </button>
+                            )}
+                          </>
+                        )}
+                      </motion.div>
+                    )}
+                    </AnimatePresence>
                     {!simpleMode && manualForCat === c.id && (
                       <ManualEntryRow
                         color={c.color}
@@ -1294,6 +1449,19 @@ function TrackerInner({ embedded = false, onClose }: { embedded?: boolean; onClo
           Tracking runs in the background — close the app and it keeps counting.
         </div>
       </Wrapper>
+    {/* Biometric gate sheets — shown once on first access to protected features */}
+    <BiometricGateSheet
+      open={billingGateOpen}
+      onClose={() => setBillingGateOpen(false)}
+      feature="billing"
+      onResult={(granted) => { if (granted) setBillingRevealed(true); }}
+    />
+    <BiometricGateSheet
+      open={exportGateOpen}
+      onClose={() => setExportGateOpen(false)}
+      feature="export"
+      onResult={(granted) => { if (granted) void runExport(); }}
+    />
     <UpgradeSheet open={upgradeOpen} onOpenChange={setUpgradeOpen} reason="feature" />
     <AlertDialog open={!!confirmDeleteCat} onOpenChange={(v) => { if (!v) setConfirmDeleteCat(null); }}>
       <AlertDialogContent>

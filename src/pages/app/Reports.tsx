@@ -13,6 +13,8 @@ import { DateRangePickerSheet } from "@/components/app/DateRangePickerSheet";
 import { CategoryFilterSheet } from "@/components/app/CategoryFilterSheet";
 import { useReportCurrencyOverrides } from "@/hooks/useReportCurrency";
 import { ReportCurrencyMismatchDialog } from "@/components/app/ReportCurrencyMismatchDialog";
+import { BiometricGateSheet } from "@/components/app/BiometricGateSheet";
+import { getGatePref, verifyBiometric } from "@/lib/biometricGate";
 import { Sheet, SheetContent, SheetTitle } from "@/components/ui/sheet";
 import { PaymentMethodFields, type PaymentFieldsValue } from "@/components/app/PaymentMethodFields";
 import { categoryBillingToDraft } from "@/lib/categoryBilling";
@@ -188,6 +190,8 @@ export default function Reports() {
   const [reportCurrencyTarget, setReportCurrencyTarget] = useState<{ catId: string; trackerCurrency: string } | null>(null);
   // Export-time mismatch flow state.
   const [pendingExport, setPendingExport] = useState<{ kind: "pdf" | "csv"; categoryIds?: string[]; scopeLabel?: string } | null>(null);
+  const [exportGateOpen, setExportGateOpen] = useState(false);
+  const [pendingGatedExport, setPendingGatedExport] = useState<{ kind: "pdf" | "csv"; categoryIds?: string[]; scopeLabel?: string } | null>(null);
   const [mismatchDialogOpen, setMismatchDialogOpen] = useState(false);
   const [mismatchList, setMismatchList] = useState<import("@/components/app/ReportCurrencyMismatchDialog").CurrencyMismatch[]>([]);
   // When the user accepts the "update payment details" flow, we walk the
@@ -469,22 +473,31 @@ export default function Reports() {
       }));
   };
 
-  const onExport = async (kind: "pdf" | "csv", categoryIds?: string[], scopeLabel?: string) => {
-    if (!isPro) {
-      setUpgradeOpen(true);
-      return;
-    }
+  // Core export dispatch — no gate. Called after verification is done (by
+  // onExport gate wrapper) or from the mismatch dialog (already past the gate).
+  const doExport = async (kind: "pdf" | "csv", categoryIds?: string[], scopeLabel?: string) => {
+    if (!isPro) { setUpgradeOpen(true); return; }
     const mismatches = findMismatches(categoryIds);
     if (mismatches.length > 0) {
-      // Pause the export, let the user choose update-or-skip via the dialog.
-      // The dialog's callbacks call runExport (or sequential-edit flow) once
-      // the decision is made.
       setPendingExport({ kind, categoryIds, scopeLabel });
       setMismatchList(mismatches);
       setMismatchDialogOpen(true);
       return;
     }
     await runExport(kind, categoryIds, scopeLabel);
+  };
+
+  // Gate wrapper: first time → show explanation sheet; subsequent → system
+  // biometric prompt fires directly (no custom UI).
+  const onExport = async (kind: "pdf" | "csv", categoryIds?: string[], scopeLabel?: string) => {
+    if (!isPro) { setUpgradeOpen(true); return; }
+    if (getGatePref() === "unset") {
+      setPendingGatedExport({ kind, categoryIds, scopeLabel });
+      setExportGateOpen(true);
+      return;
+    }
+    const allowed = await verifyBiometric("Export time tracking report");
+    if (allowed) await doExport(kind, categoryIds, scopeLabel);
   };
 
   // ── Mismatch-flow handlers ────────────────────────────────────────────
@@ -979,6 +992,17 @@ export default function Reports() {
           </section>
         </div>
       </div>
+      {/* Biometric gate — first-time export explanation for both PDF and CSV */}
+      <BiometricGateSheet
+        open={exportGateOpen}
+        onClose={() => { setExportGateOpen(false); setPendingGatedExport(null); }}
+        feature="export"
+        onResult={async (granted) => {
+          const pe = pendingGatedExport;
+          setPendingGatedExport(null);
+          if (granted && pe) await doExport(pe.kind, pe.categoryIds, pe.scopeLabel);
+        }}
+      />
       <UpgradeSheet open={upgradeOpen} onOpenChange={setUpgradeOpen} reason="feature" />
       <CurrencyPickerSheet
         open={currencyPickerOpen}

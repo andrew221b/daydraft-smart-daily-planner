@@ -18,7 +18,7 @@ const AlertDialogOverlay = React.forwardRef<
     className={cn(
       // Faster scrim-in than the sheet so the dim "lands" before the dialog
       // pops; slower out so the backdrop holds while the dialog scales away.
-      "fixed inset-0 z-50 bg-black/55 backdrop-blur-[2px] data-[state=open]:animate-in data-[state=closed]:animate-out data-[state=closed]:fade-out-0 data-[state=open]:fade-in-0 data-[state=open]:duration-[160ms] data-[state=closed]:duration-[200ms] data-[state=open]:[animation-timing-function:cubic-bezier(0.32,0.72,0,1)]",
+      "fixed inset-0 z-50 bg-black/55 backdrop-blur-[2px] data-[state=open]:animate-in data-[state=closed]:animate-out data-[state=closed]:fade-out-0 data-[state=open]:fade-in-0 data-[state=open]:duration-[180ms] data-[state=closed]:duration-[260ms] data-[state=open]:[animation-timing-function:cubic-bezier(0.16,1,0.3,1)] data-[state=closed]:[animation-timing-function:cubic-bezier(0.4,0,1,1)]",
       className,
     )}
     {...props}
@@ -36,18 +36,17 @@ const AlertDialogContent = React.forwardRef<
     <AlertDialogPrimitive.Content
       ref={ref}
       className={cn(
-        // iOS alert-style entrance: scale 0.92 → 1 with a confident spring
-        // curve (UIKit `defaultDamped` approximation) and a quick scrim-aware
-        // fade. No slide — Apple alerts pop *in place*. Faster open (240ms)
-        // than sheets because alerts are smaller surfaces and the user
-        // expects modal interruption to feel snappy. Closing is shorter
-        // and softer so the dialog feels dismissive, not abrupt.
+        // Same spring curve as bottom sheets — scale 0.88→1 gives more
+        // character than 0.95, making the alert feel like it pops forward
+        // from the page rather than just appearing. Longer open (300ms) so
+        // the spring character reads; short close (200ms) so dismissing
+        // feels instant.
         "fixed left-[50%] top-[50%] z-50 grid w-full max-w-lg translate-x-[-50%] translate-y-[-50%] gap-4 border bg-background p-6 shadow-2xl rounded-2xl will-change-transform",
         "data-[state=open]:animate-in data-[state=closed]:animate-out",
         "data-[state=open]:fade-in-0 data-[state=closed]:fade-out-0",
-        "data-[state=open]:zoom-in-95 data-[state=closed]:zoom-out-95",
-        "data-[state=open]:duration-[240ms] data-[state=closed]:duration-[180ms]",
-        "data-[state=open]:[animation-timing-function:cubic-bezier(0.32,0.72,0,1)] data-[state=closed]:[animation-timing-function:cubic-bezier(0.4,0,0.4,1)]",
+        "data-[state=open]:zoom-in-[0.88] data-[state=closed]:zoom-out-[0.92]",
+        "data-[state=open]:duration-[300ms] data-[state=closed]:duration-[200ms]",
+        "data-[state=open]:[animation-timing-function:cubic-bezier(0.16,1,0.3,1)] data-[state=closed]:[animation-timing-function:cubic-bezier(0.4,0,0.8,0.5)]",
         className,
       )}
       {...props}

@@ -1,82 +1,317 @@
 import { Capacitor } from "@capacitor/core";
 import { LocalNotifications } from "@capacitor/local-notifications";
-import { Block, parseDateStr } from "./daydraft";
+import { Block, parseDateStr, blockSlotEndHHMM, isUserTask } from "./daydraft";
+import { getReminderConfig } from "./blockReminders";
+import { getAssignedCategoryId } from "./blockCategory";
 
-export async function requestLocalNotificationPermissions() {
-  if (!Capacitor.isNativePlatform()) return false;
+/**
+ * Native scheduled notifications (Capacitor LocalNotifications).
+ *
+ * This is the *real* notification system — it fires even when the app is fully
+ * closed, unlike the foreground-only Web Notification path in `blockReminders`
+ * (which now only runs on web).
+ *
+ * Per task block we schedule, by default, a small, logical set of pings:
+ *
+ *   1. Lead ping(s)   — `cfg.leadsMin` before start (default 2 min before):
+ *                       "Up next: <title>". Carries Done + Start/Track actions.
+ *   2. Start ping     — at start_time: "Time for <title>". Done + Start/Track.
+ *                       (This doubles as the "the next task just started" cue.)
+ *   3. Ending-soon    — `cfg.endAlertLeadMin` before the slot ends (default 5,
+ *                       only for tasks ≥ 12 min): "<title> wrapping up". Done.
+ *   4. End follow-up  — at slot end: "Did you finish <title>?". Done + Skip.
+ *                       Re-synced on every plan change, so a task the user has
+ *                       already resolved never gets this ping.
+ *
+ * Everything respects the per-block ReminderConfig (the Reminders sheet) AND a
+ * global master switch (`dd_notifications_enabled`). When the master switch is
+ * off, or a block's reminders are disabled, nothing is scheduled.
+ *
+ * Action buttons (registered once via `registerNotificationActions`):
+ *   DD_DONE  → mark the task done in the background
+ *   DD_START → open Focus for the task (auto-starts tracking if a category is
+ *              assigned — surfaced as a "Track" button in that case)
+ *   DD_SKIP  → mark the task skipped
+ * Tapping the notification body opens the plan screen.
+ */
+
+// ── Action type ids ──────────────────────────────────────────────────────
+const ACTION_DONE = "DD_DONE";
+const ACTION_START = "DD_START";
+const ACTION_SKIP = "DD_SKIP";
+
+const TYPE_START = "DD_TASK_START"; // Done + Start
+const TYPE_TRACK = "DD_TASK_TRACK"; // Done + Track (category assigned)
+const TYPE_SOON = "DD_TASK_SOON"; // Done only
+const TYPE_END = "DD_TASK_END"; // Done + Skip
+
+// iOS pending-notification ceiling is 64. Stay comfortably under it.
+const MAX_SCHEDULED = 60;
+
+const MASTER_KEY = "dd_notifications_enabled";
+
+const isNative = () => Capacitor.isNativePlatform();
+
+// ── Master switch ──────────────────────────────────────────────────────────
+
+/** Global "all notifications" toggle. Defaults ON unless explicitly disabled. */
+export function getNotificationsEnabled(): boolean {
+  if (typeof window === "undefined") return true;
+  try {
+    return localStorage.getItem(MASTER_KEY) !== "0";
+  } catch {
+    return true;
+  }
+}
+
+export function setNotificationsEnabled(enabled: boolean) {
+  if (typeof window === "undefined") return;
+  try {
+    localStorage.setItem(MASTER_KEY, enabled ? "1" : "0");
+  } catch {
+    /* ignore */
+  }
+}
+
+// ── Permissions ──────────────────────────────────────────────────────────
+
+export async function requestLocalNotificationPermissions(): Promise<boolean> {
+  if (!isNative()) return false;
   try {
     const { display } = await LocalNotifications.requestPermissions();
     return display === "granted";
-  } catch (e) {
+  } catch {
     return false;
   }
 }
 
+// ── Action registration ────────────────────────────────────────────────────
+
+let actionsRegistered = false;
+
+export async function registerNotificationActions(): Promise<void> {
+  if (!isNative() || actionsRegistered) return;
+  try {
+    await LocalNotifications.registerActionTypes({
+      types: [
+        {
+          id: TYPE_START,
+          actions: [
+            { id: ACTION_DONE, title: "✓ Done", foreground: true },
+            { id: ACTION_START, title: "Start", foreground: true },
+          ],
+        },
+        {
+          id: TYPE_TRACK,
+          actions: [
+            { id: ACTION_DONE, title: "✓ Done", foreground: true },
+            { id: ACTION_START, title: "Track", foreground: true },
+          ],
+        },
+        {
+          id: TYPE_SOON,
+          actions: [{ id: ACTION_DONE, title: "✓ Mark done", foreground: true }],
+        },
+        {
+          id: TYPE_END,
+          actions: [
+            { id: ACTION_DONE, title: "✓ Done", foreground: true },
+            { id: ACTION_SKIP, title: "Skip", destructive: true, foreground: true },
+          ],
+        },
+      ],
+    });
+    actionsRegistered = true;
+  } catch (e) {
+    console.warn("[localNotifications] registerActionTypes failed", e);
+  }
+}
+
+// ── Action listener ──────────────────────────────────────────────────────
+
+export type NotifActionHandlers = {
+  /** Navigate the in-app router to a path (body tap → plan, Start → focus). */
+  onNavigate: (path: string) => void;
+  /** Mark a task done in the background. `date` is the plan day (yyyy-mm-dd). */
+  onComplete: (blockId: string, date?: string) => void;
+  /** Mark a task skipped in the background. */
+  onSkip: (blockId: string, date?: string) => void;
+};
+
+export async function attachNotificationActionListener(
+  handlers: NotifActionHandlers,
+): Promise<() => void> {
+  if (!isNative()) return () => {};
+  try {
+    const handle = await LocalNotifications.addListener(
+      "localNotificationActionPerformed",
+      (event) => {
+        const actionId = event.actionId;
+        const extra = event.notification?.extra as { blockId?: string; date?: string } | undefined;
+        const blockId = extra?.blockId;
+        const date = extra?.date;
+        // `tap` is the body tap (no action button) — open the plan.
+        if (actionId === "tap") {
+          handlers.onNavigate("/today/plan");
+          return;
+        }
+        if (!blockId) return;
+        if (actionId === ACTION_DONE) handlers.onComplete(blockId, date);
+        else if (actionId === ACTION_SKIP) handlers.onSkip(blockId, date);
+        else if (actionId === ACTION_START) handlers.onNavigate(`/focus/${blockId}`);
+      },
+    );
+    return () => {
+      void Promise.resolve(handle).then((h) => h.remove());
+    };
+  } catch (e) {
+    console.warn("[localNotifications] attach listener failed", e);
+    return () => {};
+  }
+}
+
+// ── Scheduling ─────────────────────────────────────────────────────────────
+
+type Candidate = {
+  at: Date;
+  title: string;
+  body: string;
+  actionTypeId: string;
+  blockId: string;
+};
+
+const hhmmToDate = (dateStr: string, hhmm: string): Date | null => {
+  const [h, m] = String(hhmm || "").split(":").map(Number);
+  if (Number.isNaN(h) || Number.isNaN(m)) return null;
+  const d = parseDateStr(dateStr);
+  d.setHours(h, m, 0, 0);
+  return d;
+};
+
 export async function syncBlockNotifications(dateStr: string, blocks: Block[]) {
-  if (!Capacitor.isNativePlatform()) return;
+  if (!isNative()) return;
+
+  // Master switch off → make sure nothing is pending and bail.
+  if (!getNotificationsEnabled()) {
+    await clearLocalNotifications();
+    return;
+  }
+
   const { display } = await LocalNotifications.checkPermissions();
   if (display !== "granted") return;
 
-  // Clear existing notifications for this plan/date
+  // Guarantee the action button groups exist before we schedule anything
+  // that references them (idempotent — no-ops after the first call).
+  await registerNotificationActions();
+
+  // Full resync: cancel everything, then reschedule from scratch. This is what
+  // makes the "only ping if still unresolved" guarantee work — a task the user
+  // completed simply isn't re-added below.
   await clearLocalNotifications();
 
-  const toSchedule = [];
-  let idCounter = 1;
+  const now = Date.now();
+  const candidates: Candidate[] = [];
 
   for (const b of blocks) {
-    if (b.completed || b.resolution || b.is_calendar_event) continue;
+    // Only actionable user tasks. Skip calendar events and resolved tasks.
+    if (!isUserTask(b) || b.is_calendar_event) continue;
+    if (b.completed || (b as Block & { resolution?: string | null }).resolution) continue;
 
-    // Build JS Date for start time
-    const [hh, mm] = b.start_time.split(":");
-    const startDt = parseDateStr(dateStr);
-    startDt.setHours(parseInt(hh, 10), parseInt(mm, 10), 0, 0);
-    
-    // Only schedule if it's in the future
-    if (startDt.getTime() > Date.now()) {
-      toSchedule.push({
-        id: idCounter++,
+    const cfg = getReminderConfig(b.id);
+    if (!cfg.enabled) continue;
+
+    const startAt = hhmmToDate(dateStr, b.start_time);
+    if (!startAt) continue;
+    const endAt = hhmmToDate(dateStr, blockSlotEndHHMM(b));
+
+    const hasCategory = !!getAssignedCategoryId(b.id);
+    const startType = hasCategory ? TYPE_TRACK : TYPE_START;
+    const dur = b.duration_min || 0;
+
+    // 1. Lead ping(s) before start
+    for (const lead of cfg.leadsMin || []) {
+      const at = new Date(startAt.getTime() - lead * 60_000);
+      if (at.getTime() > now) {
+        candidates.push({
+          at,
+          title: `Up next: ${b.title}`,
+          body: `Starts in ${lead} min · ${b.start_time}`,
+          actionTypeId: startType,
+          blockId: b.id,
+        });
+      }
+    }
+
+    // 2. Start ping
+    if (startAt.getTime() > now) {
+      candidates.push({
+        at: startAt,
         title: `Time for: ${b.title}`,
-        body: `Your scheduled block starts now.`,
-        schedule: { at: startDt },
-        extra: { blockId: b.id }
+        body: hasCategory ? "Tap Track to start the timer." : "Your block starts now.",
+        actionTypeId: startType,
+        blockId: b.id,
       });
     }
 
-    if (b.slot_end_time) {
-      const [ehh, emm] = b.slot_end_time.split(":");
-      const endDt = parseDateStr(dateStr);
-      endDt.setHours(parseInt(ehh, 10), parseInt(emm, 10), 0, 0);
-      
-      if (endDt.getTime() > Date.now()) {
-        toSchedule.push({
-          id: idCounter++,
-          title: `Block ending: ${b.title}`,
-          body: `Wrap up what you're doing.`,
-          schedule: { at: endDt },
-          extra: { blockId: b.id }
+    if (endAt) {
+      // 3. Ending-soon ping (only meaningful for longer tasks)
+      const lead = typeof cfg.endAlertLeadMin === "number" ? cfg.endAlertLeadMin : 5;
+      if (dur >= 12 && lead > 0) {
+        const at = new Date(endAt.getTime() - lead * 60_000);
+        if (at.getTime() > now && at.getTime() > startAt.getTime()) {
+          candidates.push({
+            at,
+            title: `Wrapping up: ${b.title}`,
+            body: `Ends in ${lead} min — on track to finish?`,
+            actionTypeId: TYPE_SOON,
+            blockId: b.id,
+          });
+        }
+      }
+
+      // 4. End follow-up — "did you finish?"
+      if (endAt.getTime() > now) {
+        candidates.push({
+          at: endAt,
+          title: `Did you finish "${b.title}"?`,
+          body: "Mark it done, or skip it for now.",
+          actionTypeId: TYPE_END,
+          blockId: b.id,
         });
       }
     }
   }
 
-  if (toSchedule.length > 0) {
-    try {
-      await LocalNotifications.schedule({ notifications: toSchedule });
-      console.log(`Scheduled ${toSchedule.length} local notifications.`);
-    } catch (e) {
-      console.error("Failed to schedule local notifications:", e);
-    }
+  if (candidates.length === 0) return;
+
+  // Sort chronologically and cap below the iOS 64-pending ceiling.
+  candidates.sort((a, b) => a.at.getTime() - b.at.getTime());
+  const capped = candidates.slice(0, MAX_SCHEDULED);
+
+  const notifications = capped.map((c, i) => ({
+    id: i + 1,
+    title: c.title,
+    body: c.body,
+    schedule: { at: c.at },
+    actionTypeId: c.actionTypeId,
+    extra: { blockId: c.blockId, date: dateStr },
+  }));
+
+  try {
+    await LocalNotifications.schedule({ notifications });
+  } catch (e) {
+    console.error("[localNotifications] schedule failed", e);
   }
 }
 
 export async function clearLocalNotifications() {
-  if (!Capacitor.isNativePlatform()) return;
+  if (!isNative()) return;
   try {
     const pending = await LocalNotifications.getPending();
     if (pending.notifications.length > 0) {
       await LocalNotifications.cancel({ notifications: pending.notifications });
     }
-  } catch (e) {
-    // ignore
+  } catch {
+    /* ignore */
   }
 }

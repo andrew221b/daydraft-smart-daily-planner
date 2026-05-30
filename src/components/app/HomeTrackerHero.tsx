@@ -466,9 +466,20 @@ export function HomeTrackerHero({ onOpenDetails }: { onOpenDetails: () => void }
           </p>
         )}
 
-        {/* Billing — collapsed by default, tap to expand */}
+        {/* Billing — collapsed by default, tap to expand. Raised glass card so
+            it reads as its own piece of hardware sitting on the hero. */}
         {!active && selectedCat && (
-          <div className="mt-3 rounded-2xl border border-border/30 bg-background/25 overflow-hidden">
+          <div
+            className="mt-3 rounded-2xl overflow-hidden"
+            style={{
+              background: "linear-gradient(180deg, hsl(var(--card) / 0.65) 0%, hsl(var(--card) / 0.38) 100%)",
+              boxShadow: [
+                "inset 0 1px 0 hsl(0 0% 100% / 0.09)",
+                "0 0 0 1px hsl(var(--border) / 0.55)",
+                "0 8px 22px -14px hsl(0 0% 0% / 0.45)",
+              ].join(", "),
+            }}
+          >
             <button
               type="button"
               onClick={() => setBillingExpanded((v) => !v)}
@@ -490,22 +501,38 @@ export function HomeTrackerHero({ onOpenDetails }: { onOpenDetails: () => void }
             </button>
 
             {billingExpanded && (
-              <div className="px-3.5 pb-3.5 space-y-2.5 border-t border-border/25 pt-3">
+              // Recessed "well" — the convex rate field + raised method button
+              // visibly sit inside it, giving the section real depth layers.
+              <div className="groove-track mx-1.5 mb-1.5 rounded-xl px-3 pb-3 pt-3 space-y-2.5">
                 {/* Rate field — auto-saves on blur when dirty, no button needed
                     in the common case. Save button appears only after typing. */}
                 <div className="flex items-end gap-2">
                   <label className="flex-1 space-y-1 block min-w-0">
-                    <span className="text-[10px] text-secondary-fg/70">
+                    <span className="text-[10px] font-semibold text-primary/80">
                       Rate / h{selectedCat.currency ? ` · ${selectedCat.currency.toUpperCase()}` : ""}
                     </span>
-                    <Input
-                      inputMode="decimal"
-                      value={draftRate}
-                      onChange={(e) => setDraftRate(e.target.value)}
-                      onBlur={() => { if (rateDirty && !rateSaving) void saveRate(true); }}
-                      placeholder="—"
-                      className={`h-9 rounded-xl border-border/40 bg-card/40 text-[13px] transition-colors ${rateDirty ? "border-primary/50 ring-1 ring-primary/20" : ""}`}
-                    />
+                    {/* Convex primary pebble — mirrors the Start button's depth */}
+                    <div
+                      className="h-10 rounded-xl flex items-center px-3 transition-shadow"
+                      style={{
+                        background: "linear-gradient(180deg, hsl(var(--primary) / 0.12) 0%, hsl(var(--primary) / 0.05) 100%)",
+                        boxShadow: [
+                          "inset 0 1px 0 hsl(0 0% 100% / 0.12)",
+                          "inset 0 -1px 0 hsl(var(--primary) / 0.18)",
+                          rateDirty ? "0 0 0 1.5px hsl(var(--primary) / 0.55)" : "0 0 0 1.5px hsl(var(--primary) / 0.28)",
+                          "0 4px 10px -5px hsl(var(--primary) / 0.25)",
+                        ].join(", "),
+                      }}
+                    >
+                      <Input
+                        inputMode="decimal"
+                        value={draftRate}
+                        onChange={(e) => setDraftRate(e.target.value)}
+                        onBlur={() => { if (rateDirty && !rateSaving) void saveRate(true); }}
+                        placeholder="—"
+                        className="h-7 flex-1 bg-transparent border-0 px-0 text-[13px] font-mono tabular-nums focus-visible:ring-0 shadow-none"
+                      />
+                    </div>
                   </label>
                   {rateDirty && (
                     <Button
@@ -513,7 +540,7 @@ export function HomeTrackerHero({ onOpenDetails }: { onOpenDetails: () => void }
                       size="sm"
                       disabled={rateSaving}
                       onClick={() => void saveRate(false)}
-                      className="h-9 rounded-xl text-[12px] font-semibold px-4"
+                      className="h-10 rounded-xl text-[12px] font-semibold px-4"
                     >
                       {rateSaving ? "Saving…" : "Save"}
                     </Button>
@@ -530,7 +557,7 @@ export function HomeTrackerHero({ onOpenDetails }: { onOpenDetails: () => void }
                       if (!isPro) { setUpgradeOpen(true); return; }
                       setBillingOpen(true);
                     }}
-                    className="group relative flex w-full items-center gap-2.5 rounded-xl border border-border/40 bg-card/40 px-3 py-2.5 text-left pressable hover:border-border/65 hover:bg-card/60 transition-colors"
+                    className="pebble-idle group relative flex w-full items-center gap-2.5 rounded-xl px-3 py-2.5 text-left pressable active:scale-[0.99] transition-transform"
                   >
                     {(() => {
                       const m = getPaymentMethod(selectedCat.payment_method);
@@ -541,7 +568,11 @@ export function HomeTrackerHero({ onOpenDetails }: { onOpenDetails: () => void }
                           <>
                             <span
                               className="flex h-7 w-7 shrink-0 items-center justify-center rounded-lg"
-                              style={{ background: `hsl(${m.accent} / 0.18)`, color: `hsl(${m.accent})` }}
+                              style={{
+                                background: `linear-gradient(180deg, hsl(${m.accent} / 0.28) 0%, hsl(${m.accent} / 0.14) 100%)`,
+                                boxShadow: `inset 0 1px 0 hsl(0 0% 100% / 0.18), inset 0 -1px 0 hsl(${m.accent} / 0.25), 0 0 0 1px hsl(${m.accent} / 0.32)`,
+                                color: `hsl(${m.accent})`,
+                              }}
                             >
                               <Icon className="h-3.5 w-3.5" strokeWidth={2.4} />
                             </span>
@@ -556,7 +587,7 @@ export function HomeTrackerHero({ onOpenDetails }: { onOpenDetails: () => void }
                       }
                       return (
                         <>
-                          <span className="flex h-7 w-7 shrink-0 items-center justify-center rounded-lg bg-foreground/[0.06] text-foreground/55">
+                          <span className="pebble-icon flex h-7 w-7 shrink-0 items-center justify-center rounded-lg text-foreground/55">
                             <Wallet className="h-3.5 w-3.5" strokeWidth={2} />
                           </span>
                           <span className="min-w-0 flex-1 text-[13px] font-medium text-secondary-fg/85 truncate leading-tight">

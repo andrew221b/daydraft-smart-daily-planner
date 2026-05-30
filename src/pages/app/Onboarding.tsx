@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useState, useRef } from "react";
 import { useNavigate } from "react-router-dom";
 import { Button } from "@/components/ui/button";
 import { Textarea } from "@/components/ui/textarea";
@@ -7,25 +7,22 @@ import {
   ArrowRight,
   Sparkles,
   ChevronLeft,
-  Play,
   Square,
   FileDown,
   Wallet,
   Zap,
   Compass,
 } from "lucide-react";
-import { motion } from "framer-motion";
+import { motion, AnimatePresence } from "framer-motion";
 import { enablePush, pushSupported } from "@/lib/push";
 import { supabase } from "@/integrations/supabase/client";
 import { haptics } from "@/lib/haptics";
 import { startCheckout } from "@/hooks/useEntitlement";
 import { toast } from "sonner";
 
-const PROGRESS_KEY = "dd_onboarding_progress_v5";
-const STEPS = 5;
-type StepIdx = 0 | 1 | 2 | 3 | 4;
-
-
+const PROGRESS_KEY = "dd_onboarding_progress_v6";
+const STEPS = 3;
+type StepIdx = 0 | 1 | 2;
 
 type Progress = {
   step: StepIdx;
@@ -37,7 +34,7 @@ const readProgress = (): Progress => {
     const raw = sessionStorage.getItem(PROGRESS_KEY);
     if (!raw) throw new Error("empty");
     const p = JSON.parse(raw) as Partial<Progress>;
-    const validStep = ([0, 1, 2, 3, 4] as StepIdx[]).includes(p.step as StepIdx);
+    const validStep = ([0, 1, 2] as StepIdx[]).includes(p.step as StepIdx);
     return {
       step: validStep ? (p.step as StepIdx) : 0,
       aiAbout: typeof p.aiAbout === "string" ? p.aiAbout : "",
@@ -71,7 +68,6 @@ export default function Onboarding() {
     haptics.selection();
     setStep(s);
   };
-  const goNext = () => goTo(Math.min(STEPS - 1, step + 1) as StepIdx);
   const goBack = () => goTo(Math.max(0, step - 1) as StepIdx);
 
   const finish = async (notif: boolean) => {
@@ -145,11 +141,12 @@ export default function Onboarding() {
   return (
     <div className="h-[100dvh] w-full bg-background flex justify-center overflow-y-auto overscroll-y-contain no-scrollbar">
       <div className="relative w-full max-w-[440px] min-h-full flex flex-col">
-        <div className="pointer-events-none absolute inset-x-0 top-0 h-[280px]" style={{ background: "var(--gradient-glow)" }} />
+        <div className="pointer-events-none absolute inset-x-0 top-0 h-[320px]" style={{ background: "var(--gradient-glow)" }} />
 
         <div className="relative z-10 flex-1 flex flex-col px-6 pt-[max(env(safe-area-inset-top),14px)] pb-[calc(env(safe-area-inset-bottom)+1.25rem)]">
+          {/* Nav bar */}
           <div className="flex items-center justify-between h-9 -mx-1 mb-4">
-            {step > 0 && step < 4 ? (
+            {step === 1 ? (
               <button
                 type="button"
                 onClick={goBack}
@@ -163,10 +160,10 @@ export default function Onboarding() {
               <span className="h-9 w-9" />
             )}
 
-            {step > 0 && step < 4 ? (
+            {step < 2 ? (
               <button
                 type="button"
-                onClick={() => goTo(4)}
+                onClick={() => goTo(2)}
                 disabled={finishing}
                 className="h-9 px-3 text-[13px] font-medium text-secondary-fg hover:text-foreground pressable disabled:opacity-50 disabled:pointer-events-none transition-colors"
               >
@@ -177,6 +174,7 @@ export default function Onboarding() {
             )}
           </div>
 
+          {/* Progress bar — 3 segments */}
           <div className="flex gap-1.5 mb-7">
             {Array.from({ length: STEPS }).map((_, i) => (
               <div
@@ -189,24 +187,27 @@ export default function Onboarding() {
           </div>
 
           <div className="flex-1 flex flex-col page-enter" key={step}>
-            {step === 0 && <WelcomeStep onContinue={() => goTo(1)} disabled={finishing} />}
-            {step === 1 && <PlanShowcaseStep onContinue={() => goTo(2)} disabled={finishing} />}
-            {step === 2 && <TrackShowcaseStep onContinue={() => goTo(3)} disabled={finishing} />}
-            {step === 3 && (
-              <SetupStep
+            {step === 0 && (
+              <WelcomeSetupStep
                 aiAbout={aiAbout}
                 onAiAbout={setAiAbout}
-                onContinue={() => goTo(4)}
+                onContinue={() => goTo(1)}
                 disabled={finishing}
               />
             )}
-            {step === 4 && (
+            {step === 1 && (
+              <FeaturesShowcaseStep
+                onContinue={() => goTo(2)}
+                disabled={finishing}
+              />
+            )}
+            {step === 2 && (
               <PaywallStep
                 plan={plan}
                 onPlan={setPlan}
                 onCheckout={tryCheckout}
                 onSkip={() => finish(false)}
-                onBack={() => goTo(3)}
+                onBack={() => goTo(1)}
                 busyCheckout={busyCheckout}
                 finishing={finishing}
               />
@@ -218,27 +219,27 @@ export default function Onboarding() {
   );
 }
 
-/* ------------------------------------------------------------------ */
-/*  Step 0 — Welcome                                                  */
-/* ------------------------------------------------------------------ */
+/* ================================================================ */
+/*  SHARED PRIMITIVES                                                */
+/* ================================================================ */
 
-/** Orbiting glow orb — drifts on a slow ellipse, glows with a soft halo,
- *  and pulses opacity so it reads as a luminous mote rather than a static dot. */
-function OrbitOrb({
-  size = 6,
-  radius = 78,
+/** Orbital twinkling star that flies in from out of bounds, then orbits. */
+function OrbitingStar({
+  size = 4,
+  radius = 60,
   startAngle = 0,
   duration = 14,
+  delay = 0,
   hue = "primary",
-  pulseDelay = 0,
+  flyInOrigin = { x: -300, y: -200 },
 }: {
   size?: number;
   radius?: number;
   startAngle?: number;
   duration?: number;
-  /** Either "primary" (Apple Blue), "indigo", or any HSL "h s% l%" triple. */
+  delay?: number;
   hue?: "primary" | "indigo" | string;
-  pulseDelay?: number;
+  flyInOrigin?: { x: number; y: number };
 }) {
   const color =
     hue === "primary"
@@ -246,14 +247,15 @@ function OrbitOrb({
       : hue === "indigo"
         ? "hsl(253 100% 65%)"
         : `hsl(${hue})`;
-  // Parametric orbit: build keyframes around an ellipse so motion never snaps.
+
   const points = Array.from({ length: 9 }, (_, i) => {
     const t = ((startAngle + (i / 8) * 360) * Math.PI) / 180;
     return { x: Math.cos(t) * radius, y: Math.sin(t) * radius * 0.78 };
   });
+
   return (
     <motion.div
-      className="absolute top-1/2 left-1/2 rounded-full"
+      className="absolute top-1/2 left-1/2 rounded-full z-20"
       style={{
         width: size,
         height: size,
@@ -262,37 +264,18 @@ function OrbitOrb({
         background: color,
         boxShadow: `0 0 ${size * 2}px ${size * 0.5}px ${color}, 0 0 ${size * 4}px ${size}px ${color}55`,
       }}
+      initial={{ x: flyInOrigin.x, y: flyInOrigin.y, opacity: 0, scale: 0 }}
       animate={{
-        x: points.map((p) => p.x),
-        y: points.map((p) => p.y),
-        opacity: [0.55, 1, 0.7, 1, 0.55, 0.85, 0.5, 0.95, 0.55],
-        scale: [0.85, 1.15, 0.95, 1.1, 0.85, 1.05, 0.8, 1.1, 0.85],
+        x: [flyInOrigin.x, points[0].x, ...points.map(p => p.x)],
+        y: [flyInOrigin.y, points[0].y, ...points.map(p => p.y)],
+        opacity: [0, 1, 0.55, 1, 0.7, 1, 0.55, 0.85, 0.5, 0.95, 0.55],
+        scale: [0, 1.5, 0.85, 1.15, 0.95, 1.1, 0.85, 1.05, 0.8, 1.1, 0.85],
       }}
       transition={{
-        duration,
-        repeat: Infinity,
-        ease: "linear",
-        delay: pulseDelay,
-      }}
-    />
-  );
-}
-
-/** Small star inside the icon box — twinkles in place with no positional motion. */
-function InnerStar({ style, delay = 0 }: { style: React.CSSProperties; delay?: number }) {
-  return (
-    <motion.div
-      className="absolute h-[3px] w-[3px] rounded-full bg-primary"
-      style={{
-        ...style,
-        boxShadow: "0 0 6px 1px hsl(var(--primary)/0.7), 0 0 12px 2px hsl(var(--primary)/0.35)",
-      }}
-      animate={{
-        opacity: [0.2, 1, 0.4, 1, 0.2],
-        scale: [0.7, 1.4, 0.9, 1.3, 0.7],
-      }}
-      transition={{
-        duration: 2.4 + Math.random() * 1.2,
+        // The first 2 keyframes (fly-in) take a specific fraction of the time,
+        // then it loops smoothly
+        duration: duration + 1.5,
+        times: [0, 1.5 / (duration + 1.5), ...points.map((_, i) => (1.5 + (i / 8) * duration) / (duration + 1.5))],
         repeat: Infinity,
         ease: "easeInOut",
         delay,
@@ -301,277 +284,125 @@ function InnerStar({ style, delay = 0 }: { style: React.CSSProperties; delay?: n
   );
 }
 
-function WelcomeStep({ onContinue, disabled }: { onContinue: () => void; disabled: boolean }) {
+/** 
+ * AILogoStarry — A very premium AI icon replacing the old mascot.
+ * Stars fly in from off-screen, settle into orbit, while the background
+ * breathes with a dynamic glowing aura.
+ */
+function AILogoStarry() {
+  const containerSize = 176;
+
   return (
-    <div className="flex-1 flex flex-col fade-in">
-      <div className="flex-1 flex flex-col justify-center">
-        {/* AI icon stage — icon stays perfectly still; everything around it moves. */}
-        <div className="relative w-44 h-44 mx-auto mb-8 flex items-center justify-center">
-          {/* Background blobs — drift with rotation + scale + opacity so the
-              ambient field feels alive instead of "breathing in place". */}
-          <motion.div
-            className="absolute inset-0 rounded-full"
-            style={{ background: "radial-gradient(circle, hsl(var(--primary)/0.55) 0%, hsl(250 80% 55%/0.35) 50%, transparent 75%)" }}
-            animate={{
-              scale: [1, 1.14, 1.05, 1.12, 1],
-              opacity: [0.55, 1, 0.75, 0.95, 0.55],
-              rotate: [0, 35, -10, 25, 0],
-            }}
-            transition={{ duration: 9, repeat: Infinity, ease: "easeInOut" }}
-          />
-          <motion.div
-            className="absolute inset-4 rounded-full"
-            style={{ background: "radial-gradient(circle, hsl(280 75% 62%/0.55) 0%, hsl(var(--primary)/0.3) 60%, transparent 80%)" }}
-            animate={{
-              scale: [1.05, 0.9, 1.08, 0.95, 1.05],
-              opacity: [0.45, 0.9, 0.55, 0.85, 0.45],
-              rotate: [0, -25, 15, -10, 0],
-            }}
-            transition={{ duration: 7, repeat: Infinity, ease: "easeInOut", delay: 0.7 }}
-          />
-          <motion.div
-            className="absolute inset-10 rounded-full"
-            style={{ background: "radial-gradient(circle, hsl(var(--primary)/0.6) 0%, transparent 70%)" }}
-            animate={{
-              scale: [0.88, 1.2, 0.95, 1.15, 0.88],
-              opacity: [0.4, 0.85, 0.5, 0.8, 0.4],
-            }}
-            transition={{ duration: 5.5, repeat: Infinity, ease: "easeInOut", delay: 1.4 }}
-          />
+    <div
+      className="relative mx-auto"
+      style={{ width: containerSize, height: containerSize }}
+      aria-hidden
+    >
+      {/* Ambient background "breathing glow" */}
+      <motion.div
+        className="absolute inset-0 rounded-full"
+        style={{ background: "radial-gradient(circle, hsl(var(--primary)/0.65) 0%, hsl(250 80% 55%/0.45) 50%, transparent 75%)" }}
+        initial={{ scale: 0, opacity: 0 }}
+        animate={{ scale: [1, 1.25, 1.05, 1.2, 1], opacity: [0, 0.65, 1, 0.75, 0.95, 0.65], rotate: [0, 45, -15, 35, 0] }}
+        transition={{ duration: 10, repeat: Infinity, ease: "easeInOut" }}
+      />
+      <motion.div
+        className="absolute inset-4 rounded-full"
+        style={{ background: "radial-gradient(circle, hsl(280 75% 62%/0.7) 0%, hsl(var(--primary)/0.4) 60%, transparent 80%)" }}
+        initial={{ scale: 0, opacity: 0 }}
+        animate={{ scale: [1.15, 0.95, 1.12, 0.98, 1.15], opacity: [0, 0.55, 0.95, 0.65, 0.9, 0.55], rotate: [0, -35, 20, -15, 0] }}
+        transition={{ duration: 8, repeat: Infinity, ease: "easeInOut", delay: 0.5 }}
+      />
 
-          {/* Orbs orbiting around the icon — each on a slow ellipse, glowing
-              halo, pulsing opacity for that "fireflies around a lantern" feel. */}
-          <OrbitOrb size={7} radius={82} startAngle={0} duration={14} hue="primary" />
-          <OrbitOrb size={5} radius={70} startAngle={140} duration={11} hue="indigo" pulseDelay={1.2} />
-          <OrbitOrb size={6} radius={88} startAngle={220} duration={17} hue="primary" pulseDelay={0.4} />
-          <OrbitOrb size={4} radius={64} startAngle={310} duration={9} hue="indigo" pulseDelay={2.1} />
-          <OrbitOrb size={3.5} radius={92} startAngle={80} duration={20} hue="primary" pulseDelay={3.4} />
+      {/* The wow effect: stars flying in from the edges and orbiting */}
+      <OrbitingStar size={7} radius={82} startAngle={0} duration={14} delay={0.2} hue="primary" flyInOrigin={{ x: -250, y: -200 }} />
+      <OrbitingStar size={5} radius={70} startAngle={140} duration={11} delay={0.8} hue="indigo" flyInOrigin={{ x: 250, y: -150 }} />
+      <OrbitingStar size={6} radius={88} startAngle={220} duration={17} delay={1.4} hue="primary" flyInOrigin={{ x: 180, y: 250 }} />
+      <OrbitingStar size={4} radius={64} startAngle={310} duration={9} delay={0.5} hue="indigo" flyInOrigin={{ x: -200, y: 150 }} />
+      <OrbitingStar size={3.5} radius={92} startAngle={80} duration={20} delay={1.1} hue="primary" flyInOrigin={{ x: 0, y: -250 }} />
 
-          {/* Icon box — completely static. Only the dots INSIDE twinkle. */}
-          <div className="relative z-10 w-[68px] h-[68px] rounded-[1.5rem] bg-background/95 border border-white/15 dark:border-white/8 backdrop-blur-xl flex items-center justify-center shadow-[0_12px_40px_rgba(0,0,0,0.22),inset_0_1px_1px_rgba(255,255,255,0.18)]">
-            {/* Twinkling stars inside the icon box — positioned in empty
-                corners around the Sparkles glyph, each on a different phase. */}
-            <InnerStar style={{ top: "16%", left: "20%" }} delay={0} />
-            <InnerStar style={{ top: "20%", right: "18%" }} delay={0.6} />
-            <InnerStar style={{ bottom: "18%", left: "22%" }} delay={1.1} />
-            <InnerStar style={{ bottom: "22%", right: "20%" }} delay={1.7} />
-
-            <Sparkles className="h-8 w-8 text-primary relative z-[1]" strokeWidth={1.6} />
-          </div>
-        </div>
-
-        <p className="eyebrow text-center">DayDraft</p>
-        <h1 className="font-display text-[34px] font-semibold leading-[1.08] tracking-tight mt-3 text-balance text-center">
-          Your day, planned for you.
-        </h1>
-        <p className="text-secondary-fg mt-4 text-[15px] leading-[1.55] max-w-[20rem] mx-auto text-center text-balance">
-          AI turns your goals into a realistic schedule. Track what shipped, and bill it.
-        </p>
-      </div>
-
-      <Button
-        disabled={disabled}
-        onClick={onContinue}
-        className="w-full h-[54px] rounded-[18px] bg-primary text-primary-foreground hover:bg-primary/92 pressable text-[15px] font-semibold shadow-[0_12px_32px_-8px_hsl(var(--primary)/0.6)] mt-6"
+      {/* Main AI Icon — A glassmorphism sphere with sparkles */}
+      <motion.div
+        className="absolute top-1/2 left-1/2 z-10 flex items-center justify-center rounded-full"
+        style={{
+          width: 72,
+          height: 72,
+          marginLeft: -36,
+          marginTop: -36,
+          background: "linear-gradient(135deg, hsl(var(--primary)) 0%, hsl(253 100% 60%) 100%)",
+          boxShadow: "0 12px 40px rgba(0,0,0,0.25), inset 0 2px 4px rgba(255,255,255,0.4), inset 0 -4px 8px rgba(0,0,0,0.2)",
+        }}
+        initial={{ scale: 0.5, opacity: 0, y: 20 }}
+        animate={{
+          scale: 1,
+          opacity: 1,
+          y: [0, -6, 0, 4, 0],
+        }}
+        transition={{ 
+          scale: { type: "spring", stiffness: 200, damping: 20, delay: 0.1 },
+          opacity: { duration: 0.4, delay: 0.1 },
+          y: { duration: 6, repeat: Infinity, ease: "easeInOut", delay: 0.5 }
+        }}
       >
-        Get started <ArrowRight className="h-4 w-4 ml-1" />
-      </Button>
+        <Sparkles className="h-[34px] w-[34px] text-white" strokeWidth={1.5} />
+      </motion.div>
     </div>
   );
 }
 
-/* ------------------------------------------------------------------ */
-/*  Step 1 — Plan showcase                                            */
-/* ------------------------------------------------------------------ */
+/* ================================================================ */
+/*  STEP 0 — Welcome + AI Setup (merged)                            */
+/* ================================================================ */
 
-const MOCK_PLAN_TASKS = [
-  { time: "9:00", label: "Design review", color: "#7C3AED", mins: 45 },
-  { time: "10:00", label: "Client meeting", color: "#EC4899", mins: 30 },
-  { time: "10:45", label: "Deep work", color: "#0EA5E9", mins: 90 },
-  { time: "12:30", label: "Lunch break", color: "#10B981", mins: 45 },
-];
-
-function PlanMockup() {
-  return (
-    <div className="rounded-2xl border border-border/30 bg-background/40 backdrop-blur-sm overflow-hidden">
-      {/* Fake AI header */}
-      <div className="flex items-center gap-2 px-3.5 py-2.5 border-b border-border/20">
-        <motion.div
-          animate={{ scale: [1, 1.2, 1], opacity: [0.7, 1, 0.7] }}
-          transition={{ duration: 1.8, repeat: Infinity, ease: "easeInOut" }}
-        >
-          <Sparkles className="h-3.5 w-3.5 text-primary" />
-        </motion.div>
-        <span className="text-[11px] font-semibold text-secondary-fg/80">AI built your day</span>
-        <div className="ml-auto flex gap-0.5">
-          {[0, 1, 2].map((i) => (
-            <motion.div
-              key={i}
-              className="h-1 w-1 rounded-full bg-primary"
-              animate={{ opacity: [0.3, 1, 0.3] }}
-              transition={{ duration: 1.2, repeat: Infinity, delay: i * 0.3 }}
-            />
-          ))}
-        </div>
-      </div>
-
-      <div className="px-3.5 py-3 space-y-2">
-        {MOCK_PLAN_TASKS.map((task, i) => (
-          <motion.div
-            key={task.label}
-            initial={{ opacity: 0, x: -12 }}
-            animate={{ opacity: 1, x: 0 }}
-            transition={{ delay: 0.15 + i * 0.35, type: "spring", stiffness: 280, damping: 28 }}
-            className="flex items-center gap-2.5"
-          >
-            <span className="text-[10px] font-mono tabular-nums text-secondary-fg/60 w-9 shrink-0">{task.time}</span>
-            <div
-              className="h-6 rounded-lg flex items-center px-2 gap-1.5 flex-1"
-              style={{ background: `${task.color}22`, border: `1px solid ${task.color}40` }}
-            >
-              <span className="h-1.5 w-1.5 rounded-full shrink-0" style={{ background: task.color }} />
-              <span className="text-[12px] font-medium truncate" style={{ color: task.color }}>{task.label}</span>
-              <span className="ml-auto text-[10px] font-mono" style={{ color: `${task.color}99` }}>{task.mins}m</span>
-            </div>
-          </motion.div>
-        ))}
-      </div>
-    </div>
-  );
-}
-
-function PlanShowcaseStep({ onContinue, disabled }: { onContinue: () => void; disabled: boolean }) {
-  return (
-    <div className="flex-1 flex flex-col fade-in">
-      <div className="flex-1 flex flex-col">
-        <p className="eyebrow">Smart planning</p>
-        <h1 className="font-display text-[26px] font-semibold leading-tight tracking-tight mt-2 text-balance">
-          Schedules that respect your day.
-        </h1>
-        <p className="text-secondary-fg mt-2 text-[14px] leading-snug max-w-sm">
-          Tell AI what's on your plate — it time-blocks your entire day in seconds.
-        </p>
-
-        <div className="mt-6">
-          <PlanMockup />
-        </div>
-      </div>
-
-      <Button
-        disabled={disabled}
-        onClick={onContinue}
-        className="w-full h-[54px] rounded-[18px] bg-primary text-primary-foreground hover:bg-primary/92 pressable text-[15px] font-semibold shadow-card mt-6"
-      >
-        Continue <ArrowRight className="h-4 w-4 ml-1" />
-      </Button>
-    </div>
-  );
-}
-
-/* ------------------------------------------------------------------ */
-/*  Step 2 — Track & bill showcase                                    */
-/* ------------------------------------------------------------------ */
-
-function TrackerMockup() {
-  const [elapsed, setElapsed] = useState(0);
-  const RATE = 80;
+/** Animates placeholder text for the textarea: types → pauses → erases → repeats. */
+function useTypingPlaceholder(examples: string[], speed = 38) {
+  const [display, setDisplay] = useState("");
+  const idxRef = useRef(0);
+  const dirRef = useRef<"typing" | "erasing">("typing");
 
   useEffect(() => {
-    const t = setInterval(() => setElapsed((s) => s + 1), 1000);
-    return () => clearInterval(t);
-  }, []);
+    let timer: ReturnType<typeof setTimeout>;
+    const tick = () => {
+      const target = examples[idxRef.current];
+      if (dirRef.current === "typing") {
+        setDisplay((d) => {
+          const next = target.slice(0, d.length + 1);
+          if (next === target) {
+            dirRef.current = "erasing";
+            timer = setTimeout(tick, 1800);
+          } else {
+            timer = setTimeout(tick, speed);
+          }
+          return next;
+        });
+      } else {
+        setDisplay((d) => {
+          const next = d.slice(0, -1);
+          if (next === "") {
+            dirRef.current = "typing";
+            idxRef.current = (idxRef.current + 1) % examples.length;
+            timer = setTimeout(tick, 500);
+          } else {
+            timer = setTimeout(tick, speed * 0.55);
+          }
+          return next;
+        });
+      }
+    };
+    timer = setTimeout(tick, 900);
+    return () => clearTimeout(timer);
+  }, [examples, speed]);
 
-  const totalSecs = 5432 + elapsed; // start at 1:30:32 + live ticking
-  const h = Math.floor(totalSecs / 3600);
-  const m = Math.floor((totalSecs % 3600) / 60);
-  const s = totalSecs % 60;
-  const fmt = (n: number) => String(n).padStart(2, "0");
-  const earnings = ((totalSecs / 3600) * RATE).toFixed(2);
-
-  return (
-    <div className="rounded-2xl border border-border/30 bg-background/40 backdrop-blur-sm overflow-hidden">
-      {/* Active timer header */}
-      <div className="px-4 pt-4 pb-3 border-b border-border/20">
-        <div className="flex items-center justify-between mb-2">
-          <div className="flex items-center gap-2">
-            <motion.div
-              className="h-2 w-2 rounded-full bg-green-500"
-              animate={{ opacity: [1, 0.35, 1] }}
-              transition={{ duration: 1.2, repeat: Infinity }}
-            />
-            <span className="text-[12px] font-semibold text-foreground/80">Client work</span>
-          </div>
-          <div className="flex items-center gap-1.5 rounded-lg bg-destructive/10 border border-destructive/20 px-2 py-1">
-            <Square className="h-2.5 w-2.5 text-destructive" fill="currentColor" />
-            <span className="text-[10px] font-semibold text-destructive">Stop</span>
-          </div>
-        </div>
-        <div className="font-mono text-[36px] font-bold tabular-nums tracking-tight text-foreground">
-          {fmt(h)}:{fmt(m)}:{fmt(s)}
-        </div>
-      </div>
-
-      {/* Earnings row */}
-      <div className="px-4 py-3 flex items-center justify-between">
-        <div className="flex items-center gap-1.5">
-          <Wallet className="h-3.5 w-3.5 text-primary/70" />
-          <span className="text-[12px] text-secondary-fg/70">Earned at $80/h</span>
-        </div>
-        <motion.span
-          key={earnings}
-          initial={{ opacity: 0.6, scale: 0.97 }}
-          animate={{ opacity: 1, scale: 1 }}
-          className="text-[14px] font-display font-bold text-primary tabular-nums"
-        >
-          ${earnings}
-        </motion.span>
-      </div>
-
-      {/* Export row */}
-      <div className="px-4 pb-3">
-        <div className="rounded-xl bg-primary/8 border border-primary/15 px-3 py-2 flex items-center gap-2">
-          <FileDown className="h-3.5 w-3.5 text-primary/70 shrink-0" />
-          <span className="text-[12px] text-foreground/75 flex-1">Ready to export as PDF invoice</span>
-          <span className="text-[10px] text-primary font-semibold">Export</span>
-        </div>
-      </div>
-    </div>
-  );
+  return display;
 }
 
-function TrackShowcaseStep({ onContinue, disabled }: { onContinue: () => void; disabled: boolean }) {
-  return (
-    <div className="flex-1 flex flex-col fade-in">
-      <div className="flex-1 flex flex-col">
-        <p className="eyebrow">Track & bill</p>
-        <h1 className="font-display text-[26px] font-semibold leading-tight tracking-tight mt-2 text-balance">
-          Hours that turn into invoices.
-        </h1>
-        <p className="text-secondary-fg mt-2 text-[14px] leading-snug max-w-sm">
-          One tap starts the timer. Stop it and export a polished PDF your clients will pay.
-        </p>
+const AI_EXAMPLES = [
+  "e.g. I work from home, dog walk at 1 pm, no hard tasks after 4 pm.",
+  "e.g. Freelance dev, most focused 9–12, gym on Mon/Wed/Fri.",
+  "e.g. Student, mornings are best, part-time job 3–6 pm weekdays.",
+];
 
-        <div className="mt-6">
-          <TrackerMockup />
-        </div>
-      </div>
-
-      <Button
-        disabled={disabled}
-        onClick={onContinue}
-        className="w-full h-[54px] rounded-[18px] bg-primary text-primary-foreground hover:bg-primary/92 pressable text-[15px] font-semibold shadow-card mt-6"
-      >
-        Continue <ArrowRight className="h-4 w-4 ml-1" />
-      </Button>
-    </div>
-  );
-}
-
-/* ------------------------------------------------------------------ */
-/*  Step 3 — AI personalisation                                       */
-/* ------------------------------------------------------------------ */
-
-function SetupStep({
+function WelcomeSetupStep({
   aiAbout,
   onAiAbout,
   onContinue,
@@ -582,64 +413,364 @@ function SetupStep({
   onContinue: () => void;
   disabled: boolean;
 }) {
-  return (
-    <div className="flex-1 flex flex-col fade-in">
-      <div className="flex-1 flex flex-col">
-        <div className="flex items-center justify-center mb-6 mt-2">
-          <motion.div
-            className="h-14 w-14 rounded-[18px] flex items-center justify-center"
-            style={{ background: "linear-gradient(135deg, hsl(var(--primary)/0.18) 0%, hsl(var(--primary)/0.08) 100%)", border: "1px solid hsl(var(--primary)/0.25)" }}
-            animate={{ scale: [1, 1.06, 1], opacity: [0.85, 1, 0.85] }}
-            transition={{ duration: 3, repeat: Infinity, ease: "easeInOut" }}
-          >
-            <Sparkles className="h-6 w-6 text-primary" strokeWidth={1.6} />
-          </motion.div>
-        </div>
+  const [focused, setFocused] = useState(false);
+  const placeholder = useTypingPlaceholder(AI_EXAMPLES);
+  const mood = focused && aiAbout.length > 0 ? "happy" : focused ? "thinking" : "neutral";
 
-        <p className="eyebrow text-center">Personalise AI</p>
-        <h1 className="font-display text-[26px] font-semibold leading-tight tracking-tight mt-2 text-balance text-center">
-          Tell AI about your day.
+  return (
+    <div className="flex-1 flex flex-col">
+      {/* ── AI Logo + headline ─────────────────────────── */}
+      <div className="flex-1 flex flex-col justify-center">
+        <AILogoStarry />
+
+        <p className="eyebrow text-center mt-1">DayDraft</p>
+        <h1 className="font-display text-[34px] font-semibold leading-[1.08] tracking-tight mt-3 text-balance text-center">
+          Your day,<br />planned for you.
         </h1>
-        <p className="text-secondary-fg mt-2 text-[14px] leading-snug text-center max-w-[280px] mx-auto">
-          The more context it has, the better your plans will fit your real life.
+        <p className="text-secondary-fg mt-3 text-[15px] leading-[1.55] max-w-[19rem] mx-auto text-center text-balance">
+          AI turns your goals into a realistic schedule. Track what shipped, and bill it.
         </p>
 
-        <div className="mt-8">
+        {/* ── Divider ──────────────────────────────────── */}
+        <div className="flex items-center gap-3 mt-7 mb-6">
+          <div className="flex-1 h-px bg-border/40" />
+          <span className="text-[11px] text-secondary-fg/55 font-medium flex items-center gap-1.5">
+            <motion.span
+              animate={{ rotate: [0, 20, -20, 0], scale: [1, 1.2, 1] }}
+              transition={{ duration: 3, repeat: Infinity, ease: "easeInOut", delay: 2 }}
+              className="inline-block"
+            >
+              ✦
+            </motion.span>
+            Help AI plan better
+          </span>
+          <div className="flex-1 h-px bg-border/40" />
+        </div>
+
+        {/* ── AI context textarea ───────────────────────── */}
+        <div className="relative">
           <Textarea
             value={aiAbout}
             onChange={(e) => onAiAbout(e.target.value)}
-            placeholder="e.g. I work from home, walk the dog at 1 pm, prefer no hard tasks after 4 pm."
+            onFocus={() => setFocused(true)}
+            onBlur={() => setFocused(false)}
+            placeholder={placeholder + (focused ? "" : "▋")}
             maxLength={500}
-            className="min-h-[120px] surface-card border-soft rounded-2xl text-[14px] resize-none leading-relaxed"
+            rows={3}
+            className="min-h-[88px] surface-card border-soft rounded-2xl text-[14px] resize-none leading-relaxed transition-[border-color,box-shadow] duration-200 focus:border-primary/50 focus:shadow-[0_0_0_3px_hsl(var(--primary)/0.12)]"
             autoFocus={false}
           />
-          <p className="mt-2 text-[11px] text-secondary-fg/60 text-right">{aiAbout.length}/500</p>
+          <p className="mt-1.5 text-[11px] text-secondary-fg/45 text-right">{aiAbout.length}/500</p>
         </div>
 
-        <p className="mt-4 text-[12px] text-secondary-fg/50 text-center leading-relaxed">
-          Sent privately with each plan · never stored beyond your session
+        <p className="mt-2 text-[11px] text-secondary-fg/45 text-center leading-relaxed">
+          Sent privately with each plan · never stored beyond your profile
         </p>
       </div>
 
       <Button
         disabled={disabled}
         onClick={onContinue}
-        className="w-full h-[54px] rounded-[18px] bg-primary text-primary-foreground hover:bg-primary/92 pressable text-[15px] font-semibold shadow-card mt-6"
+        className="w-full h-[54px] rounded-[18px] bg-primary text-primary-foreground hover:bg-primary/92 pressable text-[15px] font-semibold shadow-[0_12px_32px_-8px_hsl(var(--primary)/0.6)] mt-6"
       >
-        Continue <ArrowRight className="h-4 w-4 ml-1" />
+        Let's go <ArrowRight className="h-4 w-4 ml-1.5" />
       </Button>
     </div>
   );
 }
 
-/* ------------------------------------------------------------------ */
-/*  Step 4 — Paywall                                                  */
-/* ------------------------------------------------------------------ */
+/* ================================================================ */
+/*  STEP 1 — Features: Plan · Track · Bill (merged)                 */
+/* ================================================================ */
+
+const PLAN_BLOCKS = [
+  { time: "9:00", title: "Design review", typeVar: "--type-deep",    mins: 45 },
+  { time: "10:00", title: "Client call",   typeVar: "--type-comm",    mins: 30 },
+  { time: "10:45", title: "Deep work",     typeVar: "--type-deep",    mins: 90 },
+] as const;
+
+/** A real-app-styled block row, matching SortableBlock aesthetics perfectly. */
+function MockBlock({
+  time,
+  title,
+  typeVar,
+  mins,
+  delay,
+  glow = false,
+}: {
+  time: string;
+  title: string;
+  typeVar: string;
+  mins: number;
+  delay: number;
+  glow?: boolean;
+}) {
+  return (
+    <motion.div
+      initial={{ opacity: 0, x: 20, scale: 0.95 }}
+      animate={{ opacity: 1, x: 0, scale: 1 }}
+      transition={{ delay, type: "spring", stiffness: 320, damping: 26 }}
+      className={[
+        "group app-card rounded-[18px] px-3.5 py-3.5 shadow-sm border transition-[border-color,box-shadow,transform] duration-300",
+        glow 
+          ? "ring-[1.5px] ring-primary/40 bg-primary/[0.04] shadow-[0_0_32px_hsl(var(--primary)/0.12)] border-primary/20 scale-[1.02]" 
+          : "bg-[linear-gradient(165deg,hsl(var(--type-deep)/.06)_0%,hsl(var(--surface)/.72)_58%,hsl(var(--surface-elevated)/.65)_100%)] border-[hsl(var(--type-deep)/.22)]"
+      ].join(" ")}
+      style={{
+         ...(glow ? {} : {
+            background: `linear-gradient(165deg, hsl(${typeVar} / .06) 0%, hsl(var(--surface) / .72) 58%, hsl(var(--surface-elevated) / .65) 100%)`,
+            borderColor: `hsl(${typeVar} / .22)`
+         })
+      } as any}
+    >
+      <div className="flex items-start gap-2">
+        {/* Invisible drag handle placeholder for exact padding match */}
+        <div className="w-6 h-8 shrink-0 flex items-center justify-center text-secondary-fg/30" aria-hidden>
+          {glow && <span className="h-1.5 w-1.5 rounded-full bg-primary animate-pulse" />}
+        </div>
+
+        <div className="flex min-w-0 flex-1 items-start gap-2.5">
+          <div className="shrink-0 h-6 px-1.5 inline-flex items-center justify-center text-secondary-fg/70 text-[10px] font-mono-sf tabular-nums">
+            {time}
+          </div>
+
+          {/* Accent stripe */}
+          <div className="w-[4px] h-8 rounded-full shrink-0" style={{ background: `hsl(var(${typeVar}))` }} />
+
+          <div className="flex-1 min-w-0">
+            <div className="flex items-center gap-1.5 min-w-0 leading-tight text-[14px] font-medium text-foreground">
+              <span className="flex-1 min-w-0 truncate">{title}</span>
+              {!glow && <Layers className="h-3 w-3 text-secondary-fg shrink-0" aria-hidden />}
+              {glow && <Sparkles className="h-3 w-3 text-primary/70 shrink-0" aria-hidden />}
+            </div>
+            <div className="text-[11px] text-secondary-fg mt-[3px] tabular-nums leading-none">
+              <span className="text-faint">{mins}m</span>
+            </div>
+            
+            {glow && (
+              <motion.div 
+                initial={{ opacity: 0, height: 0 }}
+                animate={{ opacity: 1, height: "auto" }}
+                className="mt-1.5 inline-flex items-center gap-1.5 rounded-full bg-success/15 text-success border border-success/25 px-2 py-0.5 text-[11px] font-medium leading-none"
+              >
+                <span className="h-1.5 w-1.5 rounded-full bg-success animate-pulse" />
+                Tracking now
+              </motion.div>
+            )}
+          </div>
+
+          <div className="flex items-center gap-1.5 shrink-0">
+            {glow ? (
+              <button
+                type="button"
+                className="shrink-0 h-8 rounded-full bg-success/15 text-success border border-success/30 inline-flex items-center justify-center gap-1 px-2.5 text-[11px] font-medium"
+              >
+                <Square className="h-3 w-3" fill="currentColor" /> Stop
+              </button>
+            ) : (
+              <>
+                <button
+                  type="button"
+                  className="relative h-8 w-8 rounded-full border-[1.5px] border-border/60 shrink-0 shadow-[inset_0_2px_6px_rgba(0,0,0,0.06)]"
+                  aria-hidden
+                />
+                <div className="shrink-0 h-[18px] w-[18px] flex items-center justify-center text-secondary-fg/30 pointer-events-none">
+                  <ChevronDown className="h-3 w-3" />
+                </div>
+              </>
+            )}
+          </div>
+        </div>
+      </div>
+    </motion.div>
+  );
+}
+
+/** Live ticking tracker card matching HomeTrackerHero. */
+function LiveTrackerCard({ baseElapsed }: { baseElapsed: number }) {
+  const [elapsed, setElapsed] = useState(baseElapsed);
+  const RATE = 80;
+
+  useEffect(() => {
+    const t = setInterval(() => setElapsed((s) => s + 1), 1000);
+    return () => clearInterval(t);
+  }, []);
+
+  const totalSecs = elapsed;
+  const h = Math.floor(totalSecs / 3600);
+  const m = Math.floor((totalSecs % 3600) / 60);
+  const s = totalSecs % 60;
+  const fmt = (n: number) => String(n).padStart(2, "0");
+  const earnings = ((totalSecs / 3600) * RATE).toFixed(2);
+
+  return (
+    <motion.div
+      initial={{ opacity: 0, y: 30, scale: 0.95 }}
+      animate={{ opacity: 1, y: 0, scale: 1 }}
+      transition={{ delay: 1.2, type: "spring", stiffness: 280, damping: 26 }}
+      className="relative overflow-hidden rounded-[28px] hero-glass border border-[color-mix(in_srgb,var(--hero-accent)_45%,hsl(var(--border)/0.5))] px-5 pt-6 pb-5 tracker-hero-clock shadow-[0_12px_40px_-12px_rgba(0,0,0,0.5)]"
+      style={{ "--hero-accent": "hsl(var(--type-deep))" } as any}
+    >
+      <div className="relative">
+        <div className="flex items-center justify-between">
+          <span className="text-[10px] font-semibold uppercase tracking-[0.2em] text-secondary-fg/70">
+            Recording
+          </span>
+          <span className="text-[12px] font-medium text-secondary-fg/80">
+            All stats →
+          </span>
+        </div>
+
+        {/* Hero timer */}
+        <div className="mt-4 flex flex-col items-center text-center">
+          <div className="inline-flex items-center gap-2 rounded-full bg-foreground/[0.07] px-3 py-1 border border-border/30">
+            <span
+              className="h-1.5 w-1.5 rounded-full animate-pulse shadow-[0_0_0_3px_color-mix(in_srgb,var(--hero-accent)_22%,transparent)]"
+              style={{ background: "hsl(var(--type-deep))" }}
+            />
+            <span className="text-[12px] font-medium text-foreground/85 truncate">
+              Design review
+            </span>
+          </div>
+
+          <div className="mt-3 breathe">
+            <div className="font-display text-[3.4rem] font-semibold tabular-nums leading-none tracking-[-0.04em] text-foreground">
+              {fmt(h)}:{fmt(m)}:{fmt(s)}
+            </div>
+          </div>
+          
+          <div
+            className="mt-1.5 inline-flex items-center gap-1.5 rounded-full bg-success/10 border border-success/20 px-3 py-1 tabular-nums"
+          >
+            <span className="text-[11px] font-medium text-success/65">earned</span>
+            <span className="text-[14px] font-semibold text-success">${earnings}</span>
+          </div>
+
+          <div className="mt-4 inline-flex items-center gap-2 rounded-full bg-foreground text-background px-7 py-3 text-[14px] font-semibold shadow-[0_8px_22px_-12px_rgba(0,0,0,0.45)]">
+            <Square className="h-3.5 w-3.5" fill="currentColor" />
+            Stop
+          </div>
+        </div>
+      </div>
+    </motion.div>
+  );
+}
+
+/** Animated flowing dots connector between plan and tracker panels. */
+function FlowConnector() {
+  return (
+    <motion.div 
+      className="flex items-center justify-center gap-2 py-2"
+      initial={{ opacity: 0 }}
+      animate={{ opacity: 1 }}
+      transition={{ delay: 0.9, duration: 1 }}
+    >
+      <div className="flex gap-1">
+        {[0, 1, 2].map((i) => (
+          <motion.div
+            key={i}
+            className="h-[5px] w-[5px] rounded-full"
+            style={{ background: "hsl(var(--primary))" }}
+            animate={{ y: [0, -5, 0], opacity: [0.25, 0.85, 0.25] }}
+            transition={{ duration: 1.1, repeat: Infinity, delay: i * 0.22, ease: "easeInOut" }}
+          />
+        ))}
+      </div>
+    </motion.div>
+  );
+}
+
+function FeaturesShowcaseStep({
+  onContinue,
+  disabled,
+}: {
+  onContinue: () => void;
+  disabled: boolean;
+}) {
+  // Cycle which block glows as "active"
+  const [activeBlock, setActiveBlock] = useState(0);
+
+  useEffect(() => {
+    const t = setInterval(() => {
+      setActiveBlock((i) => (i === 0 ? 1 : 0)); // Ping pong between 0 and 1 for demo
+    }, 3200);
+    return () => clearInterval(t);
+  }, []);
+
+  // 5432s ≈ 1h 30m 32s
+  const BASE_ELAPSED = 5432;
+
+  return (
+    <div className="flex-1 flex flex-col">
+      <div className="flex-1 flex flex-col">
+        {/* ── Header copy ──────────────────────────────── */}
+        <motion.p 
+          className="eyebrow"
+          initial={{ opacity: 0, y: -10 }}
+          animate={{ opacity: 1, y: 0 }}
+          transition={{ duration: 0.5 }}
+        >
+          Plan · Track · Bill
+        </motion.p>
+        <motion.h1 
+          className="font-display text-[26px] font-semibold leading-tight tracking-tight mt-2 text-balance"
+          initial={{ opacity: 0, y: -10 }}
+          animate={{ opacity: 1, y: 0 }}
+          transition={{ duration: 0.5, delay: 0.1 }}
+        >
+          Everything your day needs, in one place.
+        </motion.h1>
+
+        {/* ── Showcase area ────────────────────────────── */}
+        <div className="mt-6 flex-1 relative">
+          
+          <div className="space-y-3 relative z-10">
+            {PLAN_BLOCKS.slice(0, 2).map((b, i) => (
+              <MockBlock
+                key={b.title}
+                time={b.time}
+                title={b.title}
+                typeVar={b.typeVar}
+                mins={b.mins}
+                delay={0.2 + i * 0.25}
+                glow={activeBlock === i}
+              />
+            ))}
+          </div>
+
+          <FlowConnector />
+
+          <div className="relative z-20 -mt-1">
+            <LiveTrackerCard baseElapsed={BASE_ELAPSED} />
+          </div>
+        </div>
+      </div>
+
+      <motion.div
+        initial={{ opacity: 0, y: 20 }}
+        animate={{ opacity: 1, y: 0 }}
+        transition={{ delay: 1.5, type: "spring" }}
+      >
+        <Button
+          disabled={disabled}
+          onClick={onContinue}
+          className="w-full h-[54px] rounded-[18px] bg-primary text-primary-foreground hover:bg-primary/92 pressable text-[15px] font-semibold shadow-card mt-6"
+        >
+          Continue <ArrowRight className="h-4 w-4 ml-1.5" />
+        </Button>
+      </motion.div>
+    </div>
+  );
+}
+
+/* ================================================================ */
+/*  STEP 2 — Paywall (enhanced animations)                          */
+/* ================================================================ */
 
 const PAYWALL_HIGHLIGHTS = [
-  { Icon: Zap, label: "Unlimited AI planning" },
-  { Icon: FileDown, label: "Polished PDF reports" },
-  { Icon: Compass, label: "Smart drift nudges" },
+  { Icon: Zap,      label: "Unlimited AI planning" },
+  { Icon: FileDown, label: "Polished PDF reports"  },
+  { Icon: Compass,  label: "Smart drift nudges"    },
 ];
 
 function PaywallStep({
@@ -673,28 +804,55 @@ function PaywallStep({
       </button>
 
       <div className="flex-1 flex flex-col">
-        <div className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full surface-accent border border-accent self-start">
+        {/* Badge + title */}
+        <motion.div
+          initial={{ opacity: 0, y: 8 }}
+          animate={{ opacity: 1, y: 0 }}
+          transition={{ delay: 0.05, type: "spring", stiffness: 300, damping: 24 }}
+          className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full surface-accent border border-accent self-start"
+        >
           <Sparkles className="h-3.5 w-3.5 text-primary" />
           <span className="eyebrow text-primary">DayDraft Pro</span>
-        </div>
-        <h1 className="font-display text-[28px] font-semibold leading-tight tracking-tight mt-3 text-balance">
-          Unlock the full DayDraft.
-        </h1>
+        </motion.div>
 
-        {/* Compact 3-item highlight row — icons only + label, no body text */}
+        <motion.h1
+          initial={{ opacity: 0, y: 8 }}
+          animate={{ opacity: 1, y: 0 }}
+          transition={{ delay: 0.1, type: "spring", stiffness: 300, damping: 24 }}
+          className="font-display text-[28px] font-semibold leading-tight tracking-tight mt-3 text-balance"
+        >
+          Unlock the full DayDraft.
+        </motion.h1>
+
+        {/* Feature highlight grid */}
         <div className="mt-4 flex items-center gap-3">
-          {PAYWALL_HIGHLIGHTS.map(({ Icon, label }) => (
-            <div key={label} className="flex-1 flex flex-col items-center gap-1.5 rounded-2xl border border-accent bg-card/30 p-3 text-center">
-              <div className="h-8 w-8 rounded-[10px] surface-accent border border-accent flex items-center justify-center">
+          {PAYWALL_HIGHLIGHTS.map(({ Icon, label }, i) => (
+            <motion.div
+              key={label}
+              initial={{ opacity: 0, scale: 0.88, y: 10 }}
+              animate={{ opacity: 1, scale: 1, y: 0 }}
+              transition={{ delay: 0.15 + i * 0.08, type: "spring", stiffness: 320, damping: 22 }}
+              className="flex-1 flex flex-col items-center gap-1.5 rounded-2xl border border-accent bg-card/30 p-3 text-center"
+            >
+              <motion.div
+                className="h-8 w-8 rounded-[10px] surface-accent border border-accent flex items-center justify-center"
+                animate={{ y: [0, -2, 0] }}
+                transition={{ duration: 2.5 + i * 0.7, repeat: Infinity, ease: "easeInOut", delay: i * 0.4 }}
+              >
                 <Icon className="h-4 w-4 text-primary" />
-              </div>
+              </motion.div>
               <span className="text-[11px] font-medium text-foreground/80 leading-tight">{label}</span>
-            </div>
+            </motion.div>
           ))}
         </div>
 
-        {/* Pricing cards */}
-        <div className="flex flex-col gap-2.5 mt-5">
+        {/* Pricing */}
+        <motion.div
+          initial={{ opacity: 0, y: 10 }}
+          animate={{ opacity: 1, y: 0 }}
+          transition={{ delay: 0.38, type: "spring", stiffness: 280, damping: 26 }}
+          className="flex flex-col gap-2.5 mt-5"
+        >
           <PlanCard
             active={plan === "annual"} onClick={() => onPlan("annual")}
             title="Annual" price="$59.99" sub="$4.99/mo · save 50%" badge="Best Value"
@@ -709,11 +867,16 @@ function PaywallStep({
               title="Weekly" price="$3.99" sub="per week"
             />
           </div>
-        </div>
+        </motion.div>
       </div>
 
-      {/* CTA area */}
-      <div className="mt-5 flex flex-col gap-2.5">
+      {/* CTAs */}
+      <motion.div
+        initial={{ opacity: 0, y: 12 }}
+        animate={{ opacity: 1, y: 0 }}
+        transition={{ delay: 0.48, type: "spring", stiffness: 280, damping: 26 }}
+        className="mt-5 flex flex-col gap-2.5"
+      >
         <Button
           onClick={onCheckout}
           disabled={busy}
@@ -729,17 +892,17 @@ function PaywallStep({
         >
           Continue with Free
         </button>
-        <p className="text-[11px] text-secondary-fg/55 text-center">
+        <p className="text-[11px] text-secondary-fg/50 text-center">
           Cancel anytime · No surprise add-ons
         </p>
-      </div>
+      </motion.div>
     </div>
   );
 }
 
-/* ------------------------------------------------------------------ */
-/*  Shared bits                                                        */
-/* ------------------------------------------------------------------ */
+/* ================================================================ */
+/*  SHARED: Pricing card                                             */
+/* ================================================================ */
 
 function PlanCard({
   active,
@@ -757,13 +920,14 @@ function PlanCard({
   badge?: string;
 }) {
   return (
-    <button
+    <motion.button
       type="button"
       onClick={onClick}
+      whileTap={{ scale: 0.97 }}
       className={[
-        "relative text-left rounded-[18px] border p-4 pressable transition-[border-color,background-color,box-shadow] duration-200 overflow-hidden",
+        "relative text-left rounded-[18px] border p-4 transition-[border-color,background-color,box-shadow] duration-200 overflow-hidden w-full",
         active
-          ? "border-primary bg-primary/5 shadow-[0_0_24px_-6px_hsl(var(--primary)/0.2)]"
+          ? "border-primary bg-primary/5 shadow-[0_0_28px_-6px_hsl(var(--primary)/0.22)]"
           : "border-soft surface-card hover:border-primary/30",
       ].join(" ")}
     >
@@ -772,9 +936,15 @@ function PlanCard({
           {badge}
         </span>
       )}
-      <div className={`text-[12px] font-medium uppercase tracking-wide ${active ? "text-primary" : "text-secondary-fg"}`}>{title}</div>
-      <div className={`font-display text-[22px] font-bold tabular-nums mt-1 ${active ? "text-foreground" : "text-foreground/90"}`}>{price}</div>
-      <div className={`text-[12px] mt-0.5 ${active ? "text-primary/80" : "text-secondary-fg/80"}`}>{sub}</div>
-    </button>
+      <div className={`text-[12px] font-medium uppercase tracking-wide ${active ? "text-primary" : "text-secondary-fg"}`}>
+        {title}
+      </div>
+      <div className={`font-display text-[22px] font-bold tabular-nums mt-1 ${active ? "text-foreground" : "text-foreground/90"}`}>
+        {price}
+      </div>
+      <div className={`text-[12px] mt-0.5 ${active ? "text-primary/80" : "text-secondary-fg/80"}`}>
+        {sub}
+      </div>
+    </motion.button>
   );
 }

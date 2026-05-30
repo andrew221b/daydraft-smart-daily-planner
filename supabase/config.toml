@@ -11,3 +11,7 @@ verify_jwt = true
 # Cron: slot-end reminders (service-role bearer only — no user JWT).
 [functions.notify-block-ends]
 verify_jwt = false
+
+# Cron: mid-day overrun "running behind" alert (service-role bearer only).
+[functions.notify-overrun]
+verify_jwt = false

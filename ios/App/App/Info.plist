@@ -2,12 +2,12 @@
 <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
 <plist version="1.0">
 <dict>
-    <key>CAPACITOR_DEBUG</key>
+	<key>CAPACITOR_DEBUG</key>
 	<string>$(CAPACITOR_DEBUG)</string>
 	<key>CFBundleDevelopmentRegion</key>
 	<string>en</string>
 	<key>CFBundleDisplayName</key>
-        <string>DayDraft</string>
+	<string>DayDraft</string>
 	<key>CFBundleExecutable</key>
 	<string>$(EXECUTABLE_NAME)</string>
 	<key>CFBundleIdentifier</key>
@@ -20,10 +20,34 @@
 	<string>APPL</string>
 	<key>CFBundleShortVersionString</key>
 	<string>$(MARKETING_VERSION)</string>
+	<key>CFBundleURLTypes</key>
+	<array>
+		<dict>
+			<key>CFBundleURLSchemes</key>
+			<array>
+				<string>com.googleusercontent.apps.648113837751-59o4n1kc29naeagt0d4ehcocjfp5s96k</string>
+			</array>
+		</dict>
+		<dict>
+			<key>CFBundleURLName</key>
+			<string>dev.daydraft.app</string>
+			<key>CFBundleURLSchemes</key>
+			<array>
+				<string>daydraft</string>
+			</array>
+		</dict>
+	</array>
 	<key>CFBundleVersion</key>
 	<string>$(CURRENT_PROJECT_VERSION)</string>
 	<key>LSRequiresIPhoneOS</key>
 	<true/>
+	<key>NSFaceIDUsageDescription</key>
+	<string>DayDraft uses Face ID to unlock your schedule and keep your daily plans private.</string>
+	<key>UIBackgroundModes</key>
+	<array>
+		<string>fetch</string>
+		<string>remote-notification</string>
+	</array>
 	<key>UILaunchStoryboardName</key>
 	<string>LaunchScreen</string>
 	<key>UIMainStoryboardFile</key>
@@ -45,46 +69,11 @@
 		<string>UIInterfaceOrientationLandscapeLeft</string>
 		<string>UIInterfaceOrientationLandscapeRight</string>
 	</array>
+	<key>NSSupportsLiveActivities</key>
+	<true/>
+	<key>NSSupportsLiveActivitiesFrequentUpdates</key>
+	<true/>
 	<key>UIViewControllerBasedStatusBarAppearance</key>
 	<true/>
-	<!--
-	  Google sign-in URL scheme. Replace `com.googleusercontent.apps.REPLACE_ME`
-	  with the reversed iOS Client ID from Google Cloud Console:
-	    APIs & Services → Credentials → iOS OAuth Client → iOS URL scheme.
-	  Leave the placeholder in place if you're not using Google sign-in yet
-	  — the app boots fine without it.
-	-->
-	<key>CFBundleURLTypes</key>
-	<array>
-		<dict>
-			<key>CFBundleURLSchemes</key>
-			<array>
-				<string>com.googleusercontent.apps.648113837751-59o4n1kc29naeagt0d4ehcocjfp5s96k</string>
-			</array>
-		</dict>
-		<!--
-		  DayDraft custom URL scheme. Powers in-app deep links like
-		    daydraft://focus/<blockId>
-		    daydraft://today
-		  Used by local / push notifications to open a specific task or
-		  screen on tap, and by share-back flows from external apps.
-		-->
-		<dict>
-			<key>CFBundleURLName</key>
-			<string>dev.daydraft.app</string>
-			<key>CFBundleURLSchemes</key>
-			<array>
-				<string>daydraft</string>
-			</array>
-		</dict>
-	</array>
-	<!--
-	  Required by iOS when the app calls LocalAuthentication / NativeBiometric
-	  with Face ID. Without this key, the first Face ID prompt crashes the
-	  process. Wording shown to the user in the system permission dialog when
-	  they first enable App Lock in Settings.
-	-->
-	<key>NSFaceIDUsageDescription</key>
-	<string>DayDraft uses Face ID to unlock your schedule and keep your daily plans private.</string>
 </dict>
 </plist>

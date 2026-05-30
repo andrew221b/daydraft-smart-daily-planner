@@ -1,4 +1,5 @@
 import { serve } from "https://deno.land/std@0.168.0/http/server.ts";
+import { DAYDRAFT_PERSONA } from "../_shared/persona.ts";
 
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
@@ -17,42 +18,15 @@ serve(async (req) => {
     const GEMINI_API_KEY = Deno.env.get("GEMINI_API_KEY");
     if (!GEMINI_API_KEY) throw new Error("GEMINI_API_KEY missing");
 
-    const toneMap: Record<string, string> = {
-      professional: `Tone: concise and professional.
-- Sentence style: short, neutral, concrete.
-- Vocabulary: operational and direct.
-- Constraints: no emojis, no hype.`,
-      coach: `Tone: supportive coach.
-- Sentence style: warm but specific.
-- Vocabulary: encouragement + action verbs.
-- Constraints: include one gentle encouragement phrase.`,
-      playful: `Tone: light and friendly.
-- Sentence style: crisp, upbeat.
-- Vocabulary: approachable and energetic.
-- Constraints: max one subtle emoji total.`,
-      motivational: `Tone: intense and momentum-first.
-- Sentence style: decisive, active voice.
-- Vocabulary: strong verbs, urgency, commitment.
-- Constraints: no vague motivational fluff.`,
-      tough_love: `Tone: strict accountability.
-- Sentence style: short, firm, directive.
-- Vocabulary: blunt priorities and trade-offs.
-- Constraints: no emojis, no sugarcoating.`,
-      philosophical: `Tone: reflective clarity.
-- Sentence style: calm and intentional.
-- Vocabulary: perspective + concrete next step.
-- Constraints: keep practical; no abstract rambling.`,
-    };
-    const toneLine = ai_tone === "custom" && ai_tone_custom
-      ? `Custom tone guidance: ${String(ai_tone_custom).slice(0, 250)}`
-      : (toneMap[ai_tone] || toneMap.professional);
+    // Voice is a single natural persona now (see _shared/persona.ts).
     const prefsBlock =
       typeof ai_planning_rules === "string" && ai_planning_rules.trim()
         ? `\nUSER PLANNING PREFERENCES (keep advice compatible with these constraints):\n${String(ai_planning_rules).trim().slice(0, 900)}`
         : "";
 
-    const system = `You are a focused execution coach. The user is about to start a single task.
-${toneLine}${prefsBlock}
+    const system = `${DAYDRAFT_PERSONA}
+
+YOUR JOB RIGHT NOW: the user is about to start a single task and wants to begin without friction. Give them a clear, encouraging running start — the smallest first move that makes the rest feel easy. Be their corner, not their critic.${prefsBlock}
 Return:
 - 3-5 concrete sub-steps (verb-led, max 8 words each) that break the task down.
 - 2-4 useful resource links (real, well-known URLs only — docs, official sites, common tools). If you're not certain a URL is correct, omit it. Do not invent links.

@@ -82,6 +82,26 @@ body.dd-dnd-scroll-lock {
        Android / web: 16px — status bar is solid, no blur zone to escape. */
     --content-extra-top: 46px;
     --content-inset-top: calc(var(--safe-area-inset-top) + var(--content-extra-top));
+
+    /* ── Billing / payment "hardware" surfaces (Rate & billing editor) ──
+       Tokenised so the dark look is preserved verbatim while light mode gets
+       a hand-tuned, high-contrast treatment. Dark values below equal the
+       original hardcoded styles. */
+    --pebble-fill: linear-gradient(180deg, hsl(var(--foreground) / 0.05) 0%, hsl(var(--foreground) / 0.02) 100%);
+    --pebble-shadow:
+      inset 0 1px 0 hsl(0 0% 100% / 0.06),
+      inset 0 -1px 0 hsl(0 0% 0% / 0.10),
+      0 0 0 1px hsl(var(--border) / 0.55),
+      0 2px 6px -3px hsl(0 0% 0% / 0.18);
+    --pebble-icon-fill: linear-gradient(180deg, hsl(var(--foreground) / 0.08) 0%, hsl(var(--foreground) / 0.04) 100%);
+    --pebble-icon-shadow: inset 0 1px 0 hsl(0 0% 100% / 0.08), inset 0 -1px 0 hsl(0 0% 0% / 0.06);
+    --groove-fill: linear-gradient(180deg, hsl(var(--foreground) / 0.06) 0%, hsl(var(--foreground) / 0.03) 100%);
+    --groove-shadow:
+      inset 0 1.5px 2px hsl(0 0% 0% / 0.10),
+      inset 0 -1px 0 hsl(0 0% 100% / 0.04),
+      0 0 0 1px hsl(var(--border) / 0.50);
+    --field-fill: hsl(var(--card) / 0.55);
+    --field-shadow: inset 0 1px 2px hsl(0 0% 0% / 0.08), inset 0 0 0 1px hsl(var(--border) / 0.45);
   }
 
   /* Light mode — premium "paper" palette with measurable elevation steps.
@@ -128,6 +148,28 @@ body.dd-dnd-scroll-lock {
     --glass-saturate: 1.4;
     --hero-glass-blur: 36px;
     --hero-glass-saturate: 1.4;
+
+    /* Light-mode billing surfaces — cool paper with real depth. Raised
+       "pebbles" catch a bright top highlight and cast a soft blue-grey drop;
+       sunken fields & grooves get a genuine inset so the editor reads as
+       milled hardware instead of flat grey-on-white. */
+    --pebble-fill: linear-gradient(180deg, hsl(0 0% 100%) 0%, hsl(220 24% 97%) 100%);
+    --pebble-shadow:
+      inset 0 1px 0 hsl(0 0% 100% / 0.95),
+      0 0 0 1px hsl(var(--border) / 0.85),
+      0 1px 2px hsl(220 32% 45% / 0.10),
+      0 5px 12px -5px hsl(220 32% 40% / 0.18);
+    --pebble-icon-fill: linear-gradient(180deg, hsl(220 28% 98%) 0%, hsl(220 22% 92%) 100%);
+    --pebble-icon-shadow: inset 0 1px 0 hsl(0 0% 100%), 0 0 0 1px hsl(var(--border) / 0.7);
+    --groove-fill: linear-gradient(180deg, hsl(220 20% 90%) 0%, hsl(220 22% 94%) 100%);
+    --groove-shadow:
+      inset 0 2px 4px hsl(220 32% 45% / 0.16),
+      inset 0 -1px 0 hsl(0 0% 100% / 0.85),
+      0 0 0 1px hsl(var(--border) / 0.75);
+    --field-fill: hsl(220 24% 97%);
+    --field-shadow:
+      inset 0 1px 2px hsl(220 32% 45% / 0.12),
+      inset 0 0 0 1px hsl(var(--border) / 0.9);
   }
 
   :root[data-visual-mode="neon"] {
@@ -265,6 +307,11 @@ body.dd-dnd-scroll-lock {
   .type-body { font-size: 0.875rem; line-height: 1.45; color: hsl(var(--foreground)); }
   .type-meta { font-size: 0.72rem; line-height: 1.35; color: hsl(var(--muted-foreground)); }
   .shadow-card { box-shadow: var(--shadow-card), var(--shadow-card-inset); }
+  /* Billing editor "hardware" surfaces — theme-adaptive (see tokens above). */
+  .pebble-idle { background: var(--pebble-fill); box-shadow: var(--pebble-shadow); }
+  .pebble-icon { background: var(--pebble-icon-fill); box-shadow: var(--pebble-icon-shadow); }
+  .groove-track { background: var(--groove-fill); box-shadow: var(--groove-shadow); }
+  .field-recessed { background: var(--field-fill) !important; box-shadow: var(--field-shadow) !important; }
   .shadow-elevated { box-shadow: var(--shadow-elevated); }
   .shadow-glow { box-shadow: var(--shadow-glow); }
   .shadow-tab { box-shadow: var(--shadow-tab); }
@@ -818,10 +865,13 @@ body.dd-dnd-scroll-lock {
     background: var(--gradient-floor);
     opacity: 0.22;
     mix-blend-mode: screen;
+    /* Tighter than before (40% vs 48% radius, fades out by 82% not 92%) so the
+       floor glow stays a centred halo and is gone before the screen sides —
+       no horizontal cut-off at the corners. */
     -webkit-mask-image:
-      radial-gradient(48% 80% at 50% 100%, black 0%, black 22%, transparent 92%);
+      radial-gradient(40% 80% at 50% 100%, black 0%, black 16%, transparent 82%);
     mask-image:
-      radial-gradient(48% 80% at 50% 100%, black 0%, black 22%, transparent 92%);
+      radial-gradient(40% 80% at 50% 100%, black 0%, black 16%, transparent 82%);
   }
   /* screen blend is a no-op on near-white; switch to normal so the tinted
      gradient actually paints colour onto the light background. */
@@ -829,59 +879,66 @@ body.dd-dnd-scroll-lock {
   :root.light .shell-glow-floor { mix-blend-mode: normal; opacity: 0.18; }
 
   /**
-   * Edge chrome — sits above content (z-18) but below tab bar (z-40).
-   * Bottom replaces the solid black safe-area strip with a primary glow.
-   * Top creates a frosted-glass zone: content blurs as it scrolls under it.
+   * Progressive edge blur — 1 compositor layer per edge (was 5).
+   *
+   * Single backdrop-filter + gradient mask gives the same progressive-blur
+   * perception as the 4-layer stack: the mask ramps from fully opaque at the
+   * screen edge to transparent in the content area, so the blurred glass
+   * gradually "fades in" toward the edge. The tint lives on the same element
+   * (no second layer needed) since background paints above the blur effect.
+   *
+   * GPU cost: 2 backdrop-filter layers total (top + bottom), down from 8.
    */
-  .shell-edge-top {
-    height: calc(env(safe-area-inset-top, 44px) + 38px);
+  .edge-fade {
+    position: fixed;
+    left: 0;
+    right: 0;
+    z-index: 18;
+    pointer-events: none;
+    backdrop-filter: blur(12px);
+    -webkit-backdrop-filter: blur(12px);
+  }
+
+  /* ── Top edge ────────────────────────────────────────── */
+  .edge-fade-top {
+    top: 0;
+    height: calc(env(safe-area-inset-top, 44px) + 40px);
+    /* Mask: fully opaque at very top (glass covers notch), fades to zero
+       before reaching the content — smooth ramp over the full height. */
+    -webkit-mask-image: linear-gradient(to bottom, #000 18%, transparent 100%);
+            mask-image: linear-gradient(to bottom, #000 18%, transparent 100%);
     background: linear-gradient(
       to bottom,
-      hsl(var(--background) / 0.84) 0%,
-      hsl(var(--primary) / 0.07) 56%,
+      hsl(var(--background) / 0.82) 0%,
+      hsl(var(--primary) / 0.06) 52%,
       transparent 100%
     );
-    backdrop-filter: blur(6px);
-    -webkit-backdrop-filter: blur(6px);
-    -webkit-mask-image: linear-gradient(to bottom, black 60%, transparent 100%);
-    mask-image: linear-gradient(to bottom, black 60%, transparent 100%);
-    pointer-events: none;
   }
-  :root.light .shell-edge-top {
+  :root.light .edge-fade-top {
     background: linear-gradient(
       to bottom,
       hsl(var(--background) / 0.95) 0%,
-      hsl(var(--primary) / 0.07) 60%,
+      hsl(var(--primary) / 0.06) 56%,
       transparent 100%
     );
   }
 
-  /* Bottom: exact mirror of shell-edge-top — same blur, same gradient, same
-     mask technique, just reversed direction (to top instead of to bottom).
-     Covers env(safe-area-inset-bottom) + a small fade zone so the frosted
-     glass bleeds smoothly from the physical screen edge up toward the tab bar,
-     with no hard line and no solid black strip. */
-  .shell-edge-bottom {
-    height: calc(env(safe-area-inset-bottom, 34px) + 16px);
-    background: linear-gradient(
-      to top,
-      hsl(var(--background) / 0.84) 0%,
-      hsl(var(--primary) / 0.07) 56%,
-      transparent 100%
-    );
-    backdrop-filter: blur(8px) saturate(1.35);
-    -webkit-backdrop-filter: blur(8px) saturate(1.35);
-    -webkit-mask-image: linear-gradient(to top, black 52%, transparent 100%);
-    mask-image: linear-gradient(to top, black 52%, transparent 100%);
-    pointer-events: none;
+  /* ── Bottom edge ─────────────────────────────────────── */
+  .edge-fade-bottom {
+    bottom: 0;
+    height: calc(env(safe-area-inset-bottom, 34px) + 56px);
+    /* Mask: fully opaque at very bottom (covers home indicator), fades to
+       zero at the top of the strip — smooth ramp. */
+    -webkit-mask-image: linear-gradient(to top, #000 18%, transparent 100%);
+            mask-image: linear-gradient(to top, #000 18%, transparent 100%);
+    background:
+      radial-gradient(32% 140% at 50% 100%, hsl(var(--primary) / 0.13) 0%, hsl(var(--primary) / 0.05) 45%, transparent 72%),
+      linear-gradient(to top, hsl(var(--background) / 0.42) 0%, transparent 100%);
   }
-  :root.light .shell-edge-bottom {
-    background: linear-gradient(
-      to top,
-      hsl(var(--background) / 0.95) 0%,
-      hsl(var(--primary) / 0.07) 60%,
-      transparent 100%
-    );
+  :root.light .edge-fade-bottom {
+    background:
+      radial-gradient(32% 140% at 50% 100%, hsl(var(--primary) / 0.10) 0%, hsl(var(--primary) / 0.04) 45%, transparent 72%),
+      linear-gradient(to top, hsl(var(--background) / 0.55) 0%, transparent 100%);
   }
 
   /**

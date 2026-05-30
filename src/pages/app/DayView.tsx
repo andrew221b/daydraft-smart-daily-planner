@@ -5,7 +5,8 @@ import { useNavigate, useSearchParams } from "react-router-dom";
 import { useAuth } from "@/hooks/useAuth";
 import { supabase } from "@/integrations/supabase/client";
 import { trackAiEvent } from "@/lib/aiRuntime";
-import { syncBlockNotifications } from "@/lib/localNotifications";
+import { Capacitor } from "@capacitor/core";
+import { syncBlockNotifications, getNotificationsEnabled, setNotificationsEnabled } from "@/lib/localNotifications";
 import { enqueueWrite } from "@/lib/idbCache";
 import { invokeAiCached } from "@/lib/aiCache";
 import { useAbortOnUnmount } from "@/hooks/useAbortOnUnmount";
@@ -57,12 +58,42 @@ import {
 
 import { useEntitlement } from "@/hooks/useEntitlement";
 import { UpgradeSheet } from "@/components/app/UpgradeSheet";
+import { LateCompleteSheet } from "@/components/app/LateCompleteSheet";
 import { setDndBodyScrollLock } from "@/lib/dndScrollLock";
 import { AskAiSheet } from "@/components/app/AskAiSheet";
 import { Textarea } from "@/components/ui/textarea";
 import { parseBulkTasks, extractDurationFromTitle } from "@/lib/taskSplitter";
 import { useTimeTracker } from "@/hooks/useTimeTracker";
 import { useTabVisible } from "@/components/app/PersistentTabs";
+
+/** Builds a factual, concise snapshot of a specific task + its day context for the AI. */
+function buildTaskSeedContext(block: ExBlock, allBlocks: ExBlock[]): string {
+  const tasks = allBlocks.filter((b) => b.kind === "task" && !b.is_calendar_event);
+  const doneCount = tasks.filter((b) => b.completed).length;
+  const typeLabel = block.type === "deep_work" ? "deep work" : block.type === "communication" ? "communication" : "routine";
+  const blockMins = timeToMinutes(block.start_time);
+  const before = tasks
+    .filter((b) => timeToMinutes(b.start_time) < blockMins && b.completed)
+    .slice(-2).map((b) => `"${b.title}"`).join(", ");
+  const after = tasks
+    .filter((b) => timeToMinutes(b.start_time) > blockMins)
+    .slice(0, 2).map((b) => `"${b.title}" at ${b.start_time}`).join(", ");
+  return [
+    `Task: "${block.title}" · ${typeLabel} · ${block.duration_min} min · starts ${block.start_time}`,
+    `Day: ${doneCount}/${tasks.length} tasks done`,
+    before && `Done before this: ${before}`,
+    after && `Coming up: ${after}`,
+  ].filter(Boolean).join("\n");
+}
+
+/** Builds a factual day-level snapshot for the day-level "Ask AI" button. */
+function buildDaySeedContext(allBlocks: ExBlock[]): string {
+  const tasks = allBlocks.filter((b) => b.kind === "task" && !b.is_calendar_event);
+  if (!tasks.length) return "__empty_day__";
+  const doneCount = tasks.filter((b) => b.completed).length;
+  const list = tasks.map((b) => `• ${b.start_time} "${b.title}" (${b.duration_min}m)${b.completed ? " ✓" : ""}`).join("\n");
+  return `Today's schedule:\n${list}\n${doneCount}/${tasks.length} done`;
+}
 
 type ExBlock = Block & {
   ai_reasoning?: string | null;
@@ -117,12 +148,18 @@ export default function DayView() {
     endAlertRepeat: 0,
   });
   const [durationEditId, setDurationEditId] = useState<string | null>(null);
-  const [startTimeEditId, setStartTimeEditId] = useState<string | null>(null);
-  const [startTimeDraft, setStartTimeDraft] = useState<string>("09:00");
+  // Start-time editing uses the native picker directly (no wrapping sheet).
+  // A single hidden <input type="time"> is opened via showPicker(); the block
+  // being edited is held in a ref so the input's onChange knows the target.
+  const startTimeInputRef = useRef<HTMLInputElement>(null);
+  const startTimeTargetRef = useRef<string | null>(null);
   const [upgradeOpen, setUpgradeOpen] = useState(false);
+  const [lateCompleteBlock, setLateCompleteBlock] = useState<ExBlock | null>(null);
+  const [notifsEnabled, setNotifsEnabled] = useState<boolean>(() => getNotificationsEnabled());
   const [planMutating, setPlanMutating] = useState(false);
   const [askAiOpen, setAskAiOpen] = useState(false);
   const [askAiContext, setAskAiContext] = useState<string | null>(null);
+  const [askAiTaskTitle, setAskAiTaskTitle] = useState<string | null>(null);
   // Cancels in-flight `generate-plan` calls when DayView unmounts so we
   // don't try to mutate state for a page the user already left.
   const getAiAbortSignal = useAbortOnUnmount();
@@ -232,10 +269,28 @@ export default function DayView() {
     setReminderConfig(reminderBlockId, cfg);
     setReminderCfg(cfg);
     if (isToday) {
-      ensureNotificationPermission().then((ok) => {
-        if (ok) scheduleBlockReminders(blocks as any, { planDate: viewDate });
-      });
+      if (Capacitor.isNativePlatform()) {
+        // Native: re-sync the real scheduled notifications with the new config.
+        void syncBlockNotifications(viewDate, blocks as any);
+      } else {
+        // Web: foreground-only Notification API fallback.
+        ensureNotificationPermission().then((ok) => {
+          if (ok) scheduleBlockReminders(blocks as any, { planDate: viewDate });
+        });
+      }
     }
+  };
+
+  const toggleAllNotifications = (enabled: boolean) => {
+    setNotificationsEnabled(enabled);
+    setNotifsEnabled(enabled);
+    haptics.selection();
+    if (Capacitor.isNativePlatform()) {
+      // syncBlockNotifications cancels everything when the master switch is off,
+      // and reschedules the day's pings when it's back on.
+      void syncBlockNotifications(viewDate, blocks as any);
+    }
+    toast(enabled ? "Notifications on" : "All notifications muted");
   };
 
   const sensors = useSensors(
@@ -304,6 +359,10 @@ export default function DayView() {
   };
 
   useEffect(() => {
+    // Native scheduling is handled by syncBlockNotifications (real OS
+    // notifications). This web-Notification path is a foreground-only
+    // fallback for the browser build, so skip it entirely on native.
+    if (Capacitor.isNativePlatform()) return;
     if (!isToday || blocks.length === 0) return;
     let cancelled = false;
     (async () => {
@@ -452,6 +511,7 @@ export default function DayView() {
   };
 
   const completeBlock = async (id: string) => {
+    if (isFuture) return; // can't complete tasks that haven't happened yet
     if (blockOpLocksRef.current.has(`complete:${id}`)) return;
     blockOpLocksRef.current.add(`complete:${id}`);
     const snapshot = blocks;
@@ -760,6 +820,100 @@ export default function DayView() {
     }
   };
 
+  // Current local time rounded UP to the next 5 min, as "HH:MM". The floor for
+  // start times when the plan is for today — you can't schedule into the past.
+  const roundedNowHHMM = () => {
+    const d = new Date();
+    const mins = Math.min(23 * 60 + 59, d.getHours() * 60 + Math.ceil(d.getMinutes() / 5) * 5);
+    return minutesToHHMM(mins);
+  };
+
+  // Open the native time wheel directly for a block (no app sheet on top of it).
+  // Must run inside the tap handler so iOS keeps the user-activation showPicker
+  // requires; falls back to focus() on older engines.
+  const openStartTimePicker = (block: Block) => {
+    if (block?.is_calendar_event) return;
+    startTimeTargetRef.current = block.id;
+    const el = startTimeInputRef.current;
+    if (!el) return;
+    el.value = block.start_time || "09:00";
+    // Best-effort native constraint; the real guard is the clamp in commit
+    // (iOS wheels don't reliably honour min).
+    el.min = isToday ? roundedNowHHMM() : "";
+    try {
+      const withPicker = el as HTMLInputElement & { showPicker?: () => void };
+      if (typeof withPicker.showPicker === "function") withPicker.showPicker();
+      else el.focus();
+    } catch {
+      el.focus();
+    }
+  };
+
+  // Commit a native-picked start time: clamp past→now for today, then apply the
+  // same packing / gap-break logic the old sheet used, and persist.
+  const commitStartTime = async (rawValue: string) => {
+    const id = startTimeTargetRef.current;
+    startTimeTargetRef.current = null;
+    if (!id) return;
+    if (!/^\d{2}:\d{2}$/.test(rawValue)) return;
+    if (planMutating) return;
+
+    let value = rawValue;
+    if (isToday) {
+      const nowHHMM = roundedNowHHMM();
+      if (timeToMinutes(value) < timeToMinutes(nowHHMM)) {
+        value = nowHHMM;
+        toast("Past time — set to now");
+      }
+    }
+
+    const idx = blocks.findIndex((b) => b.id === id);
+    if (idx < 0) return;
+    const snapshot = blocks;
+    const updated = [...blocks];
+    const targetMin = timeToMinutes(value);
+
+    // Not the first block: if the user pushed it later than the previous block
+    // ends, fill the gap with a Break so the schedule stays contiguous.
+    if (idx > 0) {
+      const previousPacked = packLinearSchedule(updated.slice(0, idx));
+      const last = previousPacked[previousPacked.length - 1];
+      const previousEndMin = timeToMinutes(last.start_time) + Number(last.duration_min);
+      if (targetMin > previousEndMin) {
+        const breakBlock: Block = {
+          id: crypto.randomUUID(),
+          plan_id: updated[0].plan_id,
+          user_id: updated[0].user_id,
+          start_time: minutesToHHMM(previousEndMin),
+          duration_min: targetMin - previousEndMin,
+          title: "Break",
+          type: "routine",
+          kind: "break",
+          completed: false,
+          position: 0,
+        };
+        updated.splice(idx, 0, breakBlock);
+      }
+    }
+
+    const targetIdx = updated.findIndex((b) => b.id === id);
+    if (targetIdx >= 0) updated[targetIdx] = { ...updated[targetIdx], start_time: value };
+
+    const packed = packLinearSchedule(updated);
+    setBlocks(packed);
+    haptics.notify("success");
+    setPlanMutating(true);
+    try {
+      await persistOrder(packed);
+      void invalidatePlanCaches();
+    } catch (e: any) {
+      setBlocks(snapshot);
+      toast.error(e?.message || "Couldn't update start time");
+    } finally {
+      setPlanMutating(false);
+    }
+  };
+
   const handleDragStart = (e: DragStartEvent) => {
     setDndBodyScrollLock(true);
     setActiveDragId(e.active.id as string);
@@ -823,7 +977,7 @@ export default function DayView() {
           ai_tone_custom: (profile as any)?.ai_tone_custom || null,
           ai_planning_rules: (profile as any)?.ai_planning_rules || "",
         },
-        { ttlMs: 0, timeoutMs: 60_000, signal },
+        { ttlMs: 0, timeoutMs: 75_000, signal },
       );
       if (signal.aborted) return;
       if (error) throw error;
@@ -901,7 +1055,7 @@ export default function DayView() {
           ai_tone_custom: (profile as any)?.ai_tone_custom || null,
           ai_planning_rules: (profile as any)?.ai_planning_rules || "",
         },
-        { ttlMs: 0, timeoutMs: 60_000, signal },
+        { ttlMs: 0, timeoutMs: 75_000, signal },
       );
       if (signal.aborted) return;
       if (error) throw error;
@@ -927,7 +1081,7 @@ export default function DayView() {
       if (signal.aborted) return;
       const raw = (e?.message || "").toString();
       const friendly =
-        /Failed to send a request|Load failed|Failed to fetch|NetworkError|TypeError|net::|ENOTFOUND|ECONNREFUSED/i.test(raw)
+        /Failed to send a request|Load failed|Failed to fetch|NetworkError|net::|ENOTFOUND|ECONNREFUSED|aborted/i.test(raw)
           ? "Couldn't reach the AI — check your connection and try again."
           : raw && !/AI gateway error/i.test(raw)
             ? raw
@@ -1055,10 +1209,10 @@ export default function DayView() {
     }
     if (intent.kind === "carry-missed") {
       // Carry everything the user hasn't actually finished: still-open,
-      // explicitly missed, AND skipped tasks. Only done tasks are excluded —
-      // there's no point moving something the user already completed.
+      // explicitly missed, AND skipped tasks. Done tasks and tasks already
+      // moved to another day (moved_to_date set) are excluded.
       const candidates = blocks.filter(
-        (b) => isUserTask(b) && !isUserTaskDone(b),
+        (b) => isUserTask(b) && !isUserTaskDone(b) && !(b as ExBlock).moved_to_date,
       );
       if (!candidates.length) {
         toast("Nothing left to carry forward");
@@ -1086,14 +1240,23 @@ export default function DayView() {
   const userTasks = blocks.filter(isUserTask);
   const totalTasks = userTasks.length;
   const doneTasks = userTasks.filter((b) => isUserTaskDone(b)).length;
-  const missedTasks = useMemo(
+  // Missed = never started (resolution "missed").
+  // Skipped = user explicitly skipped. Both can be moved to another day.
+  const movableTasks = useMemo(
     () =>
       blocks.filter(
         (b) =>
-          isUserTask(b) && !b.is_calendar_event && (b as ExBlock).resolution === "missed",
+          isUserTask(b) &&
+          !b.is_calendar_event &&
+          // Exclude tasks already moved to another day — moved_to_date is set
+          // by moveBlocksToDate when the user carries or individually moves a task.
+          !(b as ExBlock).moved_to_date &&
+          ((b as ExBlock).resolution === "missed" || (b as ExBlock).resolution === "skipped"),
       ),
     [blocks],
   );
+  // Keep alias for any existing references below.
+  const missedTasks = movableTasks;
   const isPast = !isToday && !isFuture;
 
   const spotlightId = useMemo(
@@ -1189,24 +1352,34 @@ export default function DayView() {
           </div>
         )}
 
-        {/* Missed-tasks pill: sleek, minimal */}
-        {!planMissing && !isFuture && missedTasks.length > 0 && (
-          <div className="mt-4 shrink-0 flex justify-center mb-1">
-            <button
+        {/* Movable tasks banner — fades out smoothly when all tasks are moved */}
+        <AnimatePresence>
+          {!planMissing && !isFuture && movableTasks.length > 0 && (
+            <motion.button
+              key="carry-banner"
               type="button"
+              initial={{ opacity: 0, y: -6, scale: 0.97 }}
+              animate={{ opacity: 1, y: 0, scale: 1 }}
+              exit={{ opacity: 0, y: -4, scale: 0.97 }}
+              transition={{ type: "spring", stiffness: 380, damping: 30 }}
               onClick={() => setDayPickerIntent({ kind: "carry-missed" })}
-              className="rounded-full border border-destructive/25 bg-destructive/[0.08] px-3.5 py-1.5 flex items-center gap-2 pressable hover:bg-destructive/[0.12] transition-colors"
+              className="mt-4 shrink-0 w-full flex items-center gap-3 rounded-2xl border border-destructive/30 bg-destructive/[0.08] px-4 py-3 pressable hover:bg-destructive/[0.13] transition-colors text-left"
             >
-              <span className="h-1.5 w-1.5 rounded-full bg-destructive animate-pulse shrink-0" aria-hidden />
-              <span className="text-[12px] font-medium text-destructive">
-                {missedTasks.length} missed {missedTasks.length === 1 ? "slot" : "slots"}
+              <span className="h-2 w-2 rounded-full bg-destructive shrink-0 mt-px" aria-hidden />
+              <span className="flex-1 min-w-0">
+                <span className="text-[13px] font-semibold text-destructive leading-snug">
+                  {movableTasks.length === 1
+                    ? "1 unfinished task"
+                    : `${movableTasks.length} unfinished tasks`}
+                </span>
+                <span className="block text-[11px] text-destructive/70 mt-0.5 leading-snug">
+                  Tap to move to another day
+                </span>
               </span>
-              <span className="text-[12px] font-semibold text-destructive/80 ml-1">
-                Move &rarr;
-              </span>
-            </button>
-          </div>
-        )}
+              <ArrowRightCircle className="h-4 w-4 text-destructive/60 shrink-0" />
+            </motion.button>
+          )}
+        </AnimatePresence>
 
         {/* Inline "Start" CTA. */}
         {!planMissing && !isFuture && firstUnfinishedTask && (
@@ -1246,7 +1419,8 @@ export default function DayView() {
               <button
                 type="button"
                 onClick={() => {
-                  setAskAiContext("I have an empty day. Ask me one useful question that helps me decide what to add, without creating a schedule for me.");
+                  setAskAiTaskTitle(null);
+                  setAskAiContext("__empty_day__");
                   setAskAiOpen(true);
                 }}
                 className="pressable inline-flex items-center justify-center gap-2 w-full h-11 rounded-[18px] text-[13px] font-semibold text-foreground/90 border border-soft bg-card dark:bg-white/[0.06] shadow-card dark:shadow-[inset_0_1px_1px_rgba(255,255,255,0.12),0_4px_12px_rgba(0,0,0,0.2)] backdrop-blur-sm"
@@ -1284,14 +1458,16 @@ export default function DayView() {
                         tourSpotlight={spotlightId === b.id}
                         trackingActive={!!tracker.active && tracker.active.block_id === b.id}
                         assignedCategory={assignedCat}
+                        isFuturePlan={isFuture}
                         onTap={(blk) => setTappedBlock(blk)}
-                        onTapTime={(blk) => {
-                          if (blk?.is_calendar_event) return;
-                          setStartTimeDraft(blk.start_time || "09:00");
-                          setStartTimeEditId(blk.id);
-                        }}
+                        onTapTime={(blk) => openStartTimePicker(blk as Block)}
                         onToggleComplete={(blk) => {
                           if (blk?.is_calendar_event) return;
+                          const res = (blk as ExBlock).resolution;
+                          if (res === "missed" || res === "skipped") {
+                            setLateCompleteBlock(blk as ExBlock);
+                            return;
+                          }
                           completeBlock(blk.id);
                         }}
                         onStartTrack={(blk) => {
@@ -1305,7 +1481,8 @@ export default function DayView() {
                         onEditDuration={(blk) => setDurationEditId(blk.id)}
                         onEditReminders={(blk) => openReminders(blk.id)}
                         onAskAi={(blk) => {
-                          setAskAiContext(`Help me think about this task: "${blk.title}" (${blk.duration_min} min). Suggest a realistic time estimate, breakdown into steps, or the best time of day. Just ideas — don't build a full plan.`);
+                          setAskAiTaskTitle(blk.title);
+                          setAskAiContext(buildTaskSeedContext(blk as ExBlock, blocks));
                           setAskAiOpen(true);
                         }}
                         onSaveTemplate={(blk) => void saveAsTemplate(blk)}
@@ -1358,15 +1535,8 @@ export default function DayView() {
                 </button>
                 <button
                   onClick={() => {
-                    const taskList = blocks
-                      .filter((b) => b.kind === "task" && !b.is_calendar_event)
-                      .map((b) => `• ${b.start_time} ${b.title} (${b.duration_min}m)`)
-                      .join("\n");
-                    setAskAiContext(
-                      taskList
-                        ? `My schedule for today:\n${taskList}\n\nLook at this day and suggest one small improvement. Just advice — don't change or reschedule anything.`
-                        : "I have an empty day. Ask me one useful question to help me decide what to focus on, without creating a schedule for me."
-                    );
+                    setAskAiTaskTitle(null);
+                    setAskAiContext(buildDaySeedContext(blocks));
                     setAskAiOpen(true);
                   }}
                   disabled={planMutating}
@@ -1443,8 +1613,9 @@ export default function DayView() {
               {!tappedBlock.is_calendar_event && (
                 <ActionRow
                   onClick={() => {
-                    setStartTimeDraft(tappedBlock.start_time || "09:00");
-                    setStartTimeEditId(tappedBlock.id);
+                    // Open the native picker first (keeps the tap's user
+                    // activation), then dismiss the action sheet.
+                    openStartTimePicker(tappedBlock as Block);
                     setTappedBlock(null);
                   }}
                   icon={<Clock className="h-4 w-4" />}
@@ -1483,7 +1654,8 @@ export default function DayView() {
                 onClick={() => {
                   const blk = tappedBlock;
                   setTappedBlock(null);
-                  setAskAiContext(`Help me think about this task: "${blk!.title}" (${blk!.duration_min} min). Suggest a realistic estimate, breakdown into steps, or a smarter time of day. Don't propose a full plan — just ideas I can apply.`);
+                  setAskAiTaskTitle(blk!.title);
+                  setAskAiContext(buildTaskSeedContext(blk! as ExBlock, blocks));
                   setAskAiOpen(true);
                 }}
                 icon={<Sparkles className="h-4 w-4" />}
@@ -1515,6 +1687,42 @@ export default function DayView() {
           <SheetHeader className="text-left mb-3">
             <SheetTitle className="text-[16px]">Plan options</SheetTitle>
           </SheetHeader>
+
+          {/* Master notifications toggle */}
+          <div className="mb-2 flex items-center gap-3 rounded-2xl border border-soft bg-card/40 px-4 py-3">
+            <span
+              className="shrink-0 h-9 w-9 rounded-xl flex items-center justify-center"
+              style={{
+                background: notifsEnabled
+                  ? "hsl(var(--primary) / 0.12)"
+                  : "hsl(var(--muted) / 0.6)",
+                boxShadow: notifsEnabled
+                  ? "inset 0 0 0 1px hsl(var(--primary) / 0.25)"
+                  : "inset 0 0 0 1px hsl(var(--border) / 0.4)",
+              }}
+            >
+              {notifsEnabled ? (
+                <Bell className="h-4 w-4 text-primary" />
+              ) : (
+                <BellOff className="h-4 w-4 text-secondary-fg/70" />
+              )}
+            </span>
+            <div className="min-w-0 flex-1">
+              <div className="text-[14.5px] font-semibold text-foreground leading-tight">
+                Task notifications
+              </div>
+              <div className="text-[12px] text-secondary-fg/70 mt-0.5 leading-snug">
+                {notifsEnabled
+                  ? "Reminders, start & wrap-up pings"
+                  : "All reminders are muted"}
+              </div>
+            </div>
+            <Switch
+              checked={notifsEnabled}
+              onCheckedChange={toggleAllNotifications}
+            />
+          </div>
+
           {!isFuture && (
             <ActionRow
               onClick={() => {
@@ -1975,7 +2183,14 @@ export default function DayView() {
         </SheetContent>
       </Sheet>
       <UpgradeSheet open={upgradeOpen} onOpenChange={setUpgradeOpen} reason="feature" />
-      <AskAiSheet open={askAiOpen} onOpenChange={setAskAiOpen} seedContext={askAiContext} />
+      <AskAiSheet open={askAiOpen} onOpenChange={setAskAiOpen} seedContext={askAiContext} taskTitle={askAiTaskTitle} />
+      <LateCompleteSheet
+        open={!!lateCompleteBlock}
+        onOpenChange={(v) => { if (!v) setLateCompleteBlock(null); }}
+        taskTitle={lateCompleteBlock?.title ?? ""}
+        resolution={(lateCompleteBlock?.resolution as "missed" | "skipped") ?? "missed"}
+        onConfirm={() => { if (lateCompleteBlock) completeBlock(lateCompleteBlock.id); }}
+      />
 
       <DayPickerSheet
         open={!!dayPickerIntent}
@@ -2216,93 +2431,17 @@ export default function DayView() {
         </SheetContent>
       </Sheet>
 
-      <Sheet open={!!startTimeEditId} onOpenChange={(v) => !v && setStartTimeEditId(null)}>
-        <SheetContent side="bottom" className="rounded-t-[28px] border-border/45 bg-popover">
-          <SheetHeader className="text-left mb-3">
-            <SheetTitle className="text-[16px]">Change start time</SheetTitle>
-          </SheetHeader>
-          <input
-            type="time"
-            value={startTimeDraft}
-            onChange={(e) => setStartTimeDraft(e.target.value)}
-            className="w-full h-12 px-3 rounded-lg bg-card border border-soft text-[16px] text-foreground focus:outline-none focus:border-primary/50 focus:ring-2 focus:ring-primary/15"
-          />
-          <div className="mt-4 flex gap-2">
-            <Button
-              variant="outline"
-              className="flex-1"
-              onClick={() => setStartTimeEditId(null)}
-            >
-              Cancel
-            </Button>
-            <Button
-              className="flex-1"
-              onClick={async () => {
-                if (planMutating) return;
-                const id = startTimeEditId;
-                if (!id) return;
-                if (!/^\d{2}:\d{2}$/.test(startTimeDraft)) {
-                  toast.error("Pick a valid time");
-                  return;
-                }
-                const idx = blocks.findIndex(b => b.id === id);
-                if (idx < 0) { setStartTimeEditId(null); return; }
-                const snapshot = blocks;
-                const updated = [...blocks];
-                const targetMin = timeToMinutes(startTimeDraft);
-                
-                // If it's not the first block, check if pushing the time later creates a gap
-                let packed: Block[];
-                if (idx > 0) {
-                  const previousPacked = packLinearSchedule(updated.slice(0, idx));
-                  const previousEndMin = timeToMinutes(previousPacked[previousPacked.length - 1].start_time) + Number(previousPacked[previousPacked.length - 1].duration_min);
-                  
-                  if (targetMin > previousEndMin) {
-                    // User explicitly pushed this later, insert a Break to fill the gap
-                    const breakDuration = targetMin - previousEndMin;
-                    const breakBlock: Block = {
-                      id: crypto.randomUUID(),
-                      plan_id: updated[0].plan_id,
-                      user_id: updated[0].user_id,
-                      start_time: minutesToHHMM(previousEndMin),
-                      duration_min: breakDuration,
-                      title: "Break",
-                      type: "routine",
-                      kind: "break",
-                      completed: false,
-                      position: 0,
-                    };
-                    updated.splice(idx, 0, breakBlock);
-                  }
-                }
-                
-                // Still update the block itself (for idx === 0, this drives the whole schedule)
-                const targetIdx = updated.findIndex(b => b.id === id);
-                if (targetIdx >= 0) {
-                  updated[targetIdx] = { ...updated[targetIdx], start_time: startTimeDraft };
-                }
-                
-                packed = packLinearSchedule(updated);
-                setBlocks(packed);
-                setStartTimeEditId(null);
-                haptics.notify("success");
-                setPlanMutating(true);
-                try {
-                  await persistOrder(packed);
-                  void invalidatePlanCaches();
-                } catch (e: any) {
-                  setBlocks(snapshot);
-                  toast.error(e?.message || "Couldn't update start time");
-                } finally {
-                  setPlanMutating(false);
-                }
-              }}
-            >
-              Save
-            </Button>
-          </div>
-        </SheetContent>
-      </Sheet>
+      {/* Hidden native time input — start-time editing opens this directly via
+          showPicker() so there's just the iOS wheel, no app sheet on top of it.
+          onChange commits straight away (clamping past times to now for today). */}
+      <input
+        ref={startTimeInputRef}
+        type="time"
+        className="sr-only"
+        tabIndex={-1}
+        aria-hidden="true"
+        onChange={(e) => commitStartTime(e.target.value)}
+      />
     </>
   );
 }

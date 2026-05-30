@@ -22,6 +22,8 @@ type Ctx = {
   start: (flow: TourFlow, opts?: { force?: boolean }) => void;
   stop: () => void;
   resetAll: () => Promise<void>;
+  /** True while a tour flow is actively running (overlay is on screen). */
+  isActive: boolean;
 };
 
 const TourCtx = createContext<Ctx | null>(null);
@@ -119,7 +121,10 @@ export function TourProvider({ children }: { children: ReactNode }) {
     await update({ tour_seen: {} } as any);
   }, [update]);
 
-  const value: Ctx = useMemo(() => ({ start, stop, resetAll }), [start, stop, resetAll]);
+  const value: Ctx = useMemo(
+    () => ({ start, stop, resetAll, isActive: !!flow }),
+    [start, stop, resetAll, flow],
+  );
 
   return (
     <TourCtx.Provider value={value}>

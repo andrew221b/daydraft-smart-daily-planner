@@ -125,11 +125,13 @@ export function AskAiSheet({
   onOpenChange,
   initialPrompt,
   seedContext,
+  taskTitle,
 }: {
   open: boolean;
   onOpenChange: (v: boolean) => void;
   initialPrompt?: string | null;
   seedContext?: string | null;
+  taskTitle?: string | null;
 }) {
   const { isPro } = useEntitlement();
   const { profile } = useProfileData();
@@ -193,7 +195,9 @@ export function AskAiSheet({
       // system prompt. Sending them as fake "user" messages caused two
       // consecutive user turns which Gemini's chat API sometimes rejects.
       const personalContext = profileRef.current?.ai_context_custom?.trim() || "";
-      const seedContext = seedContextRef.current || "";
+      // Strip internal UI markers before sending to the AI
+      const rawSeed = seedContextRef.current || "";
+      const seedContext = rawSeed === "__empty_day__" ? "" : rawSeed;
 
       const res = await fetch(`${import.meta.env.VITE_SUPABASE_URL}/functions/v1/ai-assist`, {
         method: "POST",
@@ -283,31 +287,39 @@ export function AskAiSheet({
   }, [getSignal]);
 
   const quickPrompts = useMemo<{ label: string; hint: string; prompt: string; send?: boolean }[]>(() => {
-    const ctx = (seedContext || "").toLowerCase();
-    if (ctx.includes("empty day")) return [
+    // Task-specific: name the task directly so the AI has no ambiguity
+    if (taskTitle) {
+      const t = taskTitle.length > 30 ? taskTitle.slice(0, 30) + "…" : taskTitle;
+      return [
+        { label: "How long will this take?", hint: "Realistic estimate with one-line reasoning", prompt: `How long will "${t}" realistically take? One-line reasoning.`, send: true },
+        { label: "Break it into steps", hint: "3–5 concrete sub-tasks to check off", prompt: `Break "${t}" into 3–5 concrete, ordered steps I can check off.`, send: true },
+        { label: "Best time of day for it", hint: "When this type of work fits best", prompt: `When in the day is "${t}" best done, and why?`, send: true },
+      ];
+    }
+    // Empty day
+    if ((seedContext || "").includes("__empty_day__")) return [
       { label: "Help me decide what to focus on", hint: "AI asks a few questions, then you choose", prompt: "Ask me 2-3 quick questions to help me decide what to focus on today.", send: true },
       { label: "Suggest a balanced day structure", hint: "Deep work, breaks & admin in proportion", prompt: "Suggest a balanced shape for a productive day (deep work, breaks, admin) without scheduling anything for me.", send: true },
       { label: "How do I avoid overcommitting?", hint: "Practical tips for a realistic task count", prompt: "How do I pick a realistic number of tasks for one day without overcommitting?", send: true },
     ];
-    if (ctx.includes("this task")) return [
-      { label: "Estimate realistic time", hint: "Uses this task's details to estimate", prompt: "Give a realistic time estimate for this task and explain the assumption in one line.", send: true },
-      { label: "Break it into 3–5 steps", hint: "Concrete subtasks you can check off", prompt: "Break this task into 3-5 concrete, ordered steps I can check off.", send: true },
-      { label: "Best time of day for it", hint: "When this type of work fits best", prompt: "When in the day is this task usually best to do, and why?", send: true },
-    ];
+    // Day with tasks
     return [
       { label: "Spot one weak spot in my day", hint: "Reads your plan — advice only, no changes", prompt: "Look at my current day and point out one weak spot or risk — just advice, don't change anything.", send: true },
       { label: "Where should I add a break?", hint: "Finds the best gap in your current schedule", prompt: "Where in my current day would a short break help most, and why?", send: true },
       { label: "Estimate time for a task", hint: "Type the task name and I'll estimate it", prompt: "Estimate time for: " },
       { label: "Break a task into steps", hint: "Type the task name and I'll break it down", prompt: "Break this task into steps: " },
     ];
-  }, [seedContext]);
+  }, [seedContext, taskTitle]);
 
   const contextLabel = useMemo(() => {
+    if (taskTitle) {
+      const short = taskTitle.length > 22 ? taskTitle.slice(0, 22) + "…" : taskTitle;
+      return short;
+    }
     if (!seedContext) return null;
-    if (seedContext.toLowerCase().includes("this task")) return "Task context";
-    if (seedContext.toLowerCase().includes("empty day")) return "Today's plan";
+    if (seedContext.includes("__empty_day__")) return "Today's plan";
     return "Day context";
-  }, [seedContext]);
+  }, [seedContext, taskTitle]);
 
   const hasEmptyAssistant = messages.some((m) => m.role === "assistant" && m.content === "");
   const isEmpty = messages.length === 0 && !loading;

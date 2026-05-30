@@ -1,6 +1,7 @@
 import { serve } from "https://deno.land/std@0.168.0/http/server.ts";
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2.95.0";
 import { extractTaskTimeAnchors } from "../_shared/taskTimeAnchors.ts";
+import { DAYDRAFT_PERSONA } from "../_shared/persona.ts";
 
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
@@ -421,50 +422,8 @@ serve(async (req) => {
       }
     }
 
-    const toneMap: Record<string, string> = {
-      professional: `Tone profile: PROFESSIONAL
-- Voice: concise, executive, practical.
-- Style: clear verbs, concrete outcomes, no slang.
-- Constraints: no emojis; avoid hype; avoid vague inspiration.`,
-      coach: `Tone profile: COACH
-- Voice: warm, supportive, action-oriented.
-- Style: encouragement + specific next action in the same sentence.
-- Constraints: no empty praise; keep advice operational.`,
-      playful: `Tone profile: PLAYFUL
-- Voice: light, friendly, confident.
-- Style: keep language clear and useful with subtle personality.
-- Constraints: max one emoji in subtext; never reduce clarity.`,
-      motivational: `Tone profile: MOTIVATIONAL
-- Voice: energetic, decisive, momentum-first.
-- Style: strong verbs, confident framing, action bias.
-- Constraints: keep it grounded in schedule reality (no overpromising).`,
-      tough_love: `Tone profile: TOUGH_LOVE
-- Voice: direct, disciplined, accountable.
-- Style: short firm lines, prioritization pressure, explicit trade-offs.
-- Constraints: no insults, no hostility, no emojis.`,
-      philosophical: `Tone profile: PHILOSOPHICAL
-- Voice: calm, reflective, perspective-driven.
-- Style: concise insight framing + practical execution step.
-- Constraints: max one brief quote-like phrase; avoid abstraction without action.`,
-    };
-    const toneOutputHint = ai_tone === "tough_love"
-      ? `Output style: keep summary/subtext forceful and concise, with explicit priority trade-offs.`
-      : ai_tone === "coach"
-        ? `Output style: summary/subtext should feel supportive and confidence-building while staying concrete.`
-        : ai_tone === "playful"
-          ? `Output style: summary/subtext can be upbeat and friendly (max one emoji).`
-          : ai_tone === "motivational"
-            ? `Output style: summary/subtext should emphasize momentum and decisive action.`
-            : ai_tone === "philosophical"
-              ? `Output style: summary/subtext should be reflective but practical, with one clear action lens.`
-              : `Output style: summary/subtext should be clear, pragmatic, and concise.`;
-    const toneLine = ai_tone === "custom" && ai_tone_custom
-      ? `Tone profile: CUSTOM
-- Follow this user-defined style exactly where possible: ${String(ai_tone_custom).slice(0, 300)}
-- Keep output concrete, structured, and useful.
-- Never violate safety and scheduling constraints.`
-      : `${toneMap[ai_tone] || toneMap.professional}
-${toneOutputHint}`;
+    // Voice is now a single natural persona (see _shared/persona.ts) — no more
+    // per-user tone profiles. summary/subtext just inherit that voice.
     // Hours already accounted for elsewhere on the same date (completed
     // blocks from earlier today, fixed calendar events, etc.). The AI must
     // subtract this from the available window so it never over-promises.
@@ -564,8 +523,9 @@ ${calendarEvents.map((e: any) => `- ${e.start_time} (${e.duration_min}m) ${e.tit
       ? `\nPersonal context about this user (treat as authoritative background, never repeat verbatim):\n- ${aiContextCustom.trim().slice(0, 500)}`
       : "";
 
-    const system = `You are DayDraft, an expert productivity planner. Build a realistic, energy-aware schedule from a raw task list.
-${toneLine}
+    const system = `${DAYDRAFT_PERSONA}
+
+YOUR JOB RIGHT NOW: turn the user's raw task list into a realistic, energy-aware schedule that protects their time — not an idealized one that sets them up to feel behind. A plan they can actually finish is the kindest thing you can build.
 Context:
 - Current local time: ${nowHHMM} (${timezone || "UTC"}).
 - Planning date: ${plan_date || todayLocal} ${isPlanningToday ? "(TODAY)" : "(future date)"}.
@@ -660,9 +620,21 @@ Rules:
     let resp: Response | null = null;
     let lastStatus = 0;
     let lastBody = "";
-    for (const model of MODEL_CHAIN) {
-      for (let attempt = 0; attempt < 2; attempt++) {
-        const r = await fetch("https://generativelanguage.googleapis.com/v1beta/openai/chat/completions", {
+
+    // Each upstream call is bounded by its own timeout, and the whole chain by
+    // an overall budget kept well under the client's request timeout. Without
+    // this a slow / overloaded model (esp. gemini-2.5-pro) could hang until the
+    // CLIENT aborted — which it mis-reports as "couldn't reach the AI". Now we
+    // always fall back to a faster model and, worst case, return a structured
+    // error the client can show verbatim.
+    const DEADLINE = Date.now() + 48_000;
+    const PER_ATTEMPT_MS = 20_000;
+
+    const callModel = async (model: string, budgetMs: number): Promise<Response> => {
+      const ctrl = new AbortController();
+      const t = setTimeout(() => ctrl.abort(), Math.max(3_000, budgetMs));
+      try {
+        return await fetch("https://generativelanguage.googleapis.com/v1beta/openai/chat/completions", {
           method: "POST",
           headers: { Authorization: `Bearer ${GEMINI_API_KEY}`, "Content-Type": "application/json" },
           body: JSON.stringify({
@@ -671,23 +643,49 @@ Rules:
             tools,
             tool_choice: { type: "function", function: { name: "build_schedule" } },
           }),
+          signal: ctrl.signal,
         });
-        if (r.ok) { resp = r; break; }
+      } finally {
+        clearTimeout(t);
+      }
+    };
+
+    outer:
+    for (const model of MODEL_CHAIN) {
+      for (let attempt = 0; attempt < 2; attempt++) {
+        const remaining = DEADLINE - Date.now();
+        if (remaining < 4_000) break outer; // out of budget — return structured error below
+        let r: Response;
+        try {
+          r = await callModel(model, Math.min(PER_ATTEMPT_MS, remaining - 1_000));
+        } catch (err) {
+          // Our timeout (abort) or a transient network blip to Gemini — don't
+          // retry the same (slow) model, jump straight to the faster fallback.
+          lastStatus = 504;
+          console.error("[generate-plan] upstream timeout/abort", { model, attempt, err: String(err) });
+          break;
+        }
+        if (r.ok) { resp = r; break outer; }
         lastStatus = r.status;
         try { lastBody = (await r.text()).slice(0, 1024); } catch { lastBody = ""; }
         console.error("[generate-plan] upstream error", { model, attempt, status: r.status, body: lastBody });
-        if (r.status === 429 || (r.status >= 400 && r.status < 500)) break;
-        if (isTransient(r.status) && attempt === 0) { await sleep(400 + Math.floor(Math.random() * 300)); continue; }
+        if (r.status === 429 || (r.status >= 400 && r.status < 500)) break; // try next model
+        if (isTransient(r.status) && attempt === 0) { await sleep(300 + Math.floor(Math.random() * 200)); continue; }
         break;
       }
-      if (resp) break;
     }
 
     if (!resp) {
-      if (lastStatus === 429) return new Response(JSON.stringify({ error: "Too many requests — give it a moment and try again." }), { status: 429, headers: { ...corsHeaders, "Content-Type": "application/json" } });
-      if (lastStatus === 401 || lastStatus === 403) return new Response(JSON.stringify({ error: "AI is misconfigured on the server." }), { status: 500, headers: { ...corsHeaders, "Content-Type": "application/json" } });
-      if (lastStatus === 400 && /safety|blocked|harm/i.test(lastBody)) return new Response(JSON.stringify({ error: "Your tasks hit a safety filter — try rephrasing." }), { status: 400, headers: { ...corsHeaders, "Content-Type": "application/json" } });
-      return new Response(JSON.stringify({ error: "AI is having a moment — please try again." }), { status: 503, headers: { ...corsHeaders, "Content-Type": "application/json" } });
+      // NOTE: returned as HTTP 200 with an `error` field. supabase-js surfaces
+      // a non-2xx as an opaque "Edge Function returned a non-2xx status code"
+      // (body unreadable by our client), which would swallow these friendly
+      // messages. 200 + { error } lets the client show them verbatim.
+      const msg =
+        lastStatus === 429 ? "Too many requests — give it a moment and try again." :
+        (lastStatus === 401 || lastStatus === 403) ? "AI is misconfigured on the server." :
+        (lastStatus === 400 && /safety|blocked|harm/i.test(lastBody)) ? "Your tasks hit a safety filter — try rephrasing." :
+        "AI is having a moment — please try again.";
+      return new Response(JSON.stringify({ error: msg }), { headers: { ...corsHeaders, "Content-Type": "application/json" } });
     }
     const data = await resp.json();
     const call = data.choices?.[0]?.message?.tool_calls?.[0];
@@ -839,6 +837,10 @@ Rules:
     );
   } catch (e) {
     console.error(e);
-    return new Response(JSON.stringify({ error: e instanceof Error ? e.message : "Unknown" }), { status: 500, headers: { ...corsHeaders, "Content-Type": "application/json" } });
+    // 200 + { error } so the client can read and show the message (see note above).
+    return new Response(
+      JSON.stringify({ error: e instanceof Error ? e.message : "Something went wrong generating your plan." }),
+      { headers: { ...corsHeaders, "Content-Type": "application/json" } },
+    );
   }
 });
