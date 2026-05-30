@@ -292,6 +292,7 @@ export async function syncBlockNotifications(dateStr: string, blocks: Block[]) {
     id: i + 1,
     title: c.title,
     body: c.body,
+    sound: "default",
     schedule: { at: c.at },
     actionTypeId: c.actionTypeId,
     extra: { blockId: c.blockId, date: dateStr },

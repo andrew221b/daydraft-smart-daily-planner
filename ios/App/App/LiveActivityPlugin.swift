@@ -13,20 +13,27 @@
 //  • Activity references are re-adopted in `load()` so an app relaunch can
 //    still end an activity that's already on screen (no orphans).
 //
+//  Every code path logs through `LALog` (NSLog) so failures are visible in
+//  Xcode's console AND Console.app — filter by "[LiveActivity]".
+//
 
 import Foundation
 import Capacitor
 import ActivityKit
 
-// CRITICAL: the Objective-C class name (in @objc(...)) MUST equal the JS name
-// used in registerPlugin("LiveActivity"). For an app-embedded plugin (not an
-// npm package in capacitor.config.json) Capacitor resolves the call via
-// `NSClassFromString(call.pluginId)` where pluginId is the JS name. If the ObjC
-// class name differs, that lookup returns nil and the plugin "doesn't exist".
-@objc(LiveActivity)
+/// Unified logger. Shows up in Xcode console and Console.app — filter "[LiveActivity]".
+@inline(__always)
+private func LALog(_ message: String) {
+    NSLog("[LiveActivity] \(message)")
+}
+
+// Capacitor 8 convention: @objc name and identifier MUST equal the Swift class
+// name, NOT the JS name. The bridge looks up plugins by class name at runtime.
+// jsName is the JS-side name used in Capacitor.Plugins.LiveActivity.
+@objc(LiveActivityPlugin)
 public class LiveActivityPlugin: CAPPlugin, CAPBridgedPlugin {
 
-    public let identifier = "LiveActivity"
+    public let identifier = "LiveActivityPlugin"
     public let jsName = "LiveActivity"
     public let pluginMethods: [CAPPluginMethod] = [
         CAPPluginMethod(name: "isSupported", returnType: CAPPluginReturnPromise),
@@ -43,9 +50,16 @@ public class LiveActivityPlugin: CAPPlugin, CAPBridgedPlugin {
     private var trackerActivity: Any?
 
     override public func load() {
+        LALog("Plugin loaded — class is in the binary and registered ✅")
         if #available(iOS 16.1, *) {
+            let focusCount = Activity<FocusActivityAttributes>.activities.count
+            let trackerCount = Activity<TrackerActivityAttributes>.activities.count
             focusActivity = Activity<FocusActivityAttributes>.activities.first
             trackerActivity = Activity<TrackerActivityAttributes>.activities.first
+            LALog("Re-adopted on launch — focus activities: \(focusCount), tracker activities: \(trackerCount)")
+            logAuthState()
+        } else {
+            LALog("iOS < 16.1 — Live Activities not available on this OS")
         }
     }
 
@@ -53,21 +67,58 @@ public class LiveActivityPlugin: CAPPlugin, CAPBridgedPlugin {
 
     @objc public func isSupported(_ call: CAPPluginCall) {
         if #available(iOS 16.1, *) {
-            call.resolve(["supported": ActivityAuthorizationInfo().areActivitiesEnabled])
+            let info = ActivityAuthorizationInfo()
+            let enabled = info.areActivitiesEnabled
+            LALog("isSupported → areActivitiesEnabled=\(enabled)")
+            if !enabled {
+                LALog("⚠️ Live Activities are DISABLED. Likely cause: Settings → DayDraft → Live Activities is OFF, or Settings → Face ID & Passcode hides them on lock screen. Toggle it ON.")
+            }
+            call.resolve([
+                "supported": enabled,
+                "enabled": enabled,
+                "osSupported": true,
+                "reason": enabled ? "ok" : "disabled-in-settings",
+            ])
         } else {
-            call.resolve(["supported": false])
+            LALog("isSupported → false (iOS < 16.1)")
+            call.resolve([
+                "supported": false,
+                "enabled": false,
+                "osSupported": false,
+                "reason": "os-too-old",
+            ])
         }
+    }
+
+    /// Logs the current authorization state for diagnostics.
+    @available(iOS 16.1, *)
+    private func logAuthState() {
+        let info = ActivityAuthorizationInfo()
+        LALog("Authorization: areActivitiesEnabled=\(info.areActivitiesEnabled), frequentUpdatesEnabled=\(info.frequentPushesEnabled)")
     }
 
     // MARK: - Focus
 
     @objc public func startFocus(_ call: CAPPluginCall) {
-        guard #available(iOS 16.1, *) else { call.resolve(["started": false]); return }
+        LALog("startFocus called")
+        guard #available(iOS 16.1, *) else {
+            LALog("startFocus aborted — iOS < 16.1")
+            call.resolve(["started": false, "reason": "os-too-old"])
+            return
+        }
+
+        guard ActivityAuthorizationInfo().areActivitiesEnabled else {
+            LALog("⚠️ startFocus aborted — areActivitiesEnabled is FALSE. Enable: Settings → DayDraft → Live Activities.")
+            call.resolve(["started": false, "reason": "disabled-in-settings"])
+            return
+        }
 
         let title = call.getString("taskTitle") ?? "Focus session"
         let planned = call.getInt("plannedMinutes") ?? 0
         let blockId = call.getString("blockId") ?? ""
+        let nextTaskTitle = call.getString("nextTaskTitle")
         let startedAt = dateFromMillis(call.getDouble("startedAt"))
+        LALog("startFocus params — title='\(title)', planned=\(planned)m, blockId='\(blockId)', startedAt=\(startedAt)")
 
         endTrackerActivity()
         endFocusActivity()
@@ -75,7 +126,8 @@ public class LiveActivityPlugin: CAPPlugin, CAPBridgedPlugin {
         let attributes = FocusActivityAttributes(
             taskTitle: title,
             plannedMinutes: planned,
-            blockId: blockId
+            blockId: blockId,
+            nextTaskTitle: nextTaskTitle
         )
         let state = FocusActivityAttributes.ContentState(startedAt: startedAt)
         let content = ActivityContent(state: state, staleDate: nil)
@@ -87,13 +139,17 @@ public class LiveActivityPlugin: CAPPlugin, CAPBridgedPlugin {
                 pushType: nil
             )
             focusActivity = activity
+            LALog("✅ Focus Live Activity STARTED — id=\(activity.id)")
             call.resolve(["started": true, "id": activity.id])
         } catch {
-            call.reject("Could not start Focus Live Activity: \(error.localizedDescription)")
+            let detail = decodeActivityError(error)
+            LALog("❌ startFocus FAILED — \(detail)")
+            call.reject("Could not start Focus Live Activity: \(detail)", "LA_START_FAILED", error)
         }
     }
 
     @objc public func stopFocus(_ call: CAPPluginCall) {
+        LALog("stopFocus called")
         if #available(iOS 16.1, *) { endFocusActivity() }
         call.resolve()
     }
@@ -101,13 +157,25 @@ public class LiveActivityPlugin: CAPPlugin, CAPBridgedPlugin {
     // MARK: - Tracker
 
     @objc public func startTracker(_ call: CAPPluginCall) {
-        guard #available(iOS 16.1, *) else { call.resolve(["started": false]); return }
+        LALog("startTracker called")
+        guard #available(iOS 16.1, *) else {
+            LALog("startTracker aborted — iOS < 16.1")
+            call.resolve(["started": false, "reason": "os-too-old"])
+            return
+        }
+
+        guard ActivityAuthorizationInfo().areActivitiesEnabled else {
+            LALog("⚠️ startTracker aborted — areActivitiesEnabled is FALSE. Enable: Settings → DayDraft → Live Activities.")
+            call.resolve(["started": false, "reason": "disabled-in-settings"])
+            return
+        }
 
         let name = call.getString("categoryName") ?? "Tracking"
         let colorHex = call.getString("colorHex") ?? "#0A84FF"
         let rate = call.getDouble("hourlyRate") ?? 0
         let currency = call.getString("currencyCode") ?? "USD"
         let startedAt = dateFromMillis(call.getDouble("startedAt"))
+        LALog("startTracker params — name='\(name)', color=\(colorHex), rate=\(rate) \(currency), startedAt=\(startedAt)")
 
         endFocusActivity()
         endTrackerActivity()
@@ -128,18 +196,23 @@ public class LiveActivityPlugin: CAPPlugin, CAPBridgedPlugin {
                 pushType: nil
             )
             trackerActivity = activity
+            LALog("✅ Tracker Live Activity STARTED — id=\(activity.id)")
             call.resolve(["started": true, "id": activity.id])
         } catch {
-            call.reject("Could not start Tracker Live Activity: \(error.localizedDescription)")
+            let detail = decodeActivityError(error)
+            LALog("❌ startTracker FAILED — \(detail)")
+            call.reject("Could not start Tracker Live Activity: \(detail)", "LA_START_FAILED", error)
         }
     }
 
     @objc public func stopTracker(_ call: CAPPluginCall) {
+        LALog("stopTracker called")
         if #available(iOS 16.1, *) { endTrackerActivity() }
         call.resolve()
     }
 
     @objc public func stopAll(_ call: CAPPluginCall) {
+        LALog("stopAll called")
         if #available(iOS 16.1, *) {
             endFocusActivity()
             endTrackerActivity()
@@ -152,6 +225,7 @@ public class LiveActivityPlugin: CAPPlugin, CAPBridgedPlugin {
     @available(iOS 16.1, *)
     private func endFocusActivity() {
         if let activity = focusActivity as? Activity<FocusActivityAttributes> {
+            LALog("Ending Focus activity id=\(activity.id)")
             Task { await activity.end(nil, dismissalPolicy: .immediate) }
         }
         focusActivity = nil
@@ -160,9 +234,37 @@ public class LiveActivityPlugin: CAPPlugin, CAPBridgedPlugin {
     @available(iOS 16.1, *)
     private func endTrackerActivity() {
         if let activity = trackerActivity as? Activity<TrackerActivityAttributes> {
+            LALog("Ending Tracker activity id=\(activity.id)")
             Task { await activity.end(nil, dismissalPolicy: .immediate) }
         }
         trackerActivity = nil
+    }
+
+    /// Turns a raw ActivityKit error into a precise, human-readable cause so the
+    /// console says EXACTLY what's wrong instead of a vague message.
+    @available(iOS 16.1, *)
+    private func decodeActivityError(_ error: Error) -> String {
+        if let laError = error as? ActivityAuthorizationError {
+            switch laError {
+            case .denied:
+                return "DENIED — the user turned OFF Live Activities. Fix: Settings → DayDraft → Live Activities = ON."
+            case .unentitled:
+                return "UNENTITLED — missing the Live Activity entitlement. NSSupportsLiveActivities IS in Info.plist, so this means a stale build — clean build folder & rebuild."
+            case .unsupported:
+                return "UNSUPPORTED — this device/OS can't show Live Activities."
+            case .visibility:
+                return "VISIBILITY — requested while the app was not in the foreground. Start it while the app is open."
+            case .attributesTooLarge:
+                return "ATTRIBUTES TOO LARGE — the activity payload exceeds 4KB. Trim the data."
+            case .targetMaximumExceeded:
+                return "TARGET MAXIMUM EXCEEDED — too many active Live Activities."
+            default:
+                // Covers SDK-specific cases (.globalMaximumExceeded, .persistenceFailure,
+                // .unsupportedTarget, …) without a compile-time dependency on them.
+                return "ActivityAuthorizationError: \(laError.localizedDescription)"
+            }
+        }
+        return "\(type(of: error)): \(error.localizedDescription)"
     }
 
     /// JS sends epoch milliseconds; convert to a `Date`. Falls back to now.

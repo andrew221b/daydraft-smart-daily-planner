@@ -25,6 +25,8 @@ struct FocusActivityAttributes: ActivityAttributes {
     var plannedMinutes: Int
     /// Block id, so a tap can deep-link straight back to this Focus screen.
     var blockId: String
+    /// The title of the upcoming task, if any.
+    var nextTaskTitle: String?
 }
 
 /// A running time-tracker session started outside Focus (from the Tracker tab).

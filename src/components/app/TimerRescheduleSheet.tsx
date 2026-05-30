@@ -163,7 +163,7 @@ export function TimerRescheduleSheet() {
     <Sheet open={open} onOpenChange={setOpen}>
       <SheetContent
         side="bottom"
-        className="rounded-t-[28px] border-border/45 bg-popover px-5 pt-5 pb-7"
+        className="rounded-t-[28px] border-border/45 bg-popover px-5 pt-5 pb-7 max-h-[92vh] overflow-y-auto"
       >
         <SheetHeader className="text-left mb-1 space-y-1.5">
           <div className="inline-flex items-center gap-1.5 text-[10px] font-semibold uppercase tracking-[0.14em] text-primary/85">

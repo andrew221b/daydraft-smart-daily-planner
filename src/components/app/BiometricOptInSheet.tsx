@@ -149,26 +149,18 @@ export function BiometricOptInSheet() {
     >
       <SheetContent
         side="bottom"
-        className="rounded-t-[32px] border-border/45 bg-popover p-0 flex flex-col"
+        className="rounded-t-[32px] border-border/45 bg-popover p-0 flex flex-col max-h-[92vh]"
         onOpenAutoFocus={(e) => e.preventDefault()}
       >
         <SheetTitle className="sr-only">Enable biometric lock</SheetTitle>
-        <div className="px-6 pt-10 pb-8 flex flex-col items-center text-center">
+        <div className="px-5 sm:px-6 pt-10 pb-8 flex flex-col items-center text-center overflow-y-auto">
           
           {/* Beautiful Biometric Animation (2D Embossed) */}
           <div className="relative h-40 w-40 flex items-center justify-center mb-6">
-            {/* Pulsing ambient glow */}
-            <motion.div
-              animate={{ 
-                scale: [1, 1.05, 1],
-                opacity: [0.2, 0.4, 0.2],
-              }}
-              transition={{ duration: 4, repeat: Infinity, ease: "easeInOut" }}
-              className="absolute inset-0 rounded-full bg-primary/40 blur-[32px]" 
-            />
+            {/* Removed ambient glow per user request */}
             
             {/* Inner ring (Physical 3D Glass block using purely 2D shadows/gradients) */}
-            <div className="relative z-10 h-36 w-36 rounded-[40px] bg-gradient-to-br from-background/90 to-background/50 backdrop-blur-xl border border-white/20 dark:border-white/5 flex items-center justify-center overflow-hidden shadow-[0_24px_48px_-12px_rgba(0,0,0,0.4),inset_0_4px_8px_rgba(255,255,255,0.25),inset_0_-8px_16px_rgba(0,0,0,0.25),inset_0_0_24px_hsl(var(--primary)/0.15)]">
+            <div className="relative z-10 h-36 w-36 rounded-[40px] bg-gradient-to-br from-background/95 to-background/60 backdrop-blur-xl border border-black/5 dark:border-white/10 flex items-center justify-center overflow-hidden shadow-xl dark:shadow-[0_24px_48px_-12px_rgba(0,0,0,0.4),inset_0_4px_8px_rgba(255,255,255,0.25),inset_0_-8px_16px_rgba(0,0,0,0.25),inset_0_0_24px_hsl(var(--primary)/0.15)]">
               
               {/* Scanning line — sweeps full height of the container (h-36 = 144px).
                   Positioned at top-0, translated from -72px (above) to +138px (below fold). */}
@@ -187,7 +179,7 @@ export function BiometricOptInSheet() {
                 className="relative z-20"
               >
                 <Icon 
-                  className="h-20 w-20 text-primary drop-shadow-[0_8px_10px_rgba(0,0,0,0.5)] drop-shadow-[0_-1px_2px_rgba(255,255,255,0.4)] drop-shadow-[0_0_32px_hsl(var(--primary)/0.6)]" 
+                  className="h-20 w-20 text-primary drop-shadow-md dark:drop-shadow-[0_8px_10px_rgba(0,0,0,0.5)] dark:drop-shadow-[0_-1px_2px_rgba(255,255,255,0.4)] drop-shadow-[0_0_24px_hsl(var(--primary)/0.5)]" 
                   strokeWidth={1.5} 
                 />
               </motion.div>

@@ -61,7 +61,7 @@ const ONBOARDED_FLAG_PREFIX = "dd_onboarded_uid_";
 const readOnboardedFlag = (uid: string): boolean => {
   try { return localStorage.getItem(`${ONBOARDED_FLAG_PREFIX}${uid}`) === "1"; } catch { return false; }
 };
-const writeOnboardedFlag = (uid: string): void => {
+export const writeOnboardedFlag = (uid: string): void => {
   try { localStorage.setItem(`${ONBOARDED_FLAG_PREFIX}${uid}`, "1"); } catch { /* ignore */ }
 };
 

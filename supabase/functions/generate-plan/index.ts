@@ -5,7 +5,7 @@ import { DAYDRAFT_PERSONA } from "../_shared/persona.ts";
 
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
-  "Access-Control-Allow-Headers": "authorization, x-client-info, apikey, content-type",
+  "Access-Control-Allow-Headers": "authorization, x-client-info, apikey, content-type, x-dd-dev-pro",
 };
 const FREE_PLAN_LIMIT = 5;
 
@@ -534,6 +534,7 @@ Context:
 - Realistic hours you can plan into: ~${trueHoursLeft.toFixed(1)}h.
 - User active hours: ${activeStart}–${activeEnd}. NEVER schedule any block outside this window.
 Rules:
+- GIBBERISH DETECTION (HIGHEST PRIORITY): If the raw input is completely unintelligible, random keystrokes (e.g. "asdf", "test"), or lacks any actionable intent, DO NOT hallucinate a plan. You MUST return exactly ONE 15-minute task titled "Clarify today's goals", type="routine", kind="task", with reasoning "I couldn't understand the input. Take a moment to write down actual tasks." Set summary to "Awaiting clear tasks" and subtext to "Try typing out your actual goals for the day." DO NOT output any other blocks.
 - Front-load deep work in the user's peak window (${learnedPeakWindow || peak}) ONLY if it's still ahead.
 - Batch communication into 1-2 blocks, ideally after the peak.
 - Insert one 15-min break after ~2h of deep work, and a 60-min lunch around 12:00 (or 18:00 for night owls) ONLY if it's still ahead.
@@ -557,8 +558,9 @@ Rules:
   - "work" for everything else.
 - Extract location hints from raw text (e.g. "gym at 2pm", "lunch at Blue Bottle Mission") and include a short location string.
 - For EVERY task, include a one-sentence "reasoning" explaining placement (e.g. "Deep work first — your peak").
-- Never return a task block longer than 90 minutes. Split longer work into sequential sub-blocks.
-- TASK TITLE SOURCE OF TRUTH: task titles MUST reuse the user's original wording from raw_input (or clarified_tasks when provided). Preserve key nouns/verbs from the user's phrasing and only normalize capitalization/punctuation.
+- Never return a task block longer than 90 minutes. Split ONLY when the user's input or duration clearly implies >90m of work — DO NOT split short/medium tasks just to fill the schedule. One task in = one block out unless duration forces a split.
+- TASK TITLE SOURCE OF TRUTH (CRITICAL): the output MUST contain exactly one task block per user-provided task (unless a split was forced by duration). NEVER invent extra tasks, NEVER omit a user's task, NEVER merge two of the user's tasks into one. Every task the user wrote must appear in the output. Count the input lines and the output task blocks — they must match unless duration forces a split.
+- Task titles MUST reuse the user's original wording from raw_input (or clarified_tasks when provided). Preserve key nouns/verbs from the user's phrasing and only normalize capitalization/punctuation.
 - FORBIDDEN TITLES: never invent generic labels like "Deep focus work session 1", "Focus block 2", "Work session", "Task block", or similar template names.
 - WHEN SPLITTING ONE TASK: keep the same base title from user wording and append a natural qualifier in parentheses, e.g. "Work on landing page (part 1)", "Work on landing page (part 2)". Do not use "session 1/2" wording.
 - PARALLEL / LIGHT BACKGROUND TASKS: only when raw text implies concurrent low-attention activity (walking, commute/errand cardio) alongside stationary work (call, headset meeting, inbox), schedule both with overlap_ok=true, the SAME parallel_group_id, and matching start_times. Never overlap_two deep_work-heavy blocks. Prefer sequential ordering when unsure.

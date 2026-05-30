@@ -18,8 +18,6 @@ import { EagerPrefetcher } from "@/components/app/EagerPrefetcher";
 import { Shell } from "@/components/app/Shell";
 import { PersistentTabs } from "@/components/app/PersistentTabs";
 import { NotificationBridge } from "@/components/app/NotificationBridge";
-import { AppLock } from "@/components/app/AppLock";
-import { BiometricOptInSheet } from "@/components/app/BiometricOptInSheet";
 import { lazyWithReload } from "@/lib/lazyWithReload";
 import ForgotPassword from "./pages/app/ForgotPassword";
 import ResetPassword from "./pages/app/ResetPassword";
@@ -106,7 +104,17 @@ const DeepLinkBridge = () => {
   }, [stop]);
   useEffect(() => {
     const unsubscribe = attachDeepLinkListener(
-      (path) => navigate(path),
+      (path) => {
+        // Prevent pushing the exact same route if we're already there,
+        // which causes an infinite visual loop on Live Activity resume taps.
+        const currentPath = window.location.pathname;
+        const currentSearch = window.location.search;
+        const [newPathname, newSearch] = path.split("?");
+        if (currentPath === newPathname && (currentSearch === `?${newSearch}` || (!currentSearch && !newSearch))) {
+          return;
+        }
+        navigate(path, { replace: true });
+      },
       (action) => {
         // "Stop" tapped inside the Tracker Live Activity. The tracker is the
         // single global session, so no id is needed — stop() ends it and the
@@ -201,12 +209,12 @@ const AppContent = () => {
         <ProfileProvider>
         <TourProvider>
         <TimeTrackerProvider>
-        <AppLock>
+        
             <KeyboardPrewarm />
             <EagerPrefetcher />
             <DeepLinkBridge />
             <NotificationBridge />
-            <BiometricOptInSheet />
+            
           <Routes>
             <Route path="/" element={<RootRedirect />} />
             <Route path="/auth" element={<SuspenseRoute><Auth /></SuspenseRoute>} />
@@ -238,28 +246,12 @@ const AppContent = () => {
             <Route path="/settings/delete-account" element={<RequireAuth><SuspenseRoute><DeleteAccount /></SuspenseRoute></RequireAuth>} />
             <Route path="*" element={<NotFound />} />
           </Routes>
-        </AppLock>
+        
         </TimeTrackerProvider>
         </TourProvider>
         </ProfileProvider>
         </AuthProvider>
       </BrowserRouter>
-      {/* Global home-indicator cover. Radial blue arc that mirrors the top
-          --gradient-glow halo. Uses --primary (Apple Blue), not --primary-glow
-          (which is Apple Indigo and reads as purple). The ellipse is 240% tall
-          so the arc shape shows inside the thin safe-area strip. Horizontal
-          radius is 34% (was 62%) so the colour is a centred spot that fades to
-          nothing ~20% before each screen side — no hard cut-off at the corners. */}
-      <div
-        className="pointer-events-none fixed inset-x-0 bottom-0"
-        style={{
-          height: "env(safe-area-inset-bottom, 0px)",
-          zIndex: 99999,
-          background:
-            "radial-gradient(34% 240% at 50% 100%, hsl(var(--primary) / 0.30) 0%, hsl(var(--primary) / 0.12) 42%, transparent 74%)",
-        }}
-        aria-hidden
-      />
     </TooltipProvider>
   </QueryClientProvider>
   );

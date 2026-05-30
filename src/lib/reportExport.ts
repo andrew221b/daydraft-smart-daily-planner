@@ -594,13 +594,17 @@ export async function downloadReportPdf(report: ReportPayload) {
       doc.text(scopeLabel, margin, cursorY + 4);
       cursorY += 14;
     }
+    // Payment key/value table.
+    // Col 0 (label) and col 1 (value) use the SAME fontSize so the two-column
+    // grid sits on a shared baseline — previously 9 vs 10 caused a half-line
+    // shift that made values look mis-seated against their labels.
     autoTable(doc, {
       startY: cursorY,
       body: paymentRows,
       margin: { left: margin, right: margin },
       styles: {
         font: FONT,
-        fontSize: 10,
+        fontSize: 9.5,
         cellPadding: { top: 9, bottom: 9, left: 14, right: 14 },
         textColor: body,
         lineColor: hairline,
@@ -609,8 +613,8 @@ export async function downloadReportPdf(report: ReportPayload) {
         overflow: "linebreak",
       },
       columnStyles: {
-        0: { fontStyle: "bold", textColor: sub, cellWidth: 140, fontSize: 9 },
-        1: { textColor: ink, fontStyle: "bold" },
+        0: { fontStyle: "bold", textColor: sub, cellWidth: 150 },
+        1: { textColor: ink, fontStyle: "normal" },
       },
       alternateRowStyles: { fillColor: soft },
       theme: "plain",
@@ -619,18 +623,26 @@ export async function downloadReportPdf(report: ReportPayload) {
   }
 
   // ── Category breakdown ───────────────────────────────────
-  // Each row: colour dot · category name (truncates) · time · share %
-  // · hourly rate · total earned. Right-aligned numeric columns share a
-  // baseline; non-numeric values left-align. Empty values render as a
-  // muted "—" so the column stays predictable.
+  // FIX: header and body now share the same font size (10pt) so right-aligned
+  // columns ("Earned", "Rate", "Time") land on the same visual anchor.
+  // Previously headers at 7.5pt were positioned much further from the right
+  // edge than body values at 10.5pt, creating the "column shifted right" look.
+  //
+  // dot col: cellWidth 20, zero horizontal padding — the circle is drawn
+  // manually in didDrawCell; extra padding was wasting space and miscentring.
   if (report.categories.length) {
     cursorY = ensureRoom(cursorY, 120);
     sectionTitle("Category breakdown", cursorY);
     cursorY += 14;
 
+    // Shared padding for both head and body so every row has the same rhythm.
+    const CP = { top: 10, bottom: 10, left: 10, right: 10 };
+    const HEAD_CP = { top: 7, bottom: 8, left: 10, right: 10 };
+    const headFill: RGB = [242, 244, 250];
+
     autoTable(doc, {
       startY: cursorY,
-      head: [["", "Category", "Time", "Share", "Rate", "Earned"]],
+      head: [["", "Category", "Time", "Share", "Rate / hr", "Earned"]],
       body: report.categories.map((c) => [
         "",
         c.name,
@@ -642,8 +654,8 @@ export async function downloadReportPdf(report: ReportPayload) {
       margin: { left: margin, right: margin },
       styles: {
         font: FONT,
-        fontSize: 10.5,
-        cellPadding: { top: 11, bottom: 11, left: 10, right: 10 },
+        fontSize: 10,
+        cellPadding: CP,
         textColor: ink,
         lineColor: hairline,
         lineWidth: 0,
@@ -651,27 +663,26 @@ export async function downloadReportPdf(report: ReportPayload) {
         overflow: "ellipsize",
       },
       headStyles: {
-        fillColor: white,
+        fillColor: headFill,
         textColor: sub,
         fontStyle: "bold",
-        fontSize: 7.5,
-        cellPadding: { top: 6, bottom: 8, left: 10, right: 10 },
+        fontSize: 10,       // ← same as body; eliminates the right-edge drift
+        cellPadding: HEAD_CP,
         lineColor: hairline,
         lineWidth: 0,
       },
       alternateRowStyles: { fillColor: soft },
       columnStyles: {
-        0: { cellWidth: 24 },
+        // dot: tight, zero horizontal padding — circle drawn in didDrawCell
+        0: { cellWidth: 20, cellPadding: { top: 10, bottom: 10, left: 0, right: 4 } },
         1: { fontStyle: "bold", textColor: ink },
-        2: { halign: "right", cellWidth: 70, fontStyle: "bold" },
-        3: { halign: "right", cellWidth: 58, textColor: sub },
-        4: { halign: "right", cellWidth: 86, textColor: sub },
+        2: { halign: "right", cellWidth: 72, fontStyle: "bold" },
+        3: { halign: "right", cellWidth: 54, textColor: sub },
+        4: { halign: "right", cellWidth: 96, textColor: sub },
         5: { halign: "right", cellWidth: 96, fontStyle: "bold" },
       },
       theme: "plain",
       didParseCell: (data) => {
-        // Mute placeholder "—" cells so absent rate/earnings read as
-        // "no data" instead of competing with real numbers.
         if (
           data.section === "body" &&
           (data.column.index === 4 || data.column.index === 5) &&
@@ -682,21 +693,21 @@ export async function downloadReportPdf(report: ReportPayload) {
         }
       },
       didDrawCell: (data) => {
-        // Colour dot for each category in the first column.
+        // Colour dot — drawn at cell centre, size proportional to row height.
         if (data.section === "body" && data.column.index === 0) {
           const row = report.categories[data.row.index];
           if (row) {
             const [r, g, b] = hexToRgb(row.color || "#6366f1");
             doc.setFillColor(r, g, b);
-            const cx = data.cell.x + data.cell.width / 2;
+            const cx = data.cell.x + data.cell.width - 4;
             const cy = data.cell.y + data.cell.height / 2;
             doc.circle(cx, cy, 3.8, "F");
           }
         }
-        // Hairline beneath the header row (drawn once at last column).
+        // Accent underline beneath header row once (last column only).
         if (data.section === "head" && data.column.index === 5) {
-          doc.setDrawColor(...hairline);
-          doc.setLineWidth(0.6);
+          doc.setDrawColor(...accent);
+          doc.setLineWidth(1);
           const lineY = data.cell.y + data.cell.height;
           doc.line(margin, lineY, pageW - margin, lineY);
         }
@@ -706,9 +717,11 @@ export async function downloadReportPdf(report: ReportPayload) {
   }
 
   // ── Activity log ─────────────────────────────────────────
-  // Note column expands to fill remaining width and wraps to multi-line
-  // when long — fixes the old "0;0;K;A;..." bleed where mojibake spilled
-  // across columns because there was no overflow handling.
+  // Same fix applied: headers and body share fontSize 9. Start/End columns
+  // are 52px (was 44) so "10:30 AM" fits without truncation. Earned column
+  // is 78px (was 68) to handle wider currency strings like "CA$1,234".
+  // Head and body use the same cellPadding left/right so right-aligned text
+  // in header and body cells shares the same right anchor pixel.
   if (report.entries.length) {
     cursorY = ensureRoom(cursorY, 100);
     sectionTitle(
@@ -716,6 +729,8 @@ export async function downloadReportPdf(report: ReportPayload) {
       cursorY,
     );
     cursorY += 14;
+
+    const headFill2: RGB = [242, 244, 250];
 
     autoTable(doc, {
       startY: cursorY,
@@ -741,22 +756,22 @@ export async function downloadReportPdf(report: ReportPayload) {
         overflow: "linebreak",
       },
       headStyles: {
-        fillColor: white,
+        fillColor: headFill2,
         textColor: sub,
         fontStyle: "bold",
-        fontSize: 7.5,
-        cellPadding: { top: 6, bottom: 8, left: 8, right: 8 },
+        fontSize: 9,        // ← matches body; right-aligned headers now share
+        cellPadding: { top: 6, bottom: 7, left: 8, right: 8 }, // same L/R as body
         lineColor: hairline,
         lineWidth: 0,
       },
       alternateRowStyles: { fillColor: soft },
       columnStyles: {
-        0: { textColor: ink, fontStyle: "bold", cellWidth: 66 },
-        1: { textColor: sub, cellWidth: 44, halign: "right" },
-        2: { textColor: sub, cellWidth: 44, halign: "right" },
-        3: { textColor: ink, cellWidth: 90, overflow: "ellipsize" },
-        4: { halign: "right", textColor: ink, fontStyle: "bold", cellWidth: 56 },
-        5: { halign: "right", textColor: ink, fontStyle: "bold", cellWidth: 68 },
+        0: { textColor: ink, fontStyle: "bold", cellWidth: 68 },
+        1: { textColor: sub, cellWidth: 52, halign: "right" },  // was 44 — fits "10:30 AM"
+        2: { textColor: sub, cellWidth: 52, halign: "right" },
+        3: { textColor: ink, cellWidth: 92, overflow: "ellipsize" },
+        4: { halign: "right", textColor: ink, fontStyle: "bold", cellWidth: 54 },
+        5: { halign: "right", textColor: ink, fontStyle: "bold", cellWidth: 78 }, // was 68
         6: { textColor: sub, fontSize: 8.5 },
       },
       theme: "plain",
@@ -771,11 +786,9 @@ export async function downloadReportPdf(report: ReportPayload) {
         }
       },
       didDrawCell: (data) => {
-        // Header underline once (drawn after the last header cell so it
-        // spans the full width and isn't repeated per-cell).
         if (data.section === "head" && data.column.index === 6) {
-          doc.setDrawColor(...hairline);
-          doc.setLineWidth(0.6);
+          doc.setDrawColor(...accent);
+          doc.setLineWidth(1);
           const lineY = data.cell.y + data.cell.height;
           doc.line(margin, lineY, pageW - margin, lineY);
         }

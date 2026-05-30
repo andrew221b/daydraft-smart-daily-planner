@@ -13,6 +13,9 @@ import { haptics } from "@/lib/haptics";
 import { toast } from "sonner";
 import { PaymentMethodFields, type PaymentFieldsValue } from "@/components/app/PaymentMethodFields";
 import { getPaymentMethod } from "@/lib/paymentMethods";
+import { verifyBiometric, getGatePref } from "@/lib/biometricGate";
+import { BiometricGateSheet } from "@/components/app/BiometricGateSheet";
+import { useTabVisible } from "@/components/app/PersistentTabs";
 import {
   AlertDialog,
   AlertDialogAction,
@@ -40,26 +43,20 @@ function fmtMoney(amount: number, currency: string): string {
 function FlipEarnings({ rate, currency }: { rate: number; currency: string }) {
   const [amt, setAmt] = useState(() => `+${fmtMoney(0, currency)}`);
   const [visible, setVisible] = useState(false);
-  const [flipKey, setFlipKey] = useState(0);
   const visibleRef = useRef(false);
-  const prevMinRef = useRef(-1);
 
   useEffect(() => {
-    prevMinRef.current = -1;
     visibleRef.current = false;
     setVisible(false);
     return subscribeElapsed((sec) => {
       const earned = (sec / 3600) * rate;
-      const min = Math.floor(sec / 60);
       if (!visibleRef.current && sec >= 0) {
         visibleRef.current = true;
         setAmt(`+${fmtMoney(earned, currency)}`);
         setVisible(true);
       }
-      if (visibleRef.current && min !== prevMinRef.current && min > 0) {
-        prevMinRef.current = min;
+      if (visibleRef.current && sec > 0) {
         setAmt(`+${fmtMoney(earned, currency)}`);
-        setFlipKey((k) => k + 1);
       }
     });
   }, [rate, currency]);
@@ -75,19 +72,9 @@ function FlipEarnings({ rate, currency }: { rate: number; currency: string }) {
       style={{ perspective: 200 }}
     >
       <span className="text-[11px] font-medium text-success/65">earned</span>
-      <AnimatePresence mode="popLayout" initial={false}>
-        <motion.span
-          key={flipKey}
-          className="text-[14px] font-semibold text-success"
-          initial={{ y: -12, rotateX: -40, opacity: 0 }}
-          animate={{ y: 0, rotateX: 0, opacity: 1 }}
-          exit={{ y: 12, rotateX: 40, opacity: 0 }}
-          transition={{ duration: 0.28, ease: [0.4, 0, 0.2, 1] }}
-          style={{ display: "inline-block", transformOrigin: "50% 50%" }}
-        >
-          {amt}
-        </motion.span>
-      </AnimatePresence>
+      <span className="text-[14px] font-semibold text-success tabular-nums">
+        {amt}
+      </span>
     </motion.div>
   );
 }
@@ -151,6 +138,7 @@ export function HomeTrackerHero({ onOpenDetails }: { onOpenDetails: () => void }
   const [paymentSaving, setPaymentSaving] = useState(false);
   const [rateSaving, setRateSaving] = useState(false);
   const [upgradeOpen, setUpgradeOpen] = useState(false);
+  const [bioGateOpen, setBioGateOpen] = useState(false);
   // Picker-sheet inline manage state — long-press a row to edit/delete it
   // without leaving the picker. Surfaces what was previously only
   // discoverable via the tracker page's swipe-row affordance.
@@ -196,6 +184,35 @@ export function HomeTrackerHero({ onOpenDetails }: { onOpenDetails: () => void }
     setPaymentDetails(categoryBillingToDraft(selectedCat));
   }, [billingOpen, selectedCat]);
 
+  const tabVisible = useTabVisible();
+
+  // Close billing sheet + inline payment section when leaving this tab,
+  // stopping the timer, or backgrounding the app — same policy as TrackerPill.
+  useEffect(() => {
+    if (!tabVisible) {
+      setBillingOpen(false);
+      setBillingExpanded(false);
+    }
+  }, [tabVisible]);
+
+  useEffect(() => {
+    if (!active) {
+      setBillingOpen(false);
+      setBillingExpanded(false);
+    }
+  }, [active]);
+
+  useEffect(() => {
+    const onVisibility = () => {
+      if (document.hidden) {
+        setBillingOpen(false);
+        setBillingExpanded(false);
+      }
+    };
+    document.addEventListener("visibilitychange", onVisibility);
+    return () => document.removeEventListener("visibilitychange", onVisibility);
+  }, []);
+
   const saveRate = async (silent = false) => {
     if (!selectedCat) return;
     const cleaned = draftRate.replace(",", ".").trim();
@@ -221,9 +238,6 @@ export function HomeTrackerHero({ onOpenDetails }: { onOpenDetails: () => void }
     }
     setPaymentSaving(true);
     try {
-      // Sheet is now the single source of truth for currency + method + fields.
-      // All three travel together so the editor can never leave the row in a
-      // half-saved state where the method belongs to the wrong rail.
       await updateCategoryBilling(selectedCat.id, paymentDetails);
       toast.success("Payment details saved");
       setBillingOpen(false);
@@ -344,18 +358,6 @@ export function HomeTrackerHero({ onOpenDetails }: { onOpenDetails: () => void }
                   {activeCat.name}
                 </span>
               </div>
-              {/*
-                Wrapper holds the breathing scale so it doesn't deform the
-                text inside. The previous markup put `breathe` AND a layered
-                text-shadow (26px + 48px blurs) on the same element — iOS
-                Capacitor WebView allocates a fixed-bounds compositor layer
-                for the shadow, and the scale animation made the rectangular
-                edge of that layer visible behind the digits. Splitting them
-                + dropping the shadow (the tracker-hero-clock conic sweep
-                behind the whole card already provides the category-tinted
-                ambient glow) makes the timer read as crisp numerals on a
-                quietly-pulsing surface, not text inside a faint box.
-              */}
               <div className="mt-3 breathe">
                 <LiveElapsed
                   format={fmtHMS}
@@ -465,25 +467,24 @@ export function HomeTrackerHero({ onOpenDetails }: { onOpenDetails: () => void }
             to add your first category.
           </p>
         )}
-
-        {/* Billing — collapsed by default, tap to expand. Raised glass card so
-            it reads as its own piece of hardware sitting on the hero. */}
+        {/* Billing — collapsed by default, tap to expand. */}
         {!active && selectedCat && (
-          <div
-            className="mt-3 rounded-2xl overflow-hidden"
-            style={{
-              background: "linear-gradient(180deg, hsl(var(--card) / 0.65) 0%, hsl(var(--card) / 0.38) 100%)",
-              boxShadow: [
-                "inset 0 1px 0 hsl(0 0% 100% / 0.09)",
-                "0 0 0 1px hsl(var(--border) / 0.55)",
-                "0 8px 22px -14px hsl(0 0% 0% / 0.45)",
-              ].join(", "),
-            }}
-          >
+          <div className="mt-3 rounded-2xl border border-border/40 bg-background/30 overflow-hidden">
             <button
               type="button"
-              onClick={() => setBillingExpanded((v) => !v)}
-              className="w-full flex items-center justify-between px-3.5 py-2.5 pressable"
+              onClick={async () => {
+                if (billingExpanded) {
+                  setBillingExpanded(false);
+                } else {
+                  if (getGatePref() === "unset") {
+                    setBioGateOpen(true);
+                    return;
+                  }
+                  const allowed = await verifyBiometric("Access Rate & Billing");
+                  if (allowed) setBillingExpanded(true);
+                }
+              }}
+              className="w-full flex items-center justify-between px-3.5 py-3 hover:bg-foreground/[0.015] pressable transition-colors"
             >
               <span className="text-[11px] font-semibold uppercase tracking-[0.16em] text-secondary-fg/60">
                 Rate & billing
@@ -500,110 +501,103 @@ export function HomeTrackerHero({ onOpenDetails }: { onOpenDetails: () => void }
               </div>
             </button>
 
-            {billingExpanded && (
-              // Recessed "well" — the convex rate field + raised method button
-              // visibly sit inside it, giving the section real depth layers.
-              <div className="groove-track mx-1.5 mb-1.5 rounded-xl px-3 pb-3 pt-3 space-y-2.5">
-                {/* Rate field — auto-saves on blur when dirty, no button needed
-                    in the common case. Save button appears only after typing. */}
-                <div className="flex items-end gap-2">
-                  <label className="flex-1 space-y-1 block min-w-0">
-                    <span className="text-[10px] font-semibold text-primary/80">
-                      Rate / h{selectedCat.currency ? ` · ${selectedCat.currency.toUpperCase()}` : ""}
-                    </span>
-                    {/* Convex primary pebble — mirrors the Start button's depth */}
-                    <div
-                      className="h-10 rounded-xl flex items-center px-3 transition-shadow"
-                      style={{
-                        background: "linear-gradient(180deg, hsl(var(--primary) / 0.12) 0%, hsl(var(--primary) / 0.05) 100%)",
-                        boxShadow: [
-                          "inset 0 1px 0 hsl(0 0% 100% / 0.12)",
-                          "inset 0 -1px 0 hsl(var(--primary) / 0.18)",
-                          rateDirty ? "0 0 0 1.5px hsl(var(--primary) / 0.55)" : "0 0 0 1.5px hsl(var(--primary) / 0.28)",
-                          "0 4px 10px -5px hsl(var(--primary) / 0.25)",
-                        ].join(", "),
-                      }}
+            <AnimatePresence initial={false}>
+              {billingExpanded && (
+                <motion.div
+                  initial={{ height: 0, opacity: 0 }}
+                  animate={{ height: "auto", opacity: 1 }}
+                  exit={{ height: 0, opacity: 0 }}
+                  transition={{ type: "spring", stiffness: 340, damping: 28, mass: 0.85 }}
+                  style={{ overflow: "hidden" }}
+                >
+                  <div className="px-3.5 pb-3.5 flex flex-col gap-4 pt-1 overflow-hidden">
+                    <motion.div
+                      initial={{ opacity: 0, y: 8 }}
+                      animate={{ opacity: 1, y: 0 }}
+                      transition={{ delay: 0.06, type: "spring", stiffness: 380, damping: 28 }}
+                      className="space-y-1"
                     >
-                      <Input
-                        inputMode="decimal"
-                        value={draftRate}
-                        onChange={(e) => setDraftRate(e.target.value)}
-                        onBlur={() => { if (rateDirty && !rateSaving) void saveRate(true); }}
-                        placeholder="—"
-                        className="h-7 flex-1 bg-transparent border-0 px-0 text-[13px] font-mono tabular-nums focus-visible:ring-0 shadow-none"
-                      />
-                    </div>
-                  </label>
-                  {rateDirty && (
-                    <Button
-                      type="button"
-                      size="sm"
-                      disabled={rateSaving}
-                      onClick={() => void saveRate(false)}
-                      className="h-10 rounded-xl text-[12px] font-semibold px-4"
-                    >
-                      {rateSaving ? "Saving…" : "Save"}
-                    </Button>
-                  )}
-                </div>
+                      <span className="text-[10px] text-secondary-fg/70">Hourly rate</span>
+                      <div className="flex items-center gap-2">
+                        <Input
+                          inputMode="decimal"
+                          value={draftRate}
+                          onChange={(e) => setDraftRate(e.target.value)}
+                          onBlur={() => { if (rateDirty && !rateSaving) void saveRate(true); }}
+                          placeholder="—"
+                          className="flex-1 h-10 rounded-xl bg-transparent text-[13px] font-mono tabular-nums border-border/35 focus-visible:ring-1 focus-visible:ring-primary/25 focus-visible:border-primary/35 shadow-none"
+                        />
+                        {rateDirty && (
+                          <Button
+                            type="button"
+                            size="sm"
+                            disabled={rateSaving}
+                            onClick={() => void saveRate(false)}
+                            className="h-10 rounded-xl text-[12px] font-semibold px-4"
+                          >
+                            {rateSaving ? "Saving…" : "Save"}
+                          </Button>
+                        )}
+                      </div>
+                    </motion.div>
 
-                {/* Single source of truth for currency + method + reqs.
-                    Trigger displays current state; tap opens the unified sheet. */}
-                <div className="space-y-1">
-                  <span className="text-[10px] text-secondary-fg/70">Payment method</span>
-                  <button
-                    type="button"
-                    onClick={() => {
-                      if (!isPro) { setUpgradeOpen(true); return; }
-                      setBillingOpen(true);
-                    }}
-                    className="pebble-idle group relative flex w-full items-center gap-2.5 rounded-xl px-3 py-2.5 text-left pressable active:scale-[0.99] transition-transform"
-                  >
-                    {(() => {
-                      const m = getPaymentMethod(selectedCat.payment_method);
-                      const cur = (selectedCat.currency || "USD").toUpperCase();
-                      if (m) {
-                        const Icon = m.Icon;
-                        return (
-                          <>
-                            <span
-                              className="flex h-7 w-7 shrink-0 items-center justify-center rounded-lg"
-                              style={{
-                                background: `linear-gradient(180deg, hsl(${m.accent} / 0.28) 0%, hsl(${m.accent} / 0.14) 100%)`,
-                                boxShadow: `inset 0 1px 0 hsl(0 0% 100% / 0.18), inset 0 -1px 0 hsl(${m.accent} / 0.25), 0 0 0 1px hsl(${m.accent} / 0.32)`,
-                                color: `hsl(${m.accent})`,
-                              }}
-                            >
-                              <Icon className="h-3.5 w-3.5" strokeWidth={2.4} />
-                            </span>
-                            <span className="min-w-0 flex-1 text-[13px] font-semibold text-foreground truncate leading-tight">
-                              {m.label}
-                            </span>
-                            <span className="shrink-0 inline-flex items-center rounded-md bg-foreground/[0.06] px-1.5 py-0.5 text-[10.5px] font-semibold tabular-nums tracking-[0.04em] text-foreground/75">
-                              {cur}
-                            </span>
-                          </>
-                        );
-                      }
-                      return (
-                        <>
-                          <span className="pebble-icon flex h-7 w-7 shrink-0 items-center justify-center rounded-lg text-foreground/55">
-                            <Wallet className="h-3.5 w-3.5" strokeWidth={2} />
-                          </span>
-                          <span className="min-w-0 flex-1 text-[13px] font-medium text-secondary-fg/85 truncate leading-tight">
-                            Add payment details
-                          </span>
-                          <span className="shrink-0 inline-flex items-center rounded-md bg-foreground/[0.04] px-1.5 py-0.5 text-[10.5px] font-semibold tabular-nums tracking-[0.04em] text-secondary-fg/65">
-                            {cur}
-                          </span>
-                        </>
-                      );
-                    })()}
-                    <ChevronDown className="h-4 w-4 -rotate-90 text-secondary-fg/55 shrink-0 transition-transform group-hover:translate-x-0.5" />
-                  </button>
-                </div>
-              </div>
-            )}
+                    <motion.div
+                      initial={{ opacity: 0, y: 8 }}
+                      animate={{ opacity: 1, y: 0 }}
+                      transition={{ delay: 0.12, type: "spring", stiffness: 380, damping: 28 }}
+                      className="space-y-1"
+                    >
+                      <span className="text-[10px] text-secondary-fg/70">Payment method</span>
+                      <button
+                        type="button"
+                        onClick={() => {
+                          if (!isPro) { setUpgradeOpen(true); return; }
+                          setBillingOpen(true);
+                        }}
+                        className="group relative flex w-full items-center gap-2.5 rounded-xl border border-border/40 bg-transparent hover:bg-foreground/[0.015] px-3 py-2.5 text-left pressable active:scale-[0.99] transition-all shadow-[inset_0_1px_2px_rgba(0,0,0,0.02)] dark:shadow-[inset_0_1px_4px_rgba(0,0,0,0.2)]"
+                      >
+                        {(() => {
+                          const m = getPaymentMethod(selectedCat.payment_method);
+                          const cur = (selectedCat.currency || "USD").toUpperCase();
+                          if (m) {
+                            const Icon = m.Icon;
+                            return (
+                              <>
+                                <span
+                                  className="flex h-7 w-7 shrink-0 items-center justify-center rounded-lg bg-primary/10 text-primary"
+                                >
+                                  <Icon className="h-3.5 w-3.5" strokeWidth={2.4} />
+                                </span>
+                                <span className="min-w-0 flex-1 text-[13px] font-semibold text-foreground truncate leading-tight">
+                                  {m.label}
+                                </span>
+                                <span className="shrink-0 inline-flex items-center rounded-md bg-foreground/[0.06] px-1.5 py-0.5 text-[10.5px] font-semibold tabular-nums tracking-[0.04em] text-foreground/75">
+                                  {cur}
+                                </span>
+                              </>
+                            );
+                          }
+                          return (
+                            <>
+                              <span className="flex h-7 w-7 shrink-0 items-center justify-center rounded-lg bg-secondary text-secondary-fg">
+                                <Wallet className="h-3.5 w-3.5" strokeWidth={2} />
+                              </span>
+                              <span className="min-w-0 flex-1 text-[13px] font-medium text-secondary-fg/85 truncate leading-tight">
+                                Add payment details
+                              </span>
+                              <span className="shrink-0 inline-flex items-center rounded-md bg-foreground/[0.04] px-1.5 py-0.5 text-[10.5px] font-semibold tabular-nums tracking-[0.04em] text-secondary-fg/65">
+                                {cur}
+                              </span>
+                            </>
+                          );
+                        })()}
+                        <ChevronDown className="h-4 w-4 -rotate-90 text-secondary-fg/55 shrink-0" />
+                      </button>
+                    </motion.div>
+                  </div>
+                </motion.div>
+              )}
+            </AnimatePresence>
           </div>
         )}
       </div>
@@ -778,6 +772,7 @@ export function HomeTrackerHero({ onOpenDetails }: { onOpenDetails: () => void }
       <Sheet open={billingOpen} onOpenChange={setBillingOpen}>
         <SheetContent
           side="bottom"
+          hideClose
           className="rounded-t-[28px] border-border/45 bg-popover max-h-[90vh] flex flex-col p-0"
           style={{ paddingBottom: "var(--keyboard-inset, 0px)" }}
         >
@@ -797,23 +792,45 @@ export function HomeTrackerHero({ onOpenDetails }: { onOpenDetails: () => void }
             </div>
 
             <div className="px-5 pb-6 space-y-4">
-              <PaymentMethodFields
-                value={paymentDetails as PaymentFieldsValue}
-                onChange={(field, val) => setPaymentDetails((p) => ({ ...p, [field]: val }))}
-              />
+              {billingOpen && (
+                <PaymentMethodFields
+                  value={paymentDetails as PaymentFieldsValue}
+                  onChange={(field, val) => setPaymentDetails((p) => ({ ...p, [field]: val }))}
+                />
+              )}
 
-              <Button
-                type="button"
-                disabled={paymentSaving}
-                onClick={() => void savePaymentDetails()}
-                className="w-full h-12 rounded-2xl text-[14px] font-semibold gleam btn-volumetric"
-              >
-                {paymentSaving ? "Saving…" : "Save payment details"}
-              </Button>
+              <div className="flex items-center gap-2">
+                <Button
+                  type="button"
+                  variant="outline"
+                  onClick={() => setBillingOpen(false)}
+                  className="h-12 flex-1 rounded-2xl text-[14px] font-medium border-soft"
+                >
+                  Cancel
+                </Button>
+                <Button
+                  type="button"
+                  disabled={paymentSaving}
+                  onClick={() => void savePaymentDetails()}
+                  className="flex-[2] h-12 rounded-2xl text-[14px] font-semibold gleam btn-volumetric"
+                >
+                  {paymentSaving ? "Saving…" : "Save details"}
+                </Button>
+              </div>
             </div>
           </div>
         </SheetContent>
       </Sheet>
+
+      <BiometricGateSheet
+        open={bioGateOpen}
+        onClose={() => setBioGateOpen(false)}
+        feature="billing"
+        onResult={(success) => {
+          setBioGateOpen(false);
+          if (success) setBillingOpen(true);
+        }}
+      />
 
       <UpgradeSheet open={upgradeOpen} onOpenChange={setUpgradeOpen} reason="feature" />
 

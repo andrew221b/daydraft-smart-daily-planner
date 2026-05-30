@@ -3,7 +3,7 @@ import { DAYDRAFT_PERSONA } from "../_shared/persona.ts";
 
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
-  "Access-Control-Allow-Headers": "authorization, x-client-info, apikey, content-type",
+  "Access-Control-Allow-Headers": "authorization, x-client-info, apikey, content-type, x-dd-dev-pro",
 };
 
 serve(async (req) => {
@@ -42,6 +42,7 @@ If runtime_reason is:
 - "stuck": prioritize split_current_block and concrete first action in 2-10 minutes.
 - "skip": prioritize defer_low_priority and compress_rest_day.
 - "overtime": prioritize compress_rest_day and realistic cut-down choices.
+- GIBBERISH DETECTION: If the task title is completely unintelligible or random keystrokes (e.g. "asdfasdf"), do not invent sub-steps for it. Instead, return a single sub-step: "Take a moment to write down what this task actually is." and a tip: "Clear tasks are easier to start."
 Be terse. No fluff. No greetings.`;
 
     const tools = [{

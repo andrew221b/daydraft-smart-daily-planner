@@ -66,6 +66,9 @@ export type TimeCategory = {
   color: string;
   is_default: boolean;
   hourly_rate?: number | null;
+  /** ISO timestamp of when a rate was first set. Only sessions starting on or
+   *  after this moment count toward earnings. NULL = apply rate to all time. */
+  rate_set_at?: string | null;
   currency?: string | null;
   payment_method?: string | null;
   billing_display_name?: string | null;
@@ -116,6 +119,7 @@ type Ctx = {
   deleteCategory: (id: string) => Promise<void>;
   renameCategory: (id: string, name: string) => Promise<void>;
   updateCategoryRate: (id: string, hourlyRate: number | null) => Promise<void>;
+  resetRateSetAt: (id: string) => Promise<void>;
   updateCategoryBilling: (
     id: string,
     draft: {
@@ -733,16 +737,43 @@ export function TimeTrackerProvider({ children }: { children: ReactNode }) {
   const updateCategoryRate: Ctx["updateCategoryRate"] = async (id, hourlyRate) => {
     const normalized =
       hourlyRate === null ? null : Math.max(0, Math.round(hourlyRate * 100) / 100);
+    // Stamp rate_set_at the first time a positive rate is assigned so that
+    // previously-tracked time (before the rate existed) is not retroactively
+    // counted toward earnings.
+    const prev = categoriesData.find((c) => c.id === id);
+    const wasUnrated = !prev?.hourly_rate;
+    const nowRated = normalized !== null && normalized > 0;
+    const rateSetAt = wasUnrated && nowRated ? new Date().toISOString() : undefined;
+    const patch: Record<string, unknown> = { hourly_rate: normalized };
+    if (rateSetAt !== undefined) patch.rate_set_at = rateSetAt;
+    // If rate is cleared, also clear the timestamp so a future re-assignment
+    // gets a fresh stamp.
+    if (normalized === null) patch.rate_set_at = null;
     const { error } = await supabase
       .from("time_categories")
-      .update({ hourly_rate: normalized } as any)
+      .update(patch as any)
       .eq("id", id);
     if (error) {
       toast.error(error.message);
       return;
     }
     setCategoriesData((prev) =>
-      prev.map((c) => (c.id === id ? { ...c, hourly_rate: normalized } : c)),
+      prev.map((c) =>
+        c.id === id
+          ? { ...c, hourly_rate: normalized, ...(patch.rate_set_at !== undefined ? { rate_set_at: patch.rate_set_at as string | null } : {}) }
+          : c,
+      ),
+    );
+  };
+
+  const resetRateSetAt: Ctx["resetRateSetAt"] = async (id) => {
+    const { error } = await supabase
+      .from("time_categories")
+      .update({ rate_set_at: null } as any)
+      .eq("id", id);
+    if (error) { toast.error(error.message); return; }
+    setCategoriesData((prev) =>
+      prev.map((c) => (c.id === id ? { ...c, rate_set_at: null } : c)),
     );
   };
 
@@ -829,6 +860,7 @@ export function TimeTrackerProvider({ children }: { children: ReactNode }) {
       deleteCategory,
       renameCategory,
       updateCategoryRate,
+      resetRateSetAt,
       updateCategoryBilling,
       addManualEntry,
       deleteEntry,

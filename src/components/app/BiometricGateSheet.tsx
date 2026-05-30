@@ -1,6 +1,6 @@
 import { useEffect, useState } from "react";
 import { Capacitor } from "@capacitor/core";
-import { Fingerprint, ScanFace, ShieldCheck, CreditCard, FileDown } from "lucide-react";
+import { Fingerprint, ScanFace, ShieldCheck, Shield } from "lucide-react";
 import { motion, AnimatePresence } from "framer-motion";
 import { Sheet, SheetContent, SheetTitle } from "@/components/ui/sheet";
 import { haptics } from "@/lib/haptics";
@@ -23,15 +23,15 @@ type Props = {
 
 const COPY: Record<GateFeature, { icon: React.ElementType; headline: string; body: string; verifyReason: string }> = {
   billing: {
-    icon: CreditCard,
-    headline: "Payment details protected",
-    body: "Your billing info — IBAN, wallets, payout links — is locked behind biometrics. You'll verify once each time you open it.",
+    icon: Shield,
+    headline: "App Lock",
+    body: "Your sensitive data — payment details and exported reports — will be locked behind biometrics. You'll verify once each time you access them.",
     verifyReason: "View saved payment details",
   },
   export: {
-    icon: FileDown,
-    headline: "Report download protected",
-    body: "Your time-tracking data is personal. Verify your identity before downloading.",
+    icon: Shield,
+    headline: "App Lock",
+    body: "Your sensitive data — payment details and exported reports — will be locked behind biometrics. You'll verify once each time you access them.",
     verifyReason: "Export time tracking report",
   },
 };
@@ -105,12 +105,12 @@ export function BiometricGateSheet({ open, onClose, feature, onResult }: Props) 
     <Sheet open={open} onOpenChange={(v) => { if (!v) handleSkip(); }}>
       <SheetContent
         side="bottom"
-        className="rounded-t-[32px] border-border/45 bg-popover p-0 flex flex-col"
+        className="rounded-t-[32px] border-border/45 bg-popover p-0 flex flex-col max-h-[92vh]"
         onOpenAutoFocus={(e) => e.preventDefault()}
       >
         <SheetTitle className="sr-only">Protect with biometrics</SheetTitle>
 
-        <div className="px-6 pt-10 pb-4 flex flex-col items-center text-center">
+        <div className="px-5 sm:px-6 pt-10 pb-4 flex flex-col items-center text-center overflow-y-auto">
 
           {/* ── Animated biometric visual ─────────────────────────────── */}
           <div className="relative h-40 w-40 flex items-center justify-center mb-6">
@@ -122,13 +122,7 @@ export function BiometricGateSheet({ open, onClose, feature, onResult }: Props) 
             />
 
             {/* Glass card */}
-            <div className="relative z-10 h-36 w-36 rounded-[40px] flex items-center justify-center overflow-hidden"
-              style={{
-                background: "linear-gradient(145deg, hsl(var(--background)/0.92) 0%, hsl(var(--background)/0.55) 100%)",
-                backdropFilter: "blur(20px)",
-                border: "1px solid rgba(255,255,255,0.18)",
-                boxShadow: "0 24px 48px -12px rgba(0,0,0,0.4), inset 0 4px 8px rgba(255,255,255,0.22), inset 0 -8px 16px rgba(0,0,0,0.22), inset 0 0 24px hsl(var(--primary)/0.13)",
-              }}>
+            <div className="relative z-10 h-36 w-36 rounded-[40px] bg-gradient-to-br from-background/95 to-background/60 backdrop-blur-xl border border-black/5 dark:border-white/10 flex items-center justify-center overflow-hidden shadow-xl dark:shadow-[0_24px_48px_-12px_rgba(0,0,0,0.4),inset_0_4px_8px_rgba(255,255,255,0.25),inset_0_-8px_16px_rgba(0,0,0,0.25),inset_0_0_24px_hsl(var(--primary)/0.15)]">
 
               {/* Scanning line */}
               <motion.div
@@ -139,36 +133,7 @@ export function BiometricGateSheet({ open, onClose, feature, onResult }: Props) 
                 style={{ boxShadow: "0 0 10px 3px hsl(var(--primary)/0.55), 0 0 22px 5px hsl(var(--primary)/0.22)" }}
               />
 
-              {/* Face scan corner brackets — only for Face ID */}
-              <AnimatePresence>
-                {isFace && (
-                  <>
-                    {[
-                      { top: 12, left: 12,  rotate: 0   },
-                      { top: 12, right: 12, rotate: 90  },
-                      { bottom: 12, right: 12, rotate: 180 },
-                      { bottom: 12, left: 12,  rotate: 270 },
-                    ].map((pos, i) => (
-                      <motion.div
-                        key={i}
-                        initial={{ opacity: 0, scale: 0.7 }}
-                        animate={{ opacity: [0.5, 1, 0.5], scale: 1 }}
-                        transition={{ duration: 2, repeat: Infinity, delay: i * 0.15 }}
-                        className="absolute w-5 h-5"
-                        style={{
-                          ...pos,
-                          border: "2px solid hsl(var(--primary)/0.8)",
-                          borderRadius: "3px",
-                          clipPath: i === 0 ? "polygon(0 0, 55% 0, 55% 18%, 18% 18%, 18% 55%, 0 55%)"
-                                  : i === 1 ? "polygon(45% 0, 100% 0, 100% 55%, 82% 55%, 82% 18%, 45% 18%)"
-                                  : i === 2 ? "polygon(45% 45%, 82% 45%, 82% 82%, 100% 82%, 100% 100%, 45% 100%)"
-                                  : "polygon(0 82%, 18% 82%, 18% 45%, 55% 45%, 55% 100%, 0 100%)",
-                        }}
-                      />
-                    ))}
-                  </>
-                )}
-              </AnimatePresence>
+              {/* Removed face scan corner brackets per user request */}
 
               {/* Main biometric icon */}
               <motion.div
@@ -177,11 +142,8 @@ export function BiometricGateSheet({ open, onClose, feature, onResult }: Props) 
                 className="relative z-20"
               >
                 <BiometricIcon
-                  className="h-20 w-20 text-primary"
+                  className="h-20 w-20 text-primary drop-shadow-md dark:drop-shadow-[0_8px_10px_rgba(0,0,0,0.5)] dark:drop-shadow-[0_-1px_2px_rgba(255,255,255,0.4)] drop-shadow-[0_0_24px_hsl(var(--primary)/0.5)]"
                   strokeWidth={1.4}
-                  style={{
-                    filter: "drop-shadow(0 8px 10px rgba(0,0,0,0.5)) drop-shadow(0 0 28px hsl(var(--primary)/0.55))",
-                  }}
                 />
               </motion.div>
             </div>

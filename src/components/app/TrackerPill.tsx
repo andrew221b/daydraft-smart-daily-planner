@@ -152,7 +152,7 @@ function clipParsed(p: ParsedEntry, dayStart: number, dayEnd: number, now: numbe
  */
 function TrackerInner({ embedded = false, onClose }: { embedded?: boolean; onClose?: () => void }) {
   const { user } = useAuth();
-  const { active, categories, start, stop, switchCategory, deleteCategory, renameCategory, updateCategoryRate, updateCategoryBilling, addCategory, addManualEntry, todayTotalSec } = useTimeTracker();
+  const { active, categories, start, stop, switchCategory, deleteCategory, renameCategory, updateCategoryRate, resetRateSetAt, updateCategoryBilling, addCategory, addManualEntry, todayTotalSec } = useTimeTracker();
   // todayTotalSec re-derives once a minute via the provider; no need to
   // subscribe to the elapsed heartbeat here. The big HH:MM:SS digits below
   // are rendered via <LiveElapsed>, which writes to the DOM directly and
@@ -275,6 +275,17 @@ function TrackerInner({ embedded = false, onClose }: { embedded?: boolean; onClo
     const id = window.setInterval(() => setNowSec(Date.now()), 60_000);
     return () => window.clearInterval(id);
   }, [trackerTabVisible, active]);
+
+  // Collapse Rate & Billing when leaving this tab or backgrounding the app.
+  useEffect(() => {
+    if (!trackerTabVisible) setEditingCat(null);
+  }, [trackerTabVisible]);
+
+  useEffect(() => {
+    const onVisibility = () => { if (document.hidden) setEditingCat(null); };
+    document.addEventListener("visibilitychange", onVisibility);
+    return () => document.removeEventListener("visibilitychange", onVisibility);
+  }, []);
 
   useEffect(() => {
     try {
@@ -432,6 +443,29 @@ function TrackerInner({ embedded = false, onClose }: { embedded?: boolean; onClo
     return map;
   }, [parsedEntries, period, now]);
 
+  // Billable seconds per category for the active period — only sessions that
+  // started ON OR AFTER rate_set_at. If rate_set_at is null the rate applies
+  // to all time (user explicitly chose to backfill or rate was set from day 0).
+  const billableSecByCat = useMemo(() => {
+    const map = new Map<string, number>();
+    for (const c of categories) {
+      if (!c.hourly_rate) continue;
+      const cutoffMs = c.rate_set_at ? new Date(c.rate_set_at).getTime() : null;
+      let billable = 0;
+      for (const p of parsedEntries) {
+        if (p.category_id !== c.id) continue;
+        if (cutoffMs !== null && p.startMs < cutoffMs) continue;
+        const en = p.endMs ?? now;
+        const a = p.startMs > period.start ? p.startMs : period.start;
+        const b = en < period.end ? en : period.end;
+        if (b <= a) continue;
+        billable += (b - a) / 1000;
+      }
+      map.set(c.id, billable);
+    }
+    return map;
+  }, [categories, parsedEntries, period, now]);
+
   const headerTotalSec = tab === "today" ? todayTotalSec : tab === "week" ? weekTotal : monthTotal;
   const headerLabel =
     tab === "today"
@@ -477,6 +511,7 @@ function TrackerInner({ embedded = false, onClose }: { embedded?: boolean; onClo
     setStopBusy(true);
     try {
       await stop();
+      setEditingCat(null);
       haptics.notify("success");
     } finally {
       setStopBusy(false);
@@ -801,27 +836,48 @@ function TrackerInner({ embedded = false, onClose }: { embedded?: boolean; onClo
               </div>
             </div>
 
-            {/* Today proportional breakdown (only if any time) */}
-            {!simpleMode && todayByCat.length > 0 && (
-              <div className="px-5 pt-4">
-                <div className="text-[10px] font-semibold uppercase tracking-wider text-secondary-fg mb-2">Where today went</div>
-                <div className="space-y-1.5">
-                  {todayByCat.map(x => {
-                    const pct = (x.sec / Math.max(1, todayTotalSec)) * 100;
-                    return (
-                      <div key={x.cat!.id} className="flex items-center gap-2 text-[12px]">
-                        <span className="h-2 w-2 rounded-full shrink-0" style={{ background: x.cat!.color }} />
-                        <span className="w-20 truncate text-foreground">{x.cat!.name}</span>
-                        <div className="flex-1 h-1.5 rounded-full bg-muted overflow-hidden">
-                          <div className="h-full rounded-full transition-[width] duration-300 ease-out" style={{ width: `${pct}%`, background: x.cat!.color }} />
-                        </div>
-                        <span className="font-mono tabular-nums text-secondary-fg w-12 text-right">{fmtHM(x.sec)}</span>
-                      </div>
-                    );
-                  })}
-                </div>
-              </div>
-            )}
+            {/* Today proportional breakdown — springs in after the first session
+                stops, hidden while nothing has been tracked yet. Each category
+                row also springs in individually so new ones animate as they're added. */}
+            <AnimatePresence initial={false}>
+              {!simpleMode && todayByCat.length > 0 && (
+                <motion.div
+                  key="today-breakdown"
+                  className="px-5 pt-4"
+                  initial={{ opacity: 0, y: 14, scale: 0.97 }}
+                  animate={{ opacity: 1, y: 0, scale: 1 }}
+                  exit={{ opacity: 0, y: 8, scale: 0.98 }}
+                  transition={{ type: "spring", stiffness: 340, damping: 28, mass: 0.85 }}
+                >
+                  <div className="text-[10px] font-semibold uppercase tracking-wider text-secondary-fg mb-2">Where today went</div>
+                  <AnimatePresence mode="popLayout" initial={false}>
+                    <div className="space-y-1.5">
+                      {todayByCat.map((x, i) => {
+                        const pct = (x.sec / Math.max(1, todayTotalSec)) * 100;
+                        return (
+                          <motion.div
+                            key={x.cat!.id}
+                            layout
+                            initial={{ opacity: 0, x: -14, scale: 0.96 }}
+                            animate={{ opacity: 1, x: 0, scale: 1 }}
+                            exit={{ opacity: 0, x: -10, scale: 0.97 }}
+                            transition={{ type: "spring", stiffness: 380, damping: 28, mass: 0.8, delay: i * 0.04 }}
+                            className="flex items-center gap-2 text-[12px]"
+                          >
+                            <span className="h-2 w-2 rounded-full shrink-0" style={{ background: x.cat!.color }} />
+                            <span className="w-20 truncate text-foreground">{x.cat!.name}</span>
+                            <div className="flex-1 h-1.5 rounded-full bg-muted overflow-hidden">
+                              <div className="h-full rounded-full transition-[width] duration-300 ease-out" style={{ width: `${pct}%`, background: x.cat!.color }} />
+                            </div>
+                            <span className="font-mono tabular-nums text-secondary-fg w-12 text-right">{fmtHM(x.sec)}</span>
+                          </motion.div>
+                        );
+                      })}
+                    </div>
+                  </AnimatePresence>
+                </motion.div>
+              )}
+            </AnimatePresence>
 
             {/* Switch hint removed — switching mid-session was confusing and
                 rarely intentional; users can stop and start a fresh session. */}
@@ -846,7 +902,9 @@ function TrackerInner({ embedded = false, onClose }: { embedded?: boolean; onClo
                 const stat = periodCatStats.get(c.id);
                 const periodSec = stat?.sec || 0;
                 const rate = Number(c.hourly_rate || 0);
-                const earned = rate > 0 ? (periodSec / 3600) * rate : 0;
+                // Only bill time tracked after rate_set_at; use full period when null.
+                const billableSec = rate > 0 ? (billableSecByCat.get(c.id) ?? periodSec) : 0;
+                const earned = rate > 0 ? (billableSec / 3600) * rate : 0;
                 return (
                   <SwipeRow key={c.id} disabled={c.is_default || isActive || editingCat === c.id} onDelete={() => setConfirmDeleteCat(c.id)}>
                   <div className={`rounded-[18px] border transition-[border-color,background-color,box-shadow,transform] duration-300 shadow-card tracker-category-luxe ${isActive ? "border-accent surface-accent ring-2 ring-primary/12 ring-offset-2 ring-offset-background" : "border-soft surface-card"} overflow-hidden backdrop-blur-sm`}>
@@ -869,10 +927,11 @@ function TrackerInner({ embedded = false, onClose }: { embedded?: boolean; onClo
                           setEditingCat(null);
                         }}
                         className="w-full min-w-0 px-3 pt-3 pb-2"
-                        initial={{ opacity: 0, y: 14 }}
-                        animate={{ opacity: 1, y: 0 }}
-                        exit={{ opacity: 0, y: -8 }}
-                        transition={{ type: "spring", stiffness: 400, damping: 34, mass: 0.75 }}
+                        initial={{ height: 0, opacity: 0 }}
+                        animate={{ height: "auto", opacity: 1 }}
+                        exit={{ height: 0, opacity: 0 }}
+                        transition={{ type: "spring", stiffness: 340, damping: 28, mass: 0.85 }}
+                        style={{ overflow: "hidden" }}
                       >
                         {/* ① Name row */}
                         <motion.div
@@ -890,21 +949,12 @@ function TrackerInner({ embedded = false, onClose }: { embedded?: boolean; onClo
                           />
                         </motion.div>
 
-                        {/* ② Rate row — raised pebble with primary accent, mirrors Start button depth */}
+                        {/* ② Rate row */}
                         <motion.div
-                          className="flex items-center gap-2 rounded-xl px-2.5 py-2 mb-2"
+                          className="flex items-center gap-2 rounded-xl border border-border/40 bg-background/50 shadow-sm px-2.5 py-2 mb-2"
                           initial={{ opacity: 0, y: 8 }}
                           animate={{ opacity: 1, y: 0 }}
                           transition={{ delay: 0.09, type: "spring", stiffness: 400, damping: 32 }}
-                          style={{
-                            background: "linear-gradient(180deg, hsl(var(--primary) / 0.12) 0%, hsl(var(--primary) / 0.05) 100%)",
-                            boxShadow: [
-                              "inset 0 1px 0 hsl(0 0% 100% / 0.12)",
-                              "inset 0 -1px 0 hsl(var(--primary) / 0.18)",
-                              "0 0 0 1.5px hsl(var(--primary) / 0.28)",
-                              "0 4px 10px -5px hsl(var(--primary) / 0.25)",
-                            ].join(", "),
-                          }}
                         >
                           <span className="text-[11px] font-semibold text-primary/80 shrink-0">Rate / h</span>
                           <Input
@@ -923,22 +973,47 @@ function TrackerInner({ embedded = false, onClose }: { embedded?: boolean; onClo
                           />
                         </motion.div>
 
-                        {/* ③ Billing section — recessed "well" so the reveal
-                            button / method chips visibly sit INSIDE it (groove
-                            inset shadow + faint top-down floor gradient). */}
+                        {/* ②½ Rate scope — only when a rate is set AND rate_set_at is non-null */}
+                        <AnimatePresence initial={false}>
+                          {c.rate_set_at && c.hourly_rate && (
+                            <motion.div
+                              key="rate-scope"
+                              initial={{ opacity: 0, height: 0 }}
+                              animate={{ opacity: 1, height: "auto" }}
+                              exit={{ opacity: 0, height: 0 }}
+                              transition={{ type: "spring", stiffness: 380, damping: 30 }}
+                              className="overflow-hidden mb-2"
+                            >
+                              <div className="flex items-center gap-2 rounded-xl border border-amber-500/20 bg-amber-500/10 px-2.5 py-2">
+                                <span className="text-[11px] text-amber-700 dark:text-amber-400/90 flex-1 leading-snug">
+                                  Earnings count from{" "}
+                                  <span className="font-semibold text-amber-800 dark:text-amber-400">
+                                    {new Date(c.rate_set_at).toLocaleDateString(undefined, { month: "short", day: "numeric" })}
+                                  </span>
+                                  {" "}— time before that isn't billed.
+                                </span>
+                                <button
+                                  type="button"
+                                  onClick={() => void resetRateSetAt(c.id)}
+                                  className="shrink-0 text-[10px] font-semibold text-amber-700 dark:text-amber-400 underline underline-offset-2 pressable hover:text-amber-800 dark:hover:text-amber-300"
+                                >
+                                  Include all
+                                </button>
+                              </div>
+                            </motion.div>
+                          )}
+                        </AnimatePresence>
+
+                        {/* ③ Billing section */}
                         <motion.div
-                          className="groove-track rounded-xl px-2.5 py-2.5 mb-2"
+                          className="rounded-xl border border-border/40 bg-muted/20 px-2.5 py-2.5 mb-2"
                           initial={{ opacity: 0, y: 10 }}
                           animate={{ opacity: 1, y: 0 }}
                           transition={{ delay: 0.14, type: "spring", stiffness: 400, damping: 34 }}
                         >
                           <div className="mb-2 flex items-center gap-2">
                             <span
-                              className="flex h-5 w-5 shrink-0 items-center justify-center rounded-md text-primary"
-                              style={{
-                                background: "linear-gradient(180deg, hsl(var(--primary) / 0.22) 0%, hsl(var(--primary) / 0.10) 100%)",
-                                boxShadow: "inset 0 1px 0 hsl(0 0% 100% / 0.18), 0 0 0 1px hsl(var(--primary) / 0.28)",
-                              }}
+                              className="flex h-5 w-5 shrink-0 items-center justify-center rounded-md text-primary bg-primary/10 border border-primary/20"
                             >
                               <Wallet className="h-3 w-3" strokeWidth={2.4} />
                             </span>
@@ -983,11 +1058,7 @@ function TrackerInner({ embedded = false, onClose }: { embedded?: boolean; onClo
                                   whileTap={{ scale: 0.97 }}
                                 >
                                   <motion.span
-                                    className="shrink-0 h-8 w-8 rounded-xl flex items-center justify-center text-primary"
-                                    style={{
-                                      background: "linear-gradient(180deg, hsl(var(--primary) / 0.22) 0%, hsl(var(--primary) / 0.10) 100%)",
-                                      boxShadow: "inset 0 1px 0 hsl(0 0% 100% / 0.18), inset 0 -1px 0 hsl(var(--primary) / 0.20), 0 0 0 1px hsl(var(--primary) / 0.28), 0 3px 8px -4px hsl(var(--primary) / 0.35)",
-                                    }}
+                                    className="shrink-0 h-8 w-8 rounded-xl flex items-center justify-center text-primary bg-primary/10 border border-primary/20"
                                     animate={billingUnlocking ? { rotate: [0, -8, 8, -8, 8, 0] } : {}}
                                     transition={{ duration: 0.5 }}
                                   >

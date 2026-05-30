@@ -24,7 +24,7 @@ struct TrackerLiveActivityWidget: Widget {
         ActivityConfiguration(for: TrackerActivityAttributes.self) { ctx in
             // ── Lock Screen / StandBy / Notification Banner ─────────────
             TrackerLockScreen(ctx: ctx)
-                .activityBackgroundTint(Color(hex: ctx.attributes.colorHex).opacity(0.14))
+                .activityBackgroundTint(Color(hex: ctx.attributes.colorHex).opacity(0.35))
                 .activitySystemActionForegroundColor(DD.white)
         } dynamicIsland: { ctx in
             let accent = Color(hex: ctx.attributes.colorHex)
@@ -54,6 +54,13 @@ struct TrackerLiveActivityWidget: Widget {
                     }
                 }
 
+                // Center: "Tracking" label so expanded island isn't lopsided
+                DynamicIslandExpandedRegion(.center) {
+                    Text("Tracking")
+                        .font(.system(size: 12, weight: .medium, design: .rounded))
+                        .foregroundStyle(DD.faint)
+                }
+
                 // Bottom: large live timer + Stop button
                 DynamicIslandExpandedRegion(.bottom) {
                     HStack(alignment: .center) {
@@ -64,7 +71,7 @@ struct TrackerLiveActivityWidget: Widget {
                             .frame(maxWidth: .infinity, alignment: .leading)
 
                         Link(destination: stopURL) {
-                            PillButton(title: "Stop", icon: "stop.fill", color: DD.red)
+                            CircularButton(icon: "stop.fill", color: DD.red, size: 46)
                         }
                     }
                     .padding(.top, 8)
@@ -83,7 +90,10 @@ struct TrackerLiveActivityWidget: Widget {
                     .padding(.trailing, 3)
 
             } minimal: {
-                SessionDot(color: accent, size: 6)
+                // SF Symbol so the minimal island is recognisable, not just a dot
+                Image(systemName: "timer")
+                    .font(.system(size: 11, weight: .bold))
+                    .foregroundStyle(accent)
             }
             .widgetURL(ddURL("tracker"))
             .keylineTint(accent)
@@ -98,49 +108,52 @@ private struct TrackerLockScreen: View {
     private var accent: Color { Color(hex: ctx.attributes.colorHex) }
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 10) {
-
-            // Row 1: category name + live timer
-            HStack(alignment: .center) {
+        HStack(alignment: .center, spacing: 16) {
+            // Left side: Large timer + metadata
+            VStack(alignment: .leading, spacing: 4) {
+                Text(ctx.state.startedAt, style: .timer)
+                    .font(.system(size: 34, weight: .bold, design: .rounded))
+                    .monospacedDigit()
+                    .foregroundStyle(DD.white)
+                
                 HStack(spacing: 6) {
                     SessionDot(color: accent, size: 6)
-                    Text(ctx.attributes.categoryName.uppercased())
-                        .font(.system(size: 10, weight: .bold, design: .rounded))
-                        .tracking(1.2)
-                        .foregroundStyle(DD.dim)
+                    Text(ctx.attributes.categoryName)
+                        .font(.system(size: 15, weight: .semibold, design: .rounded))
+                        .foregroundStyle(accent)
                         .lineLimit(1)
                 }
-                Spacer()
-                Text(ctx.state.startedAt, style: .timer)
-                    .font(.system(size: 18, weight: .bold, design: .rounded))
-                    .monospacedDigit()
-                    .foregroundStyle(accent)
-            }
-
-            // Row 2: rate (when set) — green, prominent
-            if ctx.attributes.hourlyRate > 0 {
-                Text(ddRate(ctx.attributes.hourlyRate, ctx.attributes.currencyCode))
-                    .font(.system(size: 15, weight: .semibold, design: .rounded))
-                    .foregroundStyle(DD.green)
-            }
-
-            // Row 3: action
-            Link(destination: stopURL) {
-                HStack(spacing: 6) {
-                    Image(systemName: "stop.fill")
-                        .font(.system(size: 12, weight: .bold))
-                    Text("Stop & save")
-                        .font(.system(size: 15, weight: .semibold, design: .rounded))
+                
+                if ctx.attributes.hourlyRate > 0 {
+                    HStack(spacing: 8) {
+                        Text("BILLABLE")
+                            .font(.system(size: 10, weight: .black, design: .rounded))
+                            .padding(.horizontal, 6)
+                            .padding(.vertical, 3)
+                            .background(DD.green)
+                            .foregroundStyle(.black)
+                            .clipShape(Capsule())
+                        
+                        Text(ddRate(ctx.attributes.hourlyRate, ctx.attributes.currencyCode))
+                            .font(.system(size: 14, weight: .bold, design: .rounded))
+                            .foregroundStyle(DD.green)
+                    }
+                    .padding(.top, 2)
+                } else {
+                    Text("Started at \(ctx.state.startedAt, style: .time)")
+                        .font(.system(size: 12, weight: .medium, design: .rounded))
+                        .foregroundStyle(DD.dim)
+                        .padding(.top, 2)
                 }
-                .foregroundStyle(DD.white)
-                .frame(maxWidth: .infinity)
-                .padding(.vertical, 11)
-                .background(
-                    RoundedRectangle(cornerRadius: 13, style: .continuous)
-                        .fill(DD.red)
-                )
+            }
+            
+            Spacer()
+            
+            // Right side: Circular Stop Button
+            Link(destination: stopURL) {
+                CircularButton(icon: "stop.fill", color: DD.red, size: 56)
             }
         }
-        .padding(16)
+        .padding(20)
     }
 }

@@ -2,7 +2,7 @@ import { useEffect, useMemo, useState, useRef } from "react";
 import { useNavigate } from "react-router-dom";
 import { Button } from "@/components/ui/button";
 import { Textarea } from "@/components/ui/textarea";
-import { useProfile } from "@/hooks/useProfile";
+import { useProfile, writeOnboardedFlag } from "@/hooks/useProfile";
 import {
   ArrowRight,
   Sparkles,
@@ -12,6 +12,9 @@ import {
   Wallet,
   Zap,
   Compass,
+  Layers,
+  ChevronDown,
+  Star,
 } from "lucide-react";
 import { motion, AnimatePresence } from "framer-motion";
 import { enablePush, pushSupported } from "@/lib/push";
@@ -99,26 +102,34 @@ export default function Onboarding() {
         timezone: tz,
       };
 
-      if (profile) {
-        await update(payload as never);
-      } else {
-        const { data: { session } } = await supabase.auth.getSession();
-        const uid = session?.user?.id;
-        if (uid) {
-          const { error } = await supabase
-            .from("profiles")
-            .upsert({ id: uid, ...payload } as never, { onConflict: "id" });
-          if (error) throw error;
-          await refresh();
-        }
-      }
-
+      // Navigate immediately so the user sees the app without waiting for Supabase.
+      // Profile update fires in the background — the app reads the local flag anyway.
       try { sessionStorage.removeItem(PROGRESS_KEY); } catch { /* ignore */ }
       haptics.notify("success");
       nav("/home");
+
+      if (profile) {
+        update(payload as never).catch(() => { /* non-critical */ });
+      } else {
+        supabase.auth.getSession().then(({ data: { session } }) => {
+          const uid = session?.user?.id;
+          if (uid) {
+            supabase.from("profiles")
+              .upsert({ id: uid, ...payload } as never, { onConflict: "id" })
+              .then(({ error }) => { if (!error) refresh().catch(() => {}); });
+          }
+        });
+      }
     } catch (e: unknown) {
-      const msg = e instanceof Error ? e.message : "Could not finish onboarding. Please try again.";
-      toast.error(msg);
+      console.error("Onboarding finish error:", e);
+      try {
+        const { data: { session } } = await supabase.auth.getSession();
+        if (session?.user?.id) writeOnboardedFlag(session.user.id);
+        sessionStorage.removeItem(PROGRESS_KEY);
+      } catch { /* ignore */ }
+      
+      haptics.notify("success");
+      nav("/home");
     } finally {
       setFinishing(false);
     }
@@ -223,132 +234,131 @@ export default function Onboarding() {
 /*  SHARED PRIMITIVES                                                */
 /* ================================================================ */
 
-/** Orbital twinkling star that flies in from out of bounds, then orbits. */
-function OrbitingStar({
-  size = 4,
-  radius = 60,
-  startAngle = 0,
-  duration = 14,
-  delay = 0,
-  hue = "primary",
-  flyInOrigin = { x: -300, y: -200 },
-}: {
-  size?: number;
-  radius?: number;
-  startAngle?: number;
-  duration?: number;
-  delay?: number;
-  hue?: "primary" | "indigo" | string;
-  flyInOrigin?: { x: number; y: number };
-}) {
-  const color =
-    hue === "primary"
-      ? "hsl(var(--primary))"
-      : hue === "indigo"
-        ? "hsl(253 100% 65%)"
-        : `hsl(${hue})`;
-
-  const points = Array.from({ length: 9 }, (_, i) => {
-    const t = ((startAngle + (i / 8) * 360) * Math.PI) / 180;
-    return { x: Math.cos(t) * radius, y: Math.sin(t) * radius * 0.78 };
-  });
-
+/**
+ * AppAuraIcon — A premium, Apple-like fluid gradient aura replacing the chaotic
+ * particle system. It breathes and morphs smoothly behind a glassmorphic app icon.
+ */
+function SparkParticle({ angle, delay, duration }: { angle: number, delay: number, duration: number }) {
+  const dist = 500;
+  const rad = (angle * Math.PI) / 180;
+  const x = Math.cos(rad) * dist;
+  const y = Math.sin(rad) * dist;
+  
   return (
     <motion.div
-      className="absolute top-1/2 left-1/2 rounded-full z-20"
+      className="absolute top-1/2 left-1/2 w-1.5 h-1.5 rounded-full bg-white z-20 pointer-events-none"
       style={{
-        width: size,
-        height: size,
-        marginLeft: -size / 2,
-        marginTop: -size / 2,
-        background: color,
-        boxShadow: `0 0 ${size * 2}px ${size * 0.5}px ${color}, 0 0 ${size * 4}px ${size}px ${color}55`,
+        boxShadow: "0 0 12px 3px rgba(255,255,255,0.8)",
+        marginLeft: -3,
+        marginTop: -3,
       }}
-      initial={{ x: flyInOrigin.x, y: flyInOrigin.y, opacity: 0, scale: 0 }}
-      animate={{
-        x: [flyInOrigin.x, points[0].x, ...points.map(p => p.x)],
-        y: [flyInOrigin.y, points[0].y, ...points.map(p => p.y)],
-        opacity: [0, 1, 0.55, 1, 0.7, 1, 0.55, 0.85, 0.5, 0.95, 0.55],
-        scale: [0, 1.5, 0.85, 1.15, 0.95, 1.1, 0.85, 1.05, 0.8, 1.1, 0.85],
-      }}
-      transition={{
-        // The first 2 keyframes (fly-in) take a specific fraction of the time,
-        // then it loops smoothly
-        duration: duration + 1.5,
-        times: [0, 1.5 / (duration + 1.5), ...points.map((_, i) => (1.5 + (i / 8) * duration) / (duration + 1.5))],
-        repeat: Infinity,
-        ease: "easeInOut",
-        delay,
-      }}
+      initial={{ x, y, scale: 0, opacity: 0 }}
+      animate={{ x: 0, y: 0, scale: [0, 2, 0], opacity: [0, 1, 0] }}
+      transition={{ delay, duration, ease: "easeIn" }}
     />
   );
 }
 
-/** 
- * AILogoStarry — A very premium AI icon replacing the old mascot.
- * Stars fly in from off-screen, settle into orbit, while the background
- * breathes with a dynamic glowing aura.
- */
-function AILogoStarry() {
+function AppAuraIcon() {
   const containerSize = 176;
 
   return (
     <div
-      className="relative mx-auto"
+      className="relative mx-auto flex items-center justify-center"
       style={{ width: containerSize, height: containerSize }}
       aria-hidden
     >
-      {/* Ambient background "breathing glow" */}
+      {/* Sparks flying in to assemble the center */}
+      <SparkParticle angle={-45} delay={0.2} duration={0.8} />
+      <SparkParticle angle={15}  delay={0.3} duration={0.7} />
+      <SparkParticle angle={135} delay={0.1} duration={0.9} />
+      <SparkParticle angle={190} delay={0.4} duration={0.6} />
+      <SparkParticle angle={260} delay={0.25} duration={0.75} />
+
+      {/* Central flash when sparks hit (t=1.0s) */}
       <motion.div
-        className="absolute inset-0 rounded-full"
-        style={{ background: "radial-gradient(circle, hsl(var(--primary)/0.65) 0%, hsl(250 80% 55%/0.45) 50%, transparent 75%)" }}
-        initial={{ scale: 0, opacity: 0 }}
-        animate={{ scale: [1, 1.25, 1.05, 1.2, 1], opacity: [0, 0.65, 1, 0.75, 0.95, 0.65], rotate: [0, 45, -15, 35, 0] }}
-        transition={{ duration: 10, repeat: Infinity, ease: "easeInOut" }}
-      />
-      <motion.div
-        className="absolute inset-4 rounded-full"
-        style={{ background: "radial-gradient(circle, hsl(280 75% 62%/0.7) 0%, hsl(var(--primary)/0.4) 60%, transparent 80%)" }}
-        initial={{ scale: 0, opacity: 0 }}
-        animate={{ scale: [1.15, 0.95, 1.12, 0.98, 1.15], opacity: [0, 0.55, 0.95, 0.65, 0.9, 0.55], rotate: [0, -35, 20, -15, 0] }}
-        transition={{ duration: 8, repeat: Infinity, ease: "easeInOut", delay: 0.5 }}
+        className="absolute top-1/2 left-1/2 w-[120px] h-[120px] bg-white rounded-full z-30 pointer-events-none"
+        style={{ marginLeft: -60, marginTop: -60, filter: "blur(20px)" }}
+        initial={{ opacity: 0, scale: 0 }}
+        animate={{ opacity: [0, 1, 0], scale: [0.5, 1.5, 2] }}
+        transition={{ delay: 0.95, duration: 0.6, ease: "easeOut" }}
       />
 
-      {/* The wow effect: stars flying in from the edges and orbiting */}
-      <OrbitingStar size={7} radius={82} startAngle={0} duration={14} delay={0.2} hue="primary" flyInOrigin={{ x: -250, y: -200 }} />
-      <OrbitingStar size={5} radius={70} startAngle={140} duration={11} delay={0.8} hue="indigo" flyInOrigin={{ x: 250, y: -150 }} />
-      <OrbitingStar size={6} radius={88} startAngle={220} duration={17} delay={1.4} hue="primary" flyInOrigin={{ x: 180, y: 250 }} />
-      <OrbitingStar size={4} radius={64} startAngle={310} duration={9} delay={0.5} hue="indigo" flyInOrigin={{ x: -200, y: 150 }} />
-      <OrbitingStar size={3.5} radius={92} startAngle={80} duration={20} delay={1.1} hue="primary" flyInOrigin={{ x: 0, y: -250 }} />
+      {/* Ambient fluid aura - scales up as sparks fly in */}
+      <motion.div 
+        className="absolute inset-0 flex items-center justify-center"
+        initial={{ opacity: 0, scale: 0 }} 
+        animate={{ opacity: 1, scale: 1 }} 
+        transition={{ duration: 1.5, ease: "easeOut", delay: 0.4 }}
+      >
+        <div className="relative w-full h-full" style={{ filter: "blur(32px)" }}>
+          <motion.div
+            className="absolute top-[15%] left-[15%] w-[110px] h-[110px] rounded-full"
+            style={{ background: "hsl(var(--primary))" }}
+            animate={{ 
+              scale: [1, 1.3, 1], 
+              x: [0, 20, 0], 
+              y: [0, -20, 0],
+              opacity: [0.6, 0.9, 0.6]
+            }}
+            transition={{ duration: 8, repeat: Infinity, ease: "easeInOut" }}
+          />
+          <motion.div
+            className="absolute bottom-[15%] right-[15%] w-[120px] h-[120px] rounded-full"
+            style={{ background: "hsl(280, 100%, 65%)" }}
+            animate={{ 
+              scale: [1.2, 0.9, 1.2], 
+              x: [0, -25, 0], 
+              y: [0, 20, 0],
+              opacity: [0.5, 0.8, 0.5]
+            }}
+            transition={{ duration: 10, repeat: Infinity, ease: "easeInOut", delay: 1 }}
+          />
+          <motion.div
+            className="absolute top-[25%] right-[25%] w-[90px] h-[90px] rounded-full"
+            style={{ background: "hsl(200, 100%, 55%)" }}
+            animate={{ 
+              scale: [0.9, 1.4, 0.9], 
+              x: [0, 15, 0], 
+              y: [0, 15, 0],
+              opacity: [0.4, 0.7, 0.4]
+            }}
+            transition={{ duration: 9, repeat: Infinity, ease: "easeInOut", delay: 2 }}
+          />
+        </div>
+      </motion.div>
 
-      {/* Main AI Icon — A glassmorphism sphere with sparkles */}
+      {/* Main Emblem — Assembles exactly when the flash hits */}
       <motion.div
-        className="absolute top-1/2 left-1/2 z-10 flex items-center justify-center rounded-full"
+        className="relative z-10 flex items-center justify-center rounded-[32px] bg-background/40 backdrop-blur-xl border border-white/20 dark:border-white/10"
         style={{
-          width: 72,
-          height: 72,
-          marginLeft: -36,
-          marginTop: -36,
-          background: "linear-gradient(135deg, hsl(var(--primary)) 0%, hsl(253 100% 60%) 100%)",
-          boxShadow: "0 12px 40px rgba(0,0,0,0.25), inset 0 2px 4px rgba(255,255,255,0.4), inset 0 -4px 8px rgba(0,0,0,0.2)",
+          width: 76,
+          height: 76,
+          background: "linear-gradient(135deg, hsl(var(--primary)/0.2) 0%, transparent 100%)",
+          boxShadow: "0 16px 40px -8px rgba(0,0,0,0.3), inset 0 1px 1px rgba(255,255,255,0.5)",
         }}
-        initial={{ scale: 0.5, opacity: 0, y: 20 }}
-        animate={{
-          scale: 1,
-          opacity: 1,
-          y: [0, -6, 0, 4, 0],
-        }}
+        initial={{ scale: 0, opacity: 0 }}
+        animate={{ scale: 1, opacity: 1 }}
         transition={{ 
-          scale: { type: "spring", stiffness: 200, damping: 20, delay: 0.1 },
-          opacity: { duration: 0.4, delay: 0.1 },
-          y: { duration: 6, repeat: Infinity, ease: "easeInOut", delay: 0.5 }
+          scale: { type: "spring", stiffness: 300, damping: 20, delay: 1.0 },
+          opacity: { duration: 0.2, delay: 1.0 },
         }}
       >
-        <Sparkles className="h-[34px] w-[34px] text-white" strokeWidth={1.5} />
+        <motion.div
+          animate={{ y: [0, -6, 0] }}
+          transition={{ duration: 6, repeat: Infinity, ease: "easeInOut", delay: 1.2 }}
+          className="absolute inset-0 flex items-center justify-center"
+        >
+          <div className="absolute inset-0 rounded-[32px] overflow-hidden pointer-events-none">
+             <div className="absolute -top-4 -right-4 w-16 h-16 bg-white/40 rounded-full blur-[16px]" />
+          </div>
+          <Sparkles className="h-10 w-10 text-foreground drop-shadow-[0_0_12px_rgba(255,255,255,0.5)]" strokeWidth={1.5} />
+        </motion.div>
       </motion.div>
     </div>
   );
 }
+// Removed SpiralOrb
 
 /* ================================================================ */
 /*  STEP 0 — Welcome + AI Setup (merged)                            */
@@ -421,20 +431,31 @@ function WelcomeSetupStep({
     <div className="flex-1 flex flex-col">
       {/* ── AI Logo + headline ─────────────────────────── */}
       <div className="flex-1 flex flex-col justify-center">
-        <AILogoStarry />
+        <AppAuraIcon />
 
-        <p className="eyebrow text-center mt-1">DayDraft</p>
-        <h1 className="font-display text-[34px] font-semibold leading-[1.08] tracking-tight mt-3 text-balance text-center">
-          Your day,<br />planned for you.
-        </h1>
-        <p className="text-secondary-fg mt-3 text-[15px] leading-[1.55] max-w-[19rem] mx-auto text-center text-balance">
-          AI turns your goals into a realistic schedule. Track what shipped, and bill it.
-        </p>
+        <motion.div
+          initial={{ opacity: 0, y: 40 }}
+          animate={{ opacity: 1, y: 0 }}
+          transition={{ delay: 1.2, type: "spring", stiffness: 300, damping: 24 }}
+        >
+          <p className="eyebrow text-center mt-3">DayDraft</p>
+          <h1 className="font-display text-[34px] font-semibold leading-[1.08] tracking-tight mt-3 text-balance text-center">
+            Your day,<br />planned for you.
+          </h1>
+          <p className="text-secondary-fg mt-3 text-[15px] leading-[1.55] max-w-[19rem] mx-auto text-center text-balance">
+            AI turns your goals into a realistic schedule. Track what shipped, and bill it.
+          </p>
+        </motion.div>
 
         {/* ── Divider ──────────────────────────────────── */}
-        <div className="flex items-center gap-3 mt-7 mb-6">
-          <div className="flex-1 h-px bg-border/40" />
-          <span className="text-[11px] text-secondary-fg/55 font-medium flex items-center gap-1.5">
+        <motion.div 
+          className="flex items-center gap-3 mt-7 mb-6"
+          initial={{ opacity: 0, scaleX: 0 }}
+          animate={{ opacity: 1, scaleX: 1 }}
+          transition={{ delay: 1.4, duration: 0.6, ease: "easeOut" }}
+        >
+          <div className="flex-1 h-px bg-border/40 origin-right" />
+          <span className="text-[11px] text-secondary-fg/55 font-medium flex items-center gap-1.5 shrink-0">
             <motion.span
               animate={{ rotate: [0, 20, -20, 0], scale: [1, 1.2, 1] }}
               transition={{ duration: 3, repeat: Infinity, ease: "easeInOut", delay: 2 }}
@@ -444,11 +465,16 @@ function WelcomeSetupStep({
             </motion.span>
             Help AI plan better
           </span>
-          <div className="flex-1 h-px bg-border/40" />
-        </div>
+          <div className="flex-1 h-px bg-border/40 origin-left" />
+        </motion.div>
 
         {/* ── AI context textarea ───────────────────────── */}
-        <div className="relative">
+        <motion.div 
+          className="relative"
+          initial={{ opacity: 0, y: 40 }}
+          animate={{ opacity: 1, y: 0 }}
+          transition={{ delay: 1.5, type: "spring", stiffness: 300, damping: 24 }}
+        >
           <Textarea
             value={aiAbout}
             onChange={(e) => onAiAbout(e.target.value)}
@@ -461,20 +487,31 @@ function WelcomeSetupStep({
             autoFocus={false}
           />
           <p className="mt-1.5 text-[11px] text-secondary-fg/45 text-right">{aiAbout.length}/500</p>
-        </div>
+        </motion.div>
 
-        <p className="mt-2 text-[11px] text-secondary-fg/45 text-center leading-relaxed">
+        <motion.p 
+          className="mt-2 text-[11px] text-secondary-fg/45 text-center leading-relaxed"
+          initial={{ opacity: 0 }}
+          animate={{ opacity: 1 }}
+          transition={{ delay: 1.7, duration: 0.6 }}
+        >
           Sent privately with each plan · never stored beyond your profile
-        </p>
+        </motion.p>
       </div>
 
-      <Button
-        disabled={disabled}
-        onClick={onContinue}
-        className="w-full h-[54px] rounded-[18px] bg-primary text-primary-foreground hover:bg-primary/92 pressable text-[15px] font-semibold shadow-[0_12px_32px_-8px_hsl(var(--primary)/0.6)] mt-6"
+      <motion.div
+        initial={{ opacity: 0, y: 50 }}
+        animate={{ opacity: 1, y: 0 }}
+        transition={{ delay: 1.8, type: "spring", stiffness: 340, damping: 26 }}
       >
-        Let's go <ArrowRight className="h-4 w-4 ml-1.5" />
-      </Button>
+        <Button
+          disabled={disabled}
+          onClick={onContinue}
+          className="w-full h-[54px] rounded-[18px] bg-primary text-primary-foreground hover:bg-primary/92 pressable text-[15px] font-semibold shadow-[0_12px_32px_-8px_hsl(var(--primary)/0.6)] mt-6"
+        >
+          Let's go <ArrowRight className="h-4 w-4 ml-1.5" />
+        </Button>
+      </motion.div>
     </div>
   );
 }
@@ -497,6 +534,7 @@ function MockBlock({
   mins,
   delay,
   glow = false,
+  from = "bottom",
 }: {
   time: string;
   title: string;
@@ -504,12 +542,18 @@ function MockBlock({
   mins: number;
   delay: number;
   glow?: boolean;
+  /** Which edge the block slides in from */
+  from?: "left" | "right" | "bottom";
 }) {
+  const initial =
+    from === "left"  ? { opacity: 0, x: -500, y: 0, scale: 0.95 } :
+    from === "right" ? { opacity: 0, x:  500, y: 0, scale: 0.95 } :
+                       { opacity: 0, x:   0, y: 400, scale: 0.95 };
   return (
     <motion.div
-      initial={{ opacity: 0, x: 20, scale: 0.95 }}
-      animate={{ opacity: 1, x: 0, scale: 1 }}
-      transition={{ delay, type: "spring", stiffness: 320, damping: 26 }}
+      initial={initial}
+      animate={{ opacity: 1, x: 0, y: 0, scale: 1 }}
+      transition={{ delay, type: "spring", stiffness: 320, damping: 24, mass: 0.8 }}
       className={[
         "group app-card rounded-[18px] px-3.5 py-3.5 shadow-sm border transition-[border-color,box-shadow,transform] duration-300",
         glow 
@@ -605,9 +649,9 @@ function LiveTrackerCard({ baseElapsed }: { baseElapsed: number }) {
 
   return (
     <motion.div
-      initial={{ opacity: 0, y: 30, scale: 0.95 }}
+      initial={{ opacity: 0, y: 500, scale: 0.95 }}
       animate={{ opacity: 1, y: 0, scale: 1 }}
-      transition={{ delay: 1.2, type: "spring", stiffness: 280, damping: 26 }}
+      transition={{ delay: 0.55, type: "spring", stiffness: 300, damping: 22, mass: 0.9 }}
       className="relative overflow-hidden rounded-[28px] hero-glass border border-[color-mix(in_srgb,var(--hero-accent)_45%,hsl(var(--border)/0.5))] px-5 pt-6 pb-5 tracker-hero-clock shadow-[0_12px_40px_-12px_rgba(0,0,0,0.5)]"
       style={{ "--hero-accent": "hsl(var(--type-deep))" } as any}
     >
@@ -656,29 +700,6 @@ function LiveTrackerCard({ baseElapsed }: { baseElapsed: number }) {
   );
 }
 
-/** Animated flowing dots connector between plan and tracker panels. */
-function FlowConnector() {
-  return (
-    <motion.div 
-      className="flex items-center justify-center gap-2 py-2"
-      initial={{ opacity: 0 }}
-      animate={{ opacity: 1 }}
-      transition={{ delay: 0.9, duration: 1 }}
-    >
-      <div className="flex gap-1">
-        {[0, 1, 2].map((i) => (
-          <motion.div
-            key={i}
-            className="h-[5px] w-[5px] rounded-full"
-            style={{ background: "hsl(var(--primary))" }}
-            animate={{ y: [0, -5, 0], opacity: [0.25, 0.85, 0.25] }}
-            transition={{ duration: 1.1, repeat: Infinity, delay: i * 0.22, ease: "easeInOut" }}
-          />
-        ))}
-      </div>
-    </motion.div>
-  );
-}
 
 function FeaturesShowcaseStep({
   onContinue,
@@ -687,43 +708,32 @@ function FeaturesShowcaseStep({
   onContinue: () => void;
   disabled: boolean;
 }) {
-  // Cycle which block glows as "active"
-  const [activeBlock, setActiveBlock] = useState(0);
-
-  useEffect(() => {
-    const t = setInterval(() => {
-      setActiveBlock((i) => (i === 0 ? 1 : 0)); // Ping pong between 0 and 1 for demo
-    }, 3200);
-    return () => clearInterval(t);
-  }, []);
-
-  // 5432s ≈ 1h 30m 32s
   const BASE_ELAPSED = 5432;
 
   return (
     <div className="flex-1 flex flex-col">
       <div className="flex-1 flex flex-col">
         {/* ── Header copy ──────────────────────────────── */}
-        <motion.p 
+        <motion.p
           className="eyebrow"
           initial={{ opacity: 0, y: -10 }}
           animate={{ opacity: 1, y: 0 }}
-          transition={{ duration: 0.5 }}
+          transition={{ duration: 0.4 }}
         >
           Plan · Track · Bill
         </motion.p>
-        <motion.h1 
+        <motion.h1
           className="font-display text-[26px] font-semibold leading-tight tracking-tight mt-2 text-balance"
           initial={{ opacity: 0, y: -10 }}
           animate={{ opacity: 1, y: 0 }}
-          transition={{ duration: 0.5, delay: 0.1 }}
+          transition={{ duration: 0.4, delay: 0.06 }}
         >
           Everything your day needs, in one place.
         </motion.h1>
 
         {/* ── Showcase area ────────────────────────────── */}
         <div className="mt-6 flex-1 relative">
-          
+          {/* Two task blocks: first from left, second from right */}
           <div className="space-y-3 relative z-10">
             {PLAN_BLOCKS.slice(0, 2).map((b, i) => (
               <MockBlock
@@ -732,15 +742,29 @@ function FeaturesShowcaseStep({
                 title={b.title}
                 typeVar={b.typeVar}
                 mins={b.mins}
-                delay={0.2 + i * 0.25}
-                glow={activeBlock === i}
+                delay={0.15 + i * 0.22}
+                glow={false}
+                from={i === 0 ? "left" : "right"}
               />
             ))}
           </div>
 
-          <FlowConnector />
+          {/* Small static divider — no animation, no bouncing dots */}
+          <div className="flex justify-center py-2.5">
+            <div className="flex gap-1">
+              {[0, 1, 2].map((i) => (
+                <motion.div
+                  key={i}
+                  className="h-[4px] w-[4px] rounded-full bg-primary/35"
+                  initial={{ opacity: 0, scale: 0 }}
+                  animate={{ opacity: 1, scale: 1 }}
+                  transition={{ delay: 0.65 + i * 0.06, type: "spring", stiffness: 400, damping: 20 }}
+                />
+              ))}
+            </div>
+          </div>
 
-          <div className="relative z-20 -mt-1">
+          <div className="relative z-20">
             <LiveTrackerCard baseElapsed={BASE_ELAPSED} />
           </div>
         </div>
@@ -749,7 +773,7 @@ function FeaturesShowcaseStep({
       <motion.div
         initial={{ opacity: 0, y: 20 }}
         animate={{ opacity: 1, y: 0 }}
-        transition={{ delay: 1.5, type: "spring" }}
+        transition={{ delay: 1.5, type: "spring", stiffness: 340, damping: 22 }}
       >
         <Button
           disabled={disabled}
@@ -767,10 +791,11 @@ function FeaturesShowcaseStep({
 /*  STEP 2 — Paywall (enhanced animations)                          */
 /* ================================================================ */
 
-const PAYWALL_HIGHLIGHTS = [
-  { Icon: Zap,      label: "Unlimited AI planning" },
-  { Icon: FileDown, label: "Polished PDF reports"  },
-  { Icon: Compass,  label: "Smart drift nudges"    },
+const FEATURES = [
+  { label: "Unlimited AI Planning", icon: Zap },
+  { label: "Smart Drift Nudges", icon: Compass },
+  { label: "Polished PDF & CSV Reports", icon: FileDown },
+  { label: "Billing & Rate Estimation", icon: Wallet },
 ];
 
 function PaywallStep({
@@ -803,55 +828,61 @@ function PaywallStep({
         <ChevronLeft className="h-4 w-4" strokeWidth={2.4} /> Back
       </button>
 
-      <div className="flex-1 flex flex-col">
-        {/* Badge + title */}
-        <motion.div
-          initial={{ opacity: 0, y: 8 }}
-          animate={{ opacity: 1, y: 0 }}
-          transition={{ delay: 0.05, type: "spring", stiffness: 300, damping: 24 }}
-          className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full surface-accent border border-accent self-start"
-        >
-          <Sparkles className="h-3.5 w-3.5 text-primary" />
-          <span className="eyebrow text-primary">DayDraft Pro</span>
-        </motion.div>
-
+      <div className="flex-1 flex flex-col items-center">
+        {/* Headline */}
         <motion.h1
-          initial={{ opacity: 0, y: 8 }}
-          animate={{ opacity: 1, y: 0 }}
+          initial={{ opacity: 0, x: -30 }}
+          animate={{ opacity: 1, x: 0 }}
           transition={{ delay: 0.1, type: "spring", stiffness: 300, damping: 24 }}
-          className="font-display text-[28px] font-semibold leading-tight tracking-tight mt-3 text-balance"
+          className="font-display text-[28px] font-semibold leading-tight tracking-tight mt-3 text-center text-balance"
         >
           Unlock the full DayDraft.
         </motion.h1>
 
-        {/* Feature highlight grid */}
-        <div className="mt-4 flex items-center gap-3">
-          {PAYWALL_HIGHLIGHTS.map(({ Icon, label }, i) => (
-            <motion.div
-              key={label}
-              initial={{ opacity: 0, scale: 0.88, y: 10 }}
-              animate={{ opacity: 1, scale: 1, y: 0 }}
-              transition={{ delay: 0.15 + i * 0.08, type: "spring", stiffness: 320, damping: 22 }}
-              className="flex-1 flex flex-col items-center gap-1.5 rounded-2xl border border-accent bg-card/30 p-3 text-center"
-            >
+        {/* Social proof */}
+        <motion.div
+          initial={{ opacity: 0, x: 30 }}
+          animate={{ opacity: 1, x: 0 }}
+          transition={{ type: "spring", stiffness: 360, damping: 30, delay: 0.15 }}
+          className="mt-4 flex items-center justify-center gap-2.5 rounded-2xl border border-border/40 bg-surface-elevated/40 backdrop-blur-sm px-4 py-3 relative z-10 w-full"
+        >
+          <div className="flex gap-0.5 shrink-0">
+            {[0, 1, 2, 3, 4].map((s) => (
+              <Star key={s} className="h-3.5 w-3.5 fill-amber-400 text-amber-400 drop-shadow-[0_0_8px_rgba(251,191,36,0.5)]" />
+            ))}
+          </div>
+          <p className="text-[12px] text-foreground/85 leading-tight font-medium">
+            Join thousands of organized professionals.
+          </p>
+        </motion.div>
+
+        {/* Feature cards (Vertical Stack) */}
+        <div className="flex flex-col gap-2 w-full mt-4">
+          {FEATURES.map((f, i) => {
+            const Icon = f.icon;
+            return (
               <motion.div
-                className="h-8 w-8 rounded-[10px] surface-accent border border-accent flex items-center justify-center"
-                animate={{ y: [0, -2, 0] }}
-                transition={{ duration: 2.5 + i * 0.7, repeat: Infinity, ease: "easeInOut", delay: i * 0.4 }}
+                key={i}
+                initial={{ opacity: 0, y: 20 }}
+                animate={{ opacity: 1, y: 0 }}
+                transition={{ delay: 0.2 + i * 0.06, type: "spring", stiffness: 320, damping: 24 }}
+                className="flex items-center gap-3.5 rounded-[18px] border border-border/30 bg-surface-elevated/60 px-4 py-3.5"
               >
-                <Icon className="h-4 w-4 text-primary" />
+                <div className="shrink-0 h-9 w-9 rounded-full bg-primary/10 flex items-center justify-center text-primary">
+                  <Icon className="h-4 w-4" />
+                </div>
+                <p className="text-[14px] font-medium text-foreground/90">{f.label}</p>
               </motion.div>
-              <span className="text-[11px] font-medium text-foreground/80 leading-tight">{label}</span>
-            </motion.div>
-          ))}
+            );
+          })}
         </div>
 
         {/* Pricing */}
         <motion.div
-          initial={{ opacity: 0, y: 10 }}
+          initial={{ opacity: 0, y: 40 }}
           animate={{ opacity: 1, y: 0 }}
           transition={{ delay: 0.38, type: "spring", stiffness: 280, damping: 26 }}
-          className="flex flex-col gap-2.5 mt-5"
+          className="flex flex-col gap-2.5 w-full mt-5"
         >
           <PlanCard
             active={plan === "annual"} onClick={() => onPlan("annual")}
@@ -925,10 +956,10 @@ function PlanCard({
       onClick={onClick}
       whileTap={{ scale: 0.97 }}
       className={[
-        "relative text-left rounded-[18px] border p-4 transition-[border-color,background-color,box-shadow] duration-200 overflow-hidden w-full",
+        "relative text-left rounded-[18px] p-4 transition-all duration-200 overflow-hidden w-full app-card group",
         active
-          ? "border-primary bg-primary/5 shadow-[0_0_28px_-6px_hsl(var(--primary)/0.22)]"
-          : "border-soft surface-card hover:border-primary/30",
+          ? "border-primary/50 bg-primary/10 shadow-[inset_0_1px_0_rgba(255,255,255,0.1),0_8px_24px_-8px_hsl(var(--primary)/0.35)]"
+          : "hover:border-primary/30",
       ].join(" ")}
     >
       {badge && (

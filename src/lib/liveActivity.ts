@@ -13,13 +13,13 @@ import { Capacitor, registerPlugin } from "@capacitor/core";
  */
 
 interface LiveActivityPlugin {
-  isSupported(): Promise<{ supported: boolean }>;
+  isSupported(): Promise<{ supported: boolean; enabled?: boolean; osSupported?: boolean; reason?: string }>;
   startFocus(opts: {
     taskTitle: string;
     plannedMinutes: number;
     blockId: string;
     startedAt: number; // epoch ms
-  }): Promise<{ started: boolean; id?: string }>;
+  }): Promise<{ started: boolean; id?: string; reason?: string }>;
   stopFocus(): Promise<void>;
   startTracker(opts: {
     categoryName: string;
@@ -27,7 +27,7 @@ interface LiveActivityPlugin {
     hourlyRate: number; // 0 = no rate
     currencyCode: string;
     startedAt: number; // epoch ms
-  }): Promise<{ started: boolean; id?: string }>;
+  }): Promise<{ started: boolean; id?: string; reason?: string }>;
   stopTracker(): Promise<void>;
   stopAll(): Promise<void>;
 }
@@ -36,6 +36,9 @@ const plugin = registerPlugin<LiveActivityPlugin>("LiveActivity");
 
 /** Live Activities are an iOS 16.1+ feature; everything else is a no-op. */
 const isIOS = () => Capacitor.getPlatform() === "ios";
+
+/** Verbose console marker so device logs are easy to filter. */
+const tag = "[liveActivity]";
 
 /** Normalise a category colour (hex or anything) to a "#rrggbb" string.
  *  The native parser falls back to the brand blue for unparseable input. */
@@ -47,17 +50,51 @@ function toHex(color: string | null | undefined): string {
 }
 
 export const liveActivity = {
+  /**
+   * One-shot health check you can run from the JS console / a debug button:
+   *   import { liveActivity } from "@/lib/liveActivity"; liveActivity.diagnose();
+   * Prints whether the native plugin is reachable and whether Live Activities
+   * are enabled in the user's Settings — the two things that actually break it.
+   */
+  async diagnose() {
+    if (!isIOS()) {
+      console.log(`${tag} diagnose: not iOS (platform=${Capacitor.getPlatform()}) — Live Activities are iOS-only.`);
+      return { ok: false, reason: "not-ios" };
+    }
+    if (!Capacitor.isPluginAvailable("LiveActivity")) {
+      console.error(`${tag} diagnose: ❌ native plugin "LiveActivity" NOT registered. The Swift class isn't compiled into the app target — clean build folder & rebuild in Xcode.`);
+      return { ok: false, reason: "plugin-not-registered" };
+    }
+    try {
+      const res = await plugin.isSupported();
+      console.log(`${tag} diagnose: plugin reachable ✅`, res);
+      if (!res.osSupported) console.warn(`${tag} diagnose: ⚠️ iOS too old (need 16.1+).`);
+      else if (!res.enabled) console.warn(`${tag} diagnose: ⚠️ Live Activities DISABLED in Settings → DayDraft → Live Activities. Turn it ON.`);
+      else console.log(`${tag} diagnose: everything ready — start a tracker/focus to see it. 🎉`);
+      return { ok: !!res.supported, ...res };
+    } catch (e) {
+      console.error(`${tag} diagnose: isSupported threw — plugin registered but call failed`, e);
+      return { ok: false, reason: "call-failed", error: String(e) };
+    }
+  },
+
   async startFocus(opts: { taskTitle: string; plannedMinutes: number; blockId: string; startedAt?: number }) {
     if (!isIOS()) return;
+    if (!Capacitor.isPluginAvailable("LiveActivity")) {
+      console.error(`${tag} startFocus: native plugin not registered (not compiled into app target).`);
+      return;
+    }
     try {
-      await plugin.startFocus({
+      const res = await plugin.startFocus({
         taskTitle: opts.taskTitle || "Focus session",
         plannedMinutes: Math.max(0, Math.round(opts.plannedMinutes || 0)),
         blockId: opts.blockId,
         startedAt: opts.startedAt ?? Date.now(),
       });
+      if (res?.started) console.log(`${tag} startFocus ✅ id=${res.id}`);
+      else console.warn(`${tag} startFocus did not start — reason: ${res?.reason ?? "unknown"}`);
     } catch (e) {
-      console.warn("[liveActivity] startFocus failed", e);
+      console.error(`${tag} startFocus failed`, e);
     }
   },
 
@@ -78,16 +115,22 @@ export const liveActivity = {
     startedAt?: number;
   }) {
     if (!isIOS()) return;
+    if (!Capacitor.isPluginAvailable("LiveActivity")) {
+      console.error(`${tag} startTracker: native plugin not registered (not compiled into app target).`);
+      return;
+    }
     try {
-      await plugin.startTracker({
+      const res = await plugin.startTracker({
         categoryName: opts.categoryName || "Tracking",
         colorHex: toHex(opts.color),
         hourlyRate: Math.max(0, Number(opts.hourlyRate) || 0),
         currencyCode: (opts.currencyCode || "USD").toUpperCase(),
         startedAt: opts.startedAt ?? Date.now(),
       });
+      if (res?.started) console.log(`${tag} startTracker ✅ id=${res.id}`);
+      else console.warn(`${tag} startTracker did not start — reason: ${res?.reason ?? "unknown"}`);
     } catch (e) {
-      console.warn("[liveActivity] startTracker failed", e);
+      console.error(`${tag} startTracker failed`, e);
     }
   },
 

@@ -52,8 +52,7 @@ export default function Settings() {
 
   // ── Biometric / Security ──────────────────────────────────────────────────
   const [bioInfo, setBioInfo] = useState<BiometricInfo | null>(null);
-  const [appLockOn, setAppLockOn] = useState<boolean>(() => getAppLockEnabled());
-  const [gateProt, setGateProt] = useState<"on"|"off"|"unset">(() => getGatePref());
+  const [appLockOn, setAppLockOn] = useState<boolean>(() => getGatePref() === "on");
   const [bioTogglingLock, setBioTogglingLock] = useState(false);
 
   useEffect(() => {
@@ -67,12 +66,12 @@ export default function Settings() {
       setBioTogglingLock(true);
       try {
         await NativeBiometric.verifyIdentity({
-          reason: enable ? "Enable App Lock" : "Disable App Lock",
+          reason: "Enable Biometric Lock",
           title: "Confirm identity",
-          subtitle: enable ? "Verify to enable App Lock" : "Verify to disable App Lock",
-          description: "Keep your daily plans private.",
+          subtitle: "Verify to enable Biometric Lock",
+          description: "Keep your sensitive data private.",
         });
-        setAppLockEnabled(true);
+        setGatePref("on");
         setAppLockOn(true);
         haptics.notify("success");
       } catch {
@@ -81,19 +80,10 @@ export default function Settings() {
         setBioTogglingLock(false);
       }
     } else {
-      setAppLockEnabled(false);
+      setGatePref("off");
       setAppLockOn(false);
       haptics.selection();
     }
-  };
-
-  const toggleGateProtection = (enable: boolean) => {
-    const pref = enable ? "on" : "off";
-    setGatePref(pref);
-    setGateProt(pref);
-    haptics.selection();
-    if (enable) toast("Payment details will require Face ID / fingerprint to view.");
-    else        toast("Payment details will open without verification.");
   };
 
   // Hidden developer panel — tap the version label 10× in 3s to open.
@@ -328,7 +318,7 @@ export default function Settings() {
           {Capacitor.isNativePlatform() && bioInfo?.available && (
             <Section title="Security">
               <div className="rounded-[18px] border border-border/35 hero-glass divide-y divide-border/35 overflow-hidden">
-                {/* App Lock */}
+                {/* Biometric Lock */}
                 <div className="px-4 py-3 flex items-center gap-3">
                   <div className="flex items-center justify-center h-8 w-8 rounded-[10px] bg-primary/10 border border-primary/18 shrink-0">
                     {bioInfo.isFace
@@ -336,34 +326,17 @@ export default function Settings() {
                       : <Lock className="h-4 w-4 text-primary" strokeWidth={1.8} />}
                   </div>
                   <div className="flex-1 min-w-0">
-                    <div className="text-[14px]">App Lock</div>
+                    <div className="text-[14px]">Biometric Lock</div>
                     <div className="text-[11px] text-secondary-fg/70 mt-0.5">
                       Require {bioInfo.isFace
                         ? (Capacitor.getPlatform() === "android" ? "Face Auth" : "Face ID")
-                        : (Capacitor.getPlatform() === "android" ? "fingerprint" : "Touch ID")} when you reopen the app
+                        : (Capacitor.getPlatform() === "android" ? "fingerprint" : "Touch ID")} to view billing info or export reports
                     </div>
                   </div>
                   <Switch
                     checked={appLockOn}
                     disabled={bioTogglingLock}
                     onCheckedChange={toggleAppLock}
-                  />
-                </div>
-
-                {/* Payment & export gate */}
-                <div className="px-4 py-3 flex items-center gap-3">
-                  <div className="flex items-center justify-center h-8 w-8 rounded-[10px] bg-primary/10 border border-primary/18 shrink-0">
-                    <Fingerprint className="h-4 w-4 text-primary" strokeWidth={1.8} />
-                  </div>
-                  <div className="flex-1 min-w-0">
-                    <div className="text-[14px]">Protect payment details</div>
-                    <div className="text-[11px] text-secondary-fg/70 mt-0.5">
-                      Verify identity before viewing billing info or exporting reports
-                    </div>
-                  </div>
-                  <Switch
-                    checked={gateProt === "on"}
-                    onCheckedChange={toggleGateProtection}
                   />
                 </div>
               </div>

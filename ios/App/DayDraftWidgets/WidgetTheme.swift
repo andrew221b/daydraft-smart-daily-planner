@@ -78,14 +78,37 @@ struct PillButton: View {
     var body: some View {
         HStack(spacing: 5) {
             Image(systemName: icon)
-                .font(.system(size: 12, weight: .bold))
+                .font(.system(size: 13, weight: .bold))
             Text(title)
-                .font(.system(size: 14, weight: .semibold, design: .rounded))
+                .font(.system(size: 15, weight: .semibold, design: .rounded))
         }
         .foregroundStyle(DD.white)
-        .padding(.horizontal, 16)
-        .padding(.vertical, 9)
-        .background(Capsule().fill(color))
+        .padding(.horizontal, 18)
+        .padding(.vertical, 10)
+        .background(Capsule().fill(color.opacity(0.2)))
+        .overlay(Capsule().strokeBorder(color.opacity(0.5), lineWidth: 1))
+    }
+}
+
+// MARK: - Circular button
+
+/// A highly polished circular icon button.
+struct CircularButton: View {
+    let icon: String
+    let color: Color
+    var size: CGFloat = 44
+
+    var body: some View {
+        ZStack {
+            Circle()
+                .fill(color.opacity(0.18))
+            Circle()
+                .strokeBorder(color.opacity(0.4), lineWidth: 1)
+            Image(systemName: icon)
+                .font(.system(size: size * 0.45, weight: .black))
+                .foregroundStyle(color)
+        }
+        .frame(width: size, height: size)
     }
 }
 

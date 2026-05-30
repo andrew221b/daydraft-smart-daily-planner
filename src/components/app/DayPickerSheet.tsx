@@ -177,7 +177,13 @@ export function DayPickerSheet({
   const monthLabel = MONTH_LONG_FMT.format(viewMonth);
 
   const pick = (ymd: string) => {
+    if (ymd === value) {
+      onOpenChange(false);
+      return;
+    }
     haptics.selection();
+    // Commit the new date immediately so the UI behind the sheet is already
+    // updated while the sheet plays its iOS spring close animation.
     onPick(ymd);
     onOpenChange(false);
   };
@@ -448,7 +454,14 @@ export function DayPickerSheet({
         <div className="shrink-0 px-5 pt-4 pb-2 flex gap-2.5">
           <button
             type="button"
-            onClick={() => { haptics.selection(); onPick(todayYmd); onOpenChange(false); }}
+            onClick={() => {
+              if (isValueToday) return;
+              haptics.selection();
+              onOpenChange(false);
+              setTimeout(() => {
+                onPick(todayYmd);
+              }, 280);
+            }}
             disabled={isValueToday}
             className="flex-1 h-[50px] rounded-[16px] bg-primary text-primary-foreground text-[14px] font-semibold pressable shadow-[0_8px_22px_-8px_hsl(var(--primary)/0.55)] disabled:opacity-40 disabled:pointer-events-none transition-opacity"
           >

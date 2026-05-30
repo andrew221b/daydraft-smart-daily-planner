@@ -367,6 +367,7 @@ export default function Focus() {
       taskTitle: block.title,
       plannedMinutes: block.duration_min,
       blockId: block.id,
+      nextTaskTitle: next?.title,
       startedAt: actualStartMsRef.current ?? Date.now(),
     });
   }, [armed, block?.id, oneThingMode]);

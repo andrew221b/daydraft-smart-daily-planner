@@ -19,10 +19,9 @@ const SheetOverlay = React.forwardRef<
 >(({ className, ...props }, ref) => (
   <SheetPrimitive.Overlay
     className={cn(
-      // Backdrop appears slightly before the sheet lands (200ms vs 440ms open),
-      // but lingers well after the sheet starts exiting so the dim doesn't
-      // vanish before the sheet finishes sliding off (320ms close).
-      "fixed inset-0 z-50 bg-black/55 data-[state=open]:animate-in data-[state=closed]:animate-out data-[state=closed]:fade-out-0 data-[state=open]:fade-in-0 data-[state=open]:duration-[200ms] data-[state=closed]:duration-[320ms] data-[state=open]:[animation-timing-function:cubic-bezier(0.16,1,0.3,1)] data-[state=closed]:[animation-timing-function:cubic-bezier(0.4,0,1,1)]",
+      // Backdrop appears slightly before the sheet lands,
+      // but lingers well after the sheet starts exiting.
+      "fixed inset-0 z-50 bg-black/55 data-[state=open]:animate-in data-[state=closed]:animate-out data-[state=closed]:fade-out-0 data-[state=open]:fade-in-0 data-[state=open]:duration-[400ms] data-[state=closed]:duration-[400ms] data-[state=open]:[animation-timing-function:cubic-bezier(0.32,0.72,0,1)] data-[state=closed]:[animation-timing-function:cubic-bezier(0.32,0.72,0,1)]",
       className,
     )}
     {...props}
@@ -33,12 +32,8 @@ SheetOverlay.displayName = SheetPrimitive.Overlay.displayName;
 
 const sheetVariants = cva(
   // Spring-physics motion — mirrors UIKit's high-stiffness spring:
-  // • Open: cubic-bezier(0.16,1,0.3,1) — shoots up fast, decelerates smoothly
-  //   into position like a spring finding its resting point. 440ms gives
-  //   the spring room to breathe; under ~300ms it just feels like a fast slide.
-  // • Close: cubic-bezier(0.4,0,0.8,0.5) — accelerates off the screen quickly
-  //   so the dismiss feels crisp and intentional.
-  "fixed z-50 gap-4 bg-background p-6 shadow-lg data-[state=open]:animate-in data-[state=closed]:animate-out data-[state=open]:duration-[440ms] data-[state=closed]:duration-[260ms] data-[state=open]:[animation-timing-function:cubic-bezier(0.16,1,0.3,1)] data-[state=closed]:[animation-timing-function:cubic-bezier(0.4,0,0.8,0.5)] will-change-transform",
+  // Both open and close use the iOS standard curve for smooth, native-like floating windows.
+  "fixed z-50 gap-4 bg-background p-6 shadow-lg data-[state=open]:animate-in data-[state=closed]:animate-out data-[state=open]:duration-[500ms] data-[state=closed]:duration-[400ms] data-[state=open]:[animation-timing-function:cubic-bezier(0.32,0.72,0,1)] data-[state=closed]:[animation-timing-function:cubic-bezier(0.32,0.72,0,1)] will-change-transform",
   {
     variants: {
       side: {
@@ -81,15 +76,17 @@ const SheetContent = React.forwardRef<React.ElementRef<typeof SheetPrimitive.Con
     },
     ref,
   ) => {
-    // Bottom sheets: slide the content above the soft keyboard by tracking
-    // the keyboard overlap via --keyboard-inset (set in visualViewport.ts).
+    // Bottom sheets: slide above the soft keyboard AND clear the home-indicator
+    // safe area so the last action row is never clipped on modern iPhones.
+    // Formula: safe-area (≈34px on Face ID phones, 0 elsewhere) + keyboard inset
+    // + 8px breathing room on top of the sheet's base p-6 padding.
     // The per-sheet `style` prop merges on top so individual sheets can still
     // override paddingBottom (e.g. AskAiSheet manages its own swipe-aware
     // transition).
     const kbStyle: React.CSSProperties =
       side === "bottom"
         ? {
-            paddingBottom: "var(--keyboard-inset, 0px)",
+            paddingBottom: "calc(24px + max(env(safe-area-inset-bottom), 0px) + var(--keyboard-inset, 0px))",
             transition: "padding-bottom 220ms cubic-bezier(0.32, 0.72, 0, 1)",
           }
         : {};

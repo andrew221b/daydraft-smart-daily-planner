@@ -1077,6 +1077,7 @@ export default function Reports() {
       >
         <SheetContent
           side="bottom"
+          hideClose
           className="rounded-t-[28px] border-border/45 bg-popover max-h-[90vh] flex flex-col p-0"
         >
           <SheetTitle className="sr-only">

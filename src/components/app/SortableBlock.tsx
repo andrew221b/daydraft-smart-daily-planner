@@ -55,11 +55,14 @@ export const SortableBlock = ({
   onDeleteBlock,
   isOverlay,
   isFuturePlan = false,
+  minTime,
 }: {
   block: BlockExt;
   editing: boolean;
   onTap?: (b: any) => void;
-  onTapTime?: (b: any) => void;
+  onTapTime?: (b: any, newTime?: string) => void;
+  /** Earliest selectable time (HH:MM). Passed to the inline time input's min attribute. */
+  minTime?: string;
   onToggleComplete?: (b: any) => void;
   onStartTrack?: (b: any) => void;
   onStopTrack?: (b: any) => void;
@@ -214,20 +217,37 @@ export const SortableBlock = ({
               return <div className="shrink-0 h-6 w-[38px]" aria-hidden />;
             }
             if (onTapTime && !block.is_calendar_event) {
+              // Overlay a transparent <input type="time"> directly inside the
+              // tap target. iOS requires the input to be at the physical tap
+              // location — a remote hidden input at top-left triggers
+              // "The variant selector cell index number could not be found".
               return (
-                <button
-                  type="button"
+                <label
                   onPointerDown={(e) => e.stopPropagation()}
-                  onClick={(e) => { e.stopPropagation(); onTapTime?.(block); }}
-                  className="shrink-0 h-6 px-1.5 inline-flex items-center justify-center text-secondary-fg/85 text-[10px] font-mono-sf tabular-nums pressable hover:text-foreground transition-colors rounded-md"
+                  onClick={(e) => e.stopPropagation()}
+                  className="relative shrink-0 self-start mt-[3px] h-6 px-1.5 inline-flex items-center justify-center text-secondary-fg/85 text-[10px] font-mono-sf tabular-nums pressable hover:text-foreground transition-colors rounded-md cursor-pointer select-none"
                   aria-label="Change start time"
                 >
-                  {fmtTime(block.start_time)}
-                </button>
+                  <span className="pointer-events-none">{fmtTime(block.start_time)}</span>
+                  <input
+                    type="time"
+                    className="absolute inset-0 opacity-0 w-full h-full cursor-pointer"
+                    value={block.start_time || "00:00"}
+                    min={minTime}
+                    tabIndex={-1}
+                    onChange={(e) => {
+                      if (e.target.value) onTapTime(block, e.target.value);
+                    }}
+                    onPointerDown={(e) => e.stopPropagation()}
+                    onClick={(e) => e.stopPropagation()}
+                    // font-size 16px prevents iOS from auto-zooming the page
+                    style={{ fontSize: 16 }}
+                  />
+                </label>
               );
             }
             return (
-              <div className="shrink-0 h-6 px-1.5 inline-flex items-center justify-center text-secondary-fg/70 text-[10px] font-mono-sf tabular-nums">
+              <div className="shrink-0 self-start mt-[3px] h-6 px-1.5 inline-flex items-center justify-center text-secondary-fg/70 text-[10px] font-mono-sf tabular-nums">
                 {fmtTime(block.start_time)}
               </div>
             );

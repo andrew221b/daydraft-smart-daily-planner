@@ -75,7 +75,7 @@ export function resolveDeepLink(rawUrl: string): Route | null {
     case "today":
       return rest[0] === "plan" ? "/today/plan" : "/today";
     case "tracker":
-      return "/tracker";
+      return "/home";
     case "reports":
       return "/reports";
     case "settings":

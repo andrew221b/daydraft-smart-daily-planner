@@ -65,7 +65,7 @@ body.dd-dnd-scroll-lock {
     /* Floor mirrors the top: same hue (--primary) so the bar doesn't sit on a
        differently-coloured wash, narrower vertical reach so the glow stays
        hugged to the bottom edge, gentler centre opacity for a softer halo. */
-    --gradient-floor: radial-gradient(46% 34% at 50% 108%, hsl(var(--primary) / 0.10), transparent 78%);
+    --gradient-floor: radial-gradient(62% 46% at 50% 108%, hsl(var(--primary) / 0.2), transparent 72%);
     --motion-page-switch-ms: 300ms;
     --motion-section-in-ms: 240ms;
     --motion-tab-indicator-s: 7s;
@@ -862,21 +862,13 @@ body.dd-dnd-scroll-lock {
      lower than the previous 0.32 — the user reported the wash felt too
      loud against the otherwise calm background. */
   .shell-glow-floor {
-    background: var(--gradient-floor);
-    opacity: 0.22;
-    mix-blend-mode: screen;
-    /* Tighter than before (40% vs 48% radius, fades out by 82% not 92%) so the
-       floor glow stays a centred halo and is gone before the screen sides —
-       no horizontal cut-off at the corners. */
-    -webkit-mask-image:
-      radial-gradient(40% 80% at 50% 100%, black 0%, black 16%, transparent 82%);
-    mask-image:
-      radial-gradient(40% 80% at 50% 100%, black 0%, black 16%, transparent 82%);
+    background: transparent;
+    opacity: 0;
   }
   /* screen blend is a no-op on near-white; switch to normal so the tinted
      gradient actually paints colour onto the light background. */
   :root.light .shell-glow-top  { mix-blend-mode: normal; opacity: 0.75; }
-  :root.light .shell-glow-floor { mix-blend-mode: normal; opacity: 0.18; }
+  :root.light .shell-glow-floor { mix-blend-mode: normal; opacity: 0; }
 
   /**
    * Progressive edge blur — 1 compositor layer per edge (was 5).
@@ -909,8 +901,7 @@ body.dd-dnd-scroll-lock {
             mask-image: linear-gradient(to bottom, #000 18%, transparent 100%);
     background: linear-gradient(
       to bottom,
-      hsl(var(--background) / 0.82) 0%,
-      hsl(var(--primary) / 0.06) 52%,
+      hsl(var(--background) / 0.95) 0%,
       transparent 100%
     );
   }
@@ -918,7 +909,6 @@ body.dd-dnd-scroll-lock {
     background: linear-gradient(
       to bottom,
       hsl(var(--background) / 0.95) 0%,
-      hsl(var(--primary) / 0.06) 56%,
       transparent 100%
     );
   }
@@ -926,19 +916,15 @@ body.dd-dnd-scroll-lock {
   /* ── Bottom edge ─────────────────────────────────────── */
   .edge-fade-bottom {
     bottom: 0;
-    height: calc(env(safe-area-inset-bottom, 34px) + 56px);
+    height: calc(env(safe-area-inset-bottom, 34px) + 40px);
     /* Mask: fully opaque at very bottom (covers home indicator), fades to
        zero at the top of the strip — smooth ramp. */
     -webkit-mask-image: linear-gradient(to top, #000 18%, transparent 100%);
             mask-image: linear-gradient(to top, #000 18%, transparent 100%);
-    background:
-      radial-gradient(32% 140% at 50% 100%, hsl(var(--primary) / 0.13) 0%, hsl(var(--primary) / 0.05) 45%, transparent 72%),
-      linear-gradient(to top, hsl(var(--background) / 0.42) 0%, transparent 100%);
+    background: transparent;
   }
   :root.light .edge-fade-bottom {
-    background:
-      radial-gradient(32% 140% at 50% 100%, hsl(var(--primary) / 0.10) 0%, hsl(var(--primary) / 0.04) 45%, transparent 72%),
-      linear-gradient(to top, hsl(var(--background) / 0.55) 0%, transparent 100%);
+    background: transparent;
   }
 
   /**
@@ -1386,4 +1372,34 @@ body.dd-dnd-scroll-lock {
   filter: blur(22px);
   opacity: 0.38;
   animation-duration: 28s;
+}
+
+/* ── Shiny Chrome Material Border for Light Mode ── */
+:root.light .app-card,
+:root.light .card-volumetric,
+:root.light .hero-glass {
+  border-color: transparent !important;
+}
+
+:root.light .app-card::after,
+:root.light .card-volumetric::after,
+:root.light .hero-glass::after {
+  content: "";
+  position: absolute;
+  inset: 0;
+  border-radius: inherit;
+  padding: 1px;
+  background: linear-gradient(135deg, 
+    rgba(255,255,255,1) 0%, 
+    rgba(200,205,215,0.4) 25%, 
+    rgba(255,255,255,0.8) 48%, 
+    rgba(150,160,175,0.3) 52%, 
+    rgba(255,255,255,0.9) 80%, 
+    rgba(180,185,195,0.5) 100%
+  );
+  -webkit-mask: linear-gradient(#fff 0 0) content-box, linear-gradient(#fff 0 0);
+  -webkit-mask-composite: xor;
+  mask-composite: exclude;
+  pointer-events: none;
+  z-index: 10;
 }

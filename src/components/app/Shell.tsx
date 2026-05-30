@@ -41,13 +41,9 @@ export const Shell = ({
 
   return (
   <div className="h-[100dvh] w-full bg-background flex justify-center overflow-hidden">
-    {/* Ambient glow layers — behind content (z-0) */}
+    {/* Ambient glow — top only; floor glow removed per user feedback */}
     <div
       className="pointer-events-none fixed inset-x-0 top-0 h-[min(220px,38vh)] z-0 shell-glow-top shell-glow-breathe"
-      aria-hidden
-    />
-    <div
-      className="pointer-events-none fixed inset-x-0 bottom-0 h-[min(300px,42vh)] z-0 shell-glow-floor shell-glow-breathe"
       aria-hidden
     />
 

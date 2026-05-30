@@ -152,6 +152,7 @@ export default function DayView() {
   // A single hidden <input type="time"> is opened via showPicker(); the block
   // being edited is held in a ref so the input's onChange knows the target.
   const startTimeInputRef = useRef<HTMLInputElement>(null);
+  const bulkStartTimeInputRef = useRef<HTMLInputElement>(null);
   const startTimeTargetRef = useRef<string | null>(null);
   const [upgradeOpen, setUpgradeOpen] = useState(false);
   const [lateCompleteBlock, setLateCompleteBlock] = useState<ExBlock | null>(null);
@@ -840,6 +841,22 @@ export default function DayView() {
     // Best-effort native constraint; the real guard is the clamp in commit
     // (iOS wheels don't reliably honour min).
     el.min = isToday ? roundedNowHHMM() : "";
+    // `.click()` is more broadly supported on iOS WKWebView than showPicker().
+    // Both are user-gesture-safe here since we're inside an onClick handler.
+    try {
+      const withPicker = el as HTMLInputElement & { showPicker?: () => void };
+      if (typeof withPicker.showPicker === "function") withPicker.showPicker();
+      else el.click();
+    } catch {
+      el.click();
+    }
+  };
+
+  const openBulkStartTimePicker = (index: number, currentStart?: string) => {
+    setBulkStartTimeEditIndex(index);
+    const el = bulkStartTimeInputRef.current;
+    if (!el) return;
+    el.value = currentStart || "09:00";
     try {
       const withPicker = el as HTMLInputElement & { showPicker?: () => void };
       if (typeof withPicker.showPicker === "function") withPicker.showPicker();
@@ -862,8 +879,14 @@ export default function DayView() {
     if (isToday) {
       const nowHHMM = roundedNowHHMM();
       if (timeToMinutes(value) < timeToMinutes(nowHHMM)) {
-        value = nowHHMM;
-        toast("Past time — set to now");
+        // Reset the hidden input to the block's current time so the picker
+        // shows a valid value next time it opens.
+        if (startTimeInputRef.current) {
+          const blk = blocks.find((b) => b.id === id);
+          startTimeInputRef.current.value = blk?.start_time ?? nowHHMM;
+        }
+        toast.error(`Can't schedule in the past — earliest is ${nowHHMM}`);
+        return;
       }
     }
 
@@ -976,6 +999,7 @@ export default function DayView() {
           ai_tone: (profile as any)?.ai_tone || "professional",
           ai_tone_custom: (profile as any)?.ai_tone_custom || null,
           ai_planning_rules: (profile as any)?.ai_planning_rules || "",
+          ai_context_custom: (profile as any)?.ai_context_custom || null,
         },
         { ttlMs: 0, timeoutMs: 75_000, signal },
       );
@@ -1054,6 +1078,7 @@ export default function DayView() {
           ai_tone: (profile as any)?.ai_tone || "professional",
           ai_tone_custom: (profile as any)?.ai_tone_custom || null,
           ai_planning_rules: (profile as any)?.ai_planning_rules || "",
+          ai_context_custom: (profile as any)?.ai_context_custom || null,
         },
         { ttlMs: 0, timeoutMs: 75_000, signal },
       );
@@ -1062,12 +1087,31 @@ export default function DayView() {
       if (data?.error) throw new Error(data.error);
 
       if (data?.blocks && Array.isArray(data.blocks)) {
-        const scheduled = data.blocks;
-        const newRows = bulkRows.map((row, i) => {
-          const aiBlock = scheduled[i];
-          if (aiBlock) {
+        // Filter to task blocks only — AI may insert breaks/buffers that shift indices.
+        const taskBlocks = (data.blocks as any[]).filter(b => b.kind === "task");
+        // Match each original row to an AI block by title similarity, not by index,
+        // so that splits, breaks, or re-orderings can't cause tasks to vanish.
+        const normalize = (s: string) =>
+          String(s || "").toLowerCase().replace(/\s*\(part\s*\d+\)/i, "").replace(/[^a-z0-9 ]/g, "").trim();
+        const matched = new Set<number>();
+        const newRows = bulkRows.map((row) => {
+          const rowKey = normalize(row.title);
+          let bestIdx = -1;
+          let bestScore = 0;
+          taskBlocks.forEach((b, idx) => {
+            if (matched.has(idx)) return;
+            const aiKey = normalize(b.title);
+            const score =
+              aiKey === rowKey ? 3 :
+              aiKey.includes(rowKey) || rowKey.includes(aiKey) ? 2 :
+              aiKey.split(" ").some(w => w.length > 3 && rowKey.includes(w)) ? 1 : 0;
+            if (score > bestScore) { bestScore = score; bestIdx = idx; }
+          });
+          if (bestIdx >= 0 && bestScore > 0) {
+            matched.add(bestIdx);
+            const aiBlock = taskBlocks[bestIdx];
             return {
-              title: aiBlock.title || row.title,
+              title: row.title,  // always keep the user's original title
               duration: aiBlock.duration_min || row.duration,
               start_time: aiBlock.start_time,
             };
@@ -1208,12 +1252,9 @@ export default function DayView() {
       return;
     }
     if (intent.kind === "carry-missed") {
-      // Carry everything the user hasn't actually finished: still-open,
-      // explicitly missed, AND skipped tasks. Done tasks and tasks already
-      // moved to another day (moved_to_date set) are excluded.
-      const candidates = blocks.filter(
-        (b) => isUserTask(b) && !isUserTaskDone(b) && !(b as ExBlock).moved_to_date,
-      );
+      // Use the same movableTasks list the banner shows — guarantees the count
+      // the user sees in the banner equals the count that actually gets moved.
+      const candidates = movableTasks;
       if (!candidates.length) {
         toast("Nothing left to carry forward");
         return;
@@ -1459,8 +1500,17 @@ export default function DayView() {
                         trackingActive={!!tracker.active && tracker.active.block_id === b.id}
                         assignedCategory={assignedCat}
                         isFuturePlan={isFuture}
+                        minTime={isToday ? roundedNowHHMM() : undefined}
                         onTap={(blk) => setTappedBlock(blk)}
-                        onTapTime={(blk) => openStartTimePicker(blk as Block)}
+                        onTapTime={(blk, newTime) => {
+                          if (newTime) {
+                            // Inline input fired onChange — commit directly.
+                            startTimeTargetRef.current = blk.id;
+                            void commitStartTime(newTime);
+                          } else {
+                            openStartTimePicker(blk as Block);
+                          }
+                        }}
                         onToggleComplete={(blk) => {
                           if (blk?.is_calendar_event) return;
                           const res = (blk as ExBlock).resolution;
@@ -1683,7 +1733,7 @@ export default function DayView() {
 
       {/* Header "more" sheet — Re-plan, Delete plan */}
       <Sheet open={moreOpen} onOpenChange={setMoreOpen}>
-        <SheetContent side="bottom" className="rounded-t-[28px] border-border/45 bg-popover">
+        <SheetContent side="bottom" className="rounded-t-[28px] border-border/45 bg-popover" hideClose>
           <SheetHeader className="text-left mb-3">
             <SheetTitle className="text-[16px]">Plan options</SheetTitle>
           </SheetHeader>
@@ -1846,15 +1896,43 @@ export default function DayView() {
                         </button>
                       </div>
                       <div className="flex flex-wrap items-center gap-2 mt-0.5">
-                        <button type="button" onClick={() => {
-                            setBulkStartTimeDraft(row.start_time || "09:00");
-                            setBulkStartTimeEditIndex(i);
-                          }}
-                          className="flex items-center gap-1.5 h-8 px-3 rounded-full border border-border/45 bg-muted/40 text-[13px] font-medium text-secondary-fg hover:text-foreground pressable transition-colors"
-                        >
-                          <Clock className="h-3.5 w-3.5 opacity-70" />
-                          {row.start_time ? fmtTime(row.start_time) : "Set time"}
-                        </button>
+                        <div className="relative inline-flex items-center">
+                          <label
+                            className={`relative flex items-center gap-1.5 h-8 px-3 rounded-full border border-border/45 bg-muted/40 text-[13px] font-medium text-secondary-fg hover:text-foreground pressable transition-colors cursor-pointer select-none ${row.start_time ? "pr-8" : ""}`}
+                          >
+                            <Clock className="h-3.5 w-3.5 opacity-70 pointer-events-none" />
+                            <span className="pointer-events-none">{row.start_time ? fmtTime(row.start_time) : "Set time"}</span>
+                            <input
+                              type="time"
+                              className="absolute inset-0 opacity-0 w-full h-full cursor-pointer"
+                              value={row.start_time || "09:00"}
+                              min={isToday ? roundedNowHHMM() : undefined}
+                              tabIndex={-1}
+                              onChange={(e) => {
+                                const val = e.target.value;
+                                if (!val) return;
+                                if (isToday && timeToMinutes(val) < timeToMinutes(roundedNowHHMM())) {
+                                  toast.error(`Can't schedule in the past — earliest is ${roundedNowHHMM()}`);
+                                  return;
+                                }
+                                setBulkRows((rs) => rs.map((r, idx) => idx === i ? { ...r, start_time: val } : r));
+                              }}
+                              style={{ fontSize: 16 }}
+                            />
+                          </label>
+                          {row.start_time && (
+                            <button
+                              type="button"
+                              onClick={(e) => {
+                                e.stopPropagation();
+                                setBulkRows((rs) => rs.map((r, idx) => idx === i ? { ...r, start_time: undefined } : r));
+                              }}
+                              className="absolute right-1 top-1/2 -translate-y-1/2 h-6 w-6 rounded-full flex items-center justify-center text-secondary-fg hover:bg-foreground/10"
+                            >
+                              <X className="h-3 w-3" />
+                            </button>
+                          )}
+                        </div>
                         <button type="button" onClick={() => setBulkDurationEditIndex(i)}
                           className="flex items-center gap-1.5 h-8 px-3 rounded-full border border-border/45 bg-muted/40 text-[13px] font-medium tabular-nums text-secondary-fg hover:text-foreground pressable transition-colors"
                         >
@@ -2213,12 +2291,7 @@ export default function DayView() {
           dayPickerIntent?.kind === "move-task"
             ? "We'll put it at the end of that day's plan."
             : dayPickerIntent?.kind === "carry-missed"
-              ? (() => {
-                  const count = blocks.filter(
-                    (b) => isUserTask(b) && !isUserTaskDone(b),
-                  ).length;
-                  return `${count} task${count === 1 ? "" : "s"} will be added there and marked moved here.`;
-                })()
+              ? `${movableTasks.length} task${movableTasks.length === 1 ? "" : "s"} will be added there and marked moved here.`
               : undefined
         }
         pastDays={dayPickerIntent?.kind === "navigate" ? 7 : 0}
@@ -2386,50 +2459,7 @@ export default function DayView() {
         title="Task duration"
       />
 
-      <Sheet open={bulkStartTimeEditIndex !== null} onOpenChange={(v) => !v && setBulkStartTimeEditIndex(null)}>
-        <SheetContent side="bottom" className="rounded-t-[28px] border-border/45 bg-popover">
-          <SheetHeader className="text-left mb-3">
-            <SheetTitle className="text-[16px]">Set task time</SheetTitle>
-          </SheetHeader>
-          <input
-            type="time"
-            value={bulkStartTimeDraft}
-            onChange={(e) => setBulkStartTimeDraft(e.target.value)}
-            className="w-full h-12 px-3 rounded-lg bg-card border border-soft text-[16px] text-foreground focus:outline-none focus:border-primary/50 focus:ring-2 focus:ring-primary/15"
-          />
-          <div className="mt-4 flex gap-2">
-            <Button
-              variant="outline"
-              className="flex-1"
-              onClick={() => {
-                const i = bulkStartTimeEditIndex;
-                if (i !== null) {
-                  setBulkRows((rs) => rs.map((r, idx) => idx === i ? { ...r, start_time: undefined } : r));
-                }
-                setBulkStartTimeEditIndex(null);
-              }}
-            >
-              Clear time
-            </Button>
-            <Button
-              className="flex-1 bg-primary text-primary-foreground hover:bg-primary/90"
-              onClick={() => {
-                const i = bulkStartTimeEditIndex;
-                if (i !== null) {
-                  if (!/^\d{2}:\d{2}$/.test(bulkStartTimeDraft)) {
-                    toast.error("Pick a valid time");
-                    return;
-                  }
-                  setBulkRows((rs) => rs.map((r, idx) => idx === i ? { ...r, start_time: bulkStartTimeDraft } : r));
-                }
-                setBulkStartTimeEditIndex(null);
-              }}
-            >
-              Save
-            </Button>
-          </div>
-        </SheetContent>
-      </Sheet>
+
 
       {/* Hidden native time input — start-time editing opens this directly via
           showPicker() so there's just the iOS wheel, no app sheet on top of it.
@@ -2437,10 +2467,29 @@ export default function DayView() {
       <input
         ref={startTimeInputRef}
         type="time"
-        className="sr-only"
+        className="fixed top-0 left-0 w-1 h-1 opacity-0 pointer-events-none z-50"
         tabIndex={-1}
         aria-hidden="true"
         onChange={(e) => commitStartTime(e.target.value)}
+      />
+      <input
+        ref={bulkStartTimeInputRef}
+        type="time"
+        className="fixed top-0 left-0 w-1 h-1 opacity-0 pointer-events-none z-50"
+        tabIndex={-1}
+        aria-hidden="true"
+        onChange={(e) => {
+          const val = e.target.value;
+          if (bulkStartTimeEditIndex !== null && /^\d{2}:\d{2}$/.test(val)) {
+            if (isToday && timeToMinutes(val) < timeToMinutes(roundedNowHHMM())) {
+              toast.error("Cannot schedule tasks in the past");
+              // Clear the input value so the native picker doesn't get stuck showing the invalid time
+              e.target.value = "";
+              return;
+            }
+            setBulkRows((rs) => rs.map((r, idx) => idx === bulkStartTimeEditIndex ? { ...r, start_time: val } : r));
+          }
+        }}
       />
     </>
   );

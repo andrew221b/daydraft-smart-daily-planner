@@ -101,25 +101,38 @@ export const TabBar = () => {
       // Blur lives on the nav itself (a plain rectangle, no radius clip) so
       // WKWebView can't produce hard rounded-corner artefacts.
       // `--keyboard-inset` keeps the bar above the soft keyboard.
-      className="fixed bottom-0 inset-x-0 z-40 bg-background/78 dark:bg-background/72"
+      className="fixed bottom-0 inset-x-0 z-40 bg-transparent"
       style={{
         paddingBottom: "max(env(safe-area-inset-bottom), 10px)",
         transform: "translateY(calc(-1 * var(--keyboard-inset, 0px)))",
         transition: "transform 220ms cubic-bezier(0.32, 0.72, 0, 1)",
         touchAction: "manipulation",
-        WebkitBackdropFilter: "blur(20px)",
-        backdropFilter: "blur(20px)",
       }}
     >
+      {/* The gradient blur under the pill */}
+      <div 
+        className="pointer-events-none absolute inset-x-0 bottom-0 z-[-1]"
+        style={{
+          height: "max(env(safe-area-inset-bottom), 10px)",
+          backdropFilter: "blur(16px)",
+          WebkitBackdropFilter: "blur(16px)",
+          maskImage: "linear-gradient(to bottom, transparent, black 80%)",
+          WebkitMaskImage: "linear-gradient(to bottom, transparent, black 80%)",
+        }}
+      />
       {/* Centering wrapper — pill stays max 424 px wide, centred */}
       <div className="mx-auto w-[min(calc(100vw-24px),424px)] px-px">
-      {/* No backdrop-filter here — the outer <nav> already frosts the
-          content underneath. A second blur layer on this rounded pill
-          is invisible (content is pre-blurred) but creates a separate
-          GPU compositor layer on iOS WKWebView. */}
+      {/* Inner pill — frosted glass */}
       <div
-        className="rounded-[28px] border border-border/55 bg-background/78 shadow-[0_16px_48px_-12px_rgb(0,0,0,0.25)] dark:border-border/40 dark:bg-background/72 dark:shadow-[0_16px_48px_-12px_rgb(0,0,0,0.6)] dark:ring-1 dark:ring-white/[0.08]"
+        className="relative rounded-[28px] backdrop-blur-xl bg-background/62 shadow-[0_16px_48px_-12px_rgb(0,0,0,0.22)] dark:bg-background/58 dark:shadow-[0_16px_48px_-12px_rgb(0,0,0,0.55)]"
       >
+        {/* Gradient hairline — fades from transparent → border-color → transparent,
+            matching the top navigation fade instead of a hard solid border. */}
+        <div
+          className="pointer-events-none absolute inset-x-3 top-0 h-px rounded-full"
+          style={{ background: "linear-gradient(90deg, transparent 0%, hsl(var(--border) / 0.45) 35%, hsl(var(--border) / 0.45) 65%, transparent 100%)" }}
+          aria-hidden
+        />
         <div className="p-1.5">
           <div ref={rowRef} className="relative isolate flex min-h-[48px] gap-1.5">
             <motion.span

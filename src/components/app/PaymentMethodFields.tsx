@@ -41,23 +41,23 @@ const CRYPTO_LIST = CRYPTO_CURRENCY_CODES as readonly string[];
  *  composes itself rather than blinking. Exit is quick + linear-out so the
  *  next card isn't kept waiting. */
 const DETAIL_CARD_VARIANTS = {
-  initial: { opacity: 0, y: 10, scale: 0.985 },
+  initial: { opacity: 0, y: 6, scale: 0.99 },
   animate: {
     opacity: 1,
     y: 0,
     scale: 1,
     transition: {
-      duration: 0.26,
+      duration: 0.15,
       ease: [0.16, 1, 0.3, 1] as [number, number, number, number],
-      staggerChildren: 0.04,
-      delayChildren: 0.05,
+      staggerChildren: 0.025,
+      delayChildren: 0.0,
     },
   },
   exit: {
     opacity: 0,
-    y: -8,
-    scale: 0.985,
-    transition: { duration: 0.13, ease: [0.4, 0, 1, 1] as [number, number, number, number] },
+    y: -3,
+    scale: 0.99,
+    transition: { duration: 0.08, ease: [0.4, 0, 1, 1] as [number, number, number, number] },
   },
 };
 
@@ -204,24 +204,10 @@ export function PaymentMethodFields({
             initial="initial"
             animate="animate"
             exit="exit"
-            className="relative overflow-hidden rounded-2xl p-3.5 space-y-2.5"
+            className="relative overflow-hidden rounded-2xl p-3.5 space-y-2.5 border border-border/20 shadow-sm"
             style={{
-              // Accent-tinted glass that holds the recessed inputs. Same
-              // gradient direction as the pebble chips above (top → bottom)
-              // so the whole sheet reads as one piece of lit hardware.
-              background:
-                "linear-gradient(180deg, hsl(var(--m-accent) / 0.14) 0%, hsl(var(--card) / 0.92) 55%, hsl(var(--card) / 0.85) 100%)",
-              boxShadow: [
-                // Subtle top highlight (light catches the top edge of the card)
-                "inset 0 1px 0 hsl(0 0% 100% / 0.5)",
-                // Faint bottom inset shadow (card sits in its own shade)
-                "inset 0 -1px 0 hsl(var(--m-accent) / 0.18)",
-                // Accent hairline ring around the whole shape
-                "0 0 0 1px hsl(var(--m-accent) / 0.34)",
-                // Outer glow — lifts the card off the sheet's neutral bg
-                "0 14px 32px -18px hsl(var(--m-accent) / 0.45)",
-                "0 4px 12px -8px hsl(var(--m-accent) / 0.20)",
-              ].join(", "),
+              background: "linear-gradient(180deg, hsl(var(--m-accent) / 0.08) 0%, hsl(var(--background) / 1) 100%)",
+              boxShadow: "inset 0 1px 0 hsl(0 0% 100% / 0.15), 0 0 0 1px hsl(var(--m-accent) / 0.12)",
               ["--m-accent" as string]: method.accent,
             } as CSSProperties}
           >
@@ -266,10 +252,10 @@ export function PaymentMethodFields({
         ) : (
           <motion.div
             key="no-method"
-            initial={{ opacity: 0, y: 6 }}
+            initial={{ opacity: 0, y: 4 }}
             animate={{ opacity: 1, y: 0 }}
-            exit={{ opacity: 0, y: -4 }}
-            transition={{ duration: 0.16, ease: [0.16, 1, 0.3, 1] }}
+            exit={{ opacity: 0, y: -2 }}
+            transition={{ duration: 0.12, ease: [0.16, 1, 0.3, 1] }}
             className="rounded-2xl border border-dashed border-border/70 bg-foreground/[0.03] px-4 py-5 text-center"
           >
             <p className="text-[12px] text-secondary-fg/70 leading-relaxed">
@@ -319,17 +305,11 @@ function KindToggle({
             taps perfectly responsive. */}
         <span
           aria-hidden
-          className="pointer-events-none absolute top-1 bottom-1 left-1 w-[calc(50%-4px)] rounded-xl transition-transform duration-200 ease-[cubic-bezier(0.32,0.72,0,1)]"
+          className="pointer-events-none absolute top-1 bottom-1 left-1 w-[calc(50%-4px)] rounded-xl border border-border/20 shadow-sm transition-transform duration-200 ease-[cubic-bezier(0.32,0.72,0,1)]"
           style={{
             transform: kind === "crypto" ? "translateX(calc(100% + 4px))" : "translateX(0)",
-            background: `linear-gradient(180deg, hsl(${tintHsl} / 0.28) 0%, hsl(${tintHsl} / 0.12) 100%)`,
-            boxShadow: [
-              `inset 0 1px 0 hsl(0 0% 100% / 0.18)`,
-              `inset 0 -1px 0 hsl(${tintHsl} / 0.30)`,
-              `0 0 0 1px hsl(${tintHsl} / 0.48)`,
-              `0 4px 12px -6px hsl(${tintHsl} / 0.55)`,
-              `0 1px 3px hsl(${tintHsl} / 0.20)`,
-            ].join(", "),
+            background: `linear-gradient(180deg, hsl(${tintHsl} / 0.10) 0%, hsl(var(--background) / 1) 100%)`,
+            boxShadow: `inset 0 1px 0 hsl(0 0% 100% / 0.15), 0 0 0 1px hsl(${tintHsl} / 0.12), 0 2px 8px -2px hsl(${tintHsl} / 0.10)`,
           }}
         />
         <KindTab active={kind === "fiat"} onClick={() => onChange("fiat")} icon={Banknote} label="Fiat" tintHsl={fiatHsl} />
@@ -360,15 +340,21 @@ function KindTab({
       onClick={onClick}
       className={[
         "relative z-[1] h-9 inline-flex items-center justify-center gap-1.5 rounded-xl text-[12.5px] font-semibold tracking-[0.01em] transition-colors duration-150",
-        active ? "text-foreground" : "text-secondary-fg/70 hover:text-foreground/85",
+        active ? "text-foreground" : "text-secondary-fg/80 hover:text-foreground/90",
       ].join(" ")}
       style={active ? { textShadow: `0 0 18px hsl(${tintHsl} / 0.35)` } : undefined}
     >
-      <Icon
-        className="h-[15px] w-[15px]"
-        strokeWidth={2.4}
-        style={active ? { color: `hsl(${tintHsl})` } : undefined}
-      />
+      <span
+        className="inline-flex items-center justify-center rounded-md transition-[background-color,box-shadow] duration-150"
+        style={active ? {
+          width: 22, height: 22,
+          background: `hsl(${tintHsl} / 0.20)`,
+          boxShadow: `0 0 0 1px hsl(${tintHsl} / 0.30)`,
+          color: `hsl(${tintHsl})`,
+        } : { width: 22, height: 22 }}
+      >
+        <Icon className="h-[15px] w-[15px]" strokeWidth={2.3} />
+      </span>
       {label}
     </button>
   );
@@ -413,18 +399,13 @@ function CurrencyPickerInline({
         aria-expanded={open}
         className={[
           "w-full h-11 inline-flex items-center justify-between gap-2.5 rounded-2xl px-3.5 text-left transition-[transform,box-shadow,background-color] duration-150 ease-[cubic-bezier(0.32,0.72,0,1)] active:scale-[0.99]",
-          displayValue ? "" : "pebble-idle",
+          displayValue ? "border border-border/20 shadow-sm" : "pebble-idle",
         ].join(" ")}
         style={
           displayValue
             ? {
-                background: `linear-gradient(180deg, hsl(${tintHsl} / 0.14) 0%, hsl(var(--card) / 0.55) 100%)`,
-                boxShadow: [
-                  "inset 0 1px 0 hsl(0 0% 100% / 0.10)",
-                  `inset 0 -1px 0 hsl(${tintHsl} / 0.30)`,
-                  `0 0 0 1.5px hsl(${tintHsl} / 0.42)`,
-                  `0 4px 14px -8px hsl(${tintHsl} / 0.45)`,
-                ].join(", "),
+                background: `linear-gradient(180deg, hsl(${tintHsl} / 0.08) 0%, hsl(var(--background) / 1) 100%)`,
+                boxShadow: `inset 0 1px 0 hsl(0 0% 100% / 0.15), 0 0 0 1px hsl(${tintHsl} / 0.12)`,
               }
             : undefined
         }
@@ -478,20 +459,13 @@ function CurrencyPickerInline({
                         "h-9 inline-flex items-center justify-center rounded-xl text-[12px] font-semibold tabular-nums tracking-[0.02em]",
                         "transition-[transform,box-shadow,background-color] duration-150 ease-[cubic-bezier(0.32,0.72,0,1)]",
                         "active:scale-[0.96]",
-                        selected ? "text-foreground" : "text-foreground/85 pebble-idle",
+                        selected ? "border border-border/20 shadow-sm text-foreground" : "text-foreground/85 pebble-idle",
                       ].join(" ")}
                       style={
                         selected
                           ? {
-                              background: `linear-gradient(180deg, hsl(${tintHsl} / 0.32) 0%, hsl(${tintHsl} / 0.16) 100%)`,
-                              boxShadow: [
-                                "inset 0 1px 0 hsl(0 0% 100% / 0.18)",
-                                `inset 0 -1px 0 hsl(${tintHsl} / 0.40)`,
-                                `0 0 0 1.5px hsl(${tintHsl} / 0.55)`,
-                                `0 4px 14px -6px hsl(${tintHsl} / 0.50)`,
-                                `0 1px 3px hsl(${tintHsl} / 0.20)`,
-                              ].join(", "),
-                              textShadow: `0 0 12px hsl(${tintHsl} / 0.30)`,
+                              background: `linear-gradient(180deg, hsl(${tintHsl} / 0.10) 0%, hsl(var(--background) / 1) 100%)`,
+                              boxShadow: `inset 0 1px 0 hsl(0 0% 100% / 0.15), 0 0 0 1px hsl(${tintHsl} / 0.12)`,
                             }
                           : undefined
                       }
@@ -624,22 +598,14 @@ function MethodChip({
         "group relative flex items-center gap-2 rounded-2xl px-2.5 py-2 text-left",
         "transition-[transform,box-shadow,background-color] duration-150 ease-[cubic-bezier(0.32,0.72,0,1)]",
         "active:scale-[0.97]",
-        selected ? "text-foreground" : "text-foreground/85 pebble-idle",
+        selected ? "border border-border/20 shadow-sm text-foreground" : "text-foreground/85 pebble-idle border border-transparent",
       ].join(" ")}
       style={
         selected
           ? ({
               "--m-accent": method.accent,
-              // Convex accent-tinted glass for the selected rail.
-              background:
-                "linear-gradient(180deg, hsl(var(--m-accent) / 0.22) 0%, hsl(var(--m-accent) / 0.10) 55%, hsl(var(--m-accent) / 0.06) 100%)",
-              boxShadow: [
-                "inset 0 1px 0 hsl(0 0% 100% / 0.18)",
-                "inset 0 -1px 0 hsl(var(--m-accent) / 0.35)",
-                "0 0 0 1.5px hsl(var(--m-accent) / 0.45)",
-                "0 6px 18px -10px hsl(var(--m-accent) / 0.55)",
-                "0 2px 6px -2px hsl(var(--m-accent) / 0.25)",
-              ].join(", "),
+              background: "linear-gradient(180deg, hsl(var(--m-accent) / 0.10) 0%, hsl(var(--background) / 1) 100%)",
+              boxShadow: "inset 0 1px 0 hsl(0 0% 100% / 0.15), 0 0 0 1px hsl(var(--m-accent) / 0.12)",
             } as CSSProperties)
           : ({ "--m-accent": method.accent } as CSSProperties)
       }
@@ -648,15 +614,12 @@ function MethodChip({
       <span
         className={[
           "relative z-[1] flex h-7 w-7 shrink-0 items-center justify-center rounded-xl transition-colors duration-150",
-          selected ? "" : "pebble-icon",
+          selected ? "border border-border/10" : "pebble-icon text-foreground/70",
         ].join(" ")}
         style={
           selected
             ? {
-                background:
-                  "linear-gradient(180deg, hsl(var(--m-accent) / 0.30) 0%, hsl(var(--m-accent) / 0.16) 100%)",
-                boxShadow:
-                  "inset 0 1px 0 hsl(0 0% 100% / 0.18), inset 0 -1px 0 hsl(var(--m-accent) / 0.30), 0 0 0 1px hsl(var(--m-accent) / 0.35)",
+                background: "hsl(var(--m-accent) / 0.15)",
                 color: `hsl(${method.accent})`,
               }
             : { color: "hsl(var(--foreground) / 0.7)" }
@@ -699,7 +662,7 @@ function FieldRow({
           <select
             value={value}
             onChange={(e) => onChange(e.target.value)}
-            className="field-recessed h-10 w-full appearance-none rounded-xl border-0 pl-3 pr-8 text-[13px] text-foreground outline-none transition-colors"
+            className="h-10 w-full appearance-none rounded-xl border border-border/40 bg-background shadow-sm pl-3 pr-8 text-[13px] text-foreground outline-none transition-colors focus-visible:ring-1 focus-visible:ring-primary/30"
           >
             <option value="">{field.placeholder}</option>
             {field.options.map((opt) => (
@@ -720,7 +683,7 @@ function FieldRow({
           value={value}
           onChange={(e) => onChange(e.target.value)}
           placeholder={field.placeholder}
-          className="field-recessed min-h-[68px] rounded-xl border-0 text-[13px] leading-snug placeholder:text-secondary-fg/55 focus-visible:ring-0"
+          className="min-h-[68px] rounded-xl border border-border/40 bg-background shadow-sm text-[13px] leading-snug placeholder:text-secondary-fg/55 focus-visible:ring-1 focus-visible:ring-primary/30"
         />
       </label>
     );
@@ -733,7 +696,7 @@ function FieldRow({
         value={value}
         onChange={(e) => onChange(e.target.value)}
         placeholder={field.placeholder}
-        className="field-recessed h-10 rounded-xl border-0 text-[13px] placeholder:text-secondary-fg/55 focus-visible:ring-0"
+        className="h-10 rounded-xl border border-border/40 bg-background shadow-sm text-[13px] placeholder:text-secondary-fg/55 focus-visible:ring-1 focus-visible:ring-primary/30"
       />
     </label>
   );
