@@ -52,8 +52,7 @@ export default function Focus() {
   const [showCheck, setShowCheck] = useState(false);
   const [preflightOpen, setPreflightOpen] = useState(false);
   const [armed, setArmed] = useState(false);
-  // Cancels in-flight task-assistant calls if the user leaves the Focus
-  // screen mid-request — prevents setState-after-unmount.
+  // Cancels any in-flight AI calls if the user leaves Focus mid-request.
   const getAbortSignal = useAbortOnUnmount();
   const startedHereRef = useRef(false);
   const autoStartedRef = useRef(false);

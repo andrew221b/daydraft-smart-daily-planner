@@ -50,7 +50,40 @@ const MAX_SCHEDULED = 60;
 
 const MASTER_KEY = "dd_notifications_enabled";
 
+// Android notification channel. On Android 8+ (API 26+) ALL sound + vibration
+// behaviour is governed by the CHANNEL, not the per-notification fields — and
+// a channel's settings are locked once created. Capacitor's auto-created
+// default channel has vibration DISABLED, which is why reminders were silent
+// and didn't buzz. We create our own high-importance channel WITH vibration
+// and reference it on every scheduled notification (and in the FCM push
+// payload's android.notification.channel_id). The "_v2" suffix forces a fresh
+// channel so we're not stuck with any previously-created silent one.
+const ANDROID_CHANNEL_ID = "dd_reminders_v2";
+const isAndroid = () => Capacitor.getPlatform() === "android";
+
 const isNative = () => Capacitor.isNativePlatform();
+
+let channelEnsured = false;
+
+/** Idempotently create the loud, vibrating Android channel. No-op elsewhere. */
+export async function ensureNotificationChannel(): Promise<void> {
+  if (!isAndroid() || channelEnsured) return;
+  try {
+    await LocalNotifications.createChannel({
+      id: ANDROID_CHANNEL_ID,
+      name: "Reminders & nudges",
+      description: "Task starts, wrap-ups, and daily nudges",
+      importance: 5,      // IMPORTANCE_HIGH → heads-up banner + sound
+      visibility: 1,      // VISIBILITY_PUBLIC on the lock screen
+      vibration: true,    // ← the missing piece; default channel had it off
+      lights: true,
+      // sound omitted ⇒ the channel keeps the system default notification tone
+    });
+    channelEnsured = true;
+  } catch (e) {
+    console.warn("[localNotifications] createChannel failed", e);
+  }
+}
 
 // ── Master switch ──────────────────────────────────────────────────────────
 
@@ -200,9 +233,10 @@ export async function syncBlockNotifications(dateStr: string, blocks: Block[]) {
   const { display } = await LocalNotifications.checkPermissions();
   if (display !== "granted") return;
 
-  // Guarantee the action button groups exist before we schedule anything
-  // that references them (idempotent — no-ops after the first call).
+  // Guarantee the action groups AND the loud vibrating channel exist before
+  // we schedule anything that references them (both idempotent).
   await registerNotificationActions();
+  await ensureNotificationChannel();
 
   // Full resync: cancel everything, then reschedule from scratch. This is what
   // makes the "only ping if still unresolved" guarantee work — a task the user
@@ -235,7 +269,7 @@ export async function syncBlockNotifications(dateStr: string, blocks: Block[]) {
         candidates.push({
           at,
           title: `Up next: ${b.title}`,
-          body: `Starts in ${lead} min · ${b.start_time}`,
+          body: lead <= 2 ? `Starting at ${b.start_time}.` : `Starts at ${b.start_time} — ${lead} min away.`,
           actionTypeId: startType,
           blockId: b.id,
         });
@@ -246,35 +280,35 @@ export async function syncBlockNotifications(dateStr: string, blocks: Block[]) {
     if (startAt.getTime() > now) {
       candidates.push({
         at: startAt,
-        title: `Time for: ${b.title}`,
-        body: hasCategory ? "Tap Track to start the timer." : "Your block starts now.",
+        title: `Starting now: ${b.title}`,
+        body: hasCategory ? "Tap Track to begin timing." : "Open the app to get started.",
         actionTypeId: startType,
         blockId: b.id,
       });
     }
 
     if (endAt) {
-      // 3. Ending-soon ping (only meaningful for longer tasks)
-      const lead = typeof cfg.endAlertLeadMin === "number" ? cfg.endAlertLeadMin : 5;
+      // 3. Ending-soon ping (only meaningful for longer tasks; opt-in via endAlertLeadMin > 0)
+      const lead = typeof cfg.endAlertLeadMin === "number" ? cfg.endAlertLeadMin : 0;
       if (dur >= 12 && lead > 0) {
         const at = new Date(endAt.getTime() - lead * 60_000);
         if (at.getTime() > now && at.getTime() > startAt.getTime()) {
           candidates.push({
             at,
-            title: `Wrapping up: ${b.title}`,
-            body: `Ends in ${lead} min — on track to finish?`,
+            title: `${b.title} — almost done`,
+            body: `${lead} min left in this block.`,
             actionTypeId: TYPE_SOON,
             blockId: b.id,
           });
         }
       }
 
-      // 4. End follow-up — "did you finish?"
-      if (endAt.getTime() > now) {
+      // 4. End follow-up — opt-in only (cfg.endFollowUp must be true)
+      if (endAt.getTime() > now && cfg.endFollowUp) {
         candidates.push({
           at: endAt,
-          title: `Did you finish "${b.title}"?`,
-          body: "Mark it done, or skip it for now.",
+          title: `How did ${b.title} go?`,
+          body: "Mark done or skip — tap an action.",
           actionTypeId: TYPE_END,
           blockId: b.id,
         });
@@ -292,7 +326,12 @@ export async function syncBlockNotifications(dateStr: string, blocks: Block[]) {
     id: i + 1,
     title: c.title,
     body: c.body,
-    sound: "default",
+    // Do NOT pass sound:"default" — iOS interprets that as a filename lookup
+    // for "default.caf" which doesn't exist in the bundle, producing silence.
+    // Omitting the field causes the plugin to use UNNotificationSound.default
+    // (the system chime) which is what we want. Android uses channelId for
+    // all sound + vibration behaviour and ignores this field entirely.
+    channelId: ANDROID_CHANNEL_ID,
     schedule: { at: c.at },
     actionTypeId: c.actionTypeId,
     extra: { blockId: c.blockId, date: dateStr },

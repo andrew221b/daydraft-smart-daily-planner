@@ -164,6 +164,10 @@ export async function sendFcm(deviceToken: string, payload: FcmPayload): Promise
       priority: "HIGH",
       notification: {
         sound: payload.sound ?? "default",
+        // Must match the client-created channel (src/lib/localNotifications.ts
+        // → ANDROID_CHANNEL_ID). Without this, FCM drops the alert onto a
+        // low-importance fallback channel that is silent and never vibrates.
+        channel_id: "dd_reminders_v2",
         ...(typeof payload.badge === "number" ? { notification_count: payload.badge } : {}),
       },
     },

@@ -451,7 +451,7 @@ export function HomeTrackerHero({ onOpenDetails }: { onOpenDetails: () => void }
             <button
               type="button"
               onClick={() => openCategoryPicker({ focusAdd: true })}
-              className="shrink-0 inline-flex items-center gap-1 rounded-full border border-dashed border-border/40 bg-transparent py-1.5 px-2.5 text-[12px] font-medium text-secondary-fg/80 hover:text-foreground pressable"
+              className="shrink-0 inline-flex items-center gap-1 rounded-full border border-dashed border-border/60 bg-transparent py-1.5 px-2.5 text-[12px] font-medium text-secondary-fg/80 hover:text-foreground pressable"
             >
               <Plus className="h-3 w-3" />
               New

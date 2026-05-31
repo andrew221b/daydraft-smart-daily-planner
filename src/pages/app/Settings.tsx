@@ -6,7 +6,7 @@ import { Textarea } from "@/components/ui/textarea";
 import { Button } from "@/components/ui/button";
 import { useEffect, useState } from "react";
 import { ThemeToggle } from "@/components/app/ThemeToggle";
-import { Sparkles, Bell, FileText, Shield, Trash2, HelpCircle, Download, Loader2, ScanFace, Fingerprint, Lock } from "lucide-react";
+import { Sparkles, AlarmClock, FileText, Shield, Trash2, HelpCircle, Download, Loader2, ScanFace, Fingerprint, Lock, Vibrate } from "lucide-react";
 import { Link, useNavigate, useLocation } from "react-router-dom";
 import { Capacitor } from "@capacitor/core";
 import { NativeBiometric } from "@capgo/capacitor-native-biometric";
@@ -15,7 +15,7 @@ import {
   getGatePref, setGatePref,
   getBiometricInfo, type BiometricInfo,
 } from "@/lib/biometricGate";
-import { haptics } from "@/lib/haptics";
+import { haptics, getHapticsEnabled, setHapticsEnabled } from "@/lib/haptics";
 import { toast } from "sonner";
 import { useEntitlement } from "@/hooks/useEntitlement";
 import { isSimulateProUiAllowed, writeDevSimulatePro } from "@/lib/devEntitlement";
@@ -23,6 +23,7 @@ import { Sheet, SheetContent, SheetHeader, SheetTitle, SheetDescription } from "
 import { UpgradeSheet } from "@/components/app/UpgradeSheet";
 import { ProFeatureHighlights } from "@/components/app/ProFeatureHighlights";
 import { enablePush, disablePush, pushAvailability, pushAvailabilityCopy } from "@/lib/push";
+import { getNotificationsEnabled, setNotificationsEnabled } from "@/lib/localNotifications";
 import { supabase } from "@/integrations/supabase/client";
 import { triggerDownload } from "@/lib/reportExport";
 import { useTour, TOUR_TODAY } from "@/components/app/Tour";
@@ -54,11 +55,28 @@ export default function Settings() {
   const [bioInfo, setBioInfo] = useState<BiometricInfo | null>(null);
   const [appLockOn, setAppLockOn] = useState<boolean>(() => getGatePref() === "on");
   const [bioTogglingLock, setBioTogglingLock] = useState(false);
+  const [hapticsOn, setHapticsOn] = useState<boolean>(() => getHapticsEnabled());
+  const [taskRemindersOn, setTaskRemindersOn] = useState<boolean>(() => getNotificationsEnabled());
+
+  const toggleHaptics = (enable: boolean) => {
+    setHapticsEnabled(enable);     // persist BEFORE the buzz so an enable can fire
+    setHapticsOn(enable);
+    if (enable) haptics.selection(); // confirmation tap, only when turning on
+  };
 
   useEffect(() => {
     if (!Capacitor.isNativePlatform()) return;
     getBiometricInfo().then(setBioInfo);
   }, []);
+
+  // Settings is kept alive in PersistentTabs — useState() initializer runs once.
+  // Re-read the gate pref whenever the settings path becomes active so changes
+  // made via BiometricGateSheet (from Reports/billing) are reflected here.
+  useEffect(() => {
+    if (location.pathname === "/settings") {
+      setAppLockOn(getGatePref() === "on");
+    }
+  }, [location.pathname]);
 
   const toggleAppLock = async (enable: boolean) => {
     if (bioTogglingLock) return;
@@ -284,12 +302,12 @@ export default function Settings() {
               <div className="px-4 py-3">
                 <div className="flex items-center justify-between">
                   <div className="flex items-center gap-3 min-w-0">
-                    <Bell className={`h-4 w-4 ${pushReady ? "text-secondary-fg" : "text-secondary-fg/55"}`} />
+                    <Sparkles className={`h-4 w-4 ${pushReady ? "text-secondary-fg" : "text-secondary-fg/55"}`} />
                     <div className="min-w-0">
                       <div className={`text-[14px] ${pushReady ? "" : "text-foreground/70"}`}>Daily nudges</div>
                       {pushReady && (
                         <div className="text-[11px] text-secondary-fg/75 mt-0.5">
-                          Gentle pings as your day unfolds.
+                          Your morning brief, evening recap and weekly review.
                         </div>
                       )}
                     </div>
@@ -310,6 +328,44 @@ export default function Settings() {
                     </p>
                   </div>
                 )}
+              </div>
+
+              {/* Task reminders toggle */}
+              <div className="px-4 py-3">
+                <div className="flex items-center justify-between">
+                  <div className="flex items-center gap-3 min-w-0">
+                    <AlarmClock className="h-4 w-4 text-secondary-fg" />
+                    <div className="min-w-0">
+                      <div className="text-[14px]">Task reminders</div>
+                      <div className="text-[11px] text-secondary-fg/75 mt-0.5">
+                        A heads-up on your device before each task starts.
+                      </div>
+                    </div>
+                  </div>
+                  <Switch
+                    checked={taskRemindersOn}
+                    onCheckedChange={(v) => {
+                      setTaskRemindersOn(v);
+                      setNotificationsEnabled(v);
+                    }}
+                  />
+                </div>
+              </div>
+
+              {/* Haptic feedback master switch */}
+              <div className="px-4 py-3">
+                <div className="flex items-center justify-between">
+                  <div className="flex items-center gap-3 min-w-0">
+                    <Vibrate className="h-4 w-4 text-secondary-fg" />
+                    <div className="min-w-0">
+                      <div className="text-[14px]">Haptic feedback</div>
+                      <div className="text-[11px] text-secondary-fg/75 mt-0.5">
+                        Subtle vibrations on taps, picks, and confirmations.
+                      </div>
+                    </div>
+                  </div>
+                  <Switch checked={hapticsOn} onCheckedChange={toggleHaptics} />
+                </div>
               </div>
             </div>
           </Section>

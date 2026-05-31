@@ -1152,6 +1152,20 @@ body.dd-dnd-scroll-lock {
     50% { transform: scale(1.02); opacity: 1; }
   }
 
+  /* Respect Reduce Motion for the always-on idle loops (clock sweep, living
+     glow, ring spin, tab-indicator float). They're ambient polish, not
+     information — disabling them cuts idle GPU/battery for users who asked the
+     OS to minimise motion. Everyone else is unaffected; the elements still
+     render, just static. */
+  @media (prefers-reduced-motion: reduce) {
+    .tracker-hero-clock::before,
+    .tracker-hero-luxe.tracker-hero--running::before,
+    .tracker-hero-luxe.tracker-hero--running::after,
+    .tab-indicator-luxe {
+      animation: none !important;
+    }
+  }
+
   /* Focus timer ring effects */
   .focus-timer-ring-active {
     animation: ringShimmer 6s linear infinite;

@@ -48,7 +48,9 @@ export function ReportCurrencyMismatchDialog({
   };
 
   const handleCancel = () => {
-    haptics.tap();
+    // No haptic on pure dismiss — closing has no consequence and the button
+    // press already gives visual feedback. Haptics are reserved for committed
+    // actions (export / update) in this dialog.
     onCancel();
   };
 

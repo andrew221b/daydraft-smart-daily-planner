@@ -8,20 +8,17 @@ import {
   Sparkles,
   ChevronLeft,
   Square,
-  FileDown,
-  Wallet,
-  Zap,
-  Compass,
   Layers,
   ChevronDown,
-  Star,
+  Lock,
 } from "lucide-react";
-import { motion, AnimatePresence } from "framer-motion";
+import { motion } from "framer-motion";
 import { enablePush, pushSupported } from "@/lib/push";
 import { supabase } from "@/integrations/supabase/client";
 import { haptics } from "@/lib/haptics";
 import { startCheckout } from "@/hooks/useEntitlement";
 import { toast } from "sonner";
+import { PRO_FEATURES, PRO_PLANS, ProFeatureCard, ProPlanRow } from "@/components/app/proPaywall";
 
 const PROGRESS_KEY = "dd_onboarding_progress_v6";
 const STEPS = 3;
@@ -580,9 +577,9 @@ function MockBlock({
   from?: "left" | "right" | "bottom";
 }) {
   const initial =
-    from === "left"  ? { opacity: 0, x: -80, y: 0, scale: 0.5 } :
-    from === "right" ? { opacity: 0, x:  80, y: 0, scale: 0.5 } :
-                       { opacity: 0, x:   0, y: 80, scale: 0.5 };
+    from === "left"  ? { opacity: 0, x: -420, y: 0 } :
+    from === "right" ? { opacity: 0, x:  420, y: 0 } :
+                       { opacity: 0, x:    0, y: 200 };
   return (
     <motion.div
       initial={initial}
@@ -660,15 +657,24 @@ function MockBlock({
   );
 }
 
-/** Live ticking tracker card matching HomeTrackerHero. */
 function LiveTrackerCard({ baseElapsed, delay = 0.55 }: { baseElapsed: number, delay?: number }) {
   const [elapsed, setElapsed] = useState(baseElapsed);
+  const [isSettled, setIsSettled] = useState(false);
   const RATE = 80;
 
   useEffect(() => {
+    // Wait for the spring entrance animation to mostly finish before we
+    // start ticking and running CSS animations, which ensures the layout
+    // layer isn't fighting with the JS timer or CSS engine for frames.
+    const timer = setTimeout(() => setIsSettled(true), (delay + 0.5) * 1000);
+    return () => clearTimeout(timer);
+  }, [delay]);
+
+  useEffect(() => {
+    if (!isSettled) return;
     const t = setInterval(() => setElapsed((s) => s + 1), 1000);
     return () => clearInterval(t);
-  }, []);
+  }, [isSettled]);
 
   const totalSecs = elapsed;
   const h = Math.floor(totalSecs / 3600);
@@ -679,9 +685,9 @@ function LiveTrackerCard({ baseElapsed, delay = 0.55 }: { baseElapsed: number, d
 
   return (
     <motion.div
-      initial={{ opacity: 0, y: 150, scale: 0.5 }}
-      animate={{ opacity: 1, y: 0, scale: 1 }}
-      transition={{ delay, type: "spring", stiffness: 400, damping: 15, mass: 0.8 }}
+      initial={{ opacity: 0, y: 480 }}
+      animate={{ opacity: 1, y: 0 }}
+      transition={{ delay, type: "spring", stiffness: 380, damping: 16, mass: 0.85 }}
       className="relative overflow-hidden rounded-[28px] hero-glass border border-[color-mix(in_srgb,var(--hero-accent)_45%,hsl(var(--border)/0.5))] px-5 pt-6 pb-5 tracker-hero-clock shadow-[0_12px_40px_-12px_rgba(0,0,0,0.5)]"
       style={{ "--hero-accent": "hsl(var(--type-deep))" } as any}
     >
@@ -699,7 +705,7 @@ function LiveTrackerCard({ baseElapsed, delay = 0.55 }: { baseElapsed: number, d
         <div className="mt-4 flex flex-col items-center text-center">
           <div className="inline-flex items-center gap-2 rounded-full bg-foreground/[0.07] px-3 py-1 border border-border/30">
             <span
-              className="h-1.5 w-1.5 rounded-full animate-pulse shadow-[0_0_0_3px_color-mix(in_srgb,var(--hero-accent)_22%,transparent)]"
+              className={`h-1.5 w-1.5 rounded-full shadow-[0_0_0_3px_color-mix(in_srgb,var(--hero-accent)_22%,transparent)] ${isSettled ? "animate-pulse" : ""}`}
               style={{ background: "hsl(var(--type-deep))" }}
             />
             <span className="text-[12px] font-medium text-foreground/85 truncate">
@@ -707,7 +713,7 @@ function LiveTrackerCard({ baseElapsed, delay = 0.55 }: { baseElapsed: number, d
             </span>
           </div>
 
-          <div className="mt-3 breathe">
+          <div className={`mt-3 ${isSettled ? "breathe" : ""}`}>
             <div className="font-display text-[3.4rem] font-semibold tabular-nums leading-none tracking-[-0.04em] text-foreground">
               {fmt(h)}:{fmt(m)}:{fmt(s)}
             </div>
@@ -756,13 +762,13 @@ function FeaturesShowcaseStep({
           className="font-display text-[26px] font-semibold leading-tight tracking-tight mt-2 text-balance"
           initial={{ opacity: 0, y: -10 }}
           animate={{ opacity: 1, y: 0 }}
-          transition={{ duration: 0.4, delay: 0.06 }}
+          transition={{ duration: 0.4, delay: 0.05 }}
         >
           Everything your day needs, in one place.
         </motion.h1>
 
         {/* ── Showcase area ────────────────────────────── */}
-        <div className="mt-6 flex-1 relative">
+        <div className="mt-6 flex-1 relative overflow-hidden">
           {/* Two task blocks: first from left, second from right */}
           <div className="space-y-3 relative z-10">
             {PLAN_BLOCKS.slice(0, 2).map((b, i) => (
@@ -772,7 +778,7 @@ function FeaturesShowcaseStep({
                 title={b.title}
                 typeVar={b.typeVar}
                 mins={b.mins}
-                delay={1.0 + i * 0.6}
+                delay={0.15 + i * 0.12}
                 glow={false}
                 from={i === 0 ? "left" : "right"}
               />
@@ -785,7 +791,7 @@ function FeaturesShowcaseStep({
           </div>
 
           <div className="relative z-20">
-            <LiveTrackerCard baseElapsed={BASE_ELAPSED} delay={2.2} />
+            <LiveTrackerCard baseElapsed={BASE_ELAPSED} delay={0.4} />
           </div>
         </div>
       </div>
@@ -793,7 +799,7 @@ function FeaturesShowcaseStep({
       <motion.div
         initial={{ opacity: 0, y: 20 }}
         animate={{ opacity: 1, y: 0 }}
-        transition={{ delay: 2.8, type: "spring", stiffness: 340, damping: 22 }}
+        transition={{ delay: 0.6, type: "spring", stiffness: 340, damping: 22 }}
       >
         <Button
           disabled={disabled}
@@ -808,15 +814,8 @@ function FeaturesShowcaseStep({
 }
 
 /* ================================================================ */
-/*  STEP 2 — Paywall (enhanced animations)                          */
+/*  STEP 2 — Paywall (shared design with the in-app UpgradeSheet)    */
 /* ================================================================ */
-
-const FEATURES = [
-  { label: "Unlimited AI Planning", icon: Zap },
-  { label: "Smart Drift Nudges", icon: Compass },
-  { label: "Polished PDF & CSV Reports", icon: FileDown },
-  { label: "Billing & Rate Estimation", icon: Wallet },
-];
 
 function PaywallStep({
   plan,
@@ -836,166 +835,91 @@ function PaywallStep({
   finishing: boolean;
 }) {
   const busy = busyCheckout || finishing;
+  const ctaLabel = busyCheckout
+    ? "Opening checkout…"
+    : plan === "annual"
+      ? "Start 7-day free trial"
+      : "Continue with Pro";
 
   return (
-    <div className="flex-1 flex flex-col fade-in">
+    <div className="flex-1 flex flex-col">
       <button
         type="button"
         onClick={onBack}
         disabled={busy}
-        className="self-start -mt-2 mb-2 h-9 px-2 inline-flex items-center gap-1 rounded-full text-[13px] text-secondary-fg hover:text-foreground pressable disabled:opacity-50 disabled:pointer-events-none transition-colors"
+        className="self-start -mt-2 mb-1 h-9 px-2 inline-flex items-center gap-1 rounded-full text-[13px] text-secondary-fg hover:text-foreground pressable disabled:opacity-50 disabled:pointer-events-none transition-colors"
       >
         <ChevronLeft className="h-4 w-4" strokeWidth={2.4} /> Back
       </button>
 
-      <div className="flex-1 flex flex-col items-center">
-        {/* Headline */}
-        <motion.h1
-          initial={{ opacity: 0, x: -30 }}
-          animate={{ opacity: 1, x: 0 }}
-          transition={{ delay: 0.1, type: "spring", stiffness: 300, damping: 24 }}
-          className="font-display text-[28px] font-semibold leading-tight tracking-tight mt-3 text-center text-balance"
-        >
-          Unlock the full DayDraft.
-        </motion.h1>
-
-        {/* Social proof */}
-        <motion.div
-          initial={{ opacity: 0, x: 30 }}
-          animate={{ opacity: 1, x: 0 }}
-          transition={{ type: "spring", stiffness: 360, damping: 30, delay: 0.15 }}
-          className="mt-4 flex items-center justify-center gap-2.5 rounded-2xl border border-border/40 bg-surface-elevated/40 backdrop-blur-sm px-4 py-3 relative z-10 w-full"
-        >
-          <div className="flex gap-0.5 shrink-0">
-            {[0, 1, 2, 3, 4].map((s) => (
-              <Star key={s} className="h-3.5 w-3.5 fill-amber-400 text-amber-400 drop-shadow-[0_0_8px_rgba(251,191,36,0.5)]" />
-            ))}
+      {/* One cohesive entrance — the whole panel fades + rises once on mount.
+          Nothing animates afterwards (cards are static via animate={false}). */}
+      <motion.div
+        initial={{ opacity: 0, y: 16 }}
+        animate={{ opacity: 1, y: 0 }}
+        transition={{ duration: 0.42, ease: [0.22, 1, 0.36, 1] }}
+        className="flex-1 flex flex-col"
+      >
+        {/* Hero */}
+        <div className="relative pt-2 pb-4 text-center flex flex-col items-center">
+          <div
+            aria-hidden
+            className="pointer-events-none absolute inset-x-0 top-0 h-36"
+            style={{ background: "radial-gradient(60% 100% at 50% 0%, hsl(var(--primary) / 0.10) 0%, transparent 80%)" }}
+          />
+          <div className="inline-flex items-center gap-1.5 rounded-full border border-primary/25 bg-primary/[0.07] px-3 py-1 mb-3.5 relative z-10">
+            <Lock className="h-2.5 w-2.5 text-primary" strokeWidth={2.5} />
+            <span className="text-[11px] font-semibold tracking-[0.08em] uppercase text-primary">DayDraft Pro</span>
           </div>
-          <p className="text-[12px] text-foreground/85 leading-tight font-medium">
-            Join thousands of organized professionals.
+          <h1 className="font-semibold text-[26px] leading-[1.15] tracking-tight text-foreground relative z-10 max-w-[280px]">
+            Unlock the full DayDraft.
+          </h1>
+          <p className="text-[13px] text-secondary-fg mt-2.5 leading-relaxed relative z-10 max-w-[260px]">
+            Unlimited AI plans, smart nudges, and billing-ready reports — everything serious planners rely on.
           </p>
-        </motion.div>
-
-        {/* Feature cards (Vertical Stack) */}
-        <div className="flex flex-col gap-2 w-full mt-4">
-          {FEATURES.map((f, i) => {
-            const Icon = f.icon;
-            return (
-              <motion.div
-                key={i}
-                initial={{ opacity: 0, y: 20 }}
-                animate={{ opacity: 1, y: 0 }}
-                transition={{ delay: 0.2 + i * 0.06, type: "spring", stiffness: 320, damping: 24 }}
-                className="flex items-center gap-3.5 rounded-[18px] border border-border/30 bg-surface-elevated/60 px-4 py-3.5"
-              >
-                <div className="shrink-0 h-9 w-9 rounded-full bg-primary/10 flex items-center justify-center text-primary">
-                  <Icon className="h-4 w-4" />
-                </div>
-                <p className="text-[14px] font-medium text-foreground/90">{f.label}</p>
-              </motion.div>
-            );
-          })}
         </div>
 
-        {/* Pricing */}
-        <motion.div
-          initial={{ opacity: 0, y: 40 }}
-          animate={{ opacity: 1, y: 0 }}
-          transition={{ delay: 0.38, type: "spring", stiffness: 280, damping: 26 }}
-          className="flex flex-col gap-2.5 w-full mt-5"
-        >
-          <PlanCard
-            active={plan === "annual"} onClick={() => onPlan("annual")}
-            title="Annual" price="$59.99" sub="$4.99/mo · save 50%" badge="Best Value"
-          />
-          <div className="grid grid-cols-2 gap-2.5">
-            <PlanCard
-              active={plan === "monthly"} onClick={() => onPlan("monthly")}
-              title="Monthly" price="$9.99" sub="per month"
-            />
-            <PlanCard
-              active={plan === "weekly"} onClick={() => onPlan("weekly")}
-              title="Weekly" price="$3.99" sub="per week"
-            />
-          </div>
-        </motion.div>
-      </div>
+        {/* Feature cards */}
+        <div className="flex flex-col gap-2.5 w-full">
+          {PRO_FEATURES.map((feat) => (
+            <ProFeatureCard key={feat.id} feat={feat} animate={false} />
+          ))}
+        </div>
 
-      {/* CTAs */}
-      <motion.div
-        initial={{ opacity: 0, y: 12 }}
-        animate={{ opacity: 1, y: 0 }}
-        transition={{ delay: 0.48, type: "spring", stiffness: 280, damping: 26 }}
-        className="mt-5 flex flex-col gap-2.5"
-      >
-        <Button
-          onClick={onCheckout}
-          disabled={busy}
-          className="w-full h-[54px] rounded-[18px] bg-primary hover:bg-primary/92 text-primary-foreground text-[16px] font-semibold pressable shadow-[0_8px_24px_-8px_hsl(var(--primary)/0.6)]"
-        >
-          {busyCheckout ? "Opening checkout…" : "Start with Pro"}
-        </Button>
-        <button
-          type="button"
-          onClick={onSkip}
-          disabled={busy}
-          className="w-full h-[48px] rounded-[18px] border border-border/35 bg-transparent text-[14px] font-medium text-secondary-fg/80 hover:text-foreground hover:bg-foreground/[0.04] pressable disabled:opacity-50 disabled:pointer-events-none transition-colors"
-        >
-          Continue with Free
-        </button>
-        <p className="text-[11px] text-secondary-fg/50 text-center">
-          Cancel anytime · No surprise add-ons
-        </p>
+        {/* Plan rows */}
+        <div className="flex flex-col gap-2 w-full mt-5">
+          {PRO_PLANS.map((p) => (
+            <ProPlanRow
+              key={p.id}
+              plan={p}
+              active={plan === p.id}
+              onClick={() => { haptics.selection(); onPlan(p.id); }}
+            />
+          ))}
+        </div>
+
+        {/* CTAs */}
+        <div className="mt-5 flex flex-col gap-2.5">
+          <Button
+            onClick={onCheckout}
+            disabled={busy}
+            className="w-full h-[54px] rounded-[18px] bg-primary hover:bg-primary/92 text-primary-foreground text-[15px] font-semibold pressable"
+          >
+            {ctaLabel}
+          </Button>
+          <button
+            type="button"
+            onClick={onSkip}
+            disabled={busy}
+            className="w-full h-[46px] rounded-[18px] text-[14px] font-medium text-secondary-fg/70 hover:text-foreground pressable disabled:opacity-50 disabled:pointer-events-none transition-colors"
+          >
+            Continue with Free
+          </button>
+          <p className="text-[11px] text-secondary-fg/50 text-center">
+            Cancel anytime · No surprise add-ons
+          </p>
+        </div>
       </motion.div>
     </div>
-  );
-}
-
-/* ================================================================ */
-/*  SHARED: Pricing card                                             */
-/* ================================================================ */
-
-function PlanCard({
-  active,
-  onClick,
-  title,
-  price,
-  sub,
-  badge,
-}: {
-  active: boolean;
-  onClick: () => void;
-  title: string;
-  price: string;
-  sub: string;
-  badge?: string;
-}) {
-  return (
-    <motion.button
-      type="button"
-      onClick={onClick}
-      whileTap={{ scale: 0.97 }}
-      className={[
-        "relative text-left rounded-[18px] p-4 transition-all duration-200 overflow-hidden w-full app-card group",
-        active
-          ? "border-primary/50 bg-primary/10 shadow-[inset_0_1px_0_rgba(255,255,255,0.1),0_8px_24px_-8px_hsl(var(--primary)/0.35)]"
-          : "hover:border-primary/30",
-      ].join(" ")}
-    >
-      {badge && (
-        <span className="absolute top-0 right-0 text-[10px] font-bold px-2.5 py-1 rounded-bl-[12px] bg-primary text-primary-foreground uppercase tracking-wider">
-          {badge}
-        </span>
-      )}
-      <div className={`text-[12px] font-medium uppercase tracking-wide ${active ? "text-primary" : "text-secondary-fg"}`}>
-        {title}
-      </div>
-      <div className={`font-display text-[22px] font-bold tabular-nums mt-1 ${active ? "text-foreground" : "text-foreground/90"}`}>
-        {price}
-      </div>
-      <div className={`text-[12px] mt-0.5 ${active ? "text-primary/80" : "text-secondary-fg/80"}`}>
-        {sub}
-      </div>
-    </motion.button>
   );
 }

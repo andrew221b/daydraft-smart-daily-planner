@@ -16,6 +16,10 @@ import { componentTagger } from "lovable-tagger";
 //                     deploys so it caches.
 //   • `date`        — date-fns is used widely; one shared chunk avoids
 //                     duplicate copies across screen bundles.
+//   • `motion`      — framer-motion renders on first paint (Shell/TabBar) AND
+//                     ~22 other files. One shared chunk dedupes it instead of
+//                     leaking copies into every page bundle, and caches across
+//                     deploys.
 const splitVendor = (id: string): string | undefined => {
   if (!id.includes("node_modules")) return undefined;
   if (/[\\/](react|react-dom|react-router|react-router-dom|scheduler)[\\/]/.test(id)) return "react";
@@ -26,6 +30,7 @@ const splitVendor = (id: string): string | undefined => {
   if (/[\\/]jspdf[\\/]/.test(id) || /[\\/]jspdf-autotable[\\/]/.test(id) || /[\\/]html2canvas[\\/]/.test(id)) return "pdf";
   if (/[\\/]date-fns[\\/]/.test(id)) return "date";
   if (/[\\/]lucide-react[\\/]/.test(id)) return "icons";
+  if (/[\\/]framer-motion[\\/]/.test(id) || /[\\/]motion-dom[\\/]/.test(id) || /[\\/]motion-utils[\\/]/.test(id)) return "motion";
   return undefined;
 };
 

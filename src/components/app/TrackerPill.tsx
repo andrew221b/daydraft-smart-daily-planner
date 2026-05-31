@@ -1251,7 +1251,7 @@ function TrackerInner({ embedded = false, onClose }: { embedded?: boolean; onClo
                   const c = await addCategory(newName);
                   if (c) setNewName("");
                 }}
-                className="flex items-center gap-2 rounded-[14px] border border-dashed border-soft surface-soft backdrop-blur-sm px-3 py-2"
+                className="flex items-center gap-2 rounded-[14px] border border-dashed border-border/60 surface-soft backdrop-blur-sm px-3 py-2"
               >
                 <Plus className="h-4 w-4 text-secondary-fg shrink-0" />
                 <Input

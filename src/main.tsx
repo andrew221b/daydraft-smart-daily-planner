@@ -56,7 +56,10 @@ try {
  */
 const BOOT_T0 = performance.now();
 const NATIVE_SPLASH_FADE_MS = 400; // must match capacitor.config.ts fadeOutDuration
-const MIN_OVERLAY_VISIBLE_MS = 700;
+// Minimum time the boot orbital stays visible so it reads as motion rather than
+// a one-frame flash. Tuned down from 700ms — 450ms still registers the orbital
+// while making launch feel noticeably snappier (the dominant cold-start lever).
+const MIN_OVERLAY_VISIBLE_MS = 450;
 
 let splashGone = !Capacitor.isNativePlatform();
 let reactCommitted = false;
@@ -112,7 +115,7 @@ if (Capacitor.isNativePlatform()) {
         splashGone = true;
         tryFadeOverlay();
       });
-  }, 100);
+  }, 60);
   // Hard failsafe: if SplashScreen.hide never resolves at all, don't
   // leave the user staring at the boot loader forever.
   window.setTimeout(() => {

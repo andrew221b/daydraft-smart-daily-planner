@@ -10,6 +10,7 @@ import type { Block } from "@/lib/daydraft";
 import { todayDateStr } from "@/lib/daydraft";
 import {
   attachNotificationActionListener,
+  ensureNotificationChannel,
   registerNotificationActions,
   requestLocalNotificationPermissions,
   syncBlockNotifications,
@@ -103,6 +104,7 @@ export function NotificationBridge() {
 
     (async () => {
       await registerNotificationActions();
+      await ensureNotificationChannel();
       await requestLocalNotificationPermissions();
       if (cancelled) return;
       detach = await attachNotificationActionListener({

@@ -2,7 +2,7 @@ import { lazy, Suspense, useMemo, useState } from "react";
 import { keepPreviousData, useQuery } from "@tanstack/react-query";
 import { useAuth } from "@/hooks/useAuth";
 import { supabase } from "@/integrations/supabase/client";
-import { Button } from "@/components/ui/button";
+
 import { BarChart3, ChevronDown, Download, FileText, ListFilter, ChevronRight, Timer } from "lucide-react";
 import { useNavigate } from "react-router-dom";
 import { EmptyState } from "@/components/app/EmptyState";
@@ -916,18 +916,18 @@ export default function Reports() {
                                 <button
                                   type="button"
                                   onClick={(e) => { e.stopPropagation(); onExport("pdf", [group.id], group.name); }}
-                                  className="h-9 rounded-xl border border-soft text-[11px] font-semibold text-secondary-fg/85 pressable hover:text-foreground"
+                                  className="h-9 rounded-xl border border-primary/30 bg-primary/[0.07] hover:bg-primary/[0.13] text-[11px] font-semibold text-primary pressable flex items-center justify-center gap-1.5 transition-colors"
                                   aria-label={`Download PDF report for ${group.name}`}
                                 >
-                                  PDF
+                                  <FileText className="h-3 w-3" /> PDF
                                 </button>
                                 <button
                                   type="button"
                                   onClick={(e) => { e.stopPropagation(); onExport("csv", [group.id], group.name); }}
-                                  className="h-9 rounded-xl border border-soft text-[11px] font-semibold text-secondary-fg/85 pressable hover:text-foreground"
+                                  className="h-9 rounded-xl border border-success/30 bg-success/[0.06] hover:bg-success/[0.12] text-[11px] font-semibold text-success pressable flex items-center justify-center gap-1.5 transition-colors"
                                   aria-label={`Download CSV report for ${group.name}`}
                                 >
-                                  CSV
+                                  <Download className="h-3 w-3" /> CSV
                                 </button>
                               </div>
                             </div>
@@ -967,29 +967,43 @@ export default function Reports() {
             </section>
           )}
 
-          <section className="space-y-2 pt-2">
+          <section className="space-y-3 pt-2">
             {!isPro && (
               <p className="text-[11px] text-secondary-fg/70 px-0.5">
                 PDF and CSV export with billing details is included with Pro.
               </p>
             )}
-            <div className="grid grid-cols-2 gap-2">
-              <Button
-                variant="outline"
+            <div className="grid grid-cols-2 gap-3">
+              {/* PDF — primary accent card */}
+              <button
+                type="button"
                 onClick={() => onExport("pdf")}
-                className="h-[52px] rounded-2xl border-border/30 bg-foreground/[0.02] hover:bg-foreground/[0.06] active:bg-primary/15 active:border-primary/30 active:text-primary transition-colors flex flex-col gap-0.5 justify-center items-center"
+                className="group relative h-[62px] rounded-2xl border border-primary/35 bg-primary/[0.08] hover:bg-primary/[0.14] pressable flex flex-col items-center justify-center gap-0.5 overflow-hidden transition-colors"
               >
-                <span className="flex items-center text-[13px] font-semibold"><FileText className="h-[14px] w-[14px] mr-1.5 opacity-80" /> Export PDF</span>
-                <span className="text-[10px] text-secondary-fg/70 font-medium">All categories</span>
-              </Button>
-              <Button
-                variant="outline"
+                {/* subtle top glow */}
+                <span aria-hidden className="pointer-events-none absolute inset-x-0 top-0 h-px bg-gradient-to-r from-transparent via-primary/50 to-transparent" />
+                <span className="flex items-center gap-1.5 text-[13px] font-semibold text-primary">
+                  <FileText className="h-[14px] w-[14px]" />
+                  {isPro ? "Export PDF" : "Export PDF"}
+                  {!isPro && <BarChart3 className="h-[11px] w-[11px] opacity-60" />}
+                </span>
+                <span className="text-[10px] font-medium text-primary/60">All categories</span>
+              </button>
+
+              {/* CSV — success-tinted card */}
+              <button
+                type="button"
                 onClick={() => onExport("csv")}
-                className="h-[52px] rounded-2xl border-border/30 bg-foreground/[0.02] hover:bg-foreground/[0.06] active:bg-primary/15 active:border-primary/30 active:text-primary transition-colors flex flex-col gap-0.5 justify-center items-center"
+                className="group relative h-[62px] rounded-2xl border border-success/30 bg-success/[0.06] hover:bg-success/[0.11] pressable flex flex-col items-center justify-center gap-0.5 overflow-hidden transition-colors"
               >
-                <span className="flex items-center text-[13px] font-semibold"><Download className="h-[14px] w-[14px] mr-1.5 opacity-80" /> Export CSV</span>
-                <span className="text-[10px] text-secondary-fg/70 font-medium">All categories</span>
-              </Button>
+                <span aria-hidden className="pointer-events-none absolute inset-x-0 top-0 h-px bg-gradient-to-r from-transparent via-success/40 to-transparent" />
+                <span className="flex items-center gap-1.5 text-[13px] font-semibold text-success">
+                  <Download className="h-[14px] w-[14px]" />
+                  {isPro ? "Export CSV" : "Export CSV"}
+                  {!isPro && <BarChart3 className="h-[11px] w-[11px] opacity-60" />}
+                </span>
+                <span className="text-[10px] font-medium text-success/60">All categories</span>
+              </button>
             </div>
           </section>
         </div>

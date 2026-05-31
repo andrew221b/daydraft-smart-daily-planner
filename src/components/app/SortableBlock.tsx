@@ -412,7 +412,6 @@ export const SortableBlock = memo(({
       <AlertDialog open={confirmDelete} onOpenChange={setConfirmDelete}>
         <AlertDialogContent
           className="w-[calc(100vw-48px)] max-w-[340px] rounded-3xl border-border/40 bg-surface/95 p-0 backdrop-blur-2xl"
-          style={{ WebkitBackdropFilter: "blur(32px)", backdropFilter: "blur(32px)" } as React.CSSProperties}
         >
           <AlertDialogHeader className="px-6 pt-6 pb-0 text-center">
             <div className="mx-auto mb-3 flex h-11 w-11 items-center justify-center rounded-full bg-destructive/12 border border-destructive/20">

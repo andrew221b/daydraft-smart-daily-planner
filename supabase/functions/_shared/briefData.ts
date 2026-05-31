@@ -38,7 +38,9 @@ export type TimeEntryRow = {
 
 export type CategoryRow = {
   id: string;
+  name?: string | null;
   hourly_rate: number | null;
+  rate_set_at?: string | null;
   currency: string | null;
 };
 
@@ -85,17 +87,17 @@ export function ymdInTz(d: Date, tz: string): string {
 
 /** A user task is a real planned task, not a synced calendar event or a
  *  break/lunch placeholder. */
-function isUserTask(b: BlockRow): boolean {
+export function isUserTask(b: BlockRow): boolean {
   return b.kind === "task" && !b.is_calendar_event;
 }
 
 /** Done = explicitly completed, or resolved as done. */
-function isDone(b: BlockRow): boolean {
+export function isDone(b: BlockRow): boolean {
   return b.completed === true || b.resolution === "done";
 }
 
 /** Skipped/missed shouldn't count as "carry to tomorrow" suggestions. */
-function isOpen(b: BlockRow): boolean {
+export function isOpen(b: BlockRow): boolean {
   return !isDone(b) && b.resolution !== "skipped" && b.resolution !== "missed";
 }
 
@@ -212,7 +214,9 @@ export function computeOverrun(blocks: BlockRow[], nowMin: number, activeEndMin:
   return { remainingMin, timeLeftMin, behindBy: remainingMin - timeLeftMin };
 }
 
-/** Minutes until the energy peak window opens, if it's still ahead today. */
+/** Minutes until the energy peak window opens.
+ *  Returns 0 when the peak just opened (0–10 min ago),
+ *  a positive count when it's within the next 2h, null otherwise. */
 export function energyPeakInMin(zones: EnergyZones, nowMin: number): number | null {
   const peak = zones?.peak;
   if (!Array.isArray(peak) || peak.length < 1) return null;
@@ -220,8 +224,8 @@ export function energyPeakInMin(zones: EnergyZones, nowMin: number): number | nu
   if (!Number.isFinite(startHour)) return null;
   const peakStartMin = startHour * 60;
   const delta = peakStartMin - nowMin;
-  // Only surface when it's coming up soon (next ~2h) and hasn't started.
-  if (delta > 10 && delta <= 120) return delta;
+  if (delta >= 0 && delta <= 10) return 0;      // just opened
+  if (delta > 10 && delta <= 120) return delta;  // coming up soon
   return null;
 }
 
@@ -229,7 +233,7 @@ export function energyPeakInMin(zones: EnergyZones, nowMin: number): number | nu
 
 /** Deterministic pick from a list, seeded by date so the same day reads the
  *  same on every open but the phrasing varies day to day. */
-function pickByDate<T>(arr: T[], localDate: string): T {
+export function pickByDate<T>(arr: T[], localDate: string): T {
   const seed = localDate.split("-").reduce((acc, p) => acc * 31 + parseInt(p, 10), 7) >>> 0;
   return arr[seed % arr.length];
 }
@@ -240,45 +244,97 @@ export type MorningInput = {
   energyPeakMin: number | null;
   streak: number;
   localDate: string;
+  /** A leading "noticed-thing" — a milestone or pattern insight from
+   *  insights.ts. When set, it becomes the first sentence and the action
+   *  compresses so the body stays ≤ 2 sentences. */
+  feature?: string | null;
+  /** Context-matched closing line from insights.closingLine(). Appended last. */
+  closer?: string;
 };
 
 export function buildMorningBrief(i: MorningInput): Nudgeable {
-  const parts: string[] = [];
   const carry = i.yesterday.openTitles.length;
+  const feature = (i.feature || "").trim();
 
-  if (carry > 0) {
-    parts.push(carry === 1 ? `1 task waiting from yesterday` : `${carry} tasks waiting from yesterday`);
-  }
-  if (i.next) {
-    parts.push(`${i.next.title} at ${i.next.startHm}`);
-  }
-  if (i.energyPeakMin != null) {
-    parts.push(`focus peak in ~${i.energyPeakMin}m`);
-  }
-
-  // Streak/momentum (#6) — woven in, never its own nag.
+  // Title: when a noticed-thing leads the body, keep the title neutral so a
+  // streak/milestone isn't doubled up. Otherwise stay streak-aware.
   let title: string;
-  if (i.streak >= 3) {
+  if (feature) {
+    title = pickByDate(["Good morning", "Morning", "Morning — here's your day"], i.localDate);
+  } else if (i.streak >= 3) {
     title = pickByDate([`Day ${i.streak} — keep the thread`, `${i.streak}-day streak`, `Morning — ${i.streak} in a row`], i.localDate);
   } else {
     title = pickByDate(["Morning — here's your day", "Morning — plan the day?", "Good morning"], i.localDate);
   }
 
-  let body: string;
-  if (parts.length === 0) {
-    // Clean slate: nothing carried, nothing scheduled yet.
-    body = i.streak >= 3
-      ? `Yesterday you closed it all. Line up today to keep the streak?`
-      : pickByDate([
-          "Nothing carried over. Want to shape today in a couple of minutes?",
-          "Blank canvas. A quick plan now makes the day run itself.",
-        ], i.localDate);
-  } else {
-    body = capitalize(joinClauses(parts)) + ".";
-    if (carry > 0) body += " Start with one of those.";
-  }
+  // One action sentence (+ an optional second "peakTail" shown only when nothing
+  // leads). A feature takes the first slot and the action follows — ≤ 2 sentences.
+  const { action, peakTail } = morningAction(i, carry);
+  const core = feature
+    ? `${feature} ${action}`
+    : peakTail
+      ? `${action} ${peakTail}`
+      : action;
+  const body = i.closer ? `${core} ${i.closer}` : core;
 
   return { title, body, url: "/today" };
+}
+
+/** The single most useful next step for the morning, as a one-sentence
+ *  `action` plus an optional second `peakTail`. Split so a leading
+ *  insight/milestone can replace the tail and stay within two sentences. */
+function morningAction(i: MorningInput, carry: number): { action: string; peakTail: string | null } {
+  const peak = i.energyPeakMin;
+  const peakNow = peak === 0;
+  const peakSoon = peak != null && peak > 0;
+
+  // Clean slate — nothing to name.
+  if (carry === 0 && !i.next && peak == null) {
+    if (i.streak >= 3) return { action: "Yesterday you closed it all.", peakTail: "Line up today to keep it going?" };
+    const pick = pickByDate(
+      [
+        ["Nothing carried over.", "A quick plan now shapes the whole day."],
+        ["Blank canvas.", "What's the one thing that matters today?"],
+      ],
+      i.localDate,
+    );
+    return { action: pick[0], peakTail: pick[1] };
+  }
+
+  // Single named carry-over + upcoming event = one actionable sentence.
+  if (carry === 1 && i.next) {
+    return {
+      action: `Finish "${truncate(i.yesterday.openTitles[0], 32)}" before ${i.next.title} at ${i.next.startHm}.`,
+      peakTail: null,
+    };
+  }
+
+  // Single carry-over, no event — framed as continuity.
+  if (carry === 1) {
+    const action = `Still on your plate: "${truncate(i.yesterday.openTitles[0], 32)}".`;
+    const peakTail = peakNow ? "Your focus peak is open now." : peakSoon ? `Focus peak in ${peak}m — good timing.` : null;
+    return { action, peakTail };
+  }
+
+  // An event to anchor to (multiple carries or none) — peak rides inline.
+  if (i.next) {
+    const prefix = carry > 1 ? `${carry} still on your plate. ` : "";
+    let action = `${prefix}${capitalize(i.next.title)} at ${i.next.startHm}`;
+    if (peakNow) action += " — focus peak is open now";
+    else if (peakSoon) action += ` — focus peak in ${peak}m`;
+    action += ".";
+    return { action, peakTail: null };
+  }
+
+  // Fallbacks — a single most-useful fact.
+  if (carry > 1) {
+    const action = `${carry} tasks still on your plate from yesterday.`;
+    const peakTail = peakNow ? "Your focus peak is open now." : peakSoon ? `Focus peak in ${peak}m.` : null;
+    return { action, peakTail };
+  }
+  if (peakNow) return { action: "Your focus peak is open now.", peakTail: "Good time to start." };
+  if (peakSoon) return { action: `Focus peak opens in ${peak}m.`, peakTail: "Line up your hardest task." };
+  return { action: "Time to plan the day.", peakTail: null };
 }
 
 export type EveningInput = {
@@ -286,6 +342,15 @@ export type EveningInput = {
   trackedMin: number;
   earnings: Earnings | null;
   localDate: string;
+  /** A leading milestone/record line from insights.ts (e.g. "Cleared the
+   *  board — every task done."). When set, it leads and the carry/tomorrow
+   *  tail yields for brevity. */
+  feature?: string | null;
+  /** Tomorrow's first anchored item — the forward-looking thread, shown only
+   *  when today's resolved so the evening ends on what's next. */
+  tomorrowFirst?: { title: string; startHm: string } | null;
+  /** Context-matched closing line from insights.closingLine(). Appended last. */
+  closer?: string;
 };
 
 export function buildEveningDebrief(i: EveningInput): Nudgeable {
@@ -297,33 +362,70 @@ export function buildEveningDebrief(i: EveningInput): Nudgeable {
   if (i.trackedMin >= 5) metrics.push(`${fmtDuration(i.trackedMin)} tracked`);
   if (i.earnings && i.earnings.amount >= 0.5) metrics.push(fmtMoney(i.earnings));
 
-  const title = pickByDate(["Today's wrap", "Day in review", "Evening recap"], i.localDate);
+  // Title varies by day quality so strong days feel acknowledged.
+  let title: string;
+  if (pct >= 80) {
+    title = pickByDate(["Strong close", "Day done right", "Good finish"], i.localDate);
+  } else if (pct >= 40) {
+    title = pickByDate(["Today's wrap", "Day in review", "Evening recap"], i.localDate);
+  } else {
+    title = pickByDate(["Day in review", "Evening check-in", "End of day"], i.localDate);
+  }
+
+  const feature = (i.feature || "").trim();
+  const tomorrowLine = i.tomorrowFirst
+    ? `Tomorrow opens with ${i.tomorrowFirst.title} at ${i.tomorrowFirst.startHm}.`
+    : null;
+  const carryLine = open === 1
+    ? `Move "${truncate(openTitles[0], 28)}" to tomorrow?`
+    : open === 2
+      ? `Carry "${truncate(openTitles[0], 22)}" and "${truncate(openTitles[1], 22)}" to tomorrow?`
+      : open > 2
+        ? `${open} tasks unfinished — carry the important ones over?`
+        : null;
 
   let body: string;
   if (metrics.length === 0) {
-    body = "Quiet one on the plan. Want a quick recap before tomorrow?";
+    body = tomorrowLine ? `Quiet one today. ${tomorrowLine}` : "Quiet one on the plan. Want a quick recap before tomorrow?";
   } else {
-    body = metrics.join(" · ") + ".";
-    if (open === 1) body += ` Move "${truncate(openTitles[0], 28)}" to tomorrow?`;
-    else if (open > 1) body += ` Carry ${open} unfinished into tomorrow?`;
+    const score = metrics.join(" · ") + ".";
+    if (feature) {
+      // The moment leads, the score backs it up — carry/tomorrow yields here.
+      body = `${feature} ${score}`;
+    } else {
+      // Open tasks → carry offer (act now); clean day → tomorrow preview.
+      const tail = open > 0 ? carryLine : tomorrowLine;
+      body = tail ? `${score} ${tail}` : score;
+    }
   }
 
-  return { title, body, url: "/reports" };
+  const finalBody = i.closer ? `${body} ${i.closer}` : body;
+  // Link to /today when tasks are open so the user can act immediately.
+  return { title, body: finalBody, url: open > 0 ? "/today" : "/reports" };
 }
 
 export type OverrunInput = {
   overrun: Overrun;
   nowHm: string;
   localDate: string;
+  /** Top open task titles (up to 2, sorted by duration desc) for actionable copy. */
+  topTasks?: string[];
 };
 
 export function buildOverrun(i: OverrunInput): Nudgeable {
   const work = fmtDuration(i.overrun.remainingMin);
   const left = fmtDuration(i.overrun.timeLeftMin);
   const title = pickByDate(["Running behind", "Day's tightening up", "Heads up on time"], i.localDate);
-  const body = left
-    ? `It's ${i.nowHm} — about ${work} of work left, ~${left} before you wrap. Trim or reschedule?`
-    : `It's ${i.nowHm} — about ${work} of planned work still open. Reschedule what won't fit?`;
+
+  // Name specific tasks when available so "reschedule" is actionable.
+  const taskHint = i.topTasks && i.topTasks.length > 0
+    ? ` Move "${truncate(i.topTasks[0], 28)}"${i.topTasks[1] ? ` or "${truncate(i.topTasks[1], 22)}"` : ""} to tomorrow?`
+    : " Trim or reschedule?";
+
+  const body = i.overrun.timeLeftMin > 0
+    ? `It's ${i.nowHm} — ${work} of work left, ${left} before wrap.${taskHint}`
+    : `It's ${i.nowHm} — ${work} of work still open.${taskHint}`;
+
   return { title, body, url: "/today/plan" };
 }
 
@@ -331,11 +433,11 @@ export function buildOverrun(i: OverrunInput): Nudgeable {
 
 export type Nudgeable = { title: string; body: string; url: string };
 
-function capitalize(s: string): string {
+export function capitalize(s: string): string {
   return s.length ? s[0].toUpperCase() + s.slice(1) : s;
 }
 
-function truncate(s: string, max: number): string {
+export function truncate(s: string, max: number): string {
   return s.length > max ? s.slice(0, max - 1).trimEnd() + "…" : s;
 }
 

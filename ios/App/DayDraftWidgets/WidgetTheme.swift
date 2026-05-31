@@ -2,117 +2,323 @@
 //  WidgetTheme.swift
 //  DayDraftWidgets
 //
-//  Design tokens and shared primitives for Live Activity views.
+//  Premium design system for the Focus + Tracker Live Activities.
 //
-//  Apple HIG rules observed here:
-//  • No @State / animations — Live Activities render as static snapshots.
-//  • All interactive elements use Link (iOS 17+ supported in Live Activities).
-//  • Colours match the app's --primary token (Apple Blue) and semantic palette.
+//  What's allowed to "animate" inside a Live Activity (no @State, no explicit
+//  SwiftUI animations — they're static snapshots) and is used heavily here:
+//    • Text(_, style: .timer) / Text(timerInterval:)  → live count-up / countdown
+//    • ProgressView(timerInterval:)                    → a bar that fills on its
+//                                                         own over the session
+//    • Image(systemName:).symbolEffect(...)            → continuous SF-Symbol
+//                                                         motion (pulse / variable
+//                                                         colour) with zero pushes
+//  Everything else is rich-but-static: gradients, glows, materials, gradient
+//  strokes, layered shadows.
+//
+//  ⚠️ Live-timer pitfall (this bit us once — the count-up froze at 0:00):
+//  a Text(_, style: .timer) / Text(timerInterval:) ONLY keeps ticking if it is
+//  left alone. Do NOT add .contentTransition(.numericText()) and do NOT give it
+//  a gradient .foregroundStyle — both snapshot the glyphs and freeze the clock.
+//  Use a SOLID colour + .shadow for the timer; put gradients on the eyebrow,
+//  badge or button beside it instead.
 //
 
 import SwiftUI
+import WidgetKit
+import UIKit
 
-// MARK: - Colours
+// MARK: - Palette
 
 enum DD {
-    /// Apple Blue — mirrors the app's `--primary` CSS token.
-    static let blue       = Color(red: 0.04, green: 0.52, blue: 1.00)
+    /// Apple Blue — the app's `--primary`.
+    static let blue   = Color(red: 0.04, green: 0.52, blue: 1.00)
+    /// Apple Indigo — the app's `--primary-glow`; the second stop of the brand gradient.
+    static let indigo = Color(red: 0.35, green: 0.34, blue: 0.84)
     /// Money-green for earnings.
-    static let green      = Color(red: 0.20, green: 0.84, blue: 0.44)
-    /// Destructive red for Stop actions.
-    static let red        = Color(red: 1.00, green: 0.27, blue: 0.23)
-    /// Primary text on the dark island surface.
-    static let white      = Color.white
-    /// Secondary / label text.
-    static let dim        = Color.white.opacity(0.55)
-    /// Faintest text (captions, "of Xm").
-    static let faint      = Color.white.opacity(0.38)
+    static let green  = Color(red: 0.18, green: 0.86, blue: 0.46)
+    /// Destructive red for Stop.
+    static let red    = Color(red: 1.00, green: 0.32, blue: 0.27)
+
+    static let white  = Color.white
+    static let dim    = Color.white.opacity(0.62)
+    static let faint  = Color.white.opacity(0.40)
+
+    /// Two-stop brand gradient (blue → indigo), 132° like the web `--gradient-primary`.
+    static let brandGradient = LinearGradient(
+        colors: [blue, indigo],
+        startPoint: .topLeading, endPoint: .bottomTrailing
+    )
 }
 
-// MARK: - Color(hex:)
+// MARK: - Color helpers
 
 extension Color {
-    /// Accepts "#rrggbb" or "rrggbb". Falls back to DD.blue for bad input.
+    /// Accepts "#rrggbb" or "rrggbb". Falls back to DD.blue.
     init(hex raw: String) {
         let s = raw.trimmingCharacters(in: CharacterSet(charactersIn: "#"))
         var v: UInt64 = 0
-        guard s.count == 6, Scanner(string: s).scanHexInt64(&v) else {
-            self = DD.blue; return
-        }
+        guard s.count == 6, Scanner(string: s).scanHexInt64(&v) else { self = DD.blue; return }
         self = Color(
             red:   Double((v >> 16) & 0xFF) / 255,
             green: Double((v >>  8) & 0xFF) / 255,
             blue:  Double( v        & 0xFF) / 255
         )
     }
+
+    /// A brighter sibling of this colour — the light stop of an accent gradient.
+    func lighter(_ amount: CGFloat = 0.20) -> Color {
+        var h: CGFloat = 0, s: CGFloat = 0, b: CGFloat = 0, a: CGFloat = 0
+        guard UIColor(self).getHue(&h, saturation: &s, brightness: &b, alpha: &a) else { return self }
+        return Color(hue: Double(h),
+                     saturation: Double(max(0, s - amount * 0.4)),
+                     brightness: Double(min(1, b + amount)))
+    }
+
+    /// A vivid top-left → rich bottom-right gradient built from any accent.
+    func accentGradient() -> LinearGradient {
+        LinearGradient(colors: [lighter(0.16), self],
+                       startPoint: .topLeading, endPoint: .bottomTrailing)
+    }
 }
 
-// MARK: - Session dot
+// MARK: - Ambient glow background (Lock Screen / Notification card)
 
-/// Static glowing dot — no @State. Used in compact leading + lock screen.
-struct SessionDot: View {
-    let color: Color
-    var size: CGFloat = 8
+/// Layered blurred blobs + a dark vertical wash. Gives the card real depth on
+/// the Lock Screen instead of a flat fill. Purely decorative, fully static.
+struct GlowField: View {
+    var tint: Color
+    var secondary: Color = DD.indigo
+
+    var body: some View {
+        ZStack {
+            LinearGradient(
+                colors: [Color.white.opacity(0.06), Color.clear],
+                startPoint: .top, endPoint: .bottom
+            )
+            Circle()
+                .fill(tint.opacity(0.30))
+                .frame(width: 150, height: 150)
+                .blur(radius: 55)
+                .offset(x: -95, y: -46)
+            Circle()
+                .fill(secondary.opacity(0.26))
+                .frame(width: 140, height: 140)
+                .blur(radius: 58)
+                .offset(x: 115, y: 52)
+        }
+        .clipped()
+    }
+}
+
+// MARK: - Live "pulse" badge — a glyph that breathes via symbolEffect
+
+/// A small accent disc with an SF-Symbol that pulses continuously (no push).
+struct PulseBadge: View {
+    let systemName: String
+    let tint: Color
+    var diameter: CGFloat = 30
+    var symbolSize: CGFloat = 14
 
     var body: some View {
         ZStack {
             Circle()
-                .fill(color.opacity(0.28))
-                .frame(width: size * 2.4, height: size * 2.4)
-                .blur(radius: 1)
+                .fill(tint.accentGradient())
+                .shadow(color: tint.opacity(0.55), radius: 6, y: 2)
             Circle()
-                .fill(color)
-                .frame(width: size, height: size)
+                .strokeBorder(Color.white.opacity(0.25), lineWidth: 0.8)
+            Image(systemName: systemName)
+                .font(.system(size: symbolSize, weight: .bold))
+                .foregroundStyle(.white)
+                .symbolEffect(.pulse, options: .repeating)
         }
+        .frame(width: diameter, height: diameter)
     }
 }
 
-// MARK: - Pill button (used inside expanded island bottom region)
+// MARK: - Live recording wave — accent waveform that animates its colours
 
-/// A capsule-shaped button label. Wrap in a Link at the call site.
-struct PillButton: View {
+struct LiveWave: View {
+    let tint: Color
+    var size: CGFloat = 15
+
+    var body: some View {
+        Image(systemName: "waveform")
+            .font(.system(size: size, weight: .bold))
+            .foregroundStyle(tint)
+            .symbolEffect(.variableColor.iterative.dimInactiveLayers.nonReversing, options: .repeating)
+    }
+}
+
+// MARK: - Glass action button (Done / Stop)
+
+/// A gradient capsule with an inner highlight, hairline stroke and coloured
+/// glow. Wrap in a `Link` at the call site.
+struct GlassActionButton: View {
     let title: String
     let icon: String
-    let color: Color
+    let tint: Color
 
     var body: some View {
         HStack(spacing: 5) {
             Image(systemName: icon)
-                .font(.system(size: 13, weight: .bold))
+                .font(.system(size: 12, weight: .bold))
             Text(title)
-                .font(.system(size: 15, weight: .semibold, design: .rounded))
+                .font(.system(size: 14, weight: .bold, design: .rounded))
         }
-        .foregroundStyle(DD.white)
-        .padding(.horizontal, 18)
-        .padding(.vertical, 10)
-        .background(Capsule().fill(color.opacity(0.2)))
-        .overlay(Capsule().strokeBorder(color.opacity(0.5), lineWidth: 1))
+        .foregroundStyle(.white)
+        .padding(.horizontal, 16)
+        .padding(.vertical, 9)
+        .background(
+            Capsule().fill(tint.accentGradient())
+        )
+        .overlay(
+            Capsule()
+                .strokeBorder(
+                    LinearGradient(colors: [.white.opacity(0.45), .white.opacity(0.08)],
+                                   startPoint: .top, endPoint: .bottom),
+                    lineWidth: 0.8
+                )
+        )
+        .shadow(color: tint.opacity(0.5), radius: 7, y: 3)
     }
 }
 
-// MARK: - Circular button
+// MARK: - Live progress bar (fills over the session by itself)
 
-/// A highly polished circular icon button.
-struct CircularButton: View {
-    let icon: String
-    let color: Color
-    var size: CGFloat = 44
+/// A `ProgressView(timerInterval:)` that advances on its own from `start` to
+/// `end` — no pushes. Tinted to the session accent with a soft glow. Used when
+/// a session has a known planned end.
+struct LiveProgressBar: View {
+    let start: Date
+    let end: Date
+    let tint: Color
+    var height: CGFloat = 6
+
+    var body: some View {
+        ProgressView(timerInterval: start...end, countsDown: false) {
+            EmptyView()
+        } currentValueLabel: {
+            EmptyView()
+        }
+        .progressViewStyle(.linear)
+        .tint(tint)
+        .frame(height: height)
+        .shadow(color: tint.opacity(0.4), radius: 3, y: 1)
+    }
+}
+
+// MARK: - Stat column (label on top, value below) — the "metrics grid" unit
+
+/// One labelled metric, fitness-dashboard style: a small uppercase label sits
+/// above its value. Pass any view (a string Text, a live timer, a chip) as the
+/// value. Stretches to share width equally inside an HStack.
+struct StatColumn<V: View>: View {
+    let label: String
+    var hAlign: HorizontalAlignment = .leading
+    @ViewBuilder var value: () -> V
+
+    private var frameAlign: Alignment {
+        switch hAlign {
+        case .trailing: return .trailing
+        case .center:   return .center
+        default:        return .leading
+        }
+    }
+
+    var body: some View {
+        VStack(alignment: hAlign, spacing: 3) {
+            Text(label.uppercased())
+                .font(.system(size: 9.5, weight: .heavy, design: .rounded))
+                .tracking(0.9)
+                .foregroundStyle(DD.faint)
+                .lineLimit(1)
+            value()
+        }
+        .frame(maxWidth: .infinity, alignment: frameAlign)
+    }
+}
+
+// MARK: - Hero timer box — the boxed, tinted centre value (live count-up)
+
+/// The emphasised centre metric — a live count-up inside a soft tinted card,
+/// mirroring the boxed hero value in a workout dashboard.
+struct HeroTimerBox: View {
+    let start: Date
+    let tint: Color
+    var fontSize: CGFloat = 30
+
+    var body: some View {
+        Text(start, style: .timer)
+            .font(.system(size: fontSize, weight: .heavy, design: .rounded))
+            .monospacedDigit()
+            .foregroundStyle(tint)
+            .shadow(color: tint.opacity(0.4), radius: 8, y: 1)
+            .lineLimit(1)
+            .minimumScaleFactor(0.5)
+            .frame(maxWidth: .infinity)
+            .padding(.vertical, 7)
+            .padding(.horizontal, 6)
+            .background(
+                RoundedRectangle(cornerRadius: 14, style: .continuous)
+                    .fill(tint.opacity(0.13))
+            )
+            .overlay(
+                RoundedRectangle(cornerRadius: 14, style: .continuous)
+                    .strokeBorder(tint.opacity(0.28), lineWidth: 0.8)
+            )
+    }
+}
+
+// MARK: - Equalizer bar — a wide animated "recording" waveform on a faint track
+
+/// A full-width animated waveform sitting on a faint rounded track. Conveys an
+/// active recording session and self-animates via symbolEffect (no pushes).
+struct EqualizerBar: View {
+    let tint: Color
+    var height: CGFloat = 30
 
     var body: some View {
         ZStack {
-            Circle()
-                .fill(color.opacity(0.18))
-            Circle()
-                .strokeBorder(color.opacity(0.4), lineWidth: 1)
-            Image(systemName: icon)
-                .font(.system(size: size * 0.45, weight: .black))
-                .foregroundStyle(color)
+            RoundedRectangle(cornerRadius: 9, style: .continuous)
+                .fill(tint.opacity(0.07))
+            RoundedRectangle(cornerRadius: 9, style: .continuous)
+                .strokeBorder(tint.opacity(0.14), lineWidth: 0.7)
+            Image(systemName: "waveform")
+                .font(.system(size: height * 0.66, weight: .semibold))
+                .foregroundStyle(tint.opacity(0.92))
+                .symbolEffect(.variableColor.iterative.dimInactiveLayers.nonReversing, options: .repeating)
+                .frame(maxWidth: .infinity)
         }
-        .frame(width: size, height: size)
+        .frame(height: height)
+        .clipped()
     }
 }
 
-// MARK: - Duration string
+// MARK: - Journey track — origin dot → self-filling bar → destination dot
+
+/// A "flight tracker" style progress line: a solid origin dot, the self-filling
+/// LiveProgressBar between, and a hollow destination dot. The fill is the live
+/// position marker travelling from start to end.
+struct JourneyTrack: View {
+    let start: Date
+    let end: Date
+    let tint: Color
+
+    var body: some View {
+        HStack(spacing: 7) {
+            Circle()
+                .fill(tint)
+                .frame(width: 7, height: 7)
+                .shadow(color: tint.opacity(0.6), radius: 3)
+            LiveProgressBar(start: start, end: end, tint: tint, height: 6)
+            Circle()
+                .strokeBorder(tint.opacity(0.55), lineWidth: 1.6)
+                .frame(width: 7, height: 7)
+        }
+    }
+}
+
+// MARK: - Duration / rate formatting
 
 /// "45m", "1h", "1h 30m"
 func ddDuration(_ minutes: Int) -> String {
@@ -121,8 +327,6 @@ func ddDuration(_ minutes: Int) -> String {
     if h == 0 { return "\(m)m" }
     return m == 0 ? "\(h)h" : "\(h)h \(m)m"
 }
-
-// MARK: - Rate string
 
 /// "$42/hr", "EUR 150/hr"
 func ddRate(_ rate: Double, _ code: String) -> String {
@@ -134,11 +338,14 @@ func ddRate(_ rate: Double, _ code: String) -> String {
     return "\(a)/hr"
 }
 
+/// Planned end date for a Focus session, or nil when no duration was set.
+func ddPlannedEnd(_ start: Date, _ minutes: Int) -> Date? {
+    minutes > 0 ? start.addingTimeInterval(Double(minutes) * 60) : nil
+}
+
 // MARK: - Safe URL helpers
 
-func ddURL(_ path: String) -> URL? {
-    URL(string: "daydraft://\(path)")
-}
+func ddURL(_ path: String) -> URL? { URL(string: "daydraft://\(path)") }
 
 func ddFocusURL(_ blockId: String) -> URL? {
     ddURL("focus/\(blockId.addingPercentEncoding(withAllowedCharacters: .urlPathAllowed) ?? blockId)")

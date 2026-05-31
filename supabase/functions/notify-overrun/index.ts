@@ -10,6 +10,13 @@ import {
   ymdInTz,
 } from "../_shared/briefData.ts";
 
+function isUserTask(b: BlockRow): boolean {
+  return b.kind === "task" && !b.is_calendar_event;
+}
+function isOpen(b: BlockRow): boolean {
+  return b.completed !== true && b.resolution !== "done" && b.resolution !== "skipped" && b.resolution !== "missed";
+}
+
 /**
  * Mid-day "running behind" check. Run every 30 minutes.
  *
@@ -87,7 +94,19 @@ Deno.serve(async (req) => {
       if (overrun.remainingMin <= 0 || overrun.behindBy < BEHIND_THRESHOLD_MIN) continue;
       inWindow += 1;
 
-      const nudge = buildOverrun({ overrun, nowHm: hm, localDate: todayLocal });
+      // Top 2 open tasks by duration — give the user something concrete to move.
+      const topTasks = blocks
+        .filter(isUserTask)
+        .filter(isOpen)
+        .sort((a, b) =>
+          (Number(b.estimated_minutes || b.duration_min || 0)) -
+          (Number(a.estimated_minutes || a.duration_min || 0))
+        )
+        .slice(0, 2)
+        .map((t) => String(t.title || "").trim())
+        .filter(Boolean);
+
+      const nudge = buildOverrun({ overrun, nowHm: hm, localDate: todayLocal, topTasks });
       const r = await dispatchNudge(admin, userId, "overrun", todayLocal, nudge);
       if (r.fired) { fired += 1; nativeSent += r.nativeSent; webSent += r.webSent; }
     }

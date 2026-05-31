@@ -203,12 +203,7 @@ const AppContent = () => {
               <Route path="/reports" element={null} />
               <Route path="/settings" element={null} />
             </Route>
-            <Route path="/today/planning" element={<Navigate to="/today/plan" replace />} />
             <Route path="/focus/:blockId" element={<RequireAuth><SuspenseRoute><Focus /></SuspenseRoute></RequireAuth>} />
-            <Route path="/recap" element={<Navigate to="/reports" replace />} />
-            <Route path="/recap/week" element={<Navigate to="/reports" replace />} />
-            <Route path="/history" element={<Navigate to="/reports" replace />} />
-            <Route path="/stats" element={<Navigate to="/reports" replace />} />
             <Route path="/privacy" element={<Privacy />} />
             <Route path="/terms" element={<Terms />} />
             <Route path="/settings/delete-account" element={<RequireAuth><SuspenseRoute><DeleteAccount /></SuspenseRoute></RequireAuth>} />

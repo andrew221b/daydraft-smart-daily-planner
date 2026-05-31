@@ -9,6 +9,7 @@ import {
   type ReactNode,
 } from "react";
 import { keepPreviousData, useQuery, useQueryClient } from "@tanstack/react-query";
+import { Capacitor } from "@capacitor/core";
 import { billingDraftToCategoryUpdate } from "@/lib/categoryBilling";
 import { supabase } from "@/integrations/supabase/client";
 import {
@@ -438,6 +439,35 @@ export function TimeTrackerProvider({ children }: { children: ReactNode }) {
       invalidateRollingEntries(queryClient, userId),
     ]);
   }, [queryClient, userId]);
+
+  // Re-sync from the server whenever the app returns to the foreground. The
+  // tracker can be stopped (or started) straight from the Lock Screen /
+  // Dynamic Island Live Activity while the app is backgrounded — without this
+  // the just-ended session's totals and earnings only appeared after the user
+  // manually switched tabs. Refetching on resume makes the category list and
+  // running state reflect reality the instant the app is reopened.
+  useEffect(() => {
+    if (!enabled || !Capacitor.isNativePlatform()) return;
+    let cancelled = false;
+    let cleanup: (() => void) | null = null;
+    void import("@capacitor/app")
+      .then(({ App }) => {
+        if (cancelled) return;
+        const handle = App.addListener("appStateChange", ({ isActive }) => {
+          if (isActive) void refresh();
+        });
+        cleanup = () => {
+          void Promise.resolve(handle).then((h) => h.remove());
+        };
+      })
+      .catch(() => {
+        /* @capacitor/app unavailable — non-fatal, web/test has no resume event */
+      });
+    return () => {
+      cancelled = true;
+      if (cleanup) cleanup();
+    };
+  }, [enabled, refresh]);
 
   const setCategoriesData = useCallback(
     (updater: (prev: TimeCategory[]) => TimeCategory[]) => {

@@ -30,7 +30,7 @@ export function writeDevSimulatePro(enabled: boolean): void {
 /**
  * Returns headers to attach to edge-function calls so the server treats the
  * caller as Pro when "Simulate Pro" is on in dev. Edge functions
- * (generate-plan, check-plan-quota, micro-reschedule-options, …) read the
+ * (generate-plan, micro-reschedule-options, …) read the
  * `x-dd-dev-pro` header and, when present, bypass subscription gating.
  *
  * This is intentionally trusted unconditionally on the server — it's a

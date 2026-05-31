@@ -18,7 +18,7 @@ import { type Block, blockSlotEndHHMM, isOpenUserTask } from "@/lib/daydraft";
  */
 
 const TIMEOUT_HANDLES: number[] = [];
-const DEFAULT_LEADS_MIN = [2]; // default: a single nudge 2 min before
+const DEFAULT_LEADS_MIN = [5]; // default: a single nudge 5 min before
 const DEFAULT_REPEATS = 0;
 const REPEAT_INTERVAL_MIN = 5;
 
@@ -28,18 +28,21 @@ export type ReminderConfig = {
   repeats: number; // re-fire N times after start (every 5 min)
   /** Minutes before block end ("window closing"). Empty = off. Legacy; see endAlertLeadMin. */
   endLeadsMin: number[];
-  /** Primary alert this many minutes before the task window ends. */
+  /** Primary alert this many minutes before the task window ends. 0 = off. */
   endAlertLeadMin: number;
   /** After the primary end alert, fire up to this many extra pings every minute while still before end. */
   endAlertRepeat: number;
+  /** "How did it go?" ping at slot end. Opt-in only — default false. */
+  endFollowUp: boolean;
 };
 
 const KEY = (blockId: string) => `dd_reminders_${blockId}`;
 
-const defaultEndAlert = (): Pick<ReminderConfig, "endLeadsMin" | "endAlertLeadMin" | "endAlertRepeat"> => ({
-  endLeadsMin: [2],
-  endAlertLeadMin: 5,
+const defaultEndAlert = (): Pick<ReminderConfig, "endLeadsMin" | "endAlertLeadMin" | "endAlertRepeat" | "endFollowUp"> => ({
+  endLeadsMin: [],
+  endAlertLeadMin: 0,  // off by default; opt in via Reminders sheet
   endAlertRepeat: 0,
+  endFollowUp: false,  // opt-in only
 });
 
 export const getReminderConfig = (blockId: string): ReminderConfig => {
@@ -50,11 +53,11 @@ export const getReminderConfig = (blockId: string): ReminderConfig => {
     if (!raw)
       return { enabled: true, leadsMin: DEFAULT_LEADS_MIN, repeats: DEFAULT_REPEATS, ...defaultEndAlert() };
     const parsed = JSON.parse(raw);
-    const endLeadsMin = Array.isArray(parsed.endLeadsMin) ? parsed.endLeadsMin : [2];
+    const endLeadsMin = Array.isArray(parsed.endLeadsMin) ? parsed.endLeadsMin : [];
     const endAlertLeadMin =
       typeof parsed.endAlertLeadMin === "number" && parsed.endAlertLeadMin >= 0
         ? parsed.endAlertLeadMin
-        : Math.max(1, ...(endLeadsMin as number[]));
+        : 0;
     const endAlertRepeat =
       typeof parsed.endAlertRepeat === "number" && parsed.endAlertRepeat >= 0 ? parsed.endAlertRepeat : 0;
     return {
@@ -64,6 +67,7 @@ export const getReminderConfig = (blockId: string): ReminderConfig => {
       endLeadsMin,
       endAlertLeadMin,
       endAlertRepeat,
+      endFollowUp: parsed.endFollowUp === true,
     };
   } catch {
     return { enabled: true, leadsMin: DEFAULT_LEADS_MIN, repeats: DEFAULT_REPEATS, ...defaultEndAlert() };

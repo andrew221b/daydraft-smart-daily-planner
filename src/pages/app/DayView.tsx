@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useRef, useState } from "react";
+import { memo, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { createPortal } from "react-dom";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { useNavigate, useSearchParams } from "react-router-dom";
@@ -111,6 +111,75 @@ type ExBlock = Block & {
   moved_to_date?: string | null;
 };
 
+type BulkTemplate = { id: string; name: string; raw_input: string };
+
+/**
+ * Isolated, memoised "brain-dump" composer step. The draft text lives in LOCAL
+ * state here — typing never re-renders the ~1900-line DayView tree (which used
+ * to recreate every SortableBlock callback on each keystroke → visible keyboard
+ * lag). Mirrors the proven ChatInput pattern in AskAiSheet. Commits the text up
+ * to the parent only on "Continue". Seeds from `initialValue` so the review
+ * step's "Back" button restores what was typed.
+ */
+const BulkInputStep = memo(function BulkInputStep({
+  initialValue,
+  templates,
+  onDeleteTemplate,
+  onContinue,
+  disabled,
+}: {
+  initialValue: string;
+  templates: BulkTemplate[];
+  onDeleteTemplate: (id: string) => void;
+  onContinue: (text: string) => void;
+  disabled: boolean;
+}) {
+  const [val, setVal] = useState(initialValue);
+  return (
+    <div className="space-y-3 pb-4">
+      <p className="text-[12px] leading-relaxed text-secondary-fg">
+        Type or paste your tasks — one per line, bullets, commas, anything. We'll split them into blocks.
+      </p>
+      {templates.length > 0 && (
+        <div>
+          <p className="text-[10px] font-semibold uppercase tracking-[0.12em] text-secondary-fg/55 mb-2">Templates</p>
+          <div className="-mx-1 flex gap-1.5 overflow-x-auto pb-1 px-1 scrollbar-none">
+            {templates.map((t) => (
+              <div key={t.id} className="shrink-0 flex items-center gap-0.5 rounded-full border border-border/40 bg-card/50 pl-3 pr-1 py-1">
+                <button
+                  type="button"
+                  onClick={() => setVal((v) => v ? `${v}\n${t.raw_input}` : t.raw_input)}
+                  className="text-[12px] font-medium text-foreground/85 max-w-[11rem] truncate pressable"
+                >
+                  {t.name}
+                </button>
+                <button
+                  type="button"
+                  onClick={() => onDeleteTemplate(t.id)}
+                  className="h-5 w-5 flex items-center justify-center rounded-full text-secondary-fg/45 hover:text-destructive hover:bg-destructive/10 pressable transition-colors ml-0.5"
+                  aria-label="Remove template"
+                >
+                  <X className="h-3 w-3" />
+                </button>
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
+      <Textarea
+        autoFocus={false}
+        value={val}
+        onChange={(e) => setVal(e.target.value)}
+        placeholder={"Fix mobile layout, download PDF, send to client\nCall Alex, invoice client"}
+        className="min-h-[150px] rounded-2xl border-soft bg-card text-[14px]"
+      />
+      <Button onClick={() => onContinue(val)} disabled={disabled} className="w-full h-12 rounded-2xl bg-primary hover:bg-primary/92 text-white font-semibold pressable">
+        Continue
+      </Button>
+    </div>
+  );
+});
+
 export default function DayView() {
   const { user } = useAuth();
   const { profile } = useProfile();
@@ -141,11 +210,12 @@ export default function DayView() {
   const [reminderAdvancedOpen, setReminderAdvancedOpen] = useState(false);
   const [reminderCfg, setReminderCfg] = useState<ReminderConfig>({
     enabled: true,
-    leadsMin: [2],
+    leadsMin: [5],
     repeats: 0,
-    endLeadsMin: [2],
-    endAlertLeadMin: 5,
+    endLeadsMin: [],
+    endAlertLeadMin: 0,
     endAlertRepeat: 0,
+    endFollowUp: false,
   });
   const [durationEditId, setDurationEditId] = useState<string | null>(null);
   // Start-time editing uses the native picker directly (no wrapping sheet).
@@ -656,12 +726,18 @@ export default function DayView() {
     return created.id as string;
   };
 
-  const prepareBulkRows = async () => {
-    const titles = parseBulkTasks(bulkInput);
+  const prepareBulkRows = async (text?: string) => {
+    // `text` comes from the isolated composer's local state (typing no longer
+    // lives in DayView). Fall back to bulkInput for any legacy caller.
+    const source = text ?? bulkInput;
+    const titles = parseBulkTasks(source);
     if (!titles.length) {
       toast.error("Write at least one task");
       return;
     }
+    // Keep bulkInput in sync so the review-step "Back" button re-seeds the
+    // composer with what the user typed.
+    if (text !== undefined && text !== bulkInput) setBulkInput(text);
     // Pull "5 hours" / "30 min" / "1h 15m" out of each title up-front so the
     // review sheet shows the real duration the user typed instead of a flat
     // 30m default they have to re-edit by hand.
@@ -672,6 +748,16 @@ export default function DayView() {
     setBulkRows(rows);
     setBulkStep("review");
   };
+
+  // Stable callbacks for the isolated BulkInputStep — ref indirection keeps the
+  // identities constant across DayView re-renders (so its `memo` holds) while
+  // always invoking the latest closure.
+  const prepareBulkRowsRef = useRef(prepareBulkRows);
+  prepareBulkRowsRef.current = prepareBulkRows;
+  const deleteTemplateRef = useRef(deleteTemplate);
+  deleteTemplateRef.current = deleteTemplate;
+  const handleComposerContinue = useCallback((text: string) => { void prepareBulkRowsRef.current(text); }, []);
+  const handleComposerDeleteTemplate = useCallback((id: string) => { void deleteTemplateRef.current(id); }, []);
 
   const addBulkRows = async (rows: { title: string; duration: number; start_time?: string }[]) => {
     if (planMutating || !user) return;
@@ -1305,6 +1391,91 @@ export default function DayView() {
     [blocks],
   );
 
+  // ── Render-perf memoization for the block list ──────────────────────────
+  // O(1) category lookup instead of a per-row `.find()` over all categories.
+  const categoryMap = useMemo(
+    () => new Map(tracker.categories.map((c) => [c.id, c])),
+    [tracker.categories],
+  );
+  // Stable id array for dnd-kit's SortableContext (was a fresh array each render).
+  const blockIds = useMemo(() => blocks.map((b) => b.id), [blocks]);
+  // Earliest selectable time today — recomputed only on the minute tick, not
+  // every render. Stable identity keeps memo'd rows from re-rendering otherwise.
+  const minTime = useMemo(() => (isToday ? roundedNowHHMM() : undefined), [isToday, now]);
+
+  // The block-row handlers close over lots of state; recreating them inline per
+  // render broke SortableBlock's memo and re-rendered every row on any DayView
+  // state change. We keep the live closures in a ref and expose STABLE wrappers
+  // so identities never change — rows only re-render when their own data does.
+  const liveBlockHandlers = {
+    onTap: (blk: Block) => setTappedBlock(blk),
+    onTapTime: (blk: Block, newTime?: string) => {
+      if (newTime) {
+        startTimeTargetRef.current = blk.id;
+        void commitStartTime(newTime);
+      } else {
+        openStartTimePicker(blk as Block);
+      }
+    },
+    onToggleComplete: (blk: Block) => {
+      if (blk?.is_calendar_event) return;
+      const res = (blk as ExBlock).resolution;
+      if (res === "missed" || res === "skipped") { setLateCompleteBlock(blk as ExBlock); return; }
+      completeBlock(blk.id);
+    },
+    onStartTrack: (blk: Block) => { if (blk?.is_calendar_event) return; setTrackPickerBlock(blk); },
+    onStopTrack: (blk: Block) => { void stopTrackingForBlock(blk); },
+    onCarryForward: (blk: Block) => setDayPickerIntent({ kind: "move-task", blockId: blk.id }),
+    onEditDuration: (blk: Block) => setDurationEditId(blk.id),
+    onEditReminders: (blk: Block) => openReminders(blk.id),
+    onAskAi: (blk: Block) => {
+      setAskAiTaskTitle(blk.title);
+      setAskAiContext(buildTaskSeedContext(blk as ExBlock, blocks));
+      setAskAiOpen(true);
+    },
+    onSaveTemplate: (blk: Block) => void saveAsTemplate(blk),
+    onDeleteBlock: (blk: Block) => removeBlock(blk.id),
+  };
+  const blockHandlersRef = useRef(liveBlockHandlers);
+  blockHandlersRef.current = liveBlockHandlers;
+  const blockHandlers = useMemo(() => ({
+    onTap: (b: Block) => blockHandlersRef.current.onTap(b),
+    onTapTime: (b: Block, t?: string) => blockHandlersRef.current.onTapTime(b, t),
+    onToggleComplete: (b: Block) => blockHandlersRef.current.onToggleComplete(b),
+    onStartTrack: (b: Block) => blockHandlersRef.current.onStartTrack(b),
+    onStopTrack: (b: Block) => blockHandlersRef.current.onStopTrack(b),
+    onEditDuration: (b: Block) => blockHandlersRef.current.onEditDuration(b),
+    onEditReminders: (b: Block) => blockHandlersRef.current.onEditReminders(b),
+    onAskAi: (b: Block) => blockHandlersRef.current.onAskAi(b),
+    onSaveTemplate: (b: Block) => blockHandlersRef.current.onSaveTemplate(b),
+    onDeleteBlock: (b: Block) => blockHandlersRef.current.onDeleteBlock(b),
+  }), []);
+  // Carry-forward is hidden on future plans — preserve the undefined semantics
+  // (SortableBlock keys its UI off the prop's presence). Identity only flips
+  // when isFuture changes.
+  const onCarryForwardStable = useMemo(
+    () => (isFuture ? undefined : (b: Block) => blockHandlersRef.current.onCarryForward(b)),
+    [isFuture],
+  );
+  // Drag overlay content — recompute only while a drag is active.
+  const dragOverlayContent = useMemo(() => {
+    if (!activeDragId) return null;
+    const dragBlock = blocks.find((b) => b.id === activeDragId);
+    if (!dragBlock) return null;
+    const assignedId = getAssignedCategoryId(activeDragId);
+    const assignedCat = assignedId ? categoryMap.get(assignedId) || null : null;
+    return (
+      <SortableBlock
+        block={dragBlock}
+        editing={false}
+        tourSpotlight={false}
+        trackingActive={!!tracker.active && tracker.active.block_id === activeDragId}
+        assignedCategory={assignedCat}
+        isOverlay
+      />
+    );
+  }, [activeDragId, blocks, categoryMap, tracker.active]);
+
   return (
     <>
     <PullToRefresh
@@ -1484,13 +1655,11 @@ export default function DayView() {
                 onDragCancel={() => setDndBodyScrollLock(false)}
                 onDragEnd={onDragEnd}
               >
-                <SortableContext items={blocks.map((b) => b.id)} strategy={verticalListSortingStrategy}>
+                <SortableContext items={blockIds} strategy={verticalListSortingStrategy}>
                   <div className="touch-pan-y space-y-2.5 mt-4 enter-stagger">
                     {blocks.map((b) => {
                       const assignedId = getAssignedCategoryId(b.id);
-                      const assignedCat = assignedId
-                        ? tracker.categories.find((c) => c.id === assignedId) || null
-                        : null;
+                      const assignedCat = assignedId ? categoryMap.get(assignedId) || null : null;
                       return (
                       <SortableBlock
                         key={b.id}
@@ -1500,43 +1669,18 @@ export default function DayView() {
                         trackingActive={!!tracker.active && tracker.active.block_id === b.id}
                         assignedCategory={assignedCat}
                         isFuturePlan={isFuture}
-                        minTime={isToday ? roundedNowHHMM() : undefined}
-                        onTap={(blk) => setTappedBlock(blk)}
-                        onTapTime={(blk, newTime) => {
-                          if (newTime) {
-                            // Inline input fired onChange — commit directly.
-                            startTimeTargetRef.current = blk.id;
-                            void commitStartTime(newTime);
-                          } else {
-                            openStartTimePicker(blk as Block);
-                          }
-                        }}
-                        onToggleComplete={(blk) => {
-                          if (blk?.is_calendar_event) return;
-                          const res = (blk as ExBlock).resolution;
-                          if (res === "missed" || res === "skipped") {
-                            setLateCompleteBlock(blk as ExBlock);
-                            return;
-                          }
-                          completeBlock(blk.id);
-                        }}
-                        onStartTrack={(blk) => {
-                          if (blk?.is_calendar_event) return;
-                          setTrackPickerBlock(blk);
-                        }}
-                        onStopTrack={(blk) => {
-                          void stopTrackingForBlock(blk);
-                        }}
-                        onCarryForward={!isFuture ? (blk) => setDayPickerIntent({ kind: "move-task", blockId: blk.id }) : undefined}
-                        onEditDuration={(blk) => setDurationEditId(blk.id)}
-                        onEditReminders={(blk) => openReminders(blk.id)}
-                        onAskAi={(blk) => {
-                          setAskAiTaskTitle(blk.title);
-                          setAskAiContext(buildTaskSeedContext(blk as ExBlock, blocks));
-                          setAskAiOpen(true);
-                        }}
-                        onSaveTemplate={(blk) => void saveAsTemplate(blk)}
-                        onDeleteBlock={(blk) => removeBlock(blk.id)}
+                        minTime={minTime}
+                        onTap={blockHandlers.onTap}
+                        onTapTime={blockHandlers.onTapTime}
+                        onToggleComplete={blockHandlers.onToggleComplete}
+                        onStartTrack={blockHandlers.onStartTrack}
+                        onStopTrack={blockHandlers.onStopTrack}
+                        onCarryForward={onCarryForwardStable}
+                        onEditDuration={blockHandlers.onEditDuration}
+                        onEditReminders={blockHandlers.onEditReminders}
+                        onAskAi={blockHandlers.onAskAi}
+                        onSaveTemplate={blockHandlers.onSaveTemplate}
+                        onDeleteBlock={blockHandlers.onDeleteBlock}
                       />
                       );
                     })}
@@ -1554,22 +1698,7 @@ export default function DayView() {
                   </div>
                 </SortableContext>
                 <DragOverlay dropAnimation={{ duration: 200, easing: 'cubic-bezier(0.18, 0.67, 0.6, 1.22)' }}>
-                  {activeDragId ? (() => {
-                    const dragBlock = blocks.find((b) => b.id === activeDragId);
-                    if (!dragBlock) return null;
-                    const assignedId = getAssignedCategoryId(activeDragId);
-                    const assignedCat = assignedId ? tracker.categories.find((c) => c.id === assignedId) || null : null;
-                    return (
-                      <SortableBlock
-                        block={dragBlock}
-                        editing={false}
-                        tourSpotlight={false}
-                        trackingActive={!!tracker.active && tracker.active.block_id === activeDragId}
-                        assignedCategory={assignedCat}
-                        isOverlay
-                      />
-                    );
-                  })() : null}
+                  {dragOverlayContent}
                 </DragOverlay>
               </DndContext>
             )}
@@ -1823,47 +1952,13 @@ export default function DayView() {
 
           <div className="mt-4 flex-1 overflow-y-auto">
             {bulkStep === "input" ? (
-              <div className="space-y-3 pb-4">
-                <p className="text-[12px] leading-relaxed text-secondary-fg">
-                  Type or paste your tasks — one per line, bullets, commas, anything. We'll split them into blocks.
-                </p>
-                {templates.length > 0 && (
-                  <div>
-                    <p className="text-[10px] font-semibold uppercase tracking-[0.12em] text-secondary-fg/55 mb-2">Templates</p>
-                    <div className="-mx-1 flex gap-1.5 overflow-x-auto pb-1 px-1 scrollbar-none">
-                      {templates.map((t) => (
-                        <div key={t.id} className="shrink-0 flex items-center gap-0.5 rounded-full border border-border/40 bg-card/50 pl-3 pr-1 py-1">
-                          <button
-                            type="button"
-                            onClick={() => setBulkInput((v) => v ? `${v}\n${t.raw_input}` : t.raw_input)}
-                            className="text-[12px] font-medium text-foreground/85 max-w-[11rem] truncate pressable"
-                          >
-                            {t.name}
-                          </button>
-                          <button
-                            type="button"
-                            onClick={() => void deleteTemplate(t.id)}
-                            className="h-5 w-5 flex items-center justify-center rounded-full text-secondary-fg/45 hover:text-destructive hover:bg-destructive/10 pressable transition-colors ml-0.5"
-                            aria-label="Remove template"
-                          >
-                            <X className="h-3 w-3" />
-                          </button>
-                        </div>
-                      ))}
-                    </div>
-                  </div>
-                )}
-                <Textarea
-                  autoFocus={false}
-                  value={bulkInput}
-                  onChange={(e) => setBulkInput(e.target.value)}
-                  placeholder={"Fix mobile layout, download PDF, send to client\nCall Alex, invoice client"}
-                  className="min-h-[150px] rounded-2xl border-soft bg-card text-[14px]"
-                />
-                <Button onClick={() => void prepareBulkRows()} disabled={planMutating} className="w-full h-12 rounded-2xl bg-primary hover:bg-primary/92 text-white font-semibold pressable">
-                  Continue
-                </Button>
-              </div>
+              <BulkInputStep
+                initialValue={bulkInput}
+                templates={templates}
+                onDeleteTemplate={handleComposerDeleteTemplate}
+                onContinue={handleComposerContinue}
+                disabled={planMutating}
+              />
             ) : (
               <div className="space-y-3 pb-4">
                 <div className="flex items-start justify-between px-1">
@@ -2182,7 +2277,7 @@ export default function DayView() {
                         <div className="min-w-0 flex-1">
                           <div className="text-[13.5px] font-semibold text-foreground/90">Advanced</div>
                           <div className="text-[11.5px] text-secondary-fg/70 mt-0.5 leading-snug truncate">
-                            End-of-slot ping in {reminderCfg.endAlertLeadMin}m · repeat {reminderCfg.repeats === 0 ? "off" : `${reminderCfg.repeats}×`}
+                            {reminderCfg.endAlertLeadMin > 0 ? `End ping ${reminderCfg.endAlertLeadMin}m before` : "End ping off"} · {reminderCfg.endFollowUp ? "follow-up on" : "follow-up off"}
                           </div>
                         </div>
                         <motion.span
@@ -2205,10 +2300,10 @@ export default function DayView() {
                           >
                             <div className="px-4 pb-4 pt-2 space-y-4 border-t border-border/30">
                               <div>
-                                <div className="text-[11px] font-bold uppercase tracking-[0.16em] text-secondary-fg/80 mb-2.5 px-0.5">Before window ends</div>
+                                <div className="text-[11px] font-bold uppercase tracking-[0.16em] text-secondary-fg/80 mb-2.5 px-0.5">Before it ends</div>
                                 <div className="flex flex-wrap gap-1.5">
                                   {[0, 2, 5, 10, 15, 30].map((n) => {
-                                    const on = (reminderCfg.endAlertLeadMin ?? 5) === n;
+                                    const on = (reminderCfg.endAlertLeadMin ?? 0) === n;
                                     return (
                                       <motion.button
                                         key={n}
@@ -2242,6 +2337,16 @@ export default function DayView() {
                                   })}
                                 </div>
                               </div>
+                              <div className="flex items-center justify-between pt-1">
+                                <div>
+                                  <p className="text-[13px] font-semibold text-foreground/80">Ask me afterward</p>
+                                  <p className="text-[11px] text-foreground/45 mt-0.5">"How did it go?" when the slot ends</p>
+                                </div>
+                                <Switch
+                                  checked={reminderCfg.endFollowUp ?? false}
+                                  onCheckedChange={(v) => saveReminders({ ...reminderCfg, endFollowUp: v })}
+                                />
+                              </div>
                             </div>
                           </motion.div>
                         )}
@@ -2250,7 +2355,7 @@ export default function DayView() {
                   </div>
 
                   <p className="text-[11px] text-secondary-fg/60 leading-relaxed text-center pt-1">
-                    Reminders fire while the app is open · Saved on this device
+                    Alerts fire on your device even when DayDraft is closed · Saved on this device
                   </p>
                 </div>
 
