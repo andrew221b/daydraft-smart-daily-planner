@@ -435,6 +435,38 @@ export default function DayView() {
     });
   };
 
+  const uncompleteTaskAction = async (b: Block, action: "revert" | "v2", newStart: string, newDur: number) => {
+    try {
+      if (action === "revert") {
+        const { error } = await supabase.from("blocks").update({
+          completed: false,
+          resolution: null,
+          resolved_at: null,
+          start_time: newStart,
+          duration_min: newDur
+        }).eq("id", b.id);
+        if (error) throw error;
+      } else {
+        const { error } = await supabase.from("blocks").insert({
+          plan_id: b.plan_id,
+          user_id: user?.id,
+          title: b.title,
+          duration_min: newDur,
+          start_time: newStart,
+          position: b.position + 1,
+          type: b.type,
+          kind: "task",
+          completed: false
+        });
+        if (error) throw error;
+      }
+      await queryClient.invalidateQueries({ queryKey: planDayQueryKey(todayDateStr) });
+      await queryClient.invalidateQueries({ queryKey: planDashboardQueryKey() });
+    } catch (e: any) {
+      toast.error(e?.message || "Failed to update task");
+    }
+  };
+
   const stopTrackingForBlock = async (block: ExBlock) => {
     if (!tracker.active || tracker.active.block_id !== block.id) return;
     await tracker.stop();
