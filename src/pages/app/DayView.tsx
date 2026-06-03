@@ -2272,11 +2272,11 @@ export default function DayView() {
             )}
 
             {!isPast && (
-              <div className="mt-4 grid grid-cols-2 gap-2">
+              <motion.div layout className="mt-4 grid grid-cols-2 gap-2">
                 <button
                   onClick={() => setComposerOpen(true)}
                   disabled={planMutating}
-                  className="inline-flex items-center justify-center gap-1.5 text-[12.5px] font-semibold text-foreground/85 border border-soft bg-card rounded-2xl h-11 hover:bg-muted/40 pressable transition-colors disabled:opacity-50 shadow-card"
+                  className="inline-flex items-center justify-center gap-1.5 text-[12.5px] font-semibold text-foreground/85 border border-soft bg-card rounded-2xl h-11 hover:bg-muted/40 pressable transition-colors shadow-card"
                 >
                   <ListPlus className="h-3.5 w-3.5 opacity-80" /> Add tasks
                 </button>
@@ -2287,11 +2287,11 @@ export default function DayView() {
                     setAskAiOpen(true);
                   }}
                   disabled={planMutating}
-                  className="inline-flex items-center justify-center gap-1.5 text-[12.5px] font-semibold text-primary border border-primary/35 rounded-2xl h-11 bg-primary/12 hover:bg-primary/20 pressable transition-colors disabled:opacity-50 shadow-[0_4px_14px_-6px_hsl(var(--primary)/0.35)]"
+                  className="inline-flex items-center justify-center gap-1.5 text-[12.5px] font-semibold text-primary border border-primary/35 rounded-2xl h-11 bg-primary/12 hover:bg-primary/20 pressable transition-colors shadow-[0_4px_14px_-6px_hsl(var(--primary)/0.35)]"
                 >
                   <Wand2 className="h-3.5 w-3.5" /> Ask AI
                 </button>
-              </div>
+              </motion.div>
             )}
 
           </>
@@ -2786,16 +2786,14 @@ export default function DayView() {
                   )}
                 </div>
                 <div className="flex items-center gap-2 pt-3 border-t border-border/30 px-1">
-                  <Button variant="outline" onClick={() => setBulkStep("input")} disabled={planMutating} className="h-12 rounded-2xl border-soft text-[14px]">
+                  <Button variant="outline" onClick={() => { setBulkStep("input"); setHighlightMissingStartTime(false); setHighlightMissingDuration(false); }} disabled={planMutating} className="h-12 rounded-2xl border-soft text-[14px]">
                     Back
                   </Button>
                   <Button
                     onClick={() => {
-                      // Require a start time when adding to an existing plan — without it
-                      // the task floats to an arbitrary time and causes timeline confusion.
-                      const hasExistingTasks = blocks.some(b => isOpenUserTask(b as Block));
+                      // Require a start time for every task so it doesn't float
                       const missingStart = bulkRows.filter(r => !r.start_time).length;
-                      if (hasExistingTasks && missingStart > 0) {
+                      if (missingStart > 0) {
                         setHighlightMissingStartTime(true);
                         haptics.notify("error");
                         return;

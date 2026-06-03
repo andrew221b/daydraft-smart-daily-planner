@@ -228,7 +228,7 @@ export function ChecklistGroup({
           <ChevronDown
             className={`h-4 w-4 shrink-0 text-secondary-fg/50 transition-transform ${collapsed ? "-rotate-90" : ""}`}
           />
-          <span className="accent-grad accent-glow flex h-[22px] w-[22px] items-center justify-center rounded-[7px] shrink-0">
+          <span className="accent-grad flex h-[22px] w-[22px] items-center justify-center rounded-[7px] shrink-0 shadow-sm">
             <ListChecks className="h-3 w-3 text-white" strokeWidth={2.75} />
           </span>
           <span className="font-semibold text-[15px] text-foreground/95 truncate">{group.title}</span>

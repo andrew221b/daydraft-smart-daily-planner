@@ -53,7 +53,10 @@ export const PullToRefresh = ({
   const THRESHOLD = 70;
   const MAX = 110;
 
-  const onStart = (y: number) => {
+  const onStart = (y: number, e: React.TouchEvent | React.PointerEvent) => {
+    // Ignore touches that originated in React portals (like modals/sheets)
+    if (e.target instanceof Node && rootRef.current && !rootRef.current.contains(e.target)) return;
+
     // Lazily resolve the actual scroll parent on first interaction so the
     // ref is populated by the time we read it. The DOM might not be fully
     // mounted at component-init time on slow first paints.
@@ -106,7 +109,7 @@ export const PullToRefresh = ({
     <div
       ref={rootRef}
       className="w-full"
-      onTouchStart={(e) => onStart(e.touches[0].clientY)}
+      onTouchStart={(e) => onStart(e.touches[0].clientY, e)}
       onTouchMove={(e) => onMove(e.touches[0].clientY)}
       onTouchEnd={onEnd}
       onTouchCancel={onEnd}

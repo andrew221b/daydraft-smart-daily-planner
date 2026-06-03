@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useRef, useState, type CSSProperties, type FormEvent } from "react";
 import { motion } from "framer-motion";
-import { Check, Play, Square, Plus, Search, ChevronDown, Wallet, Pencil, Trash2 } from "lucide-react";
+import { Check, Play, Square, Plus, Search, ChevronDown, Wallet, Pencil, Trash2, Lock } from "lucide-react";
 import { useTimeTracker, subscribeElapsed, getElapsedSec, fmtHMS, fmtHM } from "@/hooks/useTimeTracker";
 import { LiveElapsed } from "@/components/app/LiveElapsed";
 import { Sheet, SheetContent, SheetHeader, SheetTitle } from "@/components/ui/sheet";
@@ -500,6 +500,10 @@ export function HomeTrackerHero({ onOpenDetails }: { onOpenDetails: () => void }
                 if (billingExpanded) {
                   setBillingExpanded(false);
                 } else {
+                  if (!isPro) {
+                    setUpgradeOpen(true);
+                    return;
+                  }
                   if (getGatePref() === "unset") {
                     setBioGateIntent("expand");
                     return;
@@ -518,9 +522,13 @@ export function HomeTrackerHero({ onOpenDetails }: { onOpenDetails: () => void }
                   </span>
                 )}
               </div>
-              <ChevronDown
-                className={`h-3.5 w-3.5 text-secondary-fg/50 transition-transform duration-200 ${billingExpanded ? "rotate-180" : ""}`}
-              />
+              {!isPro ? (
+                <Lock className="h-3 w-3 text-secondary-fg/50" />
+              ) : (
+                <ChevronDown
+                  className={`h-3.5 w-3.5 text-secondary-fg/50 transition-transform duration-200 ${billingExpanded ? "rotate-180" : ""}`}
+                />
+              )}
             </button>
 
             {/* CSS-only accordion — avoids Framer height remeasure on keyboard open */}
