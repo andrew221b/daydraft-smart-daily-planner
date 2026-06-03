@@ -12,8 +12,12 @@ import {
   Layers,
   ChevronDown,
   Lock,
+  Clock,
+  ListChecks,
+  Check,
+  GripVertical,
 } from "lucide-react";
-import { motion } from "framer-motion";
+import { AnimatePresence, motion } from "framer-motion";
 import { enablePush, pushSupported } from "@/lib/push";
 import { supabase } from "@/integrations/supabase/client";
 import { haptics } from "@/lib/haptics";
@@ -784,6 +788,187 @@ function LiveTrackerCard({ baseElapsed, delay = 0.55 }: { baseElapsed: number, d
 }
 
 
+/* ── Plan-mode switcher demo (Timeline ⇄ Checklist) ─────────────────
+   A faithful, non-interactive replica of the in-app PlanModePill plus a
+   morph stage: the timeline cards cross-dissolve into a live checklist whose
+   items self-tick. Teaches the real switcher gesture during onboarding. */
+
+/** Replica of DayView's PlanModePill, driven by a `mode` prop (no taps). The
+ *  thumb springs across and its colour snaps primary→accent, exactly like the
+ *  real control. */
+function PlanModeDemoPill({ mode }: { mode: "timeline" | "checklist" }) {
+  return (
+    <div className="relative h-11 rounded-2xl bg-muted/40 border border-soft p-1 select-none">
+      <motion.div
+        className="absolute top-1 bottom-1 left-1 rounded-xl shadow-sm"
+        style={{
+          width: "calc(50% - 4px)",
+          background: mode === "checklist" ? "hsl(var(--accent))" : "hsl(var(--primary))",
+        }}
+        animate={{ x: mode === "timeline" ? "0%" : "100%" }}
+        transition={{ type: "spring", stiffness: 380, damping: 32 }}
+      />
+      <div className="relative grid grid-cols-2 h-full">
+        <div className={`relative z-10 flex items-center justify-center gap-1.5 text-[13px] font-semibold rounded-xl transition-colors duration-300 ${mode === "timeline" ? "text-primary-foreground" : "text-secondary-fg/70"}`}>
+          <Clock className="h-4 w-4" /> Timeline
+        </div>
+        <div className={`relative z-10 flex items-center justify-center gap-1.5 text-[13px] font-semibold rounded-xl transition-colors duration-300 ${mode === "checklist" ? "text-accent-foreground" : "text-secondary-fg/70"}`}>
+          <ListChecks className="h-4 w-4" /> Checklist
+        </div>
+      </div>
+    </div>
+  );
+}
+
+/** One checklist row: grip · title · circular checkbox. When `done` flips the
+ *  accent fill springs in behind a popping check and the title strikes through —
+ *  the same satisfying beat as a real tap. */
+function ChecklistDemoRow({ title, done }: { title: string; done: boolean }) {
+  return (
+    <div className="flex items-center gap-2.5 py-1.5">
+      <GripVertical className="h-3.5 w-3.5 text-secondary-fg/35 shrink-0" aria-hidden />
+      <span className={`flex-1 min-w-0 text-[14px] truncate transition-colors duration-300 ${done ? "line-through text-foreground/40" : "text-foreground"}`}>
+        {title}
+      </span>
+      <div className="relative h-[22px] w-[22px] shrink-0">
+        <div className={`absolute inset-0 rounded-full border-[1.5px] transition-all duration-200 ${done ? "border-transparent scale-90" : "border-secondary-fg/35"}`} />
+        <motion.div
+          className="accent-grad accent-glow absolute inset-0 rounded-full flex items-center justify-center"
+          initial={false}
+          animate={{ scale: done ? 1 : 0.4, opacity: done ? 1 : 0 }}
+          transition={{ type: "spring", stiffness: 340, damping: 26 }}
+        >
+          <Check className="h-3 w-3 text-white" strokeWidth={3} />
+        </motion.div>
+      </div>
+    </div>
+  );
+}
+
+const CHECKLIST_DEMO_ITEMS = [
+  { id: 1, title: "Buy groceries", doneAt: 650 },
+  { id: 2, title: "Email the client", doneAt: 1450 },
+  { id: 3, title: "Book dentist", doneAt: null as number | null },
+] as const;
+
+/** Accent-themed checklist card. Mounts only when the switcher lands on
+ *  Checklist, so its items start self-ticking on mount; the n/total counter and
+ *  progress (a GPU `scaleX`, never an animated `width`) climb alongside. */
+function ChecklistDemoCard() {
+  const total = CHECKLIST_DEMO_ITEMS.length;
+  const [done, setDone] = useState<Set<number>>(() => new Set());
+
+  useEffect(() => {
+    const timers = CHECKLIST_DEMO_ITEMS
+      .filter((i) => i.doneAt != null)
+      .map((i) => setTimeout(() => {
+        setDone((prev) => { const n = new Set(prev); n.add(i.id); return n; });
+      }, i.doneAt as number));
+    return () => timers.forEach(clearTimeout);
+  }, []);
+
+  const doneCount = done.size;
+
+  return (
+    <div className="relative app-card checklist-surface rounded-[18px] px-3.5 py-3">
+      <div className="relative z-10">
+        {/* Header — accent chip · list name · live counter */}
+        <div className="flex items-center justify-between mb-2.5">
+          <div className="flex items-center gap-2">
+            <span className="accent-grad accent-glow flex h-[22px] w-[22px] items-center justify-center rounded-[7px]" aria-hidden>
+              <ListChecks className="h-3 w-3 text-white" strokeWidth={2.75} />
+            </span>
+            <span className="text-[14px] font-semibold text-foreground">Errands</span>
+          </div>
+          <span className="text-[12px] font-semibold tabular-nums" style={{ color: "hsl(var(--accent))" }}>
+            {doneCount}/{total}
+          </span>
+        </div>
+        {/* Progress — GPU transform (scaleX), no layout-thrashing width animation */}
+        <div className="h-1.5 rounded-full bg-muted/50 overflow-hidden mb-1 shadow-[inset_0_1px_2px_rgba(0,0,0,0.25)]">
+          <motion.div
+            className="accent-grad-h h-full w-full rounded-full origin-left"
+            initial={{ scaleX: 0 }}
+            animate={{ scaleX: doneCount / total }}
+            transition={{ type: "spring", stiffness: 200, damping: 30 }}
+          />
+        </div>
+        <div className="divide-y divide-border/25">
+          {CHECKLIST_DEMO_ITEMS.map((it) => (
+            <ChecklistDemoRow key={it.id} title={it.title} done={done.has(it.id)} />
+          ))}
+        </div>
+      </div>
+    </div>
+  );
+}
+
+/** Orchestrates the morph: pill + timeline cards land, then after `switchAt`
+ *  the pill flips to Checklist and the layers cross-dissolve.
+ *  Perf notes: AnimatePresence keeps only ONE layer mounted once the fade ends
+ *  (two shadowed-card layers composited at once is what stuttered); motion is
+ *  opacity + translateY only — no `scale` (repaints the card shadow every frame)
+ *  and no blur (the iOS WebKit jank cliff). */
+function PlanShowcase({ switchAt = 2.3 }: { switchAt?: number }) {
+  const [mode, setMode] = useState<"timeline" | "checklist">("timeline");
+  useEffect(() => {
+    const t = setTimeout(() => setMode("checklist"), switchAt * 1000);
+    return () => clearTimeout(t);
+  }, [switchAt]);
+
+  return (
+    <div>
+      <motion.div
+        initial={{ opacity: 0, y: 12 }}
+        animate={{ opacity: 1, y: 0 }}
+        transition={{ delay: 0.12, duration: 0.45, ease: [0.22, 1, 0.36, 1] }}
+      >
+        <PlanModeDemoPill mode={mode} />
+      </motion.div>
+
+      {/* Fixed-height stage so the tracker below never jumps as layers swap. */}
+      <div className="relative mt-3.5 h-[188px]">
+        <AnimatePresence initial={false}>
+          {mode === "timeline" ? (
+            <motion.div
+              key="timeline"
+              className="absolute inset-x-0 top-0 space-y-3"
+              style={{ pointerEvents: "none" }}
+              initial={{ opacity: 0 }}
+              animate={{ opacity: 1, y: 0 }}
+              exit={{ opacity: 0, y: -14 }}
+              transition={{ duration: 0.55, ease: [0.22, 1, 0.36, 1] }}
+            >
+              <MockBlock
+                time={PLAN_BLOCKS[0].time} title={PLAN_BLOCKS[0].title}
+                typeVar={PLAN_BLOCKS[0].typeVar} mins={PLAN_BLOCKS[0].mins}
+                delay={0.35} glow={false} from="left"
+              />
+              <MockBlock
+                time={PLAN_BLOCKS[1].time} title={PLAN_BLOCKS[1].title}
+                typeVar={PLAN_BLOCKS[1].typeVar} mins={PLAN_BLOCKS[1].mins}
+                delay={0.6} glow={false} from="right"
+              />
+            </motion.div>
+          ) : (
+            <motion.div
+              key="checklist"
+              className="absolute inset-x-0 top-0"
+              style={{ pointerEvents: "none" }}
+              initial={{ opacity: 0, y: 14 }}
+              animate={{ opacity: 1, y: 0 }}
+              exit={{ opacity: 0 }}
+              transition={{ duration: 0.55, ease: [0.22, 1, 0.36, 1] }}
+            >
+              <ChecklistDemoCard />
+            </motion.div>
+          )}
+        </AnimatePresence>
+      </div>
+    </div>
+  );
+}
+
 function FeaturesShowcaseStep({
   onContinue,
   disabled,
@@ -793,12 +978,12 @@ function FeaturesShowcaseStep({
 }) {
   const BASE_ELAPSED = 5432;
 
-  // For motion to read as "one after another", each element starts roughly when
-  // the previous one finishes landing — i.e. stagger ≈ move duration (~0.4s).
-  const T_CARD1  = 0.08;
-  const T_CARD2  = 0.46;
-  const T_TIMER  = 0.86;
-  const T_BUTTON = 1.30;
+  // Top-to-bottom choreography: the pill + timeline cards land first (handled
+  // inside PlanShowcase), the tracker rises just after, then — once everything
+  // is static — the switcher flips to Checklist as the closing delight beat.
+  const T_TIMER  = 0.95;
+  const T_BUTTON = 1.25;
+  const T_SWITCH = 2.3; // seconds before the pill morphs Timeline → Checklist (calm beat)
 
   return (
     <div className="flex-1 flex flex-col">
@@ -823,30 +1008,13 @@ function FeaturesShowcaseStep({
 
         {/* ── Showcase area ────────────────────────────── */}
         <div className="mt-6 flex-1 relative overflow-hidden">
-          {/* Card 1 — slides in from LEFT edge */}
-          <div className="space-y-3 relative z-10">
-            <MockBlock
-              time={PLAN_BLOCKS[0].time}
-              title={PLAN_BLOCKS[0].title}
-              typeVar={PLAN_BLOCKS[0].typeVar}
-              mins={PLAN_BLOCKS[0].mins}
-              delay={T_CARD1}
-              glow={false}
-              from="left"
-            />
-            {/* Card 2 — slides in from RIGHT edge after card 1 settles */}
-            <MockBlock
-              time={PLAN_BLOCKS[1].time}
-              title={PLAN_BLOCKS[1].title}
-              typeVar={PLAN_BLOCKS[1].typeVar}
-              mins={PLAN_BLOCKS[1].mins}
-              delay={T_CARD2}
-              glow={false}
-              from="right"
-            />
+          {/* Plan demo — timeline cards that morph into a live checklist via
+              the real PlanModePill switcher. */}
+          <div className="relative z-10">
+            <PlanShowcase switchAt={T_SWITCH} />
           </div>
 
-          {/* Timer — rises from below after both cards are visible */}
+          {/* Timer — rises from below after the plan demo has landed */}
           <div className="mt-4 relative z-20">
             <LiveTrackerCard baseElapsed={BASE_ELAPSED} delay={T_TIMER} />
           </div>

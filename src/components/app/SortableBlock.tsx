@@ -55,6 +55,7 @@ export const SortableBlock = memo(({
   onDeleteBlock,
   isOverlay,
   isFuturePlan = false,
+  readOnly = false,
   lateMin,
 }: {
   block: BlockExt;
@@ -77,6 +78,10 @@ export const SortableBlock = memo(({
   onDeleteBlock?: (b: any) => void;
   /** True when the plan date is in the future — completion is locked. */
   isFuturePlan?: boolean;
+  /** True when the plan date is in the past — the whole row is a frozen,
+   *  read-only snapshot: no toggling, tracking, editing, deleting or dragging.
+   *  Only "Move to another day" stays available (for missed/skipped tasks). */
+  readOnly?: boolean;
   isOverlay?: boolean;
   /** Minutes past the scheduled start for the single next-overdue open task.
    *  Shown as amber "~Xm late" below the time pill. Only passed for that one block. */
@@ -86,7 +91,7 @@ export const SortableBlock = memo(({
   const [confirmDelete, setConfirmDelete] = useState(false);
 
   const sortableDisabled =
-    !!block.is_calendar_event || (block.kind === "task" && !isOpenUserTask(block));
+    readOnly || !!block.is_calendar_event || (block.kind === "task" && !isOpenUserTask(block));
 
   const { attributes, listeners, setNodeRef, transform, transition, isDragging, isOver } = useSortable({
     id: block.id,
@@ -138,6 +143,10 @@ export const SortableBlock = memo(({
   const fmtMin = (mins: number) =>
     mins < 60 ? `${mins}m` : `${Math.floor(mins / 60)}h${mins % 60 ? ` ${mins % 60}m` : ""}`;
 
+  // "Late by" text: minutes under an hour, h:mm once you hit 60 (90 → "1:30").
+  const fmtLate = (mins: number) =>
+    mins < 60 ? `${mins}m` : `${Math.floor(mins / 60)}:${String(mins % 60).padStart(2, "0")}`;
+
   const estimatedMin = block.estimated_minutes ?? block.duration_min;
   const actualMin = typeof block.actual_minutes === "number" ? block.actual_minutes : null;
   const actualDeltaRatio = actualMin != null && estimatedMin > 0 ? (actualMin - estimatedMin) / estimatedMin : 0;
@@ -158,7 +167,10 @@ export const SortableBlock = memo(({
 
   const isTask = block.kind === "task" && !isCal;
   const isDone = isUserTaskDone(block);
-  const canExpand = isTask && !isOverlay;
+  // On a read-only (past) row, only missed/skipped tasks expand — to reveal the
+  // single allowed action, "Move to another day". Done/open rows stay static.
+  const canExpand = isTask && !isOverlay &&
+    (!readOnly || block.resolution === "missed" || block.resolution === "skipped");
 
   // Always top-align so grip/circle pin to the first text line regardless
   // of whether the title wraps to 2 lines (collapsed) or is fully expanded.
@@ -273,10 +285,10 @@ export const SortableBlock = memo(({
             }
             const lateIndicator = (lateMin ?? 0) >= 2 ? (
               <div className="text-[9px] font-semibold text-amber-500 dark:text-amber-400 tabular-nums leading-none mt-0.5 text-center whitespace-nowrap">
-                ~{lateMin}m late
+                ~{fmtLate(lateMin ?? 0)} late
               </div>
             ) : null;
-            if (onTapTime && !block.is_calendar_event) {
+            if (onTapTime && !block.is_calendar_event && !readOnly) {
               return (
                 <div
                   className="relative shrink-0 self-start mt-[3px] flex flex-col items-center"
@@ -406,7 +418,7 @@ export const SortableBlock = memo(({
 
           {/* Right side: optional track button · status · chevron */}
           <div className="flex items-center gap-1.5 shrink-0">
-            {onStartTrack && !isCal && block.kind === "task" && isOpenUserTask(block) && (
+            {onStartTrack && !isCal && block.kind === "task" && isOpenUserTask(block) && !readOnly && (
               trackingActive ? (
                 <button
                   type="button"
@@ -443,8 +455,18 @@ export const SortableBlock = memo(({
 
             {/* Status / complete circle — skipped & missed stay tappable so the
                 user can still mark the task done after the fact (opens the
-                late-complete sheet via onToggleComplete). */}
-            {isTask && block.resolution === "skipped" ? (
+                late-complete sheet via onToggleComplete). On a read-only (past)
+                row every status is frozen and non-interactive. */}
+            {readOnly && isTask ? (
+              <ReadOnlyStatusCircle
+                variant={
+                  isDone ? "done"
+                    : block.resolution === "skipped" ? "skipped"
+                    : block.resolution === "missed" ? "missed"
+                    : "open"
+                }
+              />
+            ) : readOnly ? null : isTask && block.resolution === "skipped" ? (
               <StatusCompleteCircle tone="amber" label="Skipped — tap to mark done" onToggle={() => onToggleComplete?.(block)} />
             ) : isTask && block.resolution === "missed" ? (
               <StatusCompleteCircle tone="red" label="Missed — tap to mark done" onToggle={() => onToggleComplete?.(block)} />
@@ -517,7 +539,9 @@ export const SortableBlock = memo(({
           >
             <div className="mt-3 pt-3 border-t border-border/[0.15]">
 
-              {/* 5-action toolbar */}
+              {/* 5-action toolbar — hidden on read-only (past) rows; only the
+                  "Move to another day" affordance below remains. */}
+              {!readOnly && (
               <div className="flex gap-2">
                 {inlineActions.map(({ id, icon, label, cb, color, ...rest }) => {
                   const destructive = "destructive" in rest && (rest as any).destructive;
@@ -546,6 +570,7 @@ export const SortableBlock = memo(({
                   );
                 })}
               </div>
+              )}
 
               {/* Move to another day (missed / skipped only) */}
               {onCarryForward && (block.resolution === "missed" || block.resolution === "skipped") && (
@@ -590,6 +615,37 @@ function CompleteCircleLocked() {
         />
       </svg>
     </div>
+  );
+}
+
+/** Frozen status indicator for read-only (past) rows. Shows the status the task
+ *  ended in — done / skipped / missed — or a locked outline for an unresolved
+ *  past task. Purely visual: past days don't accept taps. */
+function ReadOnlyStatusCircle({ variant }: { variant: "done" | "skipped" | "missed" | "open" }) {
+  if (variant === "done") {
+    return (
+      <div
+        className="relative h-8 w-8 rounded-full bg-success flex items-center justify-center shrink-0 ring-1 ring-white/20 opacity-90"
+        aria-label="Completed"
+      >
+        <Check className="h-4 w-4 text-success-foreground" strokeWidth={3} />
+      </div>
+    );
+  }
+  if (variant === "open") {
+    // No resolution was ever recorded — show the same dashed outline used for
+    // not-yet-actionable rows, but greyed to read as "frozen".
+    return <CompleteCircleLocked />;
+  }
+  const toneClass =
+    variant === "skipped"
+      ? "border-amber-500/40 bg-amber-500/10"
+      : "border-destructive/35 bg-destructive/10";
+  return (
+    <div
+      className={`h-7 w-7 rounded-full border shrink-0 ${toneClass}`}
+      aria-label={variant === "skipped" ? "Skipped" : "Missed"}
+    />
   );
 }
 

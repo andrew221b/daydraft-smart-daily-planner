@@ -320,15 +320,16 @@ struct LiveActivityCard<Info: View, Action: View>: View {
     @ViewBuilder var action: () -> Action
 
     var body: some View {
-        VStack(spacing: spacing) {
-            // Centered hero — eyebrow title above the big live timer.
-            VStack(spacing: 1) {
+        VStack(alignment: .center, spacing: spacing) {
+            // Centered hero — eyebrow title sitting tight above the big live timer.
+            VStack(alignment: .center, spacing: 1) {
                 Text(title.uppercased())
                     .font(.system(size: 11, weight: .heavy, design: .rounded))
                     .foregroundStyle(titleTint)
                     .tracking(1.0)
                     .lineLimit(1)
                     .minimumScaleFactor(0.6)
+                    .frame(maxWidth: .infinity, alignment: .center)
 
                 Text(start, style: .timer)
                     .font(.system(size: heroFont, weight: .heavy, design: .rounded))
@@ -337,6 +338,7 @@ struct LiveActivityCard<Info: View, Action: View>: View {
                     .shadow(color: timerTint.opacity(0.4), radius: 6, y: 1)
                     .lineLimit(1)
                     .minimumScaleFactor(0.5)
+                    .frame(maxWidth: .infinity, alignment: .center)
             }
             .frame(maxWidth: .infinity)
 

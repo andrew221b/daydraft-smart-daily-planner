@@ -370,3 +370,64 @@ export async function clearLocalNotifications() {
     /* ignore */
   }
 }
+
+// ── Checklist mode reminder ───────────────────────────────────────────────
+// A single evening nudge when a day's checklist still has unchecked items.
+// Fully independent of the per-block plan reminders above: one fixed id (well
+// outside the block-hash id space), rescheduled from scratch on every change.
+// Local only — no server push needed (and none of the block actions apply).
+const CHECKLIST_NOTIF_ID = 920001;
+
+export async function scheduleChecklistReminder(
+  items: { done: boolean; title: string }[],
+  planDate: string,
+  eveningNudgeTime?: string,
+): Promise<void> {
+  if (!isNative()) return;
+  // Always clear the previous one first so we never stack duplicates.
+  await cancelChecklistReminder();
+  if (!getNotificationsEnabled()) return;
+
+  const unchecked = items.filter((i) => !i.done);
+  if (unchecked.length === 0) return;
+
+  const time = /^\d{2}:\d{2}$/.test(eveningNudgeTime ?? "") ? (eveningNudgeTime as string) : "20:00";
+  const [y, m, d] = planDate.split("-").map(Number);
+  const [h, min] = time.split(":").map(Number);
+  if (!y || !m || !d) return;
+  const at = new Date(y, m - 1, d, h, min, 0, 0);
+  if (at.getTime() <= Date.now()) return; // time already passed today / past day
+
+  const first = unchecked[0].title;
+  const body =
+    unchecked.length === 1
+      ? `“${first}” is still unchecked`
+      : `${unchecked.length} items still unchecked — starting with “${first}”`;
+
+  try {
+    await LocalNotifications.schedule({
+      notifications: [
+        {
+          id: CHECKLIST_NOTIF_ID,
+          title: "Checklist",
+          body,
+          sound: "default",
+          channelId: ANDROID_CHANNEL_ID,
+          schedule: { at },
+          extra: { checklist: true, date: planDate },
+        },
+      ],
+    });
+  } catch (e) {
+    console.error("[localNotifications] checklist reminder schedule failed", e);
+  }
+}
+
+export async function cancelChecklistReminder(): Promise<void> {
+  if (!isNative()) return;
+  try {
+    await LocalNotifications.cancel({ notifications: [{ id: CHECKLIST_NOTIF_ID }] });
+  } catch {
+    /* ignore */
+  }
+}

@@ -39,6 +39,12 @@ export async function applyAutoMissedBlocks(
   const ids = blocks
     .filter((b) => {
       if (!isOpenUserTask(b)) return false;
+      // Frameless tasks (duration_min <= 0) are a point in the day with no real
+      // slot — their slot-end equals their start, so they'd "expire" the instant
+      // their start passes. By design these are resolved ONLY by the user (Skip /
+      // Done), never auto-missed; otherwise a batch of timeless to-dos all flip to
+      // "missed" together and get stamped with one identical resolved_at.
+      if (Number((b as { duration_min?: number }).duration_min) <= 0) return false;
       const endMs = instants.get(b.id)?.endMs ?? 0;
       if (!endMs || endMs >= now) return false;
       const pastEnd = now - endMs;

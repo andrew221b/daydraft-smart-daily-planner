@@ -37,7 +37,8 @@ body.dd-dnd-scroll-lock {
     --muted: 231 18% 16%;
     --muted-foreground: 220 12% 74%;
 
-    --accent: 248 70% 67%;
+    --accent: 248 78% 66%;
+    --accent-2: 266 82% 62%;            /* richer violet partner for accent gradients */
     --accent-foreground: 227 30% 9%;
 
     --success: 157 52% 58%;
@@ -124,7 +125,8 @@ body.dd-dnd-scroll-lock {
     --secondary-foreground: 224 30% 18%;
     --muted: 220 16% 89%;               /* Distinct from background — fills now visible */
     --muted-foreground: 222 18% 38%;    /* Stronger contrast for secondary text */
-    --accent: 200 96% 38%;
+    --accent: 200 96% 40%;
+    --accent-2: 214 94% 47%;
     --accent-foreground: 0 0% 100%;
     --success: 156 64% 30%;
     --success-foreground: 0 0% 100%;
@@ -177,6 +179,7 @@ body.dd-dnd-scroll-lock {
     --primary-foreground: 240 40% 6.5%; /* Dark obsidian for contrast on bright cyan */
     --primary-glow: 320 100% 65%;       /* Neon Hot Pink / Magenta */
     --accent: 280 100% 65%;             /* Neon Violet */
+    --accent-2: 305 100% 64%;           /* Neon magenta partner */
     --background: 240 40% 6.5%;         /* Deep obsidian midnight #0A0B14 */
     --surface: 240 35% 9%;              /* Dark glassmorphic surface #0F101A */
     --surface-elevated: 240 32% 12%;    /* #141624 */
@@ -211,6 +214,7 @@ body.dd-dnd-scroll-lock {
     --primary-foreground: 226 34% 14%;  /* Dark text for contrast */
     --primary-glow: 275 100% 60%;       /* Neon purple */
     --accent: 275 100% 60%;
+    --accent-2: 296 100% 58%;
     --accent-foreground: 0 0% 100%;
 
     --secondary: 205 32% 96%;
@@ -598,8 +602,14 @@ body.dd-dnd-scroll-lock {
   .page-transition-tab-back,
   .page-transition-push,
   .page-transition-pop {
-    animation: pageSwitchLuxe var(--motion-page-switch-ms) cubic-bezier(0.25, 0.46, 0.45, 0.94) both;
-    will-change: transform, opacity;
+    /* `backwards` (NOT `both`) and no lingering `will-change`: once the slide
+       finishes this element must hold neither a transform nor a transform hint.
+       Either one turns the tab's scroll container into a containing block for
+       `position: fixed` descendants — which offsets the dnd-kit DragOverlay by
+       the current scroll amount (the drag ghost floats above the finger). The
+       animation still plays identically; only the held end-state is dropped,
+       and the end state is the identity transform so nothing moves visually. */
+    animation: pageSwitchLuxe var(--motion-page-switch-ms) cubic-bezier(0.25, 0.46, 0.45, 0.94) backwards;
   }
   @keyframes pageSwitchLuxe {
     from {
@@ -1441,3 +1451,66 @@ body.dd-dnd-scroll-lock {
 
 /* Toast notifications must always appear above sheets, dialogs, and overlays */
 [data-sonner-toaster] { z-index: 9999 !important; }
+
+  /* Animated Strikethrough for Checklist */
+  .strikethrough-animated {
+    position: relative;
+    display: inline-block;
+  }
+  .strikethrough-animated::after {
+    content: "";
+    position: absolute;
+    left: 0;
+    top: 50%;
+    height: 1.5px;
+    background: currentColor;
+    width: 0;
+    opacity: 0.7;
+    transition: width 350ms cubic-bezier(0.22, 1, 0.36, 1);
+  }
+  .strikethrough-animated.is-done::after {
+    width: 100%;
+  }
+
+  /* ── Checklist premium accents (vivid, theme-aware, no 3D engine) ──────────
+     A two-stop accent gradient + matching glow. Reused by the done checkbox,
+     the progress fill, the category chip and the "Add list" affordance so the
+     whole mode reads with one confident, saturated identity colour. */
+  .accent-grad {
+    background-image: linear-gradient(135deg, hsl(var(--accent)) 0%, hsl(var(--accent-2)) 100%);
+  }
+  .accent-grad-h {
+    background-image: linear-gradient(90deg, hsl(var(--accent)) 0%, hsl(var(--accent-2)) 100%);
+  }
+  /* Soft outer glow + a hairline rim so accent chips/checkboxes feel lit. */
+  .accent-glow {
+    box-shadow:
+      0 1px 1px rgba(0, 0, 0, 0.18),
+      0 4px 12px -2px hsl(var(--accent) / 0.55),
+      inset 0 1px 0 rgba(255, 255, 255, 0.35);
+  }
+
+  /* 3D "lifted glass" surface for checklist cards — layered ambient + key +
+     contact shadows, an inset top highlight and an accent-tinted radial wash.
+     Pure CSS: no transforms animate, so it composites for free while scrolling.
+     The ::after metallic ring from .app-card still applies in light mode. */
+  .checklist-surface {
+    position: relative;
+    background:
+      radial-gradient(125% 130% at 0% 0%, hsl(var(--accent) / 0.12) 0%, transparent 55%),
+      linear-gradient(168deg, hsl(var(--surface) / 0.92) 0%, hsl(var(--surface) / 0.74) 100%);
+  }
+  .checklist-surface::before {
+    content: "";
+    position: absolute;
+    inset: 0;
+    border-radius: inherit;
+    background: linear-gradient(150deg, rgba(255, 255, 255, 0.10) 0%, transparent 42%);
+    pointer-events: none;
+    z-index: 0;
+  }
+  :root.light .checklist-surface {
+    background:
+      radial-gradient(125% 130% at 0% 0%, hsl(var(--accent) / 0.10) 0%, transparent 55%),
+      linear-gradient(168deg, hsl(var(--card)) 0%, hsl(var(--card)) 100%);
+  }

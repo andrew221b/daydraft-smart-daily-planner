@@ -14,8 +14,10 @@ import {
   Block, fmtTime, todayDateStr, parseDateStr, friendlyDateFor, isFutureDateStr, isUserTask, isOpenUserTask, isUserTaskDone, inferScheduleBlockType, packLinearSchedule,
   blockSlotEndHHMM, timeToMinutes, minutesToHHMM, planBlockInstants, wallMsOnPlanDay, shiftDate, normalizeSchedule, materializeGaps,
 } from "@/lib/daydraft";
-import { ChevronLeft, ChevronRight, Play, CalendarDays, Trash2, Bell, BellOff, MoreHorizontal, Clock, Timer, MapPin, Copy, Sparkles, ListPlus, Wand2, ArrowRightCircle, Loader2, Bookmark, X } from "lucide-react";
+import { ChevronLeft, ChevronRight, Play, CalendarDays, Trash2, Bell, BellOff, MoreHorizontal, Clock, Timer, MapPin, Copy, Sparkles, ListPlus, Wand2, ArrowRightCircle, Loader2, Bookmark, X, ListChecks, SkipForward } from "lucide-react";
 import { DayPickerSheet } from "@/components/app/DayPickerSheet";
+import { ChecklistView } from "@/components/app/ChecklistView";
+import { peekChecklistCounts } from "@/hooks/useChecklist";
 import { Button } from "@/components/ui/button";
 import { DndContext, closestCenter, MouseSensor, TouchSensor, useSensor, useSensors, DragEndEvent, DragStartEvent, DragOverlay } from "@dnd-kit/core";
 import { motion, AnimatePresence } from "framer-motion";
@@ -231,6 +233,12 @@ export default function DayView() {
   const viewDate = rawDate && /^\d{4}-\d{2}-\d{2}$/.test(rawDate) ? rawDate : anchorDate;
   const isFuture = isFutureDateStr(viewDate);
   const [blocks, setBlocks] = useState<ExBlock[]>([]);
+  // The viewDate that the current `blocks` state was actually loaded for. While
+  // switching days, `viewDate` updates a render before the data effect refills
+  // `blocks`, so for one paint `blocks` still holds the PREVIOUS day's rows.
+  // Reading them then makes yesterday flash "Today" + the red unfinished banner.
+  // Gate day-derived UI on `loadedBlocksDate === viewDate` so stale rows never show.
+  const [loadedBlocksDate, setLoadedBlocksDate] = useState<string | null>(null);
   const [now, setNow] = useState(new Date());
   const [tourFired, setTourFired] = useState(false);
   // A plan dated yesterday whose last slot still ends in the future is an
@@ -238,12 +246,36 @@ export default function DayView() {
   // completion, and auto-missed keep working past midnight. Once its last block
   // end passes, it naturally reverts to a read-only past plan.
   const isActiveNightPlan = useMemo(() => {
+    // Only trust `blocks` once they belong to the day we're actually viewing —
+    // otherwise a day-switch transition reads yesterday with today's still-future
+    // rows and briefly reports "Today".
+    if (loadedBlocksDate !== viewDate) return false;
     if (blocks.length === 0 || viewDate !== shiftDate(todayDateStr(), -1)) return false;
     let lastEnd = 0;
     for (const v of planBlockInstants(viewDate, blocks as any).values()) lastEnd = Math.max(lastEnd, v.endMs);
     return lastEnd > now.getTime();
-  }, [viewDate, blocks, now]);
+  }, [viewDate, blocks, now, loadedBlocksDate]);
   const isToday = viewDate === todayDateStr() || isActiveNightPlan;
+  // A past day is a frozen, read-only snapshot: no completing/unchecking,
+  // deleting, tracking, editing times/durations or reordering — every block
+  // stays in whatever status it ended in. The only allowed mutation is moving
+  // still-unfinished (missed/skipped) tasks forward to another day.
+  const isPast = !isToday && !isFuture;
+  // True once `blocks` state matches the day on screen (see loadedBlocksDate).
+  const blocksMatchView = loadedBlocksDate === viewDate;
+  // Plan view mode — Timeline (the timed plan) vs Checklist (untimed, parallel,
+  // fully isolated). Always defaults to Timeline on mount so the app never
+  // opens into the checklist and leaves the user wondering where their plan is.
+  const [planViewMode, setPlanViewMode] = useState<"timeline" | "checklist">("timeline");
+  // Bumped by ChecklistView after any change so the switcher badge re-peeks.
+  // Stable identity (useCallback) is essential — an inline arrow would change
+  // every render and, sitting in ChecklistView's effect deps, spin a loop.
+  const [checklistTick, setChecklistTick] = useState(0);
+  const handleChecklistChange = useCallback(() => setChecklistTick((t) => t + 1), []);
+  const checklistOpenCount = useMemo(
+    () => peekChecklistCounts(user?.id, viewDate).open,
+    [user?.id, viewDate, checklistTick, planViewMode],
+  );
   const [replanning, setReplanning] = useState(false);
   const [activeDragId, setActiveDragId] = useState<string | null>(null);
   const [composerOpen, setComposerOpen] = useState(false);
@@ -358,6 +390,7 @@ export default function DayView() {
     // actually for the current viewDate, so a late old-query can't clobber.
     if (isPlaceholderData) return;
     setBlocks((dayData?.blocks || []) as ExBlock[]);
+    setLoadedBlocksDate(viewDate);
 
     // Only schedule local notifications for today's plan
     if (viewDate === todayDateStr() && dayData?.blocks) {
@@ -596,6 +629,7 @@ export default function DayView() {
   }, [user?.id, viewDate, blocks, isFuture, Math.floor(now.getTime() / 60000)]);
 
   const removeBlock = async (id: string) => {
+    if (isPast) return; // past days are frozen — deletion is locked
     if (blockOpLocksRef.current.has(`remove:${id}`)) return;
     blockOpLocksRef.current.add(`remove:${id}`);
     const snapshot = blocks;
@@ -706,6 +740,7 @@ export default function DayView() {
 
   const completeBlock = async (id: string) => {
     if (isFuture) return; // can't complete tasks that haven't happened yet
+    if (isPast) return;   // past days are frozen — no completing or unchecking
     if (blockOpLocksRef.current.has(`complete:${id}`)) return;
     blockOpLocksRef.current.add(`complete:${id}`);
     const snapshot = blocks;
@@ -825,37 +860,116 @@ export default function DayView() {
     }
   };
 
-  /** Bring a skipped / missed task back to the active list (clears its resolution)
-   *  and open the per-block editor so the user can re-pick time + duration. */
-  const reactivateBlock = async (id: string) => {
+  /** Mark an open task skipped. Used for frameless (no-duration) tasks that
+   *  have no slot end and so never auto-resolve — the user needs a way to
+   *  dismiss them without marking them done. Optimistic + undo. */
+  const skipBlock = async (id: string) => {
+    if (isFuture) return;
+    if (isPast) return; // past days are frozen
+    if (blockOpLocksRef.current.has(`skip:${id}`)) return;
+    blockOpLocksRef.current.add(`skip:${id}`);
     const snapshot = blocks;
     const target = snapshot.find((b) => b.id === id);
-    if (!target) return;
+    if (!target) { blockOpLocksRef.current.delete(`skip:${id}`); return; }
+    // Stop any running tracker first so we don't strand an open time entry.
+    await stopTrackingForBlock(target);
+    const iso = new Date().toISOString();
     const newBlocks = blocks.map((b) =>
       b.id === id
-        ? { ...b, completed: false, completed_at: null, actual_minutes: null, resolution: null, resolved_at: null, moved_to_date: null }
+        ? { ...b, completed: false, completed_at: null, actual_minutes: null, resolution: ("skipped" as const), resolved_at: iso }
         : b,
     );
     setBlocks(newBlocks);
     if (dayData && user?.id) {
       queryClient.setQueryData(planDayQueryKey(user.id, viewDate), { ...dayData, blocks: newBlocks });
     }
-    haptics.tap();
-    // Reopen the same per-block sheet the user gets from a normal tap, so they
-    // set start time / duration "as usual".
-    const updated = newBlocks.find((b) => b.id === id);
-    if (updated) setTappedBlock(updated);
+    haptics.impact("medium");
     try {
-      const payload = { completed: false, completed_at: null, actual_minutes: null, resolution: null, resolved_at: null, moved_to_date: null };
+      const payload = { completed: false, completed_at: null, actual_minutes: null, resolution: "skipped", resolved_at: iso };
       const { error: upErr } = await supabase.from("blocks").update(payload).eq("id", id);
       if (upErr) {
         if (!navigator.onLine || upErr.message?.toLowerCase().includes("fetch")) {
           await enqueueWrite({ table: "blocks", op: "update", payload, filter: { id } });
+          toast("Saved offline", { description: "Will sync when reconnected" });
         } else {
           throw upErr;
         }
       }
+      void queryClient.invalidateQueries({ queryKey: planDayQueryKey(user?.id ?? "", viewDate), refetchType: "none" });
+      toast.success("Skipped", {
+        action: {
+          label: "Undo",
+          onClick: async () => {
+            setBlocks(snapshot);
+            await supabase
+              .from("blocks")
+              .update({ resolution: null, resolved_at: null, completed: false })
+              .eq("id", id);
+            void invalidatePlanCaches();
+          },
+        },
+      });
+    } catch (e: any) {
+      setBlocks(snapshot);
+      toast.error(e?.message || "Unable to skip task");
+    } finally {
+      blockOpLocksRef.current.delete(`skip:${id}`);
+    }
+  };
+
+  /** Bring a skipped / missed task back to the active list (clears its resolution)
+   *  and open the per-block editor so the user can re-pick time + duration. */
+  const reactivateBlock = async (id: string) => {
+    const snapshot = blocks;
+    const target = snapshot.find((b) => b.id === id);
+    if (!target) return;
+    // Give it a fresh, actionable start so it doesn't fall straight back into
+    // "missed": on today, clamp to the next 5-min slot (a past start would be
+    // auto-missed again before the user can touch it). Other days keep their time.
+    const freshStart = isToday ? roundedNowHHMM() : target.start_time;
+
+    const makeBreak = (fromMin: number, toMin: number): ExBlock => ({
+      id: crypto.randomUUID(),
+      plan_id: target.plan_id,
+      user_id: target.user_id,
+      start_time: minutesToHHMM(fromMin % 1440),
+      duration_min: toMin - fromMin,
+      estimated_minutes: toMin - fromMin,
+      actual_minutes: null,
+      title: "Break",
+      type: "routine",
+      kind: "break",
+      completed: false,
+      position: 0,
+    });
+
+    const cleared = blocks.map((b) =>
+      b.id === id
+        ? { ...b, completed: false, completed_at: null, actual_minutes: null, resolution: null, resolved_at: null, moved_to_date: null, start_time: freshStart }
+        : b,
+    );
+    // Re-sort so the now-open task drops into its chronological place among the
+    // active tasks (it was pinned to the top while resolved). resolvedFirstOrder
+    // only reorders + rebuilds gap markers — it never re-times other tasks.
+    const reordered = resolvedFirstOrder(cleared, makeBreak);
+    const breakIdsToDelete = blocks.filter((b) => b.kind === "break").map((b) => b.id);
+
+    setBlocks(reordered);
+    if (dayData && user?.id) {
+      queryClient.setQueryData(planDayQueryKey(user.id, viewDate), { ...dayData, blocks: reordered });
+    }
+    haptics.tap();
+    // Reopen the same per-block sheet the user gets from a normal tap, so they
+    // can fine-tune start time / duration "as usual".
+    const updated = reordered.find((b) => b.id === id);
+    if (updated) setTappedBlock(updated);
+    try {
+      if (breakIdsToDelete.length) {
+        await supabase.from("blocks").delete().in("id", breakIdsToDelete);
+      }
+      await persistOrder(reordered);
       void invalidatePlanCaches();
+      if (isToday) void syncBlockNotifications(viewDate, reordered);
     } catch (e: any) {
       setBlocks(snapshot);
       toast.error(e?.message || "Couldn't restore task");
@@ -1431,6 +1545,7 @@ export default function DayView() {
   const onDragEnd = (e: DragEndEvent) => {
     setDndBodyScrollLock(false);
     setActiveDragId(null);
+    if (isPast) return; // past days are frozen — no reordering
     const { active, over } = e;
     haptics.impact("light");
     if (!over || active.id === over.id) return;
@@ -1921,7 +2036,6 @@ export default function DayView() {
   );
   // Keep alias for any existing references below.
   const missedTasks = movableTasks;
-  const isPast = !isToday && !isFuture;
 
   const spotlightId = useMemo(
     () => blocks.find((b) => isUserTask(b) && isOpenUserTask(b) && !b.is_calendar_event)?.id,
@@ -2095,6 +2209,18 @@ export default function DayView() {
           )}
         </div>
 
+        {/* Plan mode switcher — Timeline | Checklist (always visible in both) */}
+        <PlanModePill mode={planViewMode} onChange={setPlanViewMode} openCount={checklistOpenCount} />
+
+        {planViewMode === "checklist" ? (
+          <ChecklistView
+            userId={user?.id}
+            viewDate={viewDate}
+            eveningNudgeTime={(profile as any)?.evening_nudge_local_time}
+            onChange={handleChecklistChange}
+          />
+        ) : (
+        <>
         {/* Progress bar */}
         {!planMissing && totalTasks > 0 && (
           <div className="mt-4 shrink-0">
@@ -2125,9 +2251,11 @@ export default function DayView() {
           </div>
         )}
 
-        {/* Movable tasks banner — fades out smoothly when all tasks are moved */}
+        {/* Movable tasks banner — fades out smoothly when all tasks are moved.
+            `blocksMatchView` keeps it from flashing the previous day's count
+            during a day-switch transition (one stale paint of `blocks`). */}
         <AnimatePresence>
-          {!planMissing && !isFuture && movableTasks.length > 0 && (
+          {!planMissing && !isFuture && blocksMatchView && movableTasks.length > 0 && (
             <motion.button
               key="carry-banner"
               type="button"
@@ -2154,8 +2282,9 @@ export default function DayView() {
           )}
         </AnimatePresence>
 
-        {/* Inline "Start" CTA. */}
-        {!planMissing && !isFuture && firstUnfinishedTask && (
+        {/* Inline "Start" CTA — only on today; past days are read-only and
+            future days aren't actionable yet. */}
+        {!planMissing && isToday && firstUnfinishedTask && (
           <Button
             onClick={() => nav(`/focus/${firstUnfinishedTask.id}`)}
             className="w-full h-12 rounded-2xl bg-primary hover:bg-primary/90 text-primary-foreground text-[15px] font-semibold pressable shadow-[0_8px_30px_-6px_hsl(var(--primary)/0.5)] border border-primary/20 mt-4 mb-1"
@@ -2179,28 +2308,33 @@ export default function DayView() {
               {isToday ? "Empty day" : friendlyDateFor(parseDateStr(viewDate))}
             </div>
             <p className="text-[13px] text-secondary-fg/80 mt-2 leading-relaxed max-w-[260px] mx-auto">
-              Add your tasks — type them out, paste a list, or let AI plan your day.
+              {isPast
+                ? "No plan was made for this day."
+                : "Add your tasks — type them out, paste a list, or let AI plan your day."}
             </p>
-            <div className="mt-7 flex flex-col gap-2.5 max-w-[240px] mx-auto relative z-10">
-              <button
-                type="button"
-                onClick={() => setComposerOpen(true)}
-                className="btn-volumetric pressable inline-flex items-center justify-center gap-2 w-full h-12 rounded-[18px] text-primary-foreground text-[14px] font-semibold"
-              >
-                <ListPlus className="h-4 w-4" /> Add tasks
-              </button>
-              <button
-                type="button"
-                onClick={() => {
-                  setAskAiTaskTitle(null);
-                  setAskAiContext("__empty_day__");
-                  setAskAiOpen(true);
-                }}
-                className="pressable inline-flex items-center justify-center gap-2 w-full h-11 rounded-[18px] text-[13px] font-semibold text-foreground/90 border border-soft bg-card dark:bg-white/[0.06] shadow-card dark:shadow-[inset_0_1px_1px_rgba(255,255,255,0.12),0_4px_12px_rgba(0,0,0,0.2)] backdrop-blur-sm"
-              >
-                <Wand2 className="h-4 w-4 text-primary" /> Ask AI
-              </button>
-            </div>
+            {/* Past days are read-only — no Add/Ask-AI affordances. */}
+            {!isPast && (
+              <div className="mt-7 flex flex-col gap-2.5 max-w-[240px] mx-auto relative z-10">
+                <button
+                  type="button"
+                  onClick={() => setComposerOpen(true)}
+                  className="btn-volumetric pressable inline-flex items-center justify-center gap-2 w-full h-12 rounded-[18px] text-primary-foreground text-[14px] font-semibold"
+                >
+                  <ListPlus className="h-4 w-4" /> Add tasks
+                </button>
+                <button
+                  type="button"
+                  onClick={() => {
+                    setAskAiTaskTitle(null);
+                    setAskAiContext("__empty_day__");
+                    setAskAiOpen(true);
+                  }}
+                  className="pressable inline-flex items-center justify-center gap-2 w-full h-11 rounded-[18px] text-[13px] font-semibold text-foreground/90 border border-soft bg-card dark:bg-white/[0.06] shadow-card dark:shadow-[inset_0_1px_1px_rgba(255,255,255,0.12),0_4px_12px_rgba(0,0,0,0.2)] backdrop-blur-sm"
+                >
+                  <Wand2 className="h-4 w-4 text-primary" /> Ask AI
+                </button>
+              </div>
+            )}
           </div>
           </div>
         )}
@@ -2238,6 +2372,7 @@ export default function DayView() {
                         trackingActive={!!tracker.active && tracker.active.block_id === b.id}
                         assignedCategory={assignedCat}
                         isFuturePlan={isFuture}
+                        readOnly={isPast}
                         lateMin={b.id === overdueBlockId ? overdueBlockLateMin : undefined}
 
                         onTap={blockHandlers.onTap}
@@ -2297,6 +2432,8 @@ export default function DayView() {
             )}
 
           </>
+        )}
+        </>
         )}
       </motion.div>
       </PullToRefresh>
@@ -2388,6 +2525,16 @@ export default function DayView() {
                   }}
                   icon={<ArrowRightCircle className="h-4 w-4" />}
                   label="Move to another day"
+                />
+              )}
+              {/* Skip — only for frameless tasks (no duration): they have no
+                  slot end, so they never auto-resolve and otherwise can only be
+                  cleared by marking them done. */}
+              {!tappedBlock.is_calendar_event && tappedBlock.kind === "task" && isOpenUserTask(tappedBlock as Block) && (Number(tappedBlock.duration_min) || 0) <= 0 && (
+                <ActionRow
+                  onClick={() => { const id = tappedBlock.id; setTappedBlock(null); void skipBlock(id); }}
+                  icon={<SkipForward className="h-4 w-4" />}
+                  label="Skip"
                 />
               )}
               {!tappedBlock.is_calendar_event && isToday && (
@@ -2500,12 +2647,15 @@ export default function DayView() {
               label="Copy plan as text"
             />
           )}
-          <ActionRow
-            onClick={() => { setMoreOpen(false); setConfirmDeletePlan(true); }}
-            icon={<Trash2 className="h-4 w-4" />}
-            label="Delete plan"
-            destructive
-          />
+          {/* Past days are frozen — deleting a finished day's plan is locked. */}
+          {!isPast && (
+            <ActionRow
+              onClick={() => { setMoreOpen(false); setConfirmDeletePlan(true); }}
+              icon={<Trash2 className="h-4 w-4" />}
+              label="Delete plan"
+              destructive
+            />
+          )}
         </SheetContent>
       </Sheet>
 
@@ -3285,25 +3435,51 @@ export default function DayView() {
           const idx = blocks.findIndex(b => b.id === id);
           if (idx < 0) return;
           const snapshot = blocks;
-          const updated = [...blocks];
-          updated[idx] = { ...updated[idx], duration_min: v };
-          const next = packLinearSchedule(updated);
+
+          const makeBreak = (fromMin: number, toMin: number): ExBlock => ({
+            id: crypto.randomUUID(),
+            plan_id: blocks[0]?.plan_id ?? "",
+            user_id: blocks[0]?.user_id ?? "",
+            start_time: minutesToHHMM(fromMin % 1440),
+            duration_min: toMin - fromMin,
+            estimated_minutes: toMin - fromMin,
+            actual_minutes: null,
+            title: "Break",
+            type: "routine",
+            kind: "break",
+            completed: false,
+            position: 0,
+          });
+
+          // Only the edited block changes length. It is the anchor (keeps its
+          // exact start_time); calendar events and resolved (done/skipped/missed)
+          // tasks are also anchored so their slots NEVER move. Only later OPEN
+          // tasks slide forward, and only as far as needed to clear the new
+          // length (normalizeSchedule = minimal movement). A full packLinearSchedule
+          // here was the bug — it re-timed the entire plan, resolved rows included.
+          const updated = blocks.map((b) => (b.id === id ? { ...b, duration_min: v } : b));
+          const lockedIds = new Set(
+            updated
+              .filter((b) => !!b.is_calendar_event || (b.kind === "task" && !isOpenUserTask(b as Block)))
+              .map((b) => b.id),
+          );
+          const normalized = normalizeSchedule(updated, new Set([id, ...lockedIds]), makeBreak);
+          // Fallback (cross-midnight / non-monotonic): keep every start_time as-is
+          // and just rebuild the gap markers — never repack.
+          const byTime = (a: ExBlock, b: ExBlock) => timeToMinutes(a.start_time) - timeToMinutes(b.start_time);
+          const next = normalized
+            ? resolvedFirstOrder(normalized, makeBreak)
+            : resolvedFirstOrder(
+                materializeGaps([...updated.filter((b) => b.kind !== "break")].sort(byTime), makeBreak),
+                makeBreak,
+              );
+          const breakIdsToDelete = blocks.filter((b) => b.kind === "break").map((b) => b.id);
+
           setBlocks(next);
           setPlanMutating(true);
           try {
-            const updatedBlock = next.find((x) => x.id === id);
-            if (!updatedBlock) { setBlocks(snapshot); return; }
-            const payload = {
-              duration_min: v,
-              slot_end_time: blockSlotEndHHMM(updatedBlock),
-            };
-            const { error: upErr } = await supabase.from("blocks").update(payload).eq("id", id);
-            if (upErr) {
-              if (!navigator.onLine || upErr.message?.toLowerCase().includes("fetch")) {
-                await enqueueWrite({ table: "blocks", op: "update", payload, filter: { id } });
-              } else {
-                throw upErr;
-              }
+            if (breakIdsToDelete.length) {
+              await supabase.from("blocks").delete().in("id", breakIdsToDelete);
             }
             await persistOrder(next);
             void invalidatePlanCaches();
@@ -3358,6 +3534,44 @@ export default function DayView() {
     </>
   );
 }
+
+// Segmented switcher between the timed plan and the untimed checklist. The
+// sliding pill is filled with the *active mode's own colour* (Timeline=primary,
+// Checklist=accent) so the colour itself signals which mode you're in.
+const PlanModePill = ({ mode, onChange, openCount }: { mode: "timeline" | "checklist"; onChange: (m: "timeline" | "checklist") => void; openCount: number }) => (
+  <div className="mt-3 relative h-11 rounded-2xl bg-muted/40 border border-soft p-1 select-none">
+    <motion.div
+      className="absolute top-1 bottom-1 left-1 rounded-xl shadow-sm"
+      style={{
+        width: "calc(50% - 4px)",
+        background: mode === "checklist" ? "hsl(var(--accent))" : "hsl(var(--primary))",
+      }}
+      animate={{ x: mode === "timeline" ? "0%" : "100%" }}
+      transition={{ type: "spring", stiffness: 380, damping: 32 }}
+    />
+    <div className="relative grid grid-cols-2 h-full">
+      <button
+        type="button"
+        onClick={() => { haptics.selection(); onChange("timeline"); }}
+        className={`relative z-10 flex items-center justify-center gap-1.5 text-[13px] font-semibold rounded-xl transition-colors ${mode === "timeline" ? "text-primary-foreground" : "text-secondary-fg/70"}`}
+      >
+        <Clock className="h-4 w-4" /> Timeline
+      </button>
+      <button
+        type="button"
+        onClick={() => { haptics.selection(); onChange("checklist"); }}
+        className={`relative z-10 flex items-center justify-center gap-1.5 text-[13px] font-semibold rounded-xl transition-colors ${mode === "checklist" ? "text-accent-foreground" : "text-secondary-fg/70"}`}
+      >
+        <ListChecks className="h-4 w-4" /> Checklist
+        {openCount > 0 && (
+          <span className={`ml-0.5 inline-flex items-center justify-center min-w-[18px] h-[18px] px-1 rounded-full text-[10px] font-bold tabular-nums ${mode === "checklist" ? "bg-accent-foreground/20 text-accent-foreground" : "bg-accent/15 text-accent"}`}>
+            {openCount}
+          </span>
+        )}
+      </button>
+    </div>
+  </div>
+);
 
 const ActionRow = ({ onClick, icon, label, destructive, children }: { onClick?: () => void; icon?: React.ReactNode; label: string; destructive?: boolean; children?: React.ReactNode }) => (
   <div className="relative">
