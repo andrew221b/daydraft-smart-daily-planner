@@ -36,35 +36,35 @@ export async function applyAutoMissedBlocks(
   // scheduled end time, leaving those tasks permanently "active" under the
   // strict created_at < endMs check.
   const LONG_PAST_MS = 10 * 60_000;
-  const ids = blocks
+  const autoMissBlocks = blocks
     .filter((b) => {
       if (!isOpenUserTask(b)) return false;
-      // Frameless tasks (duration_min <= 0) are a point in the day with no real
-      // slot — their slot-end equals their start, so they'd "expire" the instant
-      // their start passes. By design these are resolved ONLY by the user (Skip /
-      // Done), never auto-missed; otherwise a batch of timeless to-dos all flip to
-      // "missed" together and get stamped with one identical resolved_at.
       if (Number((b as { duration_min?: number }).duration_min) <= 0) return false;
       const endMs = instants.get(b.id)?.endMs ?? 0;
       if (!endMs || endMs >= now) return false;
       const pastEnd = now - endMs;
       const createdAtRaw = (b as any).created_at as string | undefined;
       const createdMs = createdAtRaw ? Date.parse(createdAtRaw) : NaN;
-      // No created_at: still mark missed if the slot clearly ended long ago.
       if (!Number.isFinite(createdMs)) return pastEnd > LONG_PAST_MS;
-      // Normal case: block was created before its end time (real planned task).
       if (createdMs + GRACE_MS < endMs) return true;
-      // Created at or after end time (retroactive / late AI generation): only
-      // mark missed once it's been past the end long enough that it's unambiguous.
       return pastEnd > LONG_PAST_MS;
-    })
-    .map((b) => b.id);
-  if (!ids.length) return false;
-  const iso = new Date().toISOString();
-  const { error } = await supabase
-    .from("blocks")
-    .update({ resolution: "missed", resolved_at: iso, completed: false })
-    .in("id", ids);
+    });
+
+  if (!autoMissBlocks.length) return false;
+
+  const updates = autoMissBlocks.map((b) => {
+    // Stamp the exact time the slot ended, rather than the current time
+    const endMs = instants.get(b.id)?.endMs;
+    const resolvedAt = endMs ? new Date(endMs).toISOString() : new Date().toISOString();
+    return supabase
+      .from("blocks")
+      .update({ resolution: "missed", resolved_at: resolvedAt, completed: false })
+      .eq("id", b.id);
+  });
+
+  const results = await Promise.all(updates);
+  const error = results.find(r => r.error)?.error;
+
   if (error) {
     console.error(error);
     return false;

@@ -33,30 +33,47 @@ export function CheckCircleAccent({ done, size = 22 }: { done: boolean; size?: n
   );
 }
 
-/** Compact progress for a list header: an accent ring that fills, collapsing to
- *  a glowing accent-gradient check disc once everything is done. */
+/** Compact progress ring with X/Y count inside. Collapses to a glowing
+ *  accent-gradient check disc once everything is done. */
 function ProgressRing({ done, total }: { done: number; total: number }) {
-  const r = 8;
+  const size = 30;
+  const r = 12;
   const c = 2 * Math.PI * r;
   const offset = total === 0 ? c : ((total - done) / total) * c;
   const allDone = total > 0 && done === total;
 
   if (allDone) {
     return (
-      <div className="accent-grad accent-glow flex items-center justify-center h-[20px] w-[20px] rounded-full shrink-0">
-        <Check className="h-3 w-3 text-white" strokeWidth={3} />
+      <div className="accent-grad accent-glow flex items-center justify-center h-[30px] w-[30px] rounded-full shrink-0">
+        <Check className="h-3.5 w-3.5 text-white" strokeWidth={3} />
       </div>
     );
   }
+
+  const label = total > 0 ? `${done}/${total}` : "";
+  const fontSize = label.length <= 3 ? 8.5 : label.length <= 4 ? 7.5 : 6.5;
+
   return (
-    <svg className="-rotate-90 h-[20px] w-[20px] shrink-0" viewBox="0 0 20 20" aria-hidden>
-      <circle cx="10" cy="10" r={r} fill="none" stroke="currentColor" strokeWidth="2.5" className="text-secondary-fg/20" />
-      <circle
-        cx="10" cy="10" r={r} fill="none" stroke="hsl(var(--accent))" strokeWidth="2.5"
-        strokeDasharray={c} strokeDashoffset={offset} strokeLinecap="round"
-        className="transition-[stroke-dashoffset] duration-500 ease-out"
-      />
-    </svg>
+    <div className="relative h-[30px] w-[30px] shrink-0 flex items-center justify-center">
+      {/* Ring arc — rotated so it starts at the top */}
+      <svg className="-rotate-90 absolute inset-0 h-full w-full" viewBox={`0 0 ${size} ${size}`} aria-hidden>
+        <circle cx={size / 2} cy={size / 2} r={r} fill="none" stroke="currentColor" strokeWidth="1.8" className="text-secondary-fg/20" />
+        <circle
+          cx={size / 2} cy={size / 2} r={r} fill="none" stroke="hsl(var(--accent))" strokeWidth="1.8"
+          strokeDasharray={c} strokeDashoffset={offset} strokeLinecap="round"
+          className="transition-[stroke-dashoffset] duration-500 ease-out"
+        />
+      </svg>
+      {/* Count — centered over the ring */}
+      {total > 0 && (
+        <span
+          className="relative z-10 tabular-nums font-bold leading-none"
+          style={{ fontSize, color: "hsl(var(--accent))", letterSpacing: "-0.3px" }}
+        >
+          {done}/{total}
+        </span>
+      )}
+    </div>
   );
 }
 

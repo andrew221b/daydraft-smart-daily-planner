@@ -6,7 +6,7 @@ import { AnimatePresence, motion } from "framer-motion";
 import { Block, fmtTime, inferScheduleBlockType, isOpenUserTask, isUserTaskDone } from "@/lib/daydraft";
 import {
   Check, Calendar, Layers, GripVertical, Sparkles, Play, Square,
-  ChevronDown, Clock, Bell, Bookmark, Trash2,
+  ChevronDown, Clock, Bell, Bookmark, Trash2, RotateCcw
 } from "lucide-react";
 import { haptics } from "@/lib/haptics";
 import {
@@ -143,9 +143,8 @@ export const SortableBlock = memo(({
   const fmtMin = (mins: number) =>
     mins < 60 ? `${mins}m` : `${Math.floor(mins / 60)}h${mins % 60 ? ` ${mins % 60}m` : ""}`;
 
-  // "Late by" text: minutes under an hour, h:mm once you hit 60 (90 → "1:30").
   const fmtLate = (mins: number) =>
-    mins < 60 ? `${mins}m` : `${Math.floor(mins / 60)}:${String(mins % 60).padStart(2, "0")}`;
+    mins < 60 ? `${mins}m` : `${Math.floor(mins / 60)}h${mins % 60 ? ` ${mins % 60}m` : ""}`;
 
   const estimatedMin = block.estimated_minutes ?? block.duration_min;
   const actualMin = typeof block.actual_minutes === "number" ? block.actual_minutes : null;
@@ -169,8 +168,8 @@ export const SortableBlock = memo(({
   const isDone = isUserTaskDone(block);
   // On a read-only (past) row, only missed/skipped tasks expand — to reveal the
   // single allowed action, "Move to another day". Done/open rows stay static.
-  const canExpand = isTask && !isOverlay &&
-    (!readOnly || block.resolution === "missed" || block.resolution === "skipped");
+  const isFinished = !!block.completed || block.resolution === "missed" || block.resolution === "skipped";
+  const canExpand = isTask && !isOverlay && !isFinished;
 
   // Always top-align so grip/circle pin to the first text line regardless
   // of whether the title wraps to 2 lines (collapsed) or is fully expanded.
@@ -452,6 +451,17 @@ export const SortableBlock = memo(({
                 </button>
               )
             )}
+            {onCarryForward && (block.resolution === "missed" || block.resolution === "skipped") && (
+              <button
+                type="button"
+                onPointerDown={(e) => e.stopPropagation()}
+                onClick={(e) => { e.stopPropagation(); haptics.impact("light"); onCarryForward(block); }}
+                className="shrink-0 h-8 rounded-full border border-primary/25 bg-primary/[0.07] px-2.5 inline-flex items-center justify-center gap-1.5 text-[11px] font-medium text-primary/80 pressable hover:text-primary hover:border-primary/40 hover:bg-primary/[0.12] transition-colors"
+                aria-label="Move to another day"
+              >
+                <Calendar className="h-3 w-3" /> Move
+              </button>
+            )}
 
             {/* Status / complete circle — skipped & missed stay tappable so the
                 user can still mark the task done after the fact (opens the
@@ -572,21 +582,6 @@ export const SortableBlock = memo(({
               </div>
               )}
 
-              {/* Move to another day (missed / skipped only) */}
-              {onCarryForward && (block.resolution === "missed" || block.resolution === "skipped") && (
-                <div className="mt-2.5 flex justify-end">
-                  <button
-                    type="button"
-                    onPointerDown={(e) => e.stopPropagation()}
-                    onClick={(e) => { e.stopPropagation(); haptics.impact("light"); onCarryForward(block); }}
-                    className="inline-flex items-center gap-1.5 rounded-full border border-primary/25 bg-primary/[0.07] px-3.5 py-1.5 text-[12px] font-semibold text-primary/80 hover:text-primary hover:border-primary/40 hover:bg-primary/[0.12] pressable transition-colors"
-                  >
-                    <Calendar className="h-3 w-3" />
-                    Move
-                  </button>
-                </div>
-              )}
-
             </div>
           </motion.div>
         )}
@@ -673,10 +668,12 @@ function StatusCompleteCircle({
         haptics.tap();
         onToggle();
       }}
-      className={`h-7 w-7 rounded-full border shrink-0 pressable transition-colors ${toneClass}`}
+      className={`relative group flex items-center justify-center h-7 w-7 rounded-full border shrink-0 pressable transition-colors ${toneClass}`}
       aria-label={label}
       title={label}
-    />
+    >
+      <RotateCcw className={`h-3.5 w-3.5 opacity-60 transition-transform duration-300 group-active:-rotate-45 ${tone === "amber" ? "text-amber-600" : "text-destructive"}`} strokeWidth={2.5} />
+    </button>
   );
 }
 
@@ -731,10 +728,11 @@ function CompleteCircleDone({
         haptics.tap();
         onToggle();
       }}
-      className="relative h-8 w-8 rounded-full bg-success flex items-center justify-center shrink-0 pressable shadow-[0_4px_14px_-2px_hsl(var(--success)/0.55)] ring-1 ring-white/20"
+      className="relative group flex items-center justify-center h-8 w-8 rounded-full bg-success shrink-0 pressable shadow-[0_4px_14px_-2px_hsl(var(--success)/0.55)] ring-1 ring-white/20 transition-transform active:scale-95"
       aria-label="Mark as not done"
     >
-      <Check className="h-4 w-4 text-success-foreground row-check-pop" strokeWidth={3} />
+      <Check className="absolute h-4 w-4 text-success-foreground row-check-pop transition-all duration-200 group-active:scale-50 group-active:opacity-0" strokeWidth={3} />
+      <RotateCcw className="absolute h-4 w-4 text-success-foreground scale-50 opacity-0 transition-all duration-200 group-active:scale-100 group-active:opacity-100 group-active:-rotate-45" strokeWidth={2.5} />
     </button>
   );
 }

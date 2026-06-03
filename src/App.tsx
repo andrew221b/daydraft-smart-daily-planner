@@ -184,10 +184,10 @@ const ThemedToaster = () => {
   return (
     <Sonner
       theme={resolved}
-      // Top-center, just below the Dynamic Island / status bar. Uses the
-      // safe-area-inset-top so toasts land below the notch on every device.
+      // Top-center, comfortably below the Dynamic Island / status bar. Uses the
+      // safe-area-inset-top so toasts clear the notch on every device.
       position="top-center"
-      offset="calc(env(safe-area-inset-top, 44px) + 8px)"
+      offset="calc(env(safe-area-inset-top, 44px) + 20px)"
       // Above sheets/overlays (z-50) and the tab bar (z-40) so a toast is ALWAYS
       // on top — never dimmed behind a sheet's backdrop.
       style={{ zIndex: 2147483647 }}

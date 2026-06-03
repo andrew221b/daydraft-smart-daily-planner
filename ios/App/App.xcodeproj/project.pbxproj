@@ -85,7 +85,19 @@
 /* End PBXFileSystemSynchronizedBuildFileExceptionSet section */
 
 /* Begin PBXFileSystemSynchronizedRootGroup section */
-		49F79CF42FC985BC00F656E9 /* DayDraftWidgets */ = {isa = PBXFileSystemSynchronizedRootGroup; exceptions = (49F79D222FC9A13900F656E9 /* PBXFileSystemSynchronizedBuildFileExceptionSet */, 49F79D062FC985BD00F656E9 /* PBXFileSystemSynchronizedBuildFileExceptionSet */, ); explicitFileTypes = {}; explicitFolders = (); path = DayDraftWidgets; sourceTree = "<group>"; };
+		49F79CF42FC985BC00F656E9 /* DayDraftWidgets */ = {
+			isa = PBXFileSystemSynchronizedRootGroup;
+			exceptions = (
+				49F79D222FC9A13900F656E9 /* PBXFileSystemSynchronizedBuildFileExceptionSet */,
+				49F79D062FC985BD00F656E9 /* PBXFileSystemSynchronizedBuildFileExceptionSet */,
+			);
+			explicitFileTypes = {
+			};
+			explicitFolders = (
+			);
+			path = DayDraftWidgets;
+			sourceTree = "<group>";
+		};
 /* End PBXFileSystemSynchronizedRootGroup section */
 
 /* Begin PBXFrameworksBuildPhase section */

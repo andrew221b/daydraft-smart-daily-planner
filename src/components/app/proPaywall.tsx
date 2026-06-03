@@ -293,11 +293,15 @@ export function ProPlanRow({
     >
       <div className="flex items-center gap-3">
         <span
-          className={`flex h-5 w-5 shrink-0 items-center justify-center rounded-full border-2 transition-colors ${
+          className={`flex h-5 w-5 shrink-0 items-center justify-center rounded-full border-2 transition-colors duration-300 ${
             active ? "border-primary" : "border-border/60"
           }`}
         >
-          {active && <span className="h-2.5 w-2.5 rounded-full bg-primary" />}
+          <span 
+            className={`h-2.5 w-2.5 rounded-full bg-primary transition-all duration-300 ease-out origin-center ${
+              active ? "scale-100 opacity-100" : "scale-0 opacity-0"
+            }`} 
+          />
         </span>
 
         <div className="flex items-center gap-2 flex-1 min-w-0">

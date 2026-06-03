@@ -68,7 +68,6 @@ export function ChecklistView({
     deleteItem,
     moveItem,
     reorder,
-    clearCompleted,
   } = useChecklist(userId, viewDate, eveningNudgeTime);
 
   const [activeId, setActiveId] = useState<string | null>(null);
@@ -205,15 +204,9 @@ export function ChecklistView({
                 <span className="text-secondary-fg/60 font-normal"> / {total} done</span>
               </div>
               {done > 0 && (
-                <button
-                  onClick={() => {
-                    haptics.tap();
-                    clearCompleted();
-                  }}
-                  className="text-[12px] font-semibold text-secondary-fg/70 hover:text-foreground pressable"
-                >
-                  Clear completed
-                </button>
+                <span className="text-[12px] font-semibold" style={{ color: "hsl(var(--accent))" }}>
+                  {done === total ? "All done! Nice work." : "Nice, keep going!"}
+                </span>
               )}
             </div>
             <div className="h-2 rounded-full bg-muted/50 overflow-hidden shadow-[inset_0_1px_2px_rgba(0,0,0,0.25)]">

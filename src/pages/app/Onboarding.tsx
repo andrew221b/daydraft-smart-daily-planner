@@ -16,6 +16,7 @@ import {
   ListChecks,
   Check,
   GripVertical,
+  Loader2,
 } from "lucide-react";
 import { AnimatePresence, motion } from "framer-motion";
 import { enablePush, pushSupported } from "@/lib/push";
@@ -213,15 +214,23 @@ export default function Onboarding() {
             ))}
           </div>
 
-          <div className="flex-1 flex flex-col page-enter" key={step}>
-            {step === 0 && (
-              <WelcomeSetupStep
-                aiAbout={aiAbout}
-                onAiAbout={setAiAbout}
-                onContinue={() => goTo(1)}
-                disabled={finishing}
-              />
-            )}
+          <AnimatePresence mode="wait">
+            <motion.div 
+              className="flex-1 flex flex-col" 
+              key={step}
+              initial={{ opacity: 0, y: 12 }}
+              animate={{ opacity: 1, y: 0 }}
+              exit={{ opacity: 0, y: -12 }}
+              transition={{ duration: 0.36, ease: [0.22, 1, 0.36, 1] }}
+            >
+              {step === 0 && (
+                <WelcomeSetupStep
+                  aiAbout={aiAbout}
+                  onAiAbout={setAiAbout}
+                  onContinue={() => goTo(1)}
+                  disabled={finishing}
+                />
+              )}
             {step === 1 && (
               <FeaturesShowcaseStep
                 onContinue={() => goTo(2)}
@@ -239,7 +248,8 @@ export default function Onboarding() {
                 finishing={finishing}
               />
             )}
-          </div>
+            </motion.div>
+          </AnimatePresence>
         </div>
       </div>
     </div>
@@ -763,8 +773,8 @@ function LiveTrackerCard({ baseElapsed, delay = 0.55 }: { baseElapsed: number, d
           </motion.div>
           
           <motion.div
-            initial={{ opacity: 0, y: 10, scale: 0.9, filter: "blur(4px)" }}
-            animate={{ opacity: 1, y: 0, scale: 1, filter: "blur(0px)" }}
+            initial={{ opacity: 0, y: 10, scale: 0.9 }}
+            animate={{ opacity: 1, y: 0, scale: 1 }}
             transition={{ delay: delay + 0.52, type: "spring", stiffness: 260, damping: 26 }}
             className="mt-1.5 inline-flex items-center gap-1.5 rounded-full bg-success/10 border border-success/20 px-3 py-1 tabular-nums"
           >
@@ -803,7 +813,7 @@ function PlanModeDemoPill({ mode }: { mode: "timeline" | "checklist" }) {
         className="absolute top-1 bottom-1 left-1 rounded-xl shadow-sm"
         style={{
           width: "calc(50% - 4px)",
-          background: mode === "checklist" ? "hsl(var(--accent))" : "hsl(var(--primary))",
+          background: mode === "checklist" ? "hsl(var(--checklist-accent))" : "hsl(var(--primary))",
         }}
         animate={{ x: mode === "timeline" ? "0%" : "100%" }}
         transition={{ type: "spring", stiffness: 380, damping: 32 }}
@@ -812,7 +822,7 @@ function PlanModeDemoPill({ mode }: { mode: "timeline" | "checklist" }) {
         <div className={`relative z-10 flex items-center justify-center gap-1.5 text-[13px] font-semibold rounded-xl transition-colors duration-300 ${mode === "timeline" ? "text-primary-foreground" : "text-secondary-fg/70"}`}>
           <Clock className="h-4 w-4" /> Timeline
         </div>
-        <div className={`relative z-10 flex items-center justify-center gap-1.5 text-[13px] font-semibold rounded-xl transition-colors duration-300 ${mode === "checklist" ? "text-accent-foreground" : "text-secondary-fg/70"}`}>
+        <div className={`relative z-10 flex items-center justify-center gap-1.5 text-[13px] font-semibold rounded-xl transition-colors duration-300 ${mode === "checklist" ? "text-white" : "text-secondary-fg/70"}`}>
           <ListChecks className="h-4 w-4" /> Checklist
         </div>
       </div>
@@ -870,7 +880,7 @@ function ChecklistDemoCard() {
   const doneCount = done.size;
 
   return (
-    <div className="relative app-card checklist-surface rounded-[18px] px-3.5 py-3">
+    <div className="checklist-theme relative app-card checklist-surface rounded-[18px] px-3.5 py-3">
       <div className="relative z-10">
         {/* Header — accent chip · list name · live counter */}
         <div className="flex items-center justify-between mb-2.5">
@@ -909,11 +919,17 @@ function ChecklistDemoCard() {
  *  (two shadowed-card layers composited at once is what stuttered); motion is
  *  opacity + translateY only — no `scale` (repaints the card shadow every frame)
  *  and no blur (the iOS WebKit jank cliff). */
-function PlanShowcase({ switchAt = 2.3 }: { switchAt?: number }) {
+function PlanShowcase({ switchAt = 4.0 }: { switchAt?: number }) {
   const [mode, setMode] = useState<"timeline" | "checklist">("timeline");
   useEffect(() => {
-    const t = setTimeout(() => setMode("checklist"), switchAt * 1000);
-    return () => clearTimeout(t);
+    // Defer the countdown to after the first paint so the timer budget isn't
+    // consumed by JS mount time (on slow devices mount can take 300-700ms,
+    // which would silently eat most of a short switchAt).
+    let t: ReturnType<typeof setTimeout>;
+    const frame = requestAnimationFrame(() => {
+      t = setTimeout(() => setMode("checklist"), switchAt * 1000);
+    });
+    return () => { cancelAnimationFrame(frame); clearTimeout(t); };
   }, [switchAt]);
 
   return (
@@ -928,7 +944,7 @@ function PlanShowcase({ switchAt = 2.3 }: { switchAt?: number }) {
 
       {/* Fixed-height stage so the tracker below never jumps as layers swap. */}
       <div className="relative mt-3.5 h-[188px]">
-        <AnimatePresence initial={false}>
+        <AnimatePresence>
           {mode === "timeline" ? (
             <motion.div
               key="timeline"
@@ -983,7 +999,7 @@ function FeaturesShowcaseStep({
   // is static — the switcher flips to Checklist as the closing delight beat.
   const T_TIMER  = 0.95;
   const T_BUTTON = 1.25;
-  const T_SWITCH = 2.3; // seconds before the pill morphs Timeline → Checklist (calm beat)
+  const T_SWITCH = 4.0; // seconds (after first paint) before the pill morphs Timeline → Checklist
 
   return (
     <div className="flex-1 flex flex-col">
@@ -1141,6 +1157,7 @@ function PaywallStep({
             disabled={busy}
             className="w-full h-[54px] rounded-[18px] bg-primary hover:bg-primary/92 text-primary-foreground text-[15px] font-semibold pressable"
           >
+            {busy ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : null}
             {ctaLabel}
           </Button>
           <button

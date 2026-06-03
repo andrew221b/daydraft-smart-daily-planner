@@ -107,50 +107,40 @@ export function packLinearSchedule<T extends Pick<Block, "start_time" | "duratio
 }
 
 /**
- * Insert invisible gap markers (kind: "break") between consecutive blocks that
- * don't touch — i.e. wherever `next.start > cur.end`. The blocks are assumed to
- * already be in chronological order. `makeBreak` supplies a fully-formed break
- * block (the caller owns id / plan_id / user_id), so this stays pure.
- */
-export function materializeGaps<T extends Block>(
-  ordered: T[],
-  makeBreak: (fromMin: number, toMin: number) => T,
-): T[] {
-  const out: T[] = [];
-  for (let i = 0; i < ordered.length; i++) {
-    out.push(ordered[i]);
-    const next = ordered[i + 1];
-    if (!next) break;
-    const curEnd = timeToMinutes(ordered[i].start_time) + Number(ordered[i].duration_min || 0);
-    const nextStart = timeToMinutes(next.start_time);
-    if (nextStart > curEnd) out.push(makeBreak(curEnd, nextStart));
-  }
-  return out;
-}
-
-/**
  * Retime a plan around one or more *anchor* blocks (the task the user just
  * placed or moved). Anchors keep their exact start_time; every other block is
  * sorted by time and slides forward ONLY as far as needed to avoid overlapping
  * the block before it — so untouched downstream tasks keep their times and gaps
  * whenever they don't conflict ("user is boss", minimal movement).
  *
- * Returns null when the non-anchor blocks aren't already monotonic by HH:MM
- * (a cross-midnight / out-of-order plan, where sorting by clock time is unsafe);
- * the caller should fall back to its existing retiming in that case.
+ * Returns null ONLY for a genuine cross-midnight plan — detected as a *large*
+ * (>12h) backward jump in clock time among the non-anchor blocks, where the plan
+ * truly wraps past 00:00 and sorting by HH:MM would scramble the sequence (a
+ * 23:00 task must stay before a 00:30 one). The caller falls back to its
+ * cross-midnight retiming there. A merely *out-of-order* same-day plan (e.g. a
+ * 19:30 row stored before a 19:00 row, as a drag-swap or a stale position can
+ * leave) is NOT a reason to bail: we repair it by sorting + cascading below, so
+ * one edit can never leave the user's tasks overlapping or jumbled ("liquid
+ * timeline" — move one task, the rest re-flow correctly).
  *
- * Existing break blocks are dropped and rebuilt fresh via `materializeGaps`.
+ * Returns ONLY the retimed tasks (chronological) — no gap/break rows. Gaps are a
+ * derived, render-time concept now (the difference between consecutive starts),
+ * so the timeline no longer stores or churns invisible "break" rows.
  */
 export function normalizeSchedule<T extends Block>(
   blocks: T[],
   anchorIds: Set<string>,
-  makeBreak: (fromMin: number, toMin: number) => T,
 ): T[] | null {
   const nonBreak = blocks.filter((b) => b.kind !== "break");
-  // Bail unless the blocks we're NOT moving are already in clock order.
+  // Bail ONLY on a true midnight wrap: a backward step of more than 12h among
+  // the blocks we're NOT moving. A small backward step is just an out-of-order
+  // same-day plan, which the sort+cascade below repairs (instead of the old
+  // behaviour of bailing to a full sequential repack that scrambled untouched
+  // tasks — the root of the "I moved one task and the others went haywire" bug).
+  const WRAP_MIN = 12 * 60;
   const fixed = nonBreak.filter((b) => !anchorIds.has(b.id));
   for (let i = 1; i < fixed.length; i++) {
-    if (timeToMinutes(fixed[i].start_time) < timeToMinutes(fixed[i - 1].start_time)) return null;
+    if (timeToMinutes(fixed[i - 1].start_time) - timeToMinutes(fixed[i].start_time) > WRAP_MIN) return null;
   }
   const sorted = [...nonBreak].sort((a, b) => timeToMinutes(a.start_time) - timeToMinutes(b.start_time));
   let cursor = -1;
@@ -161,7 +151,7 @@ export function normalizeSchedule<T extends Block>(
     cursor = s + Math.max(0, Number(t.duration_min || 0));
     return { ...t, start_time: minutesToHHMM(s % 1440) };
   });
-  return materializeGaps(retimed, makeBreak);
+  return retimed;
 }
 
 const DAY_MS = 86_400_000;
