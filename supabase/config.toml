@@ -4,6 +4,10 @@ project_id = "xsoxordweqrikahxjdxc"
 [functions.apple-iap-webhook]
 verify_jwt = false
 
+# RevenueCat webhook — public endpoint, guarded by REVENUECAT_WEBHOOK_SECRET.
+[functions.revenuecat-webhook]
+verify_jwt = false
+
 # Apple IAP verification — called from the native iOS client with a Supabase JWT
 [functions.verify-apple-iap]
 verify_jwt = true

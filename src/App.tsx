@@ -94,9 +94,51 @@ const RootRedirect = () => {
  *  routes any incoming custom-scheme / Universal Link URL into the
  *  in-app navigator. Also wires push-notification taps through the
  *  same router so a tapped notification opens the right screen. */
-const DeepLinkBridge = () => {
+const NavigationBridge = () => {
   const navigate = useNavigate();
+  const location = useLocation();
   const { stop } = useTimeTracker();
+
+  // 1. Close orphaned sheets when the route changes (e.g. via iOS swipe-to-go-back).
+  // Radix UI Dialogs listen to the Escape key.
+  useEffect(() => {
+    const openModal = document.querySelector('[role="dialog"][data-state="open"]');
+    if (openModal) {
+      document.dispatchEvent(new KeyboardEvent("keydown", { key: "Escape", bubbles: true }));
+    }
+  }, [location.pathname]);
+
+  // 2. Hardware back button listener for Android.
+  useEffect(() => {
+    if (!Capacitor.isNativePlatform()) return;
+    let listener: any = null;
+    void import("@capacitor/app").then(({ App }) => {
+      listener = App.addListener("backButton", ({ canGoBack }) => {
+        // A) If a modal/sheet is open, close it and consume the back button.
+        const openModal = document.querySelector('[role="dialog"][data-state="open"]');
+        if (openModal) {
+          document.dispatchEvent(new KeyboardEvent("keydown", { key: "Escape", bubbles: true }));
+          return;
+        }
+        
+        // B) If at root, exit app.
+        const path = window.location.pathname;
+        if (path === "/home" || path === "/") {
+          App.exitApp();
+        } 
+        // C) Otherwise pop history.
+        else if (canGoBack) {
+          window.history.back();
+        } else {
+          App.exitApp();
+        }
+      });
+    });
+    return () => {
+      if (listener) void listener.remove();
+    };
+  }, []);
+
   // Hold the latest stop() in a ref so the listener can be attached once and
   // never churns when the tracker provider re-renders.
   const stopRef = useRef(stop);
@@ -139,7 +181,18 @@ const DeepLinkBridge = () => {
 
 const ThemedToaster = () => {
   const { resolved } = useTheme();
-  return <Sonner theme={resolved} position="top-center" />;
+  return (
+    <Sonner
+      theme={resolved}
+      // Top-center, just below the Dynamic Island / status bar. Uses the
+      // safe-area-inset-top so toasts land below the notch on every device.
+      position="top-center"
+      offset="calc(env(safe-area-inset-top, 44px) + 8px)"
+      // Above sheets/overlays (z-50) and the tab bar (z-40) so a toast is ALWAYS
+      // on top — never dimmed behind a sheet's backdrop.
+      style={{ zIndex: 2147483647 }}
+    />
+  );
 };
 
 function SuspenseRoute({ children }: { children: ReactNode }) {
@@ -180,7 +233,7 @@ const AppContent = () => {
         <TimeTrackerProvider>
           <AppLock>
             <EagerPrefetcher />
-            <DeepLinkBridge />
+            <NavigationBridge />
             <NotificationBridge />
             
           <Routes>

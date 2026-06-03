@@ -17,6 +17,10 @@ struct FocusActivityAttributes: ActivityAttributes {
     public struct ContentState: Codable, Hashable {
         /// Wall-clock the focus timer started ticking. Drives the live timer.
         var startedAt: Date
+        /// Category being tracked during this focus session (nil = no tracker).
+        var categoryName: String?
+        /// Hex colour of the tracked category, e.g. "#6366f1".
+        var categoryColorHex: String?
     }
 
     /// Title of the task being focused (fixed for the life of the activity).

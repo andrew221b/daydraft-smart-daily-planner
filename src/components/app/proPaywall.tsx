@@ -12,6 +12,7 @@
  */
 import { motion } from "framer-motion";
 import { Zap, Compass, FileDown, Wallet, type LucideIcon } from "lucide-react";
+import { type PlanPrice } from "@/lib/revenueCat";
 
 /* ─── Feature data ─────────────────────────────────────────────── */
 export type ProFeature = {
@@ -253,14 +254,32 @@ export function ProFeatureCard({
 }
 
 /* ─── Plan row ─────────────────────────────────────────────────── */
+/** Format an amount in the store's currency (e.g. "€5.00", "₴199"). */
+function fmtPlanMoney(amount: number, currency: string): string {
+  try {
+    return new Intl.NumberFormat(undefined, {
+      style: "currency",
+      currency,
+      minimumFractionDigits: 2,
+      maximumFractionDigits: 2,
+    }).format(amount);
+  } catch {
+    return amount.toFixed(2);
+  }
+}
+
 export function ProPlanRow({
   plan,
   active,
   onClick,
+  priceInfo,
 }: {
   plan: ProPlan;
   active: boolean;
   onClick: () => void;
+  /** Localized store price for this plan (from RevenueCat). When present it
+   *  overrides the hardcoded label so non-US users see their own currency. */
+  priceInfo?: PlanPrice;
 }) {
   const isAnnual = plan.id === "annual";
 
@@ -290,13 +309,16 @@ export function ProPlanRow({
           {isAnnual ? (
             <>
               <p className="text-[14px] font-semibold text-foreground tabular-nums">
-                $4.99<span className="text-[12px] font-normal text-secondary-fg">/mo</span>
+                {priceInfo ? fmtPlanMoney(priceInfo.price / 12, priceInfo.currencyCode) : "$4.99"}
+                <span className="text-[12px] font-normal text-secondary-fg">/mo</span>
               </p>
-              <p className="text-[11px] text-secondary-fg/60 tabular-nums">billed $59.99/yr</p>
+              <p className="text-[11px] text-secondary-fg/60 tabular-nums">
+                billed {priceInfo ? priceInfo.priceString : "$59.99"}/yr
+              </p>
             </>
           ) : (
             <p className="text-[14px] font-semibold text-foreground tabular-nums">
-              {plan.price}
+              {priceInfo ? priceInfo.priceString : plan.price}
               <span className="text-[12px] font-normal text-secondary-fg">{plan.period}</span>
             </p>
           )}

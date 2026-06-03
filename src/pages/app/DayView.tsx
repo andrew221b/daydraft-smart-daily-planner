@@ -12,14 +12,14 @@ import { invokeAiCached } from "@/lib/aiCache";
 import { useAbortOnUnmount } from "@/hooks/useAbortOnUnmount";
 import {
   Block, fmtTime, todayDateStr, parseDateStr, friendlyDateFor, isFutureDateStr, isUserTask, isOpenUserTask, isUserTaskDone, inferScheduleBlockType, packLinearSchedule,
-  blockSlotEndHHMM, timeToMinutes, minutesToHHMM,
+  blockSlotEndHHMM, timeToMinutes, minutesToHHMM, planBlockInstants, wallMsOnPlanDay, shiftDate, normalizeSchedule, materializeGaps,
 } from "@/lib/daydraft";
 import { ChevronLeft, ChevronRight, Play, CalendarDays, Trash2, Bell, BellOff, MoreHorizontal, Clock, Timer, MapPin, Copy, Sparkles, ListPlus, Wand2, ArrowRightCircle, Loader2, Bookmark, X } from "lucide-react";
 import { DayPickerSheet } from "@/components/app/DayPickerSheet";
 import { Button } from "@/components/ui/button";
 import { DndContext, closestCenter, MouseSensor, TouchSensor, useSensor, useSensors, DragEndEvent, DragStartEvent, DragOverlay } from "@dnd-kit/core";
 import { motion, AnimatePresence } from "framer-motion";
-import { SortableContext, arrayMove, verticalListSortingStrategy } from "@dnd-kit/sortable";
+import { SortableContext, verticalListSortingStrategy } from "@dnd-kit/sortable";
 import { SortableBlock } from "@/components/app/SortableBlock";
 import { Sheet, SheetContent, SheetHeader, SheetTitle } from "@/components/ui/sheet";
 import { Switch } from "@/components/ui/switch";
@@ -62,12 +62,13 @@ import { LateCompleteSheet } from "@/components/app/LateCompleteSheet";
 import { setDndBodyScrollLock } from "@/lib/dndScrollLock";
 import { AskAiSheet } from "@/components/app/AskAiSheet";
 import { Textarea } from "@/components/ui/textarea";
-import { parseBulkTasks, extractDurationFromTitle } from "@/lib/taskSplitter";
+import { DebouncedInput } from "@/components/ui/input";
+import { parseBulkTasks, extractDurationFromTitle, extractStartTimeFromTitle } from "@/lib/taskSplitter";
 import { useTimeTracker } from "@/hooks/useTimeTracker";
 import { useTabVisible } from "@/components/app/PersistentTabs";
 
 /** Builds a factual, concise snapshot of a specific task + its day context for the AI. */
-function buildTaskSeedContext(block: ExBlock, allBlocks: ExBlock[]): string {
+function buildTaskSeedContext(block: ExBlock, allBlocks: ExBlock[], activeTrackerMin?: number): string {
   const tasks = allBlocks.filter((b) => b.kind === "task" && !b.is_calendar_event);
   const doneCount = tasks.filter((b) => b.completed).length;
   const typeLabel = block.type === "deep_work" ? "deep work" : block.type === "communication" ? "communication" : "routine";
@@ -80,6 +81,7 @@ function buildTaskSeedContext(block: ExBlock, allBlocks: ExBlock[]): string {
     .slice(0, 2).map((b) => `"${b.title}" at ${b.start_time}`).join(", ");
   return [
     `Task: "${block.title}" · ${typeLabel} · ${block.duration_min} min · starts ${block.start_time}`,
+    activeTrackerMin !== undefined ? `Task Progress: Currently working on this right now. ${activeTrackerMin} minutes elapsed out of ${block.duration_min}m.` : null,
     `Day: ${doneCount}/${tasks.length} tasks done`,
     before && `Done before this: ${before}`,
     after && `Coming up: ${after}`,
@@ -113,6 +115,27 @@ type ExBlock = Block & {
 
 type BulkTemplate = { id: string; name: string; raw_input: string };
 
+// Resolved/locked tasks (done, skipped, missed, calendar) always stay at the
+// top of the list — regardless of their start_time vs active tasks. Within
+// each tier the blocks are sorted chronologically. Breaks are rebuilt fresh.
+function resolvedFirstOrder(
+  packed: ExBlock[],
+  mkBreak: (fromMin: number, toMin: number) => ExBlock,
+): ExBlock[] {
+  const isLockedB = (b: ExBlock) =>
+    !!b.is_calendar_event || (b.kind === "task" && !isOpenUserTask(b as Block));
+  const nonBreak = packed.filter(b => b.kind !== "break");
+  const byTime = (a: ExBlock, b: ExBlock) =>
+    timeToMinutes(a.start_time) - timeToMinutes(b.start_time);
+  return materializeGaps(
+    [
+      ...nonBreak.filter(isLockedB).sort(byTime),
+      ...nonBreak.filter(b => !isLockedB(b)).sort(byTime),
+    ],
+    mkBreak,
+  );
+}
+
 /**
  * Isolated, memoised "brain-dump" composer step. The draft text lives in LOCAL
  * state here — typing never re-renders the ~1900-line DayView tree (which used
@@ -127,12 +150,14 @@ const BulkInputStep = memo(function BulkInputStep({
   onDeleteTemplate,
   onContinue,
   disabled,
+  loading,
 }: {
   initialValue: string;
   templates: BulkTemplate[];
   onDeleteTemplate: (id: string) => void;
   onContinue: (text: string) => void;
   disabled: boolean;
+  loading?: boolean;
 }) {
   const [val, setVal] = useState(initialValue);
   return (
@@ -166,15 +191,26 @@ const BulkInputStep = memo(function BulkInputStep({
           </div>
         </div>
       )}
+      {/* fontSize:16 prevents iOS from auto-zooming the viewport when focusing */}
       <Textarea
         autoFocus={false}
         value={val}
         onChange={(e) => setVal(e.target.value)}
         placeholder={"Fix mobile layout, download PDF, send to client\nCall Alex, invoice client"}
         className="min-h-[150px] rounded-2xl border-soft bg-card text-[14px]"
+        style={{ fontSize: 16 }}
       />
-      <Button onClick={() => onContinue(val)} disabled={disabled} className="w-full h-12 rounded-2xl bg-primary hover:bg-primary/92 text-white font-semibold pressable">
-        Continue
+      <Button
+        onClick={() => onContinue(val)}
+        disabled={disabled || loading}
+        className="w-full h-12 rounded-2xl bg-primary hover:bg-primary/92 text-white font-semibold pressable"
+      >
+        {loading ? (
+          <span className="flex items-center gap-2">
+            <Loader2 className="h-4 w-4 animate-spin" />
+            Reading your tasks…
+          </span>
+        ) : "Continue"}
       </Button>
     </div>
   );
@@ -188,21 +224,46 @@ export default function DayView() {
   const [searchParams] = useSearchParams();
   const queryClient = useQueryClient();
   const rawDate = searchParams.get("date");
-  const viewDate = rawDate && /^\d{4}-\d{2}-\d{2}$/.test(rawDate) ? rawDate : todayDateStr();
+  // Anchor the no-URL "today" once per session and only refresh it when the tab
+  // regains visibility — otherwise the 60s `now` tick would recompute today at
+  // midnight and yank a night-owl off their in-progress plan onto an empty day.
+  const [anchorDate, setAnchorDate] = useState(() => todayDateStr());
+  const viewDate = rawDate && /^\d{4}-\d{2}-\d{2}$/.test(rawDate) ? rawDate : anchorDate;
   const isFuture = isFutureDateStr(viewDate);
-  const isToday = viewDate === todayDateStr();
   const [blocks, setBlocks] = useState<ExBlock[]>([]);
   const [now, setNow] = useState(new Date());
+  const [tourFired, setTourFired] = useState(false);
+  // A plan dated yesterday whose last slot still ends in the future is an
+  // in-progress overnight session — treat it as "today" so the composer,
+  // completion, and auto-missed keep working past midnight. Once its last block
+  // end passes, it naturally reverts to a read-only past plan.
+  const isActiveNightPlan = useMemo(() => {
+    if (blocks.length === 0 || viewDate !== shiftDate(todayDateStr(), -1)) return false;
+    let lastEnd = 0;
+    for (const v of planBlockInstants(viewDate, blocks as any).values()) lastEnd = Math.max(lastEnd, v.endMs);
+    return lastEnd > now.getTime();
+  }, [viewDate, blocks, now]);
+  const isToday = viewDate === todayDateStr() || isActiveNightPlan;
   const [replanning, setReplanning] = useState(false);
   const [activeDragId, setActiveDragId] = useState<string | null>(null);
   const [composerOpen, setComposerOpen] = useState(false);
   const [bulkInput, setBulkInput] = useState("");
-  const [bulkRows, setBulkRows] = useState<{ title: string; duration: number; start_time?: string }[]>([]);
-  const [bulkStep, setBulkStep] = useState<"input" | "review">("input");
+  const [bulkRows, setBulkRows] = useState<{ title: string; duration: number | null; start_time?: string; type?: string; kind?: string; ai_reasoning?: string; overlap_ok?: boolean; parallel_group_id?: string | null }[]>([]);
+  const [durationWarnKind, setDurationWarnKind] = useState<"some" | "all" | null>(null);
+  const [highlightMissingDuration, setHighlightMissingDuration] = useState(false);
+  const pendingBulkActionRef = useRef<(() => void) | null>(null);
+  const [bulkStep, setBulkStep] = useState<"input" | "clarify" | "review">("input");
+  const [clarificationQuestions, setClarificationQuestions] = useState<{ id: string; text: string; options: string[] }[]>([]);
+  const [clarificationAnswers, setClarificationAnswers] = useState<Record<string, string>>({});
+  // Pre-fetched by parse-tasks (combined call). null = not yet fetched, [] = no questions.
+  const [preFetchedQuestions, setPreFetchedQuestions] = useState<{ id: string; text: string; options: string[] }[] | null>(null);
+  const [bulkParsing, setBulkParsing] = useState(false);
   const [bulkDurationEditIndex, setBulkDurationEditIndex] = useState<number | null>(null);
   const [bulkStartTimeEditIndex, setBulkStartTimeEditIndex] = useState<number | null>(null);
   const [bulkStartTimeDraft, setBulkStartTimeDraft] = useState<string>("09:00");
   const [bulkAiLoading, setBulkAiLoading] = useState(false);
+  // Shown inside the spinner button so the user knows what step the AI is on.
+  const [bulkAiStep, setBulkAiStep] = useState<"clarifying" | "planning" | null>(null);
   const [confirmDeletePlan, setConfirmDeletePlan] = useState(false);
   const [moreOpen, setMoreOpen] = useState(false);
   const [tappedBlock, setTappedBlock] = useState<ExBlock | null>(null);
@@ -219,11 +280,11 @@ export default function DayView() {
   });
   const [durationEditId, setDurationEditId] = useState<string | null>(null);
   // Start-time editing uses the native picker directly (no wrapping sheet).
-  // A single hidden <input type="time"> is opened via showPicker(); the block
-  // being edited is held in a ref so the input's onChange knows the target.
   const startTimeInputRef = useRef<HTMLInputElement>(null);
-  const bulkStartTimeInputRef = useRef<HTMLInputElement>(null);
   const startTimeTargetRef = useRef<string | null>(null);
+  // Synchronous re-entrancy guard for commitStartTime — `planMutating` is React
+  // state and lags a render, so two fast time-edits could both pass that check.
+  const startTimeBusyRef = useRef(false);
   const [upgradeOpen, setUpgradeOpen] = useState(false);
   const [lateCompleteBlock, setLateCompleteBlock] = useState<ExBlock | null>(null);
   const [notifsEnabled, setNotifsEnabled] = useState<boolean>(() => getNotificationsEnabled());
@@ -253,15 +314,25 @@ export default function DayView() {
     | { kind: "move-task"; blockId: string };
   const [dayPickerIntent, setDayPickerIntent] = useState<DayPickerIntent | null>(null);
 
+  // The date the composer was opened on — frozen at open so async task creation
+  // always lands on the day the user was actually looking at, even if `viewDate`
+  // drifts mid-session (midnight rollover, route/anchor refresh, resume). Without
+  // this, a plan built for "tomorrow" could silently be written to "today" and
+  // every free-floating task would anchor to the current (late-night) hour and be
+  // auto-missed by morning. See addBulkRows / autoScheduleBulkRows.
+  const composerTargetDateRef = useRef<string>(viewDate);
+  const prevComposerOpenRef = useRef(false);
+  useEffect(() => {
+    if (composerOpen && !prevComposerOpenRef.current) {
+      composerTargetDateRef.current = viewDate; // snapshot only on closed→open
+    }
+    prevComposerOpenRef.current = composerOpen;
+  }, [composerOpen, viewDate]);
+
   useEffect(() => {
     if (searchParams.get("composer") === "1") setComposerOpen(true);
   }, [searchParams]);
 
-  const shiftDate = (ymd: string, days: number) => {
-    const d = parseDateStr(ymd);
-    d.setDate(d.getDate() + days);
-    return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
-  };
   const tomorrowDate = shiftDate(viewDate, 1);
   const yesterdayDate = shiftDate(viewDate, -1);
   const navigateToDay = (ymd: string) => {
@@ -271,7 +342,7 @@ export default function DayView() {
 
   const dayTabVisible = useTabVisible();
 
-  const { data: dayData, isLoading: loading, refetch } = useQuery({
+  const { data: dayData, isLoading: loading, refetch, isPlaceholderData } = useQuery({
     queryKey: planDayQueryKey(user?.id ?? "", viewDate),
     queryFn: () => fetchDayPlan(user!.id, viewDate),
     enabled: !!user?.id && dayTabVisible,
@@ -282,13 +353,17 @@ export default function DayView() {
   const planMissing = !loading && !plan;
 
   useEffect(() => {
+    // While switching days, keepPreviousData hands back the PREVIOUS day's rows
+    // (isPlaceholderData=true). Don't commit those — only paint data that's
+    // actually for the current viewDate, so a late old-query can't clobber.
+    if (isPlaceholderData) return;
     setBlocks((dayData?.blocks || []) as ExBlock[]);
-    
+
     // Only schedule local notifications for today's plan
     if (viewDate === todayDateStr() && dayData?.blocks) {
       syncBlockNotifications(viewDate, dayData.blocks);
     }
-  }, [dayData?.plan?.id, dayData?.blocks]);
+  }, [viewDate, isPlaceholderData, dayData?.plan?.id, dayData?.blocks]);
 
   const openReminders = (id: string) => {
     setReminderCfg(getReminderConfig(id));
@@ -372,11 +447,20 @@ export default function DayView() {
     useSensor(TouchSensor, { activationConstraint: { delay: 250, tolerance: 12 } })
   );
 
+  // Per-page tutorial — fires only when Plan is the *active* tab (PersistentTabs
+  // keeps tabs mounted, so without the visibility gate the timer would pop on a
+  // tab the user has navigated away from). Also requires a spotlight target to
+  // exist (`spotlightId`) — otherwise the tour would start and silently auto-skip
+  // because `[data-tour='dayview-block']` never renders. Mirrors Home's guards.
   useEffect(() => {
-    if (blocks.length === 0) return;
-    const t = setTimeout(() => tour.start(TOUR_DAYVIEW), 500);
+    if (tourFired || !dayTabVisible || blocks.length === 0 || !spotlightId) return;
+    if (!profile?.onboarded) return;
+    if ((profile.tour_seen as Record<string, unknown> | null)?.dayview) return;
+    setTourFired(true);
+    const t = setTimeout(() => tour.start(TOUR_DAYVIEW), 800);
     return () => clearTimeout(t);
-  }, [blocks.length > 0]);
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [tourFired, blocks.length, dayTabVisible, profile?.onboarded, profile?.tour_seen]);
 
   // `now` only drives the "is this block currently running?" highlight on
   // the timeline — there's no point ticking it while DayView's tab isn't
@@ -385,6 +469,7 @@ export default function DayView() {
   useEffect(() => {
     if (!dayTabVisible) return;
     setNow(new Date()); // re-sync on return so the highlight is fresh
+    setAnchorDate(todayDateStr()); // pick up a real day change only on tab return
     const t = setInterval(() => setNow(new Date()), 60000);
     return () => clearInterval(t);
   }, [dayTabVisible]);
@@ -505,7 +590,10 @@ export default function DayView() {
     return () => {
       cancelled = true;
     };
-  }, [user?.id, viewDate, blocks, isFuture]);
+    // `now` minute-tick keeps this re-evaluating while the user sits on the plan
+    // and a slot passes — otherwise auto-missed only ran on blocks/date change.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [user?.id, viewDate, blocks, isFuture, Math.floor(now.getTime() / 60000)]);
 
   const removeBlock = async (id: string) => {
     if (blockOpLocksRef.current.has(`remove:${id}`)) return;
@@ -516,7 +604,37 @@ export default function DayView() {
       blockOpLocksRef.current.delete(`remove:${id}`);
       return;
     }
-    const next = packLinearSchedule(blocks.filter(x => x.id !== id));
+    await stopTrackingForBlock(removed);
+    const filtered = blocks.filter(x => x.id !== id);
+    // Break/free-time blocks are pure gap markers — deleting one must not
+    // re-time any other block.
+    // Task blocks: keep every remaining block's original start_time unchanged;
+    // just rebuild the gap markers around the hole. packLinearSchedule would
+    // cascade-shift all subsequent times, which the user did not ask for.
+    let next: ExBlock[];
+    let oldBreakIds: string[] = [];
+    if (removed.kind === "break" || removed.kind === "lunch") {
+      next = filtered;
+    } else {
+      const mkBreak = (fromMin: number, toMin: number): ExBlock => ({
+        id: crypto.randomUUID(),
+        plan_id: removed.plan_id,
+        user_id: removed.user_id,
+        start_time: minutesToHHMM(fromMin % 1440),
+        duration_min: toMin - fromMin,
+        estimated_minutes: toMin - fromMin,
+        actual_minutes: null,
+        title: "Break",
+        type: "routine",
+        kind: "break",
+        completed: false,
+        position: 0,
+      });
+      oldBreakIds = filtered.filter(b => b.kind === "break").map(b => b.id);
+      const nonBreak = filtered.filter(b => b.kind !== "break");
+      const sorted = [...nonBreak].sort((a, b) => timeToMinutes(a.start_time) - timeToMinutes(b.start_time));
+      next = materializeGaps(sorted, mkBreak);
+    }
     setBlocks(next);
     haptics.impact("light");
     try {
@@ -528,6 +646,10 @@ export default function DayView() {
           throw delErr;
         }
       }
+      // Remove stale gap markers so persistOrder can write fresh ones.
+      if (oldBreakIds.length) {
+        await supabase.from("blocks").delete().in("id", oldBreakIds);
+      }
       clearAssignedCategoryId(id);
       if (plan && next.length === 0) {
         await supabase.from("plans").delete().eq("id", plan.id);
@@ -537,6 +659,7 @@ export default function DayView() {
       }
       await persistOrder(next);
       void invalidatePlanCaches();
+      if (isToday) void syncBlockNotifications(viewDate, next);
       toast("Block removed", {
         action: {
           label: "Undo",
@@ -603,6 +726,9 @@ export default function DayView() {
     const completedAtMs = Date.now();
     let resolvedActual: number | null = null;
     if (!wasDone) {
+      // Stop any active tracker for this block first so its final time_entry
+      // is committed before we read rolling entries to compute actual_minutes.
+      await stopTrackingForBlock(toggled);
       const rolling = queryClient.getQueryData<RollingEntry[]>(rollingEntriesQueryKey(user?.id)) || [];
       resolvedActual = resolveActualMinutesOnComplete(
         rolling,
@@ -699,6 +825,43 @@ export default function DayView() {
     }
   };
 
+  /** Bring a skipped / missed task back to the active list (clears its resolution)
+   *  and open the per-block editor so the user can re-pick time + duration. */
+  const reactivateBlock = async (id: string) => {
+    const snapshot = blocks;
+    const target = snapshot.find((b) => b.id === id);
+    if (!target) return;
+    const newBlocks = blocks.map((b) =>
+      b.id === id
+        ? { ...b, completed: false, completed_at: null, actual_minutes: null, resolution: null, resolved_at: null, moved_to_date: null }
+        : b,
+    );
+    setBlocks(newBlocks);
+    if (dayData && user?.id) {
+      queryClient.setQueryData(planDayQueryKey(user.id, viewDate), { ...dayData, blocks: newBlocks });
+    }
+    haptics.tap();
+    // Reopen the same per-block sheet the user gets from a normal tap, so they
+    // set start time / duration "as usual".
+    const updated = newBlocks.find((b) => b.id === id);
+    if (updated) setTappedBlock(updated);
+    try {
+      const payload = { completed: false, completed_at: null, actual_minutes: null, resolution: null, resolved_at: null, moved_to_date: null };
+      const { error: upErr } = await supabase.from("blocks").update(payload).eq("id", id);
+      if (upErr) {
+        if (!navigator.onLine || upErr.message?.toLowerCase().includes("fetch")) {
+          await enqueueWrite({ table: "blocks", op: "update", payload, filter: { id } });
+        } else {
+          throw upErr;
+        }
+      }
+      void invalidatePlanCaches();
+    } catch (e: any) {
+      setBlocks(snapshot);
+      toast.error(e?.message || "Couldn't restore task");
+    }
+  };
+
 
   const ensurePlanId = async () => {
     if (!user) return null;
@@ -727,26 +890,57 @@ export default function DayView() {
   };
 
   const prepareBulkRows = async (text?: string) => {
-    // `text` comes from the isolated composer's local state (typing no longer
-    // lives in DayView). Fall back to bulkInput for any legacy caller.
     const source = text ?? bulkInput;
-    const titles = parseBulkTasks(source);
-    if (!titles.length) {
+    if (!source.trim()) {
       toast.error("Write at least one task");
       return;
     }
-    // Keep bulkInput in sync so the review-step "Back" button re-seeds the
-    // composer with what the user typed.
+    
     if (text !== undefined && text !== bulkInput) setBulkInput(text);
-    // Pull "5 hours" / "30 min" / "1h 15m" out of each title up-front so the
-    // review sheet shows the real duration the user typed instead of a flat
-    // 30m default they have to re-edit by hand.
-    const rows = titles.map((rawTitle) => {
-      const { title, duration } = extractDurationFromTitle(rawTitle);
-      return { title: title || rawTitle, duration: duration ?? 30 };
-    });
+
+    setBulkParsing(true);
+    setPreFetchedQuestions(null);
+    let rows: { title: string; duration: number | null; start_time?: string }[] = [];
+
+    if (isPro) {
+      try {
+        const { data, error } = await supabase.functions.invoke("parse-tasks", {
+          body: { raw_input: source }
+        });
+        if (error) throw error;
+        if (data?.tasks && Array.isArray(data.tasks) && data.tasks.length > 0) {
+          rows = data.tasks.map((t: any) => ({
+            title: t.title,
+            duration: t.duration_min ?? null,
+            ...(t.start_time ? { start_time: t.start_time } : {}),
+          }));
+        }
+        // Store pre-fetched clarification questions from the combined call
+        setPreFetchedQuestions(Array.isArray(data?.questions) ? data.questions : []);
+      } catch (e) {
+        console.warn("AI parse failed, falling back to local split", e);
+        setPreFetchedQuestions([]);
+      }
+    }
+
+    // Fallback to local split if free tier, AI failed or returned empty
+    if (rows.length === 0) {
+      const titles = parseBulkTasks(source);
+      if (!titles.length) {
+        setBulkParsing(false);
+        toast.error("Write at least one task");
+        return;
+      }
+      rows = titles.map((rawTitle) => {
+        const { title: t1, duration } = extractDurationFromTitle(rawTitle);
+        const { title, start_time } = extractStartTimeFromTitle(t1 || rawTitle);
+        return { title: title || rawTitle, duration: duration ?? null, ...(start_time ? { start_time } : {}) };
+      });
+    }
+
     setBulkRows(rows);
     setBulkStep("review");
+    setBulkParsing(false);
   };
 
   // Stable callbacks for the isolated BulkInputStep — ref indirection keeps the
@@ -759,7 +953,7 @@ export default function DayView() {
   const handleComposerContinue = useCallback((text: string) => { void prepareBulkRowsRef.current(text); }, []);
   const handleComposerDeleteTemplate = useCallback((id: string) => { void deleteTemplateRef.current(id); }, []);
 
-  const addBulkRows = async (rows: { title: string; duration: number; start_time?: string }[]) => {
+  const addBulkRows = async (rows: { title: string; duration: number | null; start_time?: string }[]) => {
     if (planMutating || !user) return;
     const clean = rows.filter((t) => t.title.trim());
     if (!clean.length) {
@@ -783,64 +977,245 @@ export default function DayView() {
     setPlanMutating(true);
     const snapshot = blocks;
     try {
-      const planId = await ensurePlanId();
+      // Bind to the date the composer was opened on, not the live `viewDate`
+      // (which can drift across midnight / resume). This guarantees tasks land
+      // on the day the user actually chose, and that "today vs future" packing
+      // is decided against THAT day — so a future plan never anchors free-floating
+      // tasks to the current late-night hour.
+      const targetDate = composerTargetDateRef.current;
+      const planId = targetDate === viewDate
+        ? await ensurePlanId()
+        : await ensurePlanIdForDate(targetDate);
       if (!planId) return;
       const startPos = blocks.length;
       // Start packing from current time (today) or 09:00 (future days).
       const todayStr = todayDateStr();
-      const startHHMM = viewDate === todayStr
+      const startHHMM = targetDate === todayStr
         ? `${String(new Date().getHours()).padStart(2, "0")}:${String(new Date().getMinutes()).padStart(2, "0")}`
         : "09:00";
-      const draftBlocks: ExBlock[] = clean.map((task, i) => {
-        const id = crypto.randomUUID();
-        const duration = Math.max(5, task.duration || 30);
-        return {
-          id,
+      // Two independent cursors:
+      // wallCursorMin — earliest allowed start for free-floating tasks (≥ current time today)
+      // seqCursorMin  — where the previous block ends in sequence (for gap/break detection)
+      //                 null = no predecessor yet (fresh plan) → skip leading break
+      // Exclude missed/skipped blocks when finding the "last" anchor so new tasks
+      // aren't packed after a stale evening block that was pre-planned and later
+      // marked missed (e.g. user plans tomorrow at 21:00, all end up at 21:xx,
+      // next morning those are missed → new free-floating tasks would start at 22:00).
+      const settledResolutions = new Set(["missed", "skipped"]);
+      const packableBlocks = blocks.filter(
+        (b) => !settledResolutions.has((b as any).resolution ?? ""),
+      );
+      const lastExistingBlock = packableBlocks.length > 0 ? packableBlocks[packableBlocks.length - 1] : null;
+      const lastExistingEndMin = lastExistingBlock
+        ? timeToMinutes(lastExistingBlock.start_time) + Math.max(5, Number(lastExistingBlock.duration_min || 30))
+        : null;
+      let wallCursorMin = lastExistingEndMin ?? timeToMinutes(startHHMM);
+      // For today's plan, never place new tasks before the current moment.
+      // startHHMM is already the current HH:MM for today, so this floor
+      // prevents free-floating tasks landing in the past.
+      if (targetDate === todayStr) {
+        wallCursorMin = Math.max(wallCursorMin, timeToMinutes(startHHMM));
+      }
+      let seqCursorMin: number | null = lastExistingEndMin;
+
+      const draftBlocksWithBreaks: ExBlock[] = [];
+      let pos = startPos;
+
+      const pushBreak = (fromMin: number, toMin: number) => {
+        draftBlocksWithBreaks.push({
+          id: crypto.randomUUID(),
           plan_id: planId,
           user_id: user.id,
-          start_time: task.start_time || startHHMM,
-          duration_min: duration,
-          estimated_minutes: duration,
+          start_time: minutesToHHMM(fromMin % 1440),
+          duration_min: toMin - fromMin,
+          estimated_minutes: toMin - fromMin,
           actual_minutes: null,
-          title: task.title.trim(),
-          type: "deep_work",
-          kind: "task",
-          block_type: inferScheduleBlockType({ kind: "task", title: task.title }),
+          title: "Break",
+          type: "routine",
+          kind: "break",
           completed: false,
-          position: startPos + i,
-        };
+          position: pos++,
+        });
+      };
+
+      for (const task of clean) {
+        // No 30-min placeholder: a task the user left frameless stays at 0
+        // (a point in the day, no timer span). Real durations floor to 5.
+        const duration = task.duration && task.duration > 0 ? Math.max(5, task.duration) : 0;
+        const finalKind = (task as any).kind || "task";
+
+        if (task.start_time) {
+          const taskStartMin = timeToMinutes(task.start_time);
+          // Insert a Free-time block when there is a gap between the previous
+          // block's end (seqCursorMin) and this task's explicit start time.
+          if (seqCursorMin !== null && taskStartMin > seqCursorMin) {
+            pushBreak(seqCursorMin, taskStartMin);
+          }
+          const id = crypto.randomUUID();
+          draftBlocksWithBreaks.push({
+            id,
+            plan_id: planId,
+            user_id: user.id,
+            start_time: task.start_time,
+            duration_min: duration,
+            estimated_minutes: duration,
+            actual_minutes: null,
+            title: task.title.trim(),
+            type: (task as any).type || "deep_work",
+            kind: finalKind,
+            block_type: inferScheduleBlockType({ kind: finalKind, title: task.title }),
+            ai_reasoning: (task as any).ai_reasoning || null,
+            overlap_ok: Boolean((task as any).overlap_ok),
+            parallel_group_id: (task as any).parallel_group_id || null,
+            completed: false,
+            position: pos++,
+          });
+          // Track actual sequence end; wall cursor never goes backwards.
+          seqCursorMin = taskStartMin + duration;
+          wallCursorMin = Math.max(taskStartMin + duration, wallCursorMin);
+        } else {
+          // Free-floating: place at wall cursor.
+          const startMin = wallCursorMin;
+          // If the wall cursor jumped ahead of the sequence (e.g. after a past-time
+          // explicit task), insert a Free-time block to represent that gap.
+          if (seqCursorMin !== null && startMin > seqCursorMin) {
+            pushBreak(seqCursorMin, startMin);
+          }
+          const id = crypto.randomUUID();
+          draftBlocksWithBreaks.push({
+            id,
+            plan_id: planId,
+            user_id: user.id,
+            start_time: minutesToHHMM(startMin % 1440),
+            duration_min: duration,
+            estimated_minutes: duration,
+            actual_minutes: null,
+            title: task.title.trim(),
+            type: (task as any).type || "deep_work",
+            kind: finalKind,
+            block_type: inferScheduleBlockType({ kind: finalKind, title: task.title }),
+            ai_reasoning: (task as any).ai_reasoning || null,
+            overlap_ok: Boolean((task as any).overlap_ok),
+            parallel_group_id: (task as any).parallel_group_id || null,
+            completed: false,
+            position: pos++,
+          });
+          seqCursorMin = startMin + duration;
+          wallCursorMin = startMin + duration;
+        }
+      }
+
+      // Do NOT repack — the for loop already set correct start_times on every
+      // new block. packLinearSchedule would overwrite explicit times on non-first
+      // blocks and destroy intentional gaps between tasks.
+      //
+      // Insert-into-gap: if a new explicit-time task lands *inside* the existing
+      // timeline (earlier than some existing block), rebuild the whole day in
+      // chronological order so the task sits in its true slot, and re-materialize
+      // gap breaks around it (the old break it split is dropped and replaced).
+      // Only engage for monotonic same-day plans; cross-midnight / out-of-order
+      // plans fall back to the simple append to stay safe.
+      const newTaskBlocks = draftBlocksWithBreaks.filter((b) => b.kind !== "break");
+      const existingNonBreak = blocks.filter((b) => b.kind !== "break");
+      // Only compare against active (non-resolved) blocks for the mid-plan check.
+      // Comparing against missed/skipped blocks would falsely fire when the user
+      // adds morning tasks after a day of pre-planned evening tasks that all got
+      // missed — causing a normalizeSchedule pass that inserts a huge gap block
+      // (e.g. 09:30 → 21:00 Free time) between the new task and the missed tasks.
+      const existingActiveNonBreak = existingNonBreak.filter(
+        (b) => !settledResolutions.has((b as any).resolution ?? ""),
+      );
+      const insertsMidPlan =
+        blocks.length > 0 &&
+        newTaskBlocks.some((nt) =>
+          existingActiveNonBreak.some((eb) => timeToMinutes(nt.start_time) < timeToMinutes(eb.start_time)),
+        );
+
+      const makeBreak = (fromMin: number, toMin: number): ExBlock => ({
+        id: crypto.randomUUID(),
+        plan_id: planId,
+        user_id: user.id,
+        start_time: minutesToHHMM(fromMin % 1440),
+        duration_min: toMin - fromMin,
+        estimated_minutes: toMin - fromMin,
+        actual_minutes: null,
+        title: "Break",
+        type: "routine",
+        kind: "break",
+        completed: false,
+        position: 0,
       });
-      const packed = packLinearSchedule([...blocks, ...draftBlocks]);
+
+      // When a new explicit-time task lands inside the existing timeline, retime
+      // the whole day around the new tasks (anchors): they keep their times,
+      // earlier tasks stay, later tasks cascade forward to clear them, gaps are
+      // rebuilt as invisible dots. Cross-midnight plans return null → plain append.
+      const newTaskIds = new Set(newTaskBlocks.map((b) => b.id));
+      const allInsertBlocks = [...blocks, ...newTaskBlocks];
+      // Completed/skipped/missed tasks and calendar events are treated as extra
+      // anchors so normalizeSchedule never shifts their scheduled times.
+      const lockedInsertIds = new Set(
+        allInsertBlocks
+          .filter(b => !!b.is_calendar_event || (b.kind === "task" && !isOpenUserTask(b as Block)))
+          .map(b => b.id),
+      );
+      const normalized = insertsMidPlan
+        ? normalizeSchedule(allInsertBlocks, new Set([...newTaskIds, ...lockedInsertIds]), makeBreak)
+        : null;
+
+      let packed: ExBlock[];
+      let breakIdsToDelete: string[] = [];
+      if (normalized) {
+        packed = resolvedFirstOrder(normalized, makeBreak);
+        breakIdsToDelete = blocks.filter((b) => b.kind === "break").map((b) => b.id);
+      } else {
+        packed = [...blocks, ...draftBlocksWithBreaks];
+      }
+
       setBlocks(packed);
       setComposerOpen(false);
       setBulkInput("");
       setBulkRows([]);
       setBulkStep("input");
-      const toInsert = packed
-        .filter((b) => draftBlocks.some((d) => d.id === b.id))
-        .map((b) => ({
-          id: b.id,
-          plan_id: planId,
-          user_id: user.id,
-          start_time: b.start_time,
-          duration_min: b.duration_min,
-          title: b.title,
-          type: b.type,
-          kind: b.kind,
-          estimated_minutes: b.estimated_minutes ?? b.duration_min,
-          actual_minutes: null,
-          block_type: inferScheduleBlockType(b),
-          position: b.position,
-          slot_end_time: blockSlotEndHHMM(b),
-        }));
-      const { error: insertErr } = await supabase.from("blocks").insert(toInsert as any);
-      if (insertErr) {
-        if (!navigator.onLine || insertErr.message?.toLowerCase().includes("fetch")) {
-          for (const b of toInsert) {
-            await enqueueWrite({ table: "blocks", op: "insert", payload: b });
+      if (breakIdsToDelete.length) {
+        const { error: delBreakErr } = await supabase.from("blocks").delete().in("id", breakIdsToDelete);
+        if (delBreakErr && navigator.onLine && !delBreakErr.message?.toLowerCase().includes("fetch")) {
+          throw delBreakErr;
+        }
+      }
+      // persistOrder upserts the entire list (positions + any new rows), so the
+      // chronological branch needs no separate insert. The append branch keeps
+      // the lightweight insert of just the new rows for clarity/offline-queueing.
+      if (!breakIdsToDelete.length) {
+        const toInsert = packed
+          .filter((b) => draftBlocksWithBreaks.some((d) => d.id === b.id))
+          .map((b) => ({
+            id: b.id,
+            plan_id: planId,
+            user_id: user.id,
+            start_time: b.start_time,
+            duration_min: b.duration_min,
+            title: b.title,
+            type: b.type,
+            kind: b.kind,
+            estimated_minutes: b.estimated_minutes ?? b.duration_min,
+            actual_minutes: null,
+            block_type: inferScheduleBlockType(b),
+            position: b.position,
+            slot_end_time: blockSlotEndHHMM(b),
+            ai_reasoning: (b as any).ai_reasoning || null,
+            overlap_ok: Boolean((b as any).overlap_ok),
+            parallel_group_id: b.parallel_group_id || null,
+          }));
+        const { error: insertErr } = await supabase.from("blocks").insert(toInsert as any);
+        if (insertErr) {
+          if (!navigator.onLine || insertErr.message?.toLowerCase().includes("fetch")) {
+            for (const b of toInsert) {
+              await enqueueWrite({ table: "blocks", op: "insert", payload: b });
+            }
+          } else {
+            throw insertErr;
           }
-        } else {
-          throw insertErr;
         }
       }
       await persistOrder(packed);
@@ -915,20 +1290,17 @@ export default function DayView() {
     return minutesToHHMM(mins);
   };
 
-  // Open the native time wheel directly for a block (no app sheet on top of it).
-  // Must run inside the tap handler so iOS keeps the user-activation showPicker
-  // requires; falls back to focus() on older engines.
   const openStartTimePicker = (block: Block) => {
     if (block?.is_calendar_event) return;
     startTimeTargetRef.current = block.id;
     const el = startTimeInputRef.current;
     if (!el) return;
+    
+    // Set to time type right before opening so iOS WKWebView doesn't pre-calculate bounds
+    el.type = "time";
     el.value = block.start_time || "09:00";
-    // Best-effort native constraint; the real guard is the clamp in commit
-    // (iOS wheels don't reliably honour min).
     el.min = isToday ? roundedNowHHMM() : "";
-    // `.click()` is more broadly supported on iOS WKWebView than showPicker().
-    // Both are user-gesture-safe here since we're inside an onClick handler.
+    
     try {
       const withPicker = el as HTMLInputElement & { showPicker?: () => void };
       if (typeof withPicker.showPicker === "function") withPicker.showPicker();
@@ -938,19 +1310,6 @@ export default function DayView() {
     }
   };
 
-  const openBulkStartTimePicker = (index: number, currentStart?: string) => {
-    setBulkStartTimeEditIndex(index);
-    const el = bulkStartTimeInputRef.current;
-    if (!el) return;
-    el.value = currentStart || "09:00";
-    try {
-      const withPicker = el as HTMLInputElement & { showPicker?: () => void };
-      if (typeof withPicker.showPicker === "function") withPicker.showPicker();
-      else el.focus();
-    } catch {
-      el.focus();
-    }
-  };
 
   // Commit a native-picked start time: clamp past→now for today, then apply the
   // same packing / gap-break logic the old sheet used, and persist.
@@ -959,67 +1318,104 @@ export default function DayView() {
     startTimeTargetRef.current = null;
     if (!id) return;
     if (!/^\d{2}:\d{2}$/.test(rawValue)) return;
-    if (planMutating) return;
+    if (planMutating || startTimeBusyRef.current) return;
 
-    let value = rawValue;
-    if (isToday) {
-      const nowHHMM = roundedNowHHMM();
-      if (timeToMinutes(value) < timeToMinutes(nowHHMM)) {
-        // Reset the hidden input to the block's current time so the picker
-        // shows a valid value next time it opens.
-        if (startTimeInputRef.current) {
-          const blk = blocks.find((b) => b.id === id);
-          startTimeInputRef.current.value = blk?.start_time ?? nowHHMM;
-        }
-        toast.error(`Can't schedule in the past — earliest is ${nowHHMM}`);
-        return;
-      }
-    }
+    // For today's plan, clamp chosen time to at least the current moment so
+    // the user can't schedule into the past.
+    const value = isToday
+      ? minutesToHHMM(Math.max(timeToMinutes(rawValue), timeToMinutes(roundedNowHHMM())))
+      : rawValue;
 
     const idx = blocks.findIndex((b) => b.id === id);
     if (idx < 0) return;
     const snapshot = blocks;
-    const updated = [...blocks];
     const targetMin = timeToMinutes(value);
 
-    // Not the first block: if the user pushed it later than the previous block
-    // ends, fill the gap with a Break so the schedule stays contiguous.
-    if (idx > 0) {
-      const previousPacked = packLinearSchedule(updated.slice(0, idx));
-      const last = previousPacked[previousPacked.length - 1];
-      const previousEndMin = timeToMinutes(last.start_time) + Number(last.duration_min);
-      if (targetMin > previousEndMin) {
-        const breakBlock: Block = {
-          id: crypto.randomUUID(),
-          plan_id: updated[0].plan_id,
-          user_id: updated[0].user_id,
-          start_time: minutesToHHMM(previousEndMin),
-          duration_min: targetMin - previousEndMin,
-          title: "Break",
-          type: "routine",
-          kind: "break",
-          completed: false,
-          position: 0,
-        };
-        updated.splice(idx, 0, breakBlock);
+    const makeBreak = (fromMin: number, toMin: number): ExBlock => ({
+      id: crypto.randomUUID(),
+      plan_id: blocks[0].plan_id,
+      user_id: blocks[0].user_id,
+      start_time: minutesToHHMM(fromMin % 1440),
+      duration_min: toMin - fromMin,
+      estimated_minutes: toMin - fromMin,
+      actual_minutes: null,
+      title: "Break",
+      type: "routine",
+      kind: "break",
+      completed: false,
+      position: 0,
+    });
+
+    // Editing a time behaves like inserting one: the edited block is the anchor
+    // (keeps its exact time, repositions chronologically), earlier tasks stay,
+    // later tasks cascade forward, and gaps rebuild as invisible dots. Returns
+    // null for cross-midnight plans → fall back to the legacy sequential retiming.
+    const updated = blocks.map((b) => (b.id === id ? { ...b, start_time: value } : b));
+    // Completed/skipped/missed tasks and calendar events are treated as extra
+    // anchors so normalizeSchedule never re-times their scheduled slots.
+    const lockedEditIds = new Set(
+      updated
+        .filter(b => !!b.is_calendar_event || (b.kind === "task" && !isOpenUserTask(b as Block)))
+        .map(b => b.id),
+    );
+    const normalized = normalizeSchedule(updated, new Set([id, ...lockedEditIds]), makeBreak);
+
+    let packed: ExBlock[];
+    let breakIdsToDelete: string[] = [];
+    if (normalized) {
+      packed = resolvedFirstOrder(normalized, makeBreak);
+      breakIdsToDelete = blocks.filter((b) => b.kind === "break").map((b) => b.id);
+    } else {
+      // Legacy fallback (cross-midnight / non-monotonic): old break-juggling.
+      const legacy = [...blocks];
+      if (idx > 0) {
+        const previousPacked = packLinearSchedule(legacy.slice(0, idx));
+        const last = previousPacked[previousPacked.length - 1];
+        const previousEndMin = timeToMinutes(last.start_time) + Number(last.duration_min);
+
+        if (targetMin > previousEndMin) {
+          if (legacy[idx - 1].kind === "break") {
+            legacy[idx - 1] = {
+              ...legacy[idx - 1],
+              duration_min: Number(legacy[idx - 1].duration_min) + (targetMin - previousEndMin),
+            };
+          } else {
+            legacy.splice(idx, 0, makeBreak(previousEndMin, targetMin));
+          }
+        } else if (targetMin < previousEndMin && legacy[idx - 1].kind === "break") {
+          const newBreakDuration = Number(legacy[idx - 1].duration_min) - (previousEndMin - targetMin);
+          if (newBreakDuration > 0) {
+            legacy[idx - 1] = { ...legacy[idx - 1], duration_min: newBreakDuration };
+          } else {
+            legacy.splice(idx - 1, 1);
+          }
+        }
       }
+      const targetIdx = legacy.findIndex((b) => b.id === id);
+      if (targetIdx >= 0) legacy[targetIdx] = { ...legacy[targetIdx], start_time: value };
+      packed = resolvedFirstOrder(packLinearSchedule(legacy), makeBreak);
     }
 
-    const targetIdx = updated.findIndex((b) => b.id === id);
-    if (targetIdx >= 0) updated[targetIdx] = { ...updated[targetIdx], start_time: value };
-
-    const packed = packLinearSchedule(updated);
     setBlocks(packed);
     haptics.notify("success");
+    startTimeBusyRef.current = true;
     setPlanMutating(true);
     try {
+      if (breakIdsToDelete.length) {
+        const { error: delBreakErr } = await supabase.from("blocks").delete().in("id", breakIdsToDelete);
+        if (delBreakErr && navigator.onLine && !delBreakErr.message?.toLowerCase().includes("fetch")) {
+          throw delBreakErr;
+        }
+      }
       await persistOrder(packed);
       void invalidatePlanCaches();
+      if (isToday) void syncBlockNotifications(viewDate, packed);
     } catch (e: any) {
       setBlocks(snapshot);
       toast.error(e?.message || "Couldn't update start time");
     } finally {
       setPlanMutating(false);
+      startTimeBusyRef.current = false;
     }
   };
 
@@ -1036,26 +1432,65 @@ export default function DayView() {
     setDndBodyScrollLock(false);
     setActiveDragId(null);
     const { active, over } = e;
-    // Soft "settle" tap on drop, regardless of whether the position changed.
     haptics.impact("light");
     if (!over || active.id === over.id) return;
-    const oldIdx = blocks.findIndex(b => b.id === active.id);
-    const newIdx = blocks.findIndex(b => b.id === over.id);
-    if (oldIdx === -1 || newIdx === -1) return;
-    const moved = arrayMove(blocks, oldIdx, newIdx);
-    if (newIdx === 0 && blocks.length > 0) {
-      moved[0] = { ...moved[0], start_time: blocks[0].start_time };
-    }
-    const reordered = packLinearSchedule(moved);
+
+    // Calendar events and resolved tasks are immovable drop targets.
+    const isLocked = (b: ExBlock) =>
+      !!b.is_calendar_event || (b.kind === "task" && !isOpenUserTask(b as Block));
+
+    const activeBlock = blocks.find(b => b.id === active.id);
+    const overBlock = blocks.find(b => b.id === over.id);
+    if (!activeBlock || !overBlock) return;
+    if (isLocked(activeBlock) || isLocked(overBlock)) return;
+
+    // Exchange start_times between the two blocks only; every other task and
+    // every gap keeps its exact time. No repacking, no gap removal.
+    const withSwapped = blocks.map(b => {
+      if (b.id === active.id) return { ...b, start_time: overBlock.start_time };
+      if (b.id === over.id)   return { ...b, start_time: activeBlock.start_time };
+      return b;
+    });
+
+    // Re-sort non-break blocks by their (now-swapped) times, then rebuild
+    // gap markers so the visual dots correctly reflect the new order.
+    const nonBreak = withSwapped.filter(b => b.kind !== "break");
+    const sorted = [...nonBreak].sort(
+      (a, b) => timeToMinutes(a.start_time) - timeToMinutes(b.start_time),
+    );
+    const makeBreak = (fromMin: number, toMin: number): ExBlock => ({
+      id: crypto.randomUUID(),
+      plan_id: sorted[0]?.plan_id ?? "",
+      user_id: sorted[0]?.user_id ?? "",
+      start_time: minutesToHHMM(fromMin % 1440),
+      duration_min: toMin - fromMin,
+      estimated_minutes: toMin - fromMin,
+      actual_minutes: null,
+      title: "Break",
+      type: "routine",
+      kind: "break",
+      completed: false,
+      position: 0,
+    });
+    const reordered = resolvedFirstOrder(materializeGaps(sorted, makeBreak), makeBreak);
+
+    const breakIdsToDelete = blocks.filter(b => b.kind === "break").map(b => b.id);
     const snapshot = blocks;
     setBlocks(reordered);
-    void persistOrder(reordered)
-      .then(() => invalidatePlanCaches())
-      .catch((e: any) => {
+    void (async () => {
+      try {
+        if (breakIdsToDelete.length) {
+          await supabase.from("blocks").delete().in("id", breakIdsToDelete);
+        }
+        await persistOrder(reordered);
+        invalidatePlanCaches();
+        if (isToday) void syncBlockNotifications(viewDate, reordered);
+      } catch (err: any) {
         setBlocks(snapshot);
-        toast.error(e?.message || "Unable to reorder blocks");
+        toast.error(err?.message || "Unable to reorder blocks");
         void invalidatePlanCaches();
-      });
+      }
+    })();
   };
 
   const replanRest = async () => {
@@ -1080,8 +1515,8 @@ export default function DayView() {
           plan_date: viewDate,
           now_iso: new Date().toISOString(),
           timezone: tz,
-          active_hours_start: (profile as any)?.active_hours_start || "09:00",
-          active_hours_end: (profile as any)?.active_hours_end || "22:00",
+          active_hours_start: (profile as any)?.active_hours_start || undefined,
+          active_hours_end: (profile as any)?.active_hours_end || undefined,
           ai_tone: (profile as any)?.ai_tone || "professional",
           ai_tone_custom: (profile as any)?.ai_tone_custom || null,
           ai_planning_rules: (profile as any)?.ai_planning_rules || "",
@@ -1128,6 +1563,7 @@ export default function DayView() {
       const { data: bs } = await supabase.from("blocks").select("*").eq("plan_id", plan.id).order("position");
       setBlocks((bs || []) as ExBlock[]);
       void invalidatePlanCaches();
+      if (isToday) void syncBlockNotifications(viewDate, (bs || []) as Block[]);
       toast.success("Re-planned");
     } catch (e: any) {
       if (signal.aborted) return;
@@ -1140,27 +1576,111 @@ export default function DayView() {
     }
   };
 
-  const autoScheduleBulkRows = async () => {
+  const startClarification = async () => {
     if (bulkRows.length === 0 || !user || bulkAiLoading) return;
+
+    // Non-pro users cannot use AI scheduling — show upgrade sheet.
+    if (!isPro) {
+      setUpgradeOpen(true);
+      return;
+    }
+
+    // Skip the clarification round-trip entirely when the user has already
+    // pinned explicit start-times on every task — the AI has all it needs.
+    const allTimesSet = bulkRows.length > 0 && bulkRows.every(r => !!r.start_time);
+    if (allTimesSet) {
+      await autoScheduleBulkRows();
+      return;
+    }
+
+    // Use questions pre-fetched by parse-tasks (combined call) — no extra round-trip.
+    if (preFetchedQuestions !== null) {
+      if (preFetchedQuestions.length > 0) {
+        setClarificationQuestions(preFetchedQuestions);
+        setClarificationAnswers({});
+        setBulkStep("clarify");
+      } else {
+        await autoScheduleBulkRows();
+      }
+      return;
+    }
+
+    // Fallback: call generate-clarification separately (e.g. when parse-tasks failed).
     setBulkAiLoading(true);
+    setBulkAiStep("clarifying");
     const signal = getAiAbortSignal();
     try {
+      const { data, error } = await invokeAiCached<any>(
+        "generate-clarification",
+        {
+          raw_input: bulkRows.map(r =>
+            r.start_time ? `${r.title} at ${r.start_time}` : r.title
+          ).join("\n"),
+        },
+        { ttlMs: 15_000, timeoutMs: 20_000, signal }
+      );
+      if (signal.aborted) return;
+      if (error) throw error;
+      const questions = data?.questions || [];
+      if (questions.length > 0) {
+        setClarificationQuestions(questions);
+        setClarificationAnswers({});
+        setBulkStep("clarify");
+      } else {
+        await autoScheduleBulkRows();
+      }
+    } catch (e: any) {
+      if (signal.aborted) return;
+      console.warn("Clarification failed, proceeding to plan:", e);
+      toast("Couldn't load clarification questions — planning directly", { duration: 2500 });
+      await autoScheduleBulkRows();
+    } finally {
+      if (!signal.aborted) { setBulkAiLoading(false); setBulkAiStep(null); }
+    }
+  };
+
+  const autoScheduleBulkRows = async () => {
+    if (bulkRows.length === 0 || !user || bulkAiLoading) return;
+    if (!isPro) { setUpgradeOpen(true); return; }
+    setBulkAiLoading(true);
+    setBulkAiStep("planning");
+    const signal = getAiAbortSignal();
+    try {
+      // Schedule against the date the composer was opened on (see addBulkRows).
+      const targetDate = composerTargetDateRef.current;
       const nowHM = `${String(now.getHours()).padStart(2,"0")}:${String(now.getMinutes()).padStart(2,"0")}`;
-      const startHHMM = viewDate === todayDateStr() ? nowHM : "09:00";
+      const startHHMM = targetDate === todayDateStr() ? nowHM : "09:00";
       const tz = profile?.timezone || Intl.DateTimeFormat().resolvedOptions().timeZone;
       const { data, error } = await invokeAiCached<any>(
         "generate-plan",
         {
-          raw_input: bulkRows.map(r => r.title).join("\n"),
+          // Embed time + duration hints already set in the review step so
+          // generate-plan treats them as HIGHEST PRIORITY fixed commitments
+          // (its prompt already handles "at HH:MM" and "[Xmin]" patterns).
+          raw_input: bulkRows.map(r => {
+            let line = r.title;
+            if (r.duration != null) line += ` [${r.duration}min]`;
+            if (r.start_time) line += ` at ${r.start_time}`;
+            return line;
+          }).join("\n"),
+          planning_context: Object.keys(clarificationAnswers).length > 0
+            ? "User Clarifications:\n" + Object.entries(clarificationAnswers).map(([qId, a]) => {
+                const qText = clarificationQuestions.find(q => q.id === qId)?.text || qId;
+                return `- Q: ${qText}\n  A: ${a}`;
+              }).join("\n")
+            : undefined,
           energy_preference: profile?.energy_preference || "morning",
           name: profile?.display_name,
           mode: "plan",
           start_time: startHHMM,
-          plan_date: viewDate,
+          plan_date: targetDate,
           now_iso: new Date().toISOString(),
           timezone: tz,
-          active_hours_start: (profile as any)?.active_hours_start || "09:00",
-          active_hours_end: (profile as any)?.active_hours_end || "22:00",
+          // Send only user-configured hours; edge function defaults to 00:00–23:59
+          // when nothing is provided, so the AI is uncapped unless the user has
+          // explicitly set their own active window in Settings.
+          active_hours_start: (profile as any)?.active_hours_start || undefined,
+          active_hours_end: (profile as any)?.active_hours_end || undefined,
           ai_tone: (profile as any)?.ai_tone || "professional",
           ai_tone_custom: (profile as any)?.ai_tone_custom || null,
           ai_planning_rules: (profile as any)?.ai_planning_rules || "",
@@ -1198,14 +1718,31 @@ export default function DayView() {
             const aiBlock = taskBlocks[bestIdx];
             return {
               title: row.title,  // always keep the user's original title
-              duration: aiBlock.duration_min || row.duration,
-              start_time: aiBlock.start_time,
+              duration: row.duration ?? aiBlock.duration_min,
+              // If user explicitly pinned a start_time in review, it takes
+              // priority over whatever the AI scheduled (AI may move past times).
+              start_time: row.start_time ?? aiBlock.start_time,
+              type: aiBlock.type,
+              kind: aiBlock.kind,
+              ai_reasoning: aiBlock.reasoning,
+              overlap_ok: Boolean(aiBlock.overlap_ok),
+              parallel_group_id: aiBlock.parallel_group_id,
             };
           }
           return row;
         });
-        setBulkRows(newRows);
+        const sortedRows = newRows.sort((a, b) => {
+          const tA = a.start_time ? timeToMinutes(a.start_time) : 9999;
+          const tB = b.start_time ? timeToMinutes(b.start_time) : 9999;
+          return tA - tB;
+        });
+        setBulkRows(sortedRows);
+        setBulkStep("review");
         haptics.notify("success");
+      } else {
+        // AI returned a response but without usable blocks — surface this
+        // explicitly instead of leaving the user on a blank review step.
+        toast.error("AI returned an empty plan — try rephrasing your tasks.");
       }
     } catch (e: any) {
       if (signal.aborted) return;
@@ -1218,7 +1755,7 @@ export default function DayView() {
             : "Couldn't auto-schedule. Please try again.";
       toast.error(friendly);
     } finally {
-      if (!signal.aborted) setBulkAiLoading(false);
+      if (!signal.aborted) { setBulkAiLoading(false); setBulkAiStep(null); }
     }
   };
 
@@ -1391,6 +1928,19 @@ export default function DayView() {
     [blocks],
   );
 
+  // "Late by X min" indicator: the single first open task whose scheduled start
+  // has already passed on today's plan. Recomputes every minute via `now`.
+  const { overdueBlockId, overdueBlockLateMin } = useMemo(() => {
+    if (!isToday) return { overdueBlockId: null, overdueBlockLateMin: 0 };
+    const nowMin = now.getHours() * 60 + now.getMinutes();
+    const overdue = blocks.find(
+      (b) => isUserTask(b) && isOpenUserTask(b) && !b.is_calendar_event &&
+             timeToMinutes(b.start_time) < nowMin,
+    );
+    if (!overdue) return { overdueBlockId: null, overdueBlockLateMin: 0 };
+    return { overdueBlockId: overdue.id, overdueBlockLateMin: nowMin - timeToMinutes(overdue.start_time) };
+  }, [blocks, isToday, now]);
+
   // ── Render-perf memoization for the block list ──────────────────────────
   // O(1) category lookup instead of a per-row `.find()` over all categories.
   const categoryMap = useMemo(
@@ -1398,10 +1948,18 @@ export default function DayView() {
     [tracker.categories],
   );
   // Stable id array for dnd-kit's SortableContext (was a fresh array each render).
-  const blockIds = useMemo(() => blocks.map((b) => b.id), [blocks]);
+  // Break blocks render as empty divs (no ref) — exclude them so dnd-kit doesn't
+  // try to measure them. Locked tasks (calendar events, completed/skipped/missed)
+  // ARE included: verticalListSortingStrategy needs their real rects to compute
+  // correct transforms for draggable items below them. Their useSortable is
+  // disabled, and the isLocked guard in onDragEnd prevents actual reorders.
+  const blockIds = useMemo(() =>
+    blocks
+      .filter(b => b.kind !== "break")
+      .map(b => b.id),
+  [blocks]);
   // Earliest selectable time today — recomputed only on the minute tick, not
   // every render. Stable identity keeps memo'd rows from re-rendering otherwise.
-  const minTime = useMemo(() => (isToday ? roundedNowHHMM() : undefined), [isToday, now]);
 
   // The block-row handlers close over lots of state; recreating them inline per
   // render broke SortableBlock's memo and re-rendered every row on any DayView
@@ -1429,8 +1987,11 @@ export default function DayView() {
     onEditDuration: (blk: Block) => setDurationEditId(blk.id),
     onEditReminders: (blk: Block) => openReminders(blk.id),
     onAskAi: (blk: Block) => {
+      const activeTrackerMin = tracker.active?.block_id === blk.id 
+        ? Math.floor((Date.now() - new Date(tracker.active.started_at).getTime()) / 60000) 
+        : undefined;
       setAskAiTaskTitle(blk.title);
-      setAskAiContext(buildTaskSeedContext(blk as ExBlock, blocks));
+      setAskAiContext(buildTaskSeedContext(blk as ExBlock, blocks, activeTrackerMin));
       setAskAiOpen(true);
     },
     onSaveTemplate: (blk: Block) => void saveAsTemplate(blk),
@@ -1490,7 +2051,7 @@ export default function DayView() {
         transition={{ type: "spring", bounce: 0.15, duration: 0.6 }}
         className="flex w-full flex-col px-5 pt-[var(--content-inset-top)] pb-8"
       >
-        <div className="app-card px-2 py-2.5 flex items-center gap-1">
+        <div className="app-card no-chrome-border px-2 py-2.5 flex items-center gap-1">
           <button
             type="button"
             onClick={() => navigateToDay(yesterdayDate)}
@@ -1537,7 +2098,7 @@ export default function DayView() {
         {/* Progress bar */}
         {!planMissing && totalTasks > 0 && (
           <div className="mt-4 shrink-0">
-            <div className="app-card px-4 py-3">
+            <div className="app-card no-chrome-border px-4 py-3">
               <div className="flex items-center justify-between gap-2 mb-2.5">
                 <div className="text-[13px] text-foreground/95 tabular-nums">
                   <span className="font-bold">{doneTasks}</span>
@@ -1658,6 +2219,14 @@ export default function DayView() {
                 <SortableContext items={blockIds} strategy={verticalListSortingStrategy}>
                   <div className="touch-pan-y space-y-2.5 mt-4 enter-stagger">
                     {blocks.map((b) => {
+                      // A gap (break block) is invisible — it exists only to hold the
+                      // spacing open through repacks. Render a tiny, non-interactive
+                      // dot so the eye registers empty time, with no label and no
+                      // delete affordance ("free time" is not a thing you delete).
+                      // Lunch is a real activity → falls through to a normal card.
+                      if (b.kind === "break") {
+                        return <div key={b.id} />;
+                      }
                       const assignedId = getAssignedCategoryId(b.id);
                       const assignedCat = assignedId ? categoryMap.get(assignedId) || null : null;
                       return (
@@ -1669,7 +2238,8 @@ export default function DayView() {
                         trackingActive={!!tracker.active && tracker.active.block_id === b.id}
                         assignedCategory={assignedCat}
                         isFuturePlan={isFuture}
-                        minTime={minTime}
+                        lateMin={b.id === overdueBlockId ? overdueBlockLateMin : undefined}
+
                         onTap={blockHandlers.onTap}
                         onTapTime={blockHandlers.onTapTime}
                         onToggleComplete={blockHandlers.onToggleComplete}
@@ -1791,15 +2361,23 @@ export default function DayView() {
               )}
               {!tappedBlock.is_calendar_event && (
                 <ActionRow
-                  onClick={() => {
-                    // Open the native picker first (keeps the tap's user
-                    // activation), then dismiss the action sheet.
-                    openStartTimePicker(tappedBlock as Block);
-                    setTappedBlock(null);
-                  }}
                   icon={<Clock className="h-4 w-4" />}
                   label="Change start time"
-                />
+                >
+                  <input
+                    type="time"
+                    className="absolute inset-0 opacity-0 w-full h-full cursor-pointer"
+                    value={tappedBlock.start_time || "09:00"}
+                    min={isToday ? roundedNowHHMM() : undefined}
+                    onChange={(e) => {
+                      const val = e.target.value;
+                      if (!val) return;
+                      setTappedBlock(null);
+                      startTimeTargetRef.current = tappedBlock.id;
+                      void commitStartTime(val);
+                    }}
+                  />
+                </ActionRow>
               )}
               {!tappedBlock.is_calendar_event && tappedBlock.kind === "task" && isOpenUserTask(tappedBlock as Block) && (
                 <ActionRow
@@ -1833,8 +2411,11 @@ export default function DayView() {
                 onClick={() => {
                   const blk = tappedBlock;
                   setTappedBlock(null);
+                  const activeTrackerMin = tracker.active?.block_id === blk?.id 
+                    ? Math.floor((Date.now() - new Date(tracker.active.started_at).getTime()) / 60000) 
+                    : undefined;
                   setAskAiTaskTitle(blk!.title);
-                  setAskAiContext(buildTaskSeedContext(blk! as ExBlock, blocks));
+                  setAskAiContext(buildTaskSeedContext(blk! as ExBlock, blocks, activeTrackerMin));
                   setAskAiOpen(true);
                 }}
                 icon={<Sparkles className="h-4 w-4" />}
@@ -1957,8 +2538,122 @@ export default function DayView() {
                 templates={templates}
                 onDeleteTemplate={handleComposerDeleteTemplate}
                 onContinue={handleComposerContinue}
-                disabled={planMutating}
+                disabled={planMutating || bulkParsing}
+                loading={bulkParsing}
               />
+            ) : bulkStep === "clarify" ? (
+              <div className="flex flex-col gap-4 pb-4">
+                {/* Header */}
+                <div className="flex items-start gap-3 px-0.5">
+                  <div className="shrink-0 mt-0.5 h-8 w-8 rounded-xl bg-primary/10 flex items-center justify-center border border-primary/20">
+                    <Sparkles className="h-4 w-4 text-primary" />
+                  </div>
+                  <div>
+                    <h3 className="font-semibold text-foreground text-[15px] leading-snug">A few quick questions</h3>
+                    <p className="text-[12.5px] text-secondary-fg/80 mt-0.5 leading-relaxed">
+                      Help AI plan smarter — answer what you can.
+                    </p>
+                  </div>
+                </div>
+
+                {/* Question cards */}
+                <div className="space-y-3">
+                  {clarificationQuestions.map((q, qi) => {
+                    const selectedOpt = clarificationAnswers[q.id];
+                    const isCustom = selectedOpt && !q.options.includes(selectedOpt);
+                    return (
+                      <div
+                        key={q.id}
+                        className="rounded-[18px] border border-border/55 bg-foreground/[0.04] dark:bg-foreground/[0.06] px-4 py-4"
+                      >
+                        {/* Step indicator + question */}
+                        <div className="flex items-baseline gap-2 mb-3">
+                          {clarificationQuestions.length > 1 && (
+                            <span className="shrink-0 text-[10px] font-bold tabular-nums text-primary/55 uppercase tracking-wider">
+                              {qi + 1}/{clarificationQuestions.length}
+                            </span>
+                          )}
+                          <p className="text-[13.5px] font-semibold text-foreground leading-snug">{q.text}</p>
+                        </div>
+
+                        {/* Option chips */}
+                        <div className="flex flex-wrap gap-2">
+                          {q.options.map((opt) => {
+                            const active = clarificationAnswers[q.id] === opt;
+                            return (
+                              <button
+                                key={opt}
+                                type="button"
+                                onClick={() => {
+                                  haptics.selection();
+                                  setClarificationAnswers(prev => ({ ...prev, [q.id]: opt }));
+                                }}
+                                className={[
+                                  "pressable inline-flex items-center gap-1.5 rounded-full px-3.5 py-2 text-[13px] font-medium transition-all duration-150 border",
+                                  active
+                                    ? "bg-primary/12 border-primary/35 text-primary"
+                                    : "bg-foreground/[0.05] border-border/40 text-secondary-fg hover:bg-foreground/[0.09] hover:text-foreground",
+                                ].join(" ")}
+                              >
+                                {active && <span className="h-1.5 w-1.5 rounded-full bg-primary shrink-0" />}
+                                {opt}
+                              </button>
+                            );
+                          })}
+                        </div>
+
+                        {/* Custom answer input */}
+                        <div className="mt-2.5 relative">
+                          <input
+                            type="text"
+                            placeholder="Or type your own answer…"
+                            value={isCustom ? selectedOpt : ""}
+                            onChange={(e) => {
+                              const v = e.target.value;
+                              setClarificationAnswers(prev => ({ ...prev, [q.id]: v || "" }));
+                            }}
+                            onFocus={() => {
+                              // Clear preset selection when user starts typing custom
+                              if (selectedOpt && !isCustom) {
+                                setClarificationAnswers(prev => ({ ...prev, [q.id]: "" }));
+                              }
+                            }}
+                            style={{ fontSize: 16 }}
+                            className={[
+                              "w-full h-9 rounded-xl px-3 text-[13px] border transition-colors outline-none",
+                              isCustom
+                                ? "bg-primary/[0.06] border-primary/30 text-foreground placeholder:text-secondary-fg/40"
+                                : "bg-foreground/[0.03] border-border/35 text-foreground placeholder:text-secondary-fg/35 focus:border-primary/30 focus:bg-primary/[0.04]",
+                            ].join(" ")}
+                          />
+                        </div>
+                      </div>
+                    );
+                  })}
+                </div>
+
+                {/* CTA + skip — vertically centered column */}
+                <div className="flex flex-col items-center gap-2 pt-1">
+                  <Button
+                    onClick={() => void autoScheduleBulkRows()}
+                    disabled={bulkAiLoading}
+                    className="w-full h-12 rounded-2xl bg-primary hover:bg-primary/92 text-white font-semibold pressable"
+                  >
+                    {bulkAiLoading
+                      ? <Loader2 className="h-5 w-5 mr-2 animate-spin" />
+                      : <Sparkles className="h-5 w-5 mr-2" />}
+                    {bulkAiStep === "planning" ? "Building your plan…" : "Build Plan"}
+                  </Button>
+                  <button
+                    type="button"
+                    disabled={bulkAiLoading}
+                    onClick={() => { setClarificationAnswers({}); void autoScheduleBulkRows(); }}
+                    className="text-[12.5px] text-secondary-fg/55 hover:text-secondary-fg py-1.5 pressable transition-colors disabled:opacity-40"
+                  >
+                    Skip — plan without answers
+                  </button>
+                </div>
+              </div>
             ) : (
               <div className="space-y-3 pb-4">
                 <div className="flex items-start justify-between px-1">
@@ -1966,30 +2661,44 @@ export default function DayView() {
                     Review your tasks. Tap time or duration to adjust.
                   </p>
                   <Button
-                    onClick={() => void autoScheduleBulkRows()}
+                    onClick={() => void startClarification()}
                     disabled={bulkAiLoading || planMutating}
                     size="sm"
                     className="h-8 rounded-full bg-primary/10 text-primary border border-primary/25 text-[12px] font-medium pressable shrink-0"
                   >
-                    {bulkAiLoading ? <Loader2 className="h-3.5 w-3.5 mr-1.5 animate-spin" /> : <Sparkles className="h-3.5 w-3.5 mr-1.5" />}
-                    Auto-schedule
+                    <Loader2 className={`h-3.5 w-3.5 mr-1.5 ${bulkAiLoading ? "animate-spin" : "hidden"}`} />
+                    <Sparkles className={`h-3.5 w-3.5 mr-1.5 ${bulkAiLoading ? "hidden" : ""}`} />
+                    {bulkAiStep === "clarifying" ? "Thinking…" : bulkAiStep === "planning" ? "Scheduling…" : "Auto-schedule"}
                   </Button>
                 </div>
                 <div className="space-y-2.5 max-h-[48vh] overflow-y-auto pr-1 pb-2 pt-1">
                   {bulkRows.map((row, i) => (
-                    <div key={i} className="flex flex-col gap-2 rounded-[18px] border border-border/40 bg-surface-card px-4 py-3.5 shadow-sm">
-                      <div className="flex items-center gap-2">
-                        <input
+                    <div key={i} className="flex flex-col gap-2 rounded-[18px] border border-border/60 bg-foreground/[0.04] dark:bg-foreground/[0.06] px-4 py-4 shadow-sm">
+                      <form 
+                        className="flex items-center gap-2"
+                        onSubmit={(e) => {
+                          e.preventDefault();
+                          e.currentTarget.querySelector("input")?.blur();
+                        }}
+                      >
+                        <DebouncedInput
                           value={row.title}
-                          onChange={(e) => setBulkRows((rs) => rs.map((r, idx) => idx === i ? { ...r, title: e.target.value } : r))}
-                          className="flex-1 h-8 px-0 bg-transparent border-0 text-[15px] font-semibold text-foreground focus:outline-none placeholder:text-secondary-fg/50"
+                          enterKeyHint="done"
+                          onKeyDown={(e) => {
+                            if (e.key === "Enter") {
+                              e.preventDefault();
+                              e.currentTarget.blur();
+                            }
+                          }}
+                          onDebouncedChange={(val) => { setBulkRows((rs) => rs.map((r, idx) => idx === i ? { ...r, title: val } : r)); setPreFetchedQuestions(null); }}
+                          className="flex-1 h-8 px-0 bg-transparent border-0 text-[15px] font-semibold text-foreground focus-visible:ring-0 shadow-none placeholder:text-secondary-fg/50"
                         />
-                        <button type="button" onClick={() => setBulkRows((rs) => rs.filter((_, idx) => idx !== i))}
+                        <button type="button" onClick={() => { setBulkRows((rs) => rs.filter((_, idx) => idx !== i)); setPreFetchedQuestions(null); }}
                           className="h-8 w-8 grid place-items-center rounded-full text-secondary-fg/50 hover:text-destructive hover:bg-destructive/10 pressable transition-colors shrink-0" aria-label="Remove"
                         >
                           <Trash2 className="h-4 w-4" />
                         </button>
-                      </div>
+                      </form>
                       <div className="flex flex-wrap items-center gap-2 mt-0.5">
                         <div className="relative inline-flex items-center">
                           <label
@@ -2000,17 +2709,14 @@ export default function DayView() {
                             <input
                               type="time"
                               className="absolute inset-0 opacity-0 w-full h-full cursor-pointer"
-                              value={row.start_time || "09:00"}
+                              value={row.start_time ?? ""}
                               min={isToday ? roundedNowHHMM() : undefined}
                               tabIndex={-1}
                               onChange={(e) => {
                                 const val = e.target.value;
                                 if (!val) return;
-                                if (isToday && timeToMinutes(val) < timeToMinutes(roundedNowHHMM())) {
-                                  toast.error(`Can't schedule in the past — earliest is ${roundedNowHHMM()}`);
-                                  return;
-                                }
                                 setBulkRows((rs) => rs.map((r, idx) => idx === i ? { ...r, start_time: val } : r));
+                                setPreFetchedQuestions(null);
                               }}
                               style={{ fontSize: 16 }}
                             />
@@ -2021,6 +2727,7 @@ export default function DayView() {
                               onClick={(e) => {
                                 e.stopPropagation();
                                 setBulkRows((rs) => rs.map((r, idx) => idx === i ? { ...r, start_time: undefined } : r));
+                                setPreFetchedQuestions(null);
                               }}
                               className="absolute right-1 top-1/2 -translate-y-1/2 h-6 w-6 rounded-full flex items-center justify-center text-secondary-fg hover:bg-foreground/10"
                             >
@@ -2029,10 +2736,20 @@ export default function DayView() {
                           )}
                         </div>
                         <button type="button" onClick={() => setBulkDurationEditIndex(i)}
-                          className="flex items-center gap-1.5 h-8 px-3 rounded-full border border-border/45 bg-muted/40 text-[13px] font-medium tabular-nums text-secondary-fg hover:text-foreground pressable transition-colors"
+                          className={`flex items-center gap-1.5 h-8 px-3 rounded-full border text-[13px] font-medium tabular-nums pressable transition-colors ${
+                            row.duration == null && highlightMissingDuration
+                              ? "border-destructive/60 bg-destructive/10 text-destructive animate-pulse"
+                              : row.duration == null
+                                ? "border-border/45 bg-muted/40 text-secondary-fg/45 italic"
+                                : "border-border/45 bg-muted/40 text-secondary-fg hover:text-foreground"
+                          }`}
                         >
                           <Timer className="h-3.5 w-3.5 opacity-70" />
-                          {row.duration < 60 ? `${row.duration}m` : `${Math.floor(row.duration / 60)}h${row.duration % 60 ? ` ${row.duration % 60}m` : ""}`}
+                          {row.duration == null
+                            ? "Set"
+                            : row.duration < 60
+                              ? `${row.duration}m`
+                              : `${Math.floor(row.duration / 60)}h${row.duration % 60 ? ` ${row.duration % 60}m` : ""}`}
                         </button>
                       </div>
                     </div>
@@ -2045,7 +2762,17 @@ export default function DayView() {
                   <Button variant="outline" onClick={() => setBulkStep("input")} disabled={planMutating} className="h-12 rounded-2xl border-soft text-[14px]">
                     Back
                   </Button>
-                  <Button onClick={() => void addBulkRows(bulkRows)} disabled={planMutating || bulkRows.length === 0}
+                  <Button
+                    onClick={() => {
+                      const missing = bulkRows.filter(r => r.duration == null).length;
+                      if (missing > 0) {
+                        pendingBulkActionRef.current = () => void addBulkRows(bulkRows);
+                        setDurationWarnKind(missing === bulkRows.length ? "all" : "some");
+                      } else {
+                        void addBulkRows(bulkRows);
+                      }
+                    }}
+                    disabled={planMutating || bulkRows.length === 0}
                     className="flex-1 h-12 rounded-2xl bg-primary hover:bg-primary/92 text-primary-foreground font-semibold pressable"
                   >
                     Add {bulkRows.length} {bulkRows.length === 1 ? "task" : "tasks"}
@@ -2056,6 +2783,37 @@ export default function DayView() {
           </div>
         </SheetContent>
       </Sheet>
+
+      {/* Duration warning dialog — shown when user tries to add/schedule tasks without duration */}
+      <AlertDialog open={durationWarnKind !== null} onOpenChange={(v) => { if (!v) { setDurationWarnKind(null); pendingBulkActionRef.current = null; } }}>
+        <AlertDialogContent className="max-w-[320px] w-[calc(100vw-2rem)]">
+          <AlertDialogHeader>
+            <AlertDialogTitle>
+              {durationWarnKind === "all" ? "No duration set" : "Some tasks missing duration"}
+            </AlertDialogTitle>
+            <AlertDialogDescription>
+              {durationWarnKind === "all"
+                ? "Without duration you won't be notified when tasks end. Add anyway?"
+                : "Tasks without duration won't send an end notification. Add anyway?"}
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel onClick={() => { setDurationWarnKind(null); pendingBulkActionRef.current = null; setHighlightMissingDuration(true); }}>
+              Go back
+            </AlertDialogCancel>
+            <AlertDialogAction
+              onClick={() => {
+                const action = pendingBulkActionRef.current;
+                setDurationWarnKind(null);
+                pendingBulkActionRef.current = null;
+                action?.();
+              }}
+            >
+              Add anyway
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
 
       <AlertDialog open={confirmDeletePlan} onOpenChange={setConfirmDeletePlan}>
         <AlertDialogContent>
@@ -2373,6 +3131,7 @@ export default function DayView() {
         taskTitle={lateCompleteBlock?.title ?? ""}
         resolution={(lateCompleteBlock?.resolution as "missed" | "skipped") ?? "missed"}
         onConfirm={() => { if (lateCompleteBlock) completeBlock(lateCompleteBlock.id); }}
+        onReturn={() => { if (lateCompleteBlock) void reactivateBlock(lateCompleteBlock.id); }}
       />
 
       <DayPickerSheet
@@ -2482,7 +3241,13 @@ export default function DayView() {
                 <div className="text-[11px] uppercase tracking-[0.14em] text-secondary-fg/85 font-medium mb-1.5">
                   New category
                 </div>
-                <div className="flex items-center gap-2">
+                <form 
+                  className="flex items-center gap-2"
+                  onSubmit={(e) => {
+                    e.preventDefault();
+                    void handleAddCategoryAndAssign();
+                  }}
+                >
                   <input
                     type="text"
                     value={newCatName}
@@ -2501,7 +3266,7 @@ export default function DayView() {
                   >
                     Add
                   </Button>
-                </div>
+                </form>
               </div>
             </div>
           )}
@@ -2542,6 +3307,7 @@ export default function DayView() {
             }
             await persistOrder(next);
             void invalidatePlanCaches();
+            if (isToday) void syncBlockNotifications(viewDate, next);
           } catch (e: any) {
             setBlocks(snapshot);
             toast.error(e?.message || "Couldn't update duration");
@@ -2559,53 +3325,54 @@ export default function DayView() {
         onChange={(minutes) => {
           const index = bulkDurationEditIndex;
           if (index === null) return;
-          setBulkRows((rows) => rows.map((row, i) => i === index ? { ...row, duration: minutes } : row));
+          setBulkRows((rows) => {
+            const updated = rows.map((row, i) => i === index ? { ...row, duration: minutes } : row);
+            // If all durations are now set, clear the red-highlight state
+            if (updated.every(r => r.duration != null)) setHighlightMissingDuration(false);
+            return updated;
+          });
+          setPreFetchedQuestions(null);
         }}
         title="Task duration"
       />
 
 
 
-      {/* Hidden native time input — start-time editing opens this directly via
-          showPicker() so there's just the iOS wheel, no app sheet on top of it.
-          onChange commits straight away (clamping past times to now for today). */}
+      {/* Hidden native time input — starts as text to avoid iOS variant selector bug on focus,
+          then dynamically becomes time when clicked. Placed globally to avoid constraints layout bugs
+          when inside dnd-kit transform blocks. */}
       <input
         ref={startTimeInputRef}
-        type="time"
-        className="fixed top-0 left-0 w-1 h-1 opacity-0 pointer-events-none z-50"
-        tabIndex={-1}
-        aria-hidden="true"
-        onChange={(e) => commitStartTime(e.target.value)}
-      />
-      <input
-        ref={bulkStartTimeInputRef}
-        type="time"
-        className="fixed top-0 left-0 w-1 h-1 opacity-0 pointer-events-none z-50"
+        type="text"
+        className="fixed bottom-0 left-1/2 w-4 h-4 opacity-0 pointer-events-none z-50"
         tabIndex={-1}
         aria-hidden="true"
         onChange={(e) => {
-          const val = e.target.value;
-          if (bulkStartTimeEditIndex !== null && /^\d{2}:\d{2}$/.test(val)) {
-            if (isToday && timeToMinutes(val) < timeToMinutes(roundedNowHHMM())) {
-              toast.error("Cannot schedule tasks in the past");
-              // Clear the input value so the native picker doesn't get stuck showing the invalid time
-              e.target.value = "";
-              return;
-            }
-            setBulkRows((rs) => rs.map((r, idx) => idx === bulkStartTimeEditIndex ? { ...r, start_time: val } : r));
-          }
+          commitStartTime(e.target.value);
+        }}
+        onBlur={(e) => {
+          // Revert to text when focus is lost
+          if (startTimeInputRef.current) startTimeInputRef.current.type = "text";
         }}
       />
     </>
   );
 }
 
-const ActionRow = ({ onClick, icon, label, destructive }: { onClick: () => void; icon?: React.ReactNode; label: string; destructive?: boolean }) => (
-  <button
-    onClick={onClick}
-    className={`w-full flex items-center gap-3 px-3 py-3.5 rounded-xl pressable transition-colors text-[14px] ${destructive ? "text-destructive hover:bg-destructive/10" : "text-foreground hover:bg-muted/40"}`}
-  >
-    {icon && <span className={`shrink-0 ${destructive ? "text-destructive/80" : "text-secondary-fg"}`}>{icon}</span>}
-    <span className="flex-1 text-left">{label}</span>
-  </button>
+const ActionRow = ({ onClick, icon, label, destructive, children }: { onClick?: () => void; icon?: React.ReactNode; label: string; destructive?: boolean; children?: React.ReactNode }) => (
+  <div className="relative">
+    <button
+      onClick={onClick}
+      // When an overlay child (e.g. <input type="time">) covers this row, the
+      // button must NOT intercept taps — iOS WebKit otherwise swallows the tap
+      // before the native time-picker can open. pointer-events:none lets the
+      // absolutely-positioned input receive the touch directly.
+      style={children ? { pointerEvents: "none" } : undefined}
+      className={`w-full flex items-center gap-3 px-3 py-3.5 rounded-xl pressable transition-colors text-[14px] ${destructive ? "text-destructive hover:bg-destructive/10" : "text-foreground hover:bg-muted/40"}`}
+    >
+      {icon && <span className={`shrink-0 ${destructive ? "text-destructive/80" : "text-secondary-fg"}`}>{icon}</span>}
+      <span className="flex-1 text-left">{label}</span>
+    </button>
+    {children}
+  </div>
 );

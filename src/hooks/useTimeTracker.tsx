@@ -23,6 +23,8 @@ import { useAuth } from "./useAuth";
 import { toast } from "sonner";
 import { recordTimerDrift } from "@/lib/perfMonitor";
 import { liveActivity } from "@/lib/liveActivity";
+import { drainOfflineQueue } from "@/lib/offlineQueue";
+import { enqueueWrite } from "@/lib/idbCache";
 
 /* ─────────────────────────────────────────────────────────────────────────
  * Live elapsed pub/sub.
@@ -80,6 +82,8 @@ export type TimeCategory = {
   billing_payment_link?: string | null;
   billing_notes?: string | null;
   created_at?: string;
+  /** Soft-delete timestamp. NULL = active; set = deleted but kept for history. */
+  deleted_at?: string | null;
 };
 
 /** Collapse duplicate category names (same user) — keeps default, else oldest. */
@@ -107,10 +111,14 @@ export type TimeEntry = {
   note: string | null;
   source: string;
   block_id: string | null;
+  snapshot_hourly_rate: number | null;
+  snapshot_currency: string | null;
 };
 
 type Ctx = {
   categories: TimeCategory[];
+  /** All categories including soft-deleted — use for resolving names in history. */
+  allCatMap: Map<string, TimeCategory>;
   active: TimeEntry | null;
   loading: boolean;
   start: (categoryId?: string, opts?: { source?: string; note?: string; blockId?: string }) => Promise<void>;
@@ -137,9 +145,14 @@ type Ctx = {
   ) => Promise<void>;
   addManualEntry: (categoryId: string, durationSec: number, opts?: { startedAt?: Date; note?: string }) => Promise<void>;
   deleteEntry: (id: string) => Promise<void>;
+  entries: RollingEntry[];
   todayTotalSec: number;
   weekTotalSec: number;
   refresh: () => Promise<void>;
+  /** Immediately clears the active entry from local state (no Supabase write).
+   *  Pass the entry id to also remove it from the rolling-entries cache so
+   *  totals are correct right away (used by skip/cancel to discard a session). */
+  clearActive: (entryId?: string) => void;
 };
 
 const TimeTrackerCtx = createContext<Ctx | null>(null);
@@ -182,6 +195,8 @@ async function fetchCategories(userId: string): Promise<TimeCategory[]> {
     .eq("user_id", userId)
     .order("created_at");
   if (error) throw error;
+  // Return ALL rows (including soft-deleted) so the app can resolve names for
+  // historical entries. Active-only filtering happens at the context layer.
   return dedupeCategoriesStable((data || []) as TimeCategory[]);
 }
 
@@ -194,7 +209,7 @@ async function fetchActiveEntry(userId: string): Promise<TimeEntry | null> {
     .order("started_at", { ascending: false })
     .limit(1);
   if (error) throw error;
-  return ((data ?? [])[0] as TimeEntry) || null;
+  return ((data ?? [])[0] as unknown as TimeEntry) || null;
 }
 
 /**
@@ -268,7 +283,11 @@ export function TimeTrackerProvider({ children }: { children: ReactNode }) {
     placeholderData: keepPreviousData,
   });
 
-  const categories = categoriesQuery.data ?? [];
+  // allCategories includes soft-deleted rows — used to resolve names in history.
+  // categories is active-only — used everywhere in the UI picker / tracker.
+  const allCategories = categoriesQuery.data ?? [];
+  const categories = useMemo(() => allCategories.filter((c) => !c.deleted_at), [allCategories]);
+  const allCatMap = useMemo(() => new Map(allCategories.map((c) => [c.id, c])), [allCategories]);
   const active = activeQuery.data ?? null;
   const entries = entriesQuery.data ?? [];
 
@@ -453,8 +472,11 @@ export function TimeTrackerProvider({ children }: { children: ReactNode }) {
     void import("@capacitor/app")
       .then(({ App }) => {
         if (cancelled) return;
-        const handle = App.addListener("appStateChange", ({ isActive }) => {
-          if (isActive) void refresh();
+        const handle = App.addListener("appStateChange", async ({ isActive }) => {
+          if (isActive) {
+            const { remaining } = await drainOfflineQueue();
+            if (remaining === 0) void refresh();
+          }
         });
         cleanup = () => {
           void Promise.resolve(handle).then((h) => h.remove());
@@ -519,33 +541,59 @@ export function TimeTrackerProvider({ children }: { children: ReactNode }) {
     };
   }, [active?.id, active?.started_at]);
 
+  const startingRef = useRef(false);
   const startSession = async (
     categoryId?: string,
     opts?: { source?: string; note?: string; blockId?: string },
   ) => {
-    if (!user) return;
-    const cat =
-      categoryId || categories.find((c) => c.is_default)?.id || categories[0]?.id;
-    if (!cat) {
-      toast.error("Add a category first");
-      return;
-    }
-    const { data, error } = await supabase
-      .from("time_entries")
-      .insert({
+    if (!user || startingRef.current) return;
+    startingRef.current = true;
+    try {
+      const targetCat = categoryId 
+        ? categories.find((c) => c.id === categoryId) 
+        : categories.find((c) => c.is_default) || categories[0];
+        
+      if (!targetCat) {
+        toast.error("Add a category first");
+        return;
+      }
+      
+      // Snapshot the task title so it survives later block deletion.
+      let taskTitle: string | null = null;
+      if (opts?.blockId) {
+        const { data: blk } = await supabase
+          .from("blocks").select("title").eq("id", opts.blockId).maybeSingle();
+        taskTitle = (blk as { title?: string | null } | null)?.title ?? null;
+      }
+
+      const payload = {
+        id: crypto.randomUUID(),
         user_id: user.id,
-        category_id: cat,
+        category_id: targetCat.id,
         source: opts?.source || "manual",
         note: opts?.note || null,
         block_id: opts?.blockId || null,
-      })
-      .select("*")
-      .single();
+        task_title: taskTitle,
+        started_at: new Date().toISOString(),
+        snapshot_hourly_rate: targetCat.hourly_rate ?? null,
+        snapshot_currency: targetCat.currency ?? null,
+      };
+
+    const { error } = await supabase.from("time_entries").insert(payload);
     if (error) {
-      toast.error(error.message);
-      return;
+      if (
+        error.code?.startsWith("23") ||
+        error.code?.startsWith("42") ||
+        error.code?.startsWith("PGRST") ||
+        (error.code && parseInt(error.code) >= 400 && parseInt(error.code) < 500)
+      ) {
+        toast.error(error.message);
+        return;
+      }
+      await enqueueWrite({ table: "time_entries", op: "insert", payload });
     }
-    const entry = data as TimeEntry;
+    
+    const entry = { ...payload, ended_at: null } as unknown as TimeEntry;
     setActiveData(entry);
     // Optimistically prepend the live entry to the rolling cache so today/week
     // totals start counting immediately without a second round-trip.
@@ -589,6 +637,9 @@ export function TimeTrackerProvider({ children }: { children: ReactNode }) {
         });
       }
     }
+    } finally {
+      startingRef.current = false;
+    }
   };
 
   const start: Ctx["start"] = async (categoryId, opts) => {
@@ -599,14 +650,38 @@ export function TimeTrackerProvider({ children }: { children: ReactNode }) {
   const stop: Ctx["stop"] = async () => {
     if (!active || !user) return false;
     const current = active;
-    const endedAt = new Date().toISOString();
+    // Floor to whole seconds — worker display uses Math.floor too, so stored
+    // duration matches what the timer showed at the moment of tap.
+    const startedMs = new Date(current.started_at).getTime();
+    const endedAt = new Date(startedMs + Math.floor((Date.now() - startedMs) / 1000) * 1000).toISOString();
+    // Freeze Reports/Tracker/Home caches IMMEDIATELY (before any network round-trip)
+    // so earnings are calculated from this exact stop moment, not from Date.now()
+    // during the 300-700ms that the supabase + block-update awaits take.
+    const completedEntry: RollingEntry = { ...(current as unknown as RollingEntry), ended_at: endedAt };
+    queryClient.setQueryData<RollingEntry[]>(
+      rollingEntriesQueryKey(user.id),
+      (prev) => {
+        const list = prev ?? [];
+        const idx = list.findIndex((e) => e.id === current.id);
+        if (idx >= 0) return list.map((e) => e.id === current.id ? { ...e, ended_at: endedAt } : e);
+        return [completedEntry, ...list];
+      },
+    );
     const { error } = await supabase
       .from("time_entries")
       .update({ ended_at: endedAt })
       .eq("id", current.id);
     if (error) {
-      toast.error(error.message);
-      return false;
+      if (
+        error.code?.startsWith("23") ||
+        error.code?.startsWith("42") ||
+        error.code?.startsWith("PGRST") ||
+        (error.code && parseInt(error.code) >= 400 && parseInt(error.code) < 500)
+      ) {
+        toast.error(error.message);
+        return false;
+      }
+      await enqueueWrite({ table: "time_entries", op: "update", payload: { ended_at: endedAt }, filter: { id: current.id } });
     }
     const dur = Math.floor((Date.now() - new Date(current.started_at).getTime()) / 1000);
     if (current.block_id) {
@@ -641,23 +716,31 @@ export function TimeTrackerProvider({ children }: { children: ReactNode }) {
         /* non-fatal */
       }
     }
+    emitElapsed(0);
     setActiveData(null);
     // Tear down the tracker Live Activity. Safe to call unconditionally — if
     // the session was started from Focus there's no tracker activity and this
     // is a no-op (Focus owns its own activity and tears it down separately).
     void liveActivity.stopTracker();
-    queryClient.setQueryData<RollingEntry[]>(
-      rollingEntriesQueryKey(user.id),
-      (prev) =>
-        (prev ?? []).map((e) =>
-          e.id === current.id ? { ...e, ended_at: endedAt } : e,
-        ),
-    );
+    // Force-invalidate so any backend side-effects (triggers, pattern updates)
+    // are picked up in the next render cycle, while the optimistic data shows now.
+    void invalidateRollingEntries(queryClient, user.id);
     const m = Math.floor(dur / 60);
     toast.success(`Tracked ${m < 60 ? `${m}m` : `${Math.floor(m / 60)}h ${m % 60}m`}`);
     return true;
   };
   stopRef.current = stop;
+
+  const clearActive = useCallback((entryId?: string) => {
+    setActiveData(null);
+    emitElapsed(0);
+    if (entryId && userId) {
+      queryClient.setQueryData<RollingEntry[]>(
+        rollingEntriesQueryKey(userId),
+        (prev) => (prev ?? []).filter((e) => e.id !== entryId),
+      );
+    }
+  }, [setActiveData, userId, queryClient]);
 
   useEffect(() => {
     try {
@@ -739,12 +822,18 @@ export function TimeTrackerProvider({ children }: { children: ReactNode }) {
       toast.error("Can't delete default category");
       return;
     }
-    const { error } = await supabase.from("time_categories").delete().eq("id", id);
+    const deletedAt = new Date().toISOString();
+    const { error } = await (supabase as any)
+      .from("time_categories")
+      .update({ deleted_at: deletedAt })
+      .eq("id", id);
     if (error) {
       toast.error(error.message);
       return;
     }
-    setCategoriesData((prev) => prev.filter((c) => c.id !== id));
+    // Mark as deleted in local state — keeps the row in allCatMap for history
+    // but removes it from the active categories list (filtered by deleted_at).
+    setCategoriesData((prev) => prev.map((c) => c.id === id ? { ...c, deleted_at: deletedAt } : c));
   };
 
   const renameCategory: Ctx["renameCategory"] = async (id, name) => {
@@ -828,6 +917,8 @@ export function TimeTrackerProvider({ children }: { children: ReactNode }) {
       ? new Date(opts.startedAt.getTime() + durationSec * 1000)
       : new Date();
     const start = opts?.startedAt || new Date(Date.now() - durationSec * 1000);
+    const targetCat = categories.find((c) => c.id === categoryId);
+    
     const { data, error } = await supabase
       .from("time_entries")
       .insert({
@@ -837,6 +928,8 @@ export function TimeTrackerProvider({ children }: { children: ReactNode }) {
         ended_at: end.toISOString(),
         source: "manual_add",
         note: opts?.note || null,
+        snapshot_hourly_rate: targetCat?.hourly_rate ?? null,
+        snapshot_currency: targetCat?.currency ?? null,
       })
       .select("*")
       .single();
@@ -881,6 +974,7 @@ export function TimeTrackerProvider({ children }: { children: ReactNode }) {
   const value: Ctx = useMemo(
     () => ({
       categories,
+      allCatMap,
       active,
       loading,
       start,
@@ -894,12 +988,14 @@ export function TimeTrackerProvider({ children }: { children: ReactNode }) {
       updateCategoryBilling,
       addManualEntry,
       deleteEntry,
+      entries,
       todayTotalSec,
       weekTotalSec,
       refresh,
+      clearActive,
     }),
     // eslint-disable-next-line react-hooks/exhaustive-deps
-    [categories, active, loading, todayTotalSec, weekTotalSec, refresh],
+    [categories, allCatMap, active, loading, todayTotalSec, weekTotalSec, refresh, clearActive],
   );
 
   return (

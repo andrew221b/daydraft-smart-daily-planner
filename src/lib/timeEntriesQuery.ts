@@ -18,7 +18,7 @@ import { idbGet, idbSet } from "@/lib/idbCache";
 export const ROLLING_ENTRIES_DAYS = 60;
 
 export const ROLLING_ENTRIES_SELECT =
-  "id,category_id,started_at,ended_at,note,block_id,source";
+  "id,category_id,started_at,ended_at,note,block_id,task_title,source,snapshot_hourly_rate,snapshot_currency";
 
 export type RollingEntry = {
   id: string;
@@ -27,7 +27,10 @@ export type RollingEntry = {
   ended_at: string | null;
   note: string | null;
   block_id: string | null;
+  task_title: string | null;
   source: string | null;
+  snapshot_hourly_rate: number | null;
+  snapshot_currency: string | null;
 };
 
 export const ROLLING_ENTRIES_ROOT = "rolling-time-entries" as const;
@@ -117,8 +120,12 @@ export function filterEntriesByRange(
   if (!entries?.length) return [];
   const fromMs = range.from.getTime();
   const toMs = range.to.getTime();
+  const now = Date.now();
   return entries.filter((e) => {
     const startedMs = new Date(e.started_at).getTime();
-    return startedMs >= fromMs && startedMs <= toMs;
+    const endedMs = e.ended_at ? new Date(e.ended_at).getTime() : now;
+    // Include if the entry overlaps the requested range:
+    // It starts before the range ends AND ends after the range starts.
+    return startedMs <= toMs && endedMs >= fromMs;
   });
 }

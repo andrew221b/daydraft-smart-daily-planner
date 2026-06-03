@@ -19,6 +19,8 @@ export type ReportEntryRow = {
   startedAt: string;
   endedAt: string;
   category: string;
+  /** Title of the task that was tracked (when the session was tied to a block). */
+  taskTitle?: string | null;
   durationMin: number;
   currency?: string | null;
   hourlyRate?: number | null;
@@ -69,10 +71,12 @@ const fmtMoney = (amount: number, currency = "USD") => {
     return new Intl.NumberFormat(undefined, {
       style: "currency",
       currency: code,
-      maximumFractionDigits: Math.abs(amount) >= 100 ? 0 : 2,
+      // Always show cents so exported totals match the in-app Reports exactly.
+      minimumFractionDigits: 2,
+      maximumFractionDigits: 2,
     }).format(amount);
   } catch {
-    return `${Math.abs(amount) >= 100 ? amount.toFixed(0) : amount.toFixed(2)} ${code}`;
+    return `${amount.toFixed(2)} ${code}`;
   }
 };
 
@@ -248,7 +252,7 @@ export async function downloadReportCsv(report: ReportPayload) {
   if (report.entries.length) {
     lines.push("");
     lines.push("--- ACTIVITY LOG ---");
-    lines.push("Date,Started,Ended,Category,Duration (Minutes),Duration (Hours),Rate / hour,Earned,Currency,Note");
+    lines.push("Date,Started,Ended,Category,Task,Duration (Minutes),Duration (Hours),Rate / hour,Earned,Currency,Note");
     for (const e of report.entries) {
       lines.push(
         [
@@ -256,6 +260,7 @@ export async function downloadReportCsv(report: ReportPayload) {
           e.startedAt,
           e.endedAt,
           `"${e.category.replace(/"/g, '""')}"`,
+          `"${(e.taskTitle ?? "").replace(/"/g, '""')}"`,
           e.durationMin.toString(),
           (e.durationMin / 60).toFixed(2),
           e.hourlyRate ?? "",
@@ -734,12 +739,13 @@ export async function downloadReportPdf(report: ReportPayload) {
 
     autoTable(doc, {
       startY: cursorY,
-      head: [["Date", "Start", "End", "Category", "Duration", "Earned", "Note"]],
+      head: [["Date", "Start", "End", "Category", "Task", "Duration", "Earned", "Note"]],
       body: report.entries.map((e) => [
         e.date,
         e.startedAt,
         e.endedAt,
         e.category,
+        e.taskTitle ?? "",
         `${e.durationMin}m`,
         e.earnings && e.earnings > 0 ? fmtMoney(e.earnings, e.currency || "USD") : "—",
         e.note ?? "",
@@ -766,19 +772,20 @@ export async function downloadReportPdf(report: ReportPayload) {
       },
       alternateRowStyles: { fillColor: soft },
       columnStyles: {
-        0: { textColor: ink, fontStyle: "bold", cellWidth: 68 },
-        1: { textColor: sub, cellWidth: 52, halign: "right" },  // was 44 — fits "10:30 AM"
-        2: { textColor: sub, cellWidth: 52, halign: "right" },
-        3: { textColor: ink, cellWidth: 92, overflow: "ellipsize" },
-        4: { halign: "right", textColor: ink, fontStyle: "bold", cellWidth: 54 },
-        5: { halign: "right", textColor: ink, fontStyle: "bold", cellWidth: 78 }, // was 68
-        6: { textColor: sub, fontSize: 8.5 },
+        0: { textColor: ink, fontStyle: "bold", cellWidth: 58 },
+        1: { textColor: sub, cellWidth: 46, halign: "right" },  // fits "10:30 AM"
+        2: { textColor: sub, cellWidth: 46, halign: "right" },
+        3: { textColor: ink, cellWidth: 72, overflow: "ellipsize" },
+        4: { textColor: ink, cellWidth: 96, overflow: "ellipsize" }, // Task title
+        5: { halign: "right", textColor: ink, fontStyle: "bold", cellWidth: 48 },
+        6: { halign: "right", textColor: ink, fontStyle: "bold", cellWidth: 74 },
+        7: { textColor: sub, fontSize: 8.5 },
       },
       theme: "plain",
       didParseCell: (data) => {
         if (
           data.section === "body" &&
-          data.column.index === 5 &&
+          data.column.index === 6 &&
           data.cell.raw === "—"
         ) {
           data.cell.styles.textColor = faint;
@@ -786,7 +793,7 @@ export async function downloadReportPdf(report: ReportPayload) {
         }
       },
       didDrawCell: (data) => {
-        if (data.section === "head" && data.column.index === 6) {
+        if (data.section === "head" && data.column.index === 7) {
           doc.setDrawColor(...accent);
           doc.setLineWidth(1);
           const lineY = data.cell.y + data.cell.height;

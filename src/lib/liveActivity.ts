@@ -19,8 +19,23 @@ interface LiveActivityPlugin {
     plannedMinutes: number;
     blockId: string;
     startedAt: number; // epoch ms
+    nextTaskTitle?: string | null;
+    categoryName?: string | null;
+    colorHex?: string | null;
   }): Promise<{ started: boolean; id?: string; reason?: string }>;
+  /** Non-destructive re-arm: start a Focus activity only if none is live;
+   *  otherwise leave the running one untouched and just refresh its category. */
+  ensureFocus(opts: {
+    taskTitle: string;
+    plannedMinutes: number;
+    blockId: string;
+    startedAt: number; // epoch ms
+    nextTaskTitle?: string | null;
+    categoryName?: string | null;
+    colorHex?: string | null;
+  }): Promise<{ started: boolean; existed?: boolean; id?: string; reason?: string }>;
   stopFocus(): Promise<void>;
+  updateFocusCategory(opts: { categoryName?: string | null; colorHex?: string | null }): Promise<void>;
   startTracker(opts: {
     categoryName: string;
     colorHex: string;
@@ -48,6 +63,9 @@ function toHex(color: string | null | undefined): string {
   if (/^#?[0-9a-fA-F]{6}$/.test(c)) return c.startsWith("#") ? c : `#${c}`;
   return "#0A84FF";
 }
+
+/** Tracker category to show on the Focus Live Activity, or null/undefined for none. */
+type FocusCategory = { categoryName: string; color: string | null | undefined } | null | undefined;
 
 export const liveActivity = {
   /**
@@ -78,7 +96,7 @@ export const liveActivity = {
     }
   },
 
-  async startFocus(opts: { taskTitle: string; plannedMinutes: number; blockId: string; startedAt?: number }) {
+  async startFocus(opts: { taskTitle: string; plannedMinutes: number; blockId: string; startedAt?: number; nextTaskTitle?: string | null; category?: FocusCategory }) {
     if (!isIOS()) return;
     if (!Capacitor.isPluginAvailable("LiveActivity")) {
       console.error(`${tag} startFocus: native plugin not registered (not compiled into app target).`);
@@ -90,11 +108,40 @@ export const liveActivity = {
         plannedMinutes: Math.max(0, Math.round(opts.plannedMinutes || 0)),
         blockId: opts.blockId,
         startedAt: opts.startedAt ?? Date.now(),
+        nextTaskTitle: opts.nextTaskTitle ?? undefined,
+        categoryName: opts.category?.categoryName ?? null,
+        colorHex: opts.category ? toHex(opts.category.color) : null,
       });
       if (res?.started) console.log(`${tag} startFocus ✅ id=${res.id}`);
       else console.warn(`${tag} startFocus did not start — reason: ${res?.reason ?? "unknown"}`);
     } catch (e) {
       console.error(`${tag} startFocus failed`, e);
+    }
+  },
+
+  /**
+   * Re-arm the Focus Live Activity on app foreground without tearing down a
+   * healthy one. Starts a new activity only if none is live; otherwise the
+   * native side leaves the running timer alone and just refreshes the category
+   * chip. Pass the current tracking category (or null) so the chip stays correct.
+   */
+  async ensureFocus(opts: { taskTitle: string; plannedMinutes: number; blockId: string; startedAt?: number; nextTaskTitle?: string | null; category?: FocusCategory }) {
+    if (!isIOS()) return;
+    if (!Capacitor.isPluginAvailable("LiveActivity")) return;
+    try {
+      const res = await plugin.ensureFocus({
+        taskTitle: opts.taskTitle || "Focus session",
+        plannedMinutes: Math.max(0, Math.round(opts.plannedMinutes || 0)),
+        blockId: opts.blockId,
+        startedAt: opts.startedAt ?? Date.now(),
+        nextTaskTitle: opts.nextTaskTitle ?? undefined,
+        categoryName: opts.category?.categoryName ?? null,
+        colorHex: opts.category ? toHex(opts.category.color) : null,
+      });
+      if (res?.started) console.log(`${tag} ensureFocus ✅ existed=${res.existed === true}`);
+      else console.warn(`${tag} ensureFocus did not start — reason: ${res?.reason ?? "unknown"}`);
+    } catch (e) {
+      console.warn(`${tag} ensureFocus failed`, e);
     }
   },
 
@@ -104,6 +151,20 @@ export const liveActivity = {
       await plugin.stopFocus();
     } catch (e) {
       console.warn("[liveActivity] stopFocus failed", e);
+    }
+  },
+
+  /** Update the Focus Live Activity with a tracker category, or clear it (pass null). */
+  async updateFocusCategory(cat: { categoryName: string; color: string | null | undefined } | null) {
+    if (!isIOS()) return;
+    if (!Capacitor.isPluginAvailable("LiveActivity")) return;
+    try {
+      await plugin.updateFocusCategory({
+        categoryName: cat?.categoryName ?? null,
+        colorHex: cat ? toHex(cat.color) : null,
+      });
+    } catch (e) {
+      console.warn(`${tag} updateFocusCategory failed`, e);
     }
   },
 

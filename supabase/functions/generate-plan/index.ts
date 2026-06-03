@@ -5,7 +5,7 @@ import { DAYDRAFT_PERSONA } from "../_shared/persona.ts";
 
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
-  "Access-Control-Allow-Headers": "authorization, x-client-info, apikey, content-type, x-dd-dev-pro",
+  "Access-Control-Allow-Headers": "authorization, x-client-info, apikey, content-type",
 };
 const FREE_PLAN_LIMIT = 5;
 
@@ -179,19 +179,12 @@ serve(async (req) => {
           pattern = p;
           // Pro: pull today's calendar events if connected
           const { data: sub } = await supabase.from("subscriptions").select("status").eq("user_id", u.user.id).maybeSingle();
-          // Dev-only override: when the client sends x-dd-dev-pro:1 (toggled
-          // via Settings → "Simulate Pro"), treat the user as Pro so the
-          // server-side gates match the UI. This is an explicit dev escape
-          // hatch; the toggle in the app is gated by isSimulateProUiAllowed().
-          const devProHeader = req.headers.get("x-dd-dev-pro") === "1";
-          const isPro = devProHeader || sub?.status === "active" || sub?.status === "trialing";
-          tier = devProHeader
+          const isPro = sub?.status === "active" || sub?.status === "trialing";
+          tier = sub?.status === "active"
             ? "pro"
-            : sub?.status === "active"
-              ? "pro"
-              : sub?.status === "trialing"
-                ? "trial"
-                : "free";
+            : sub?.status === "trialing"
+              ? "trial"
+              : "free";
           const { data: tok } = await supabase.from("calendar_tokens").select("user_id").eq("user_id", u.user.id).maybeSingle();
           if (isPro && tok) {
             const ev = await fetch(`${Deno.env.get("SUPABASE_URL")}/functions/v1/fetch-calendar-events`, {
@@ -212,12 +205,6 @@ serve(async (req) => {
         : profilePlanningRules
     ).slice(0, 1200);
 
-    const peakMap: Record<string, string> = {
-      morning: "8:00 to 12:00",
-      midday: "11:00 to 15:00",
-      night: "19:00 to 23:00",
-    };
-    const peak = peakMap[energy_preference] || peakMap.morning;
     const defaultStart = energy_preference === "night" ? 18 : 9;
     // Compute local "now" in the user's timezone if provided.
     const nowDate = now_iso ? new Date(now_iso) : new Date();
@@ -243,21 +230,27 @@ serve(async (req) => {
     } else {
       earliestStart = start_time || `${String(defaultStart).padStart(2, "0")}:00`;
     }
-    const startHour = earliestStart.split(":")[0];
-    // Hours remaining today (until 23:59).
+    const isReplan = mode === "replan";
+    // Use user's configured active hours if set; otherwise no hard window.
+    const activeStart = (typeof active_hours_start === "string" && /^\d{2}:\d{2}$/.test(active_hours_start))
+      ? active_hours_start
+      : "00:00";
+    const activeEnd = (typeof active_hours_end === "string" && /^\d{2}:\d{2}$/.test(active_hours_end))
+      ? active_hours_end
+      : "23:59";
+    // Hours available: for today = time remaining until midnight; for future = full active window.
     const hoursLeftToday = isPlanningToday
       ? Math.max(0, 23 - parseInt(nowHHMM.split(":")[0], 10) + (parseInt(nowHHMM.split(":")[1], 10) < 30 ? 0.5 : 0))
-      : 16;
-
-    const isReplan = mode === "replan";
-    const activeStart = (typeof active_hours_start === "string" && /^\d{2}:\d{2}$/.test(active_hours_start)) ? active_hours_start : "09:00";
-    const activeEnd = (typeof active_hours_end === "string" && /^\d{2}:\d{2}$/.test(active_hours_end)) ? active_hours_end : "22:00";
+      : (() => {
+        const [as_h, as_m] = activeStart.split(":").map(Number);
+        const [ae_h, ae_m] = activeEnd.split(":").map(Number);
+        return Math.max(1, (ae_h * 60 + ae_m - as_h * 60 - as_m) / 60);
+      })();
 
     const overshootAvg = { work: 0, personal: 0, rest: 0 };
     const overshootByTaskType = { deep_work: 0, communication: 0, routine: 0 };
     let overshootSamples = 0;
     let learningActive = false;
-    let learnedPeakWindow = "";
     let chronicTaskTitles: string[] = [];
     if (authedSupabase && authedUserId) {
       try {
@@ -344,20 +337,8 @@ serve(async (req) => {
           arr.push(ratio);
           hourBuckets.set(h, arr);
         }
-        const rankedHours = [...hourBuckets.entries()]
-          .map(([h, vals]) => ({
-            h,
-            n: vals.length,
-            avg: vals.length ? vals.reduce((s, v) => s + v, 0) / vals.length : 0,
-          }))
-          .filter((x) => x.n >= 2)
-          .sort((a, b) => a.avg - b.avg || b.n - a.n);
-        const best = rankedHours.filter((x) => x.avg <= -0.08).slice(0, 3).map((x) => x.h).sort((a, b) => a - b);
-        if (best.length) {
-          const start = Math.max(0, best[0]);
-          const end = Math.min(23, best[best.length - 1] + 1);
-          learnedPeakWindow = `${String(start).padStart(2, "0")}:00 to ${String(end).padStart(2, "0")}:00`;
-        }
+        // Peak-window detection removed — scheduling is now context-driven
+        // (clarification answers + user's written order take precedence).
         // Chronic procrastination tasks: appears >=3 times, never completed in lookback.
         const chronicMap = new Map<string, { title: string; seen: number; done: number }>();
         for (const b of (histBlocks || []) as any[]) {
@@ -496,24 +477,35 @@ AI weekly memory:
 - Common slip pattern: ${String(ai_memory.common_slip || "none")}
 - Recommendation: ${String(ai_memory.recommendation || "keep plans realistic")}
 Use these as defaults unless they conflict with fixed commitments.` : "";
-    const learningHints = learningActive ? `
-Pattern learning is ACTIVE (14-day plans + time tracking):
-- Detected peak hours: ${learnedPeakWindow || "not enough signal"}
-- Overshoot by task type: deep_work ${(overshootByTaskType.deep_work * 100).toFixed(0)}%, communication ${(overshootByTaskType.communication * 100).toFixed(0)}%, routine ${(overshootByTaskType.routine * 100).toFixed(0)}%
-- Chronic procrastination tasks (3+ appearances, no completion): ${chronicTaskTitles.length ? chronicTaskTitles.join(", ") : "none"}
-How to apply:
-- Schedule deep work inside detected peak hours when feasible.
-- Auto-inflate duration for task types with consistent overshoot.
-- If a chronic task is included, flag it with: "You've pushed this 3 times — want to break it into smaller steps?"` : "";
+    // learningHints removed — chronic/peak signals now surfaced through
+    // overshootHints + patternHints; the new prompt is context-driven.
     const emotionalContext = typeof planning_context === "string" ? planning_context.trim() : "";
-    const emotionalHints = emotionalContext ? `
-Optional user context (light emotional/deadline signal):
+    // Detect whether planning_context contains structured clarification answers
+    // (added by the client as "User Clarifications:\n- Q: ...\n  A: ...").
+    // If so, treat them as HARD scheduling constraints, not optional hints.
+    const isClarificationAnswers = emotionalContext.startsWith("User Clarifications:");
+    const emotionalHints = emotionalContext ? (isClarificationAnswers ? `
+
+USER SCHEDULING CONSTRAINTS (collected from a pre-planning questionnaire — treat each answer as a HARD rule that overrides defaults):
+${emotionalContext
+  .replace("User Clarifications:\n", "")
+  .replace(/- Q: /g, "Constraint: ")
+  .replace(/\n  A: /g, " → ")}
+Rules:
+- If the answer mentions "morning" for any task type → schedule ALL tasks of that type before 12:00.
+- If the answer mentions "afternoon" → schedule them 12:00–17:00.
+- If the answer mentions "evening" → schedule them after 17:00.
+- If the answer mentions a hard deadline → treat the referenced task as FIXED with preparation before it.
+- If the answer says "hardest first" → place the highest-effort deep_work task first in the schedule.
+- If the answer says "easiest first" → place the lowest-effort task first.
+- Do NOT let the peak-window heuristic override these explicit user preferences.` : `
+
+Optional context (emotional / deadline signal):
 - ${emotionalContext}
 How to use it:
 - Let this influence ordering and framing of the day.
 - If there is a clear deadline/call time, schedule preparation before it and lighter work after.
-- If there is dread/friction around a task, consider placing it earlier and mention a supportive framing in reasoning/subtext.
-- Keep this supportive and practical; never block planning on missing context.` : "";
+- If there is dread/friction around a task, consider placing it earlier and mention a supportive framing in reasoning/subtext.`) : "";
 
     const calHints = calendarEvents.length ? `
 FIXED calendar events you must schedule around (do not move, do not duplicate; emit them as kind="task" with type="communication" and a reasoning that mentions "from your calendar"):
@@ -525,99 +517,89 @@ ${calendarEvents.map((e: any) => `- ${e.start_time} (${e.duration_min}m) ${e.tit
 
     const system = `${DAYDRAFT_PERSONA}
 
-YOUR JOB RIGHT NOW: turn the user's raw task list into a realistic, energy-aware schedule that protects their time — not an idealized one that sets them up to feel behind. A plan they can actually finish is the kindest thing you can build.
-Context:
-- Current local time: ${nowHHMM} (${timezone || "UTC"}).
-- Planning date: ${plan_date || todayLocal} ${isPlanningToday ? "(TODAY)" : "(future date)"}.
-- Raw hours remaining in the day: ~${hoursLeftToday.toFixed(1)}h.
-- Hours already committed (completed work / fixed events): ~${committed.toFixed(1)}h.
-- Realistic hours you can plan into: ~${trueHoursLeft.toFixed(1)}h.
-- User active hours: ${activeStart}–${activeEnd}. NEVER schedule any block outside this window.
-Rules:
-- GIBBERISH DETECTION (HIGHEST PRIORITY): If the raw input is completely unintelligible, random keystrokes (e.g. "asdf", "test"), or lacks any actionable intent, DO NOT hallucinate a plan. You MUST return exactly ONE 15-minute task titled "Clarify today's goals", type="routine", kind="task", with reasoning "I couldn't understand the input. Take a moment to write down actual tasks." Set summary to "Awaiting clear tasks" and subtext to "Try typing out your actual goals for the day." DO NOT output any other blocks.
-- Front-load deep work in the user's peak window (${learnedPeakWindow || peak}) ONLY if it's still ahead.
-- Batch communication into 1-2 blocks, ideally after the peak.
-- Insert one 15-min break after ~2h of deep work, and a 60-min lunch around 12:00 (or 18:00 for night owls) ONLY if it's still ahead.
-- Each task block: 25-90 min. Keep total day under 8 working hours.
-- ${isPlanningToday ? `THIS IS TODAY. The first block MUST start at or after ${earliestStart}. NEVER schedule any block in the past. If the peak window has already passed, do deep work now anyway.` : `Day starts around ${startHour}:00.`}${isReplan ? " This is a MID-DAY RE-PLAN — start now and only schedule what's left." : ""}
-- HARD BUDGET: the sum of duration_min of all task blocks MUST NOT exceed ${Math.round(trueHoursLeft * 60)} minutes. If the user's input would exceed this, drop the lowest-priority items and START the subtext with "⚠️ Heads up: " followed by exactly which items got dropped and why (e.g. "⚠️ Heads up: dropped 'finish slides' — only ${trueHoursLeft.toFixed(1)}h left today.").
-- Classify each task as deep_work, communication, or routine.
-- Use kind="task" for actual tasks, "break" for breaks, "lunch" for lunch.
-- EXPLICIT TIME EXTRACTION (HIGHEST PRIORITY): scan EVERY raw task line for an explicit clock time ("at 3pm", "15:00", "к 9 утра", "в 14:30", "9am call", "after 17:00"). If found, that task MUST use that exact time as start_time and MUST NOT be shifted. Treat it as a fixed commitment just like a calendar event. Schedule everything else around it.
-- SEQUENCING / CAUSAL ORDER (HIGHEST PRIORITY, equal to explicit times): the raw input is a real human braindump, not a sorted list. Read it like a routine, not a queue. Scan every line for ordering cues the user used to describe their day:
-    · "after / потом / после / then / once I … / when I get back / по возвращении" → the task MUST come AFTER the referenced activity, never before it.
-    · "before / перед / до / by / к" → the task must come BEFORE the referenced activity / deadline.
-    · "in the morning / утром", "afternoon / днём", "evening / вечером", "tonight / ночью", "first thing", "last thing" → respect that part of day.
-    · "while / during / пока" → that's a parallel/background task, mark with parallel_with_index.
-  Example: "I'll see friends, then work on the app" → 'see friends' is FIRST, 'work on the app' is AFTER. Do NOT front-load the app work just because it's "deep work" — the user's stated routine wins over the peak-window heuristic. The peak-window rule applies only to tasks the user did NOT anchor with sequencing or time language.
-- ROUTINE-FIRST PLANNING: treat the raw input as the user's intended day, in roughly the order they wrote it, unless explicit times or sequencing cues say otherwise. Re-order ONLY to (a) honor explicit times/sequencing, (b) respect calendar holds, (c) place a clearly mentioned break/meal sensibly, (d) move a task into the peak window when the user has NOT signaled when it should happen. Never silently invert the order the user dictated.
-- PARALLEL / OVERLAPPING ACTIVITIES: if two tasks have overlapping time windows that the user clearly intends to do together (e.g. "walk with son 15:00-16:00" + "call client 15:19" → the call happens during the walk), KEEP BOTH at their explicit times and mark the secondary one with parallel_with_index = (zero-based index of the primary block). Do NOT push them sequentially. The shorter / interrupting task is parallel_with the longer one.
-- Also set block_type for every block:
-  - "rest" for breaks/lunch and transition/recovery blocks,
-  - "personal" for errands/personal logistics (visits, groceries, appointments, family logistics),
-  - "work" for everything else.
-- Extract location hints from raw text (e.g. "gym at 2pm", "lunch at Blue Bottle Mission") and include a short location string.
-- For EVERY task, include a one-sentence "reasoning" explaining placement (e.g. "Deep work first — your peak").
-- Never return a task block longer than 90 minutes. Split ONLY when the user's input or duration clearly implies >90m of work — DO NOT split short/medium tasks just to fill the schedule. One task in = one block out unless duration forces a split.
-- TASK TITLE SOURCE OF TRUTH (CRITICAL): the output MUST contain exactly one task block per user-provided task (unless a split was forced by duration). NEVER invent extra tasks, NEVER omit a user's task, NEVER merge two of the user's tasks into one. Every task the user wrote must appear in the output. Count the input lines and the output task blocks — they must match unless duration forces a split.
-- Task titles MUST reuse the user's original wording from raw_input (or clarified_tasks when provided). Preserve key nouns/verbs from the user's phrasing and only normalize capitalization/punctuation.
-- FORBIDDEN TITLES: never invent generic labels like "Deep focus work session 1", "Focus block 2", "Work session", "Task block", or similar template names.
-- WHEN SPLITTING ONE TASK: keep the same base title from user wording and append a natural qualifier in parentheses, e.g. "Work on landing page (part 1)", "Work on landing page (part 2)". Do not use "session 1/2" wording.
-- PARALLEL / LIGHT BACKGROUND TASKS: only when raw text implies concurrent low-attention activity (walking, commute/errand cardio) alongside stationary work (call, headset meeting, inbox), schedule both with overlap_ok=true, the SAME parallel_group_id, and matching start_times. Never overlap_two deep_work-heavy blocks. Prefer sequential ordering when unsure.
-- Buffers: when pattern-based buffers are active, insert a short 10-15m "Buffer" or "Transition" block (kind="break", type="routine", block_type="rest") between deep-work tasks. If no history and default buffers are active, insert a 10m buffer after each 2h+ work sequence.
-- Buffer note in subtext: if buffers are inserted, include exactly one note — "Buffers added based on your patterns" or "Buffers added as default" (for new users).
-- LIGHT-DAY DETECTION: if the user only listed a tiny amount of work (≤ 60 min total) AND there is plenty of time left in the day (trueHoursLeft ≥ 4h), do NOT pad with invented tasks. Instead, schedule ONLY what the user gave you and START the subtext with "✨ Light day — " followed by a warm one-liner suggesting a self-care or restorative activity (walk, stretch, read, call a friend). Do not add those activities as blocks unless the user mentions them.
-- SELF-CARE NUDGE: if the day is heavy (≥ 6h of deep_work) consider inserting one short "Recharge" break (kind="break", 10-15 min, type="routine") between deep blocks, with a reasoning like "Quick reset to keep your focus sharp."
-- Summary: short, e.g. "5 tasks · 3 focus blocks · Done by 5pm".
-- Subtext: one short sentence.${planningPrefsHints}${clarifiedHints}${patternHints}${behaviorHints}${overshootHints}${memoryHints}${learningHints}${emotionalHints}${calHints}${personalContextHints}`;
+YOUR JOB: turn the user's task list into a realistic schedule for their day. Build a plan they can actually finish — not an idealized one that sets them up to feel behind.
 
-    const tools = [{
-      type: "function",
-      function: {
-        name: "build_schedule",
-        description: "Return a structured day schedule.",
-        parameters: {
-          type: "object",
-          properties: {
-            summary: { type: "string" },
-            subtext: { type: "string" },
-            blocks: {
-              type: "array",
-              items: {
-                type: "object",
-                properties: {
-                  start_time: { type: "string", description: "HH:MM 24h" },
-                  duration_min: { type: "integer" },
-                  title: { type: "string" },
-                  type: { type: "string", enum: ["deep_work", "communication", "routine"] },
-                  kind: { type: "string", enum: ["task", "break", "lunch"] },
-                  block_type: { type: "string", enum: ["work", "rest", "personal"] },
-                  reasoning: { type: "string" },
-                  location: { type: "string" },
-                  parallel_with_index: { type: "integer", description: "Zero-based index of another block this one happens IN PARALLEL with (overlapping times intended to be done together). Omit if not parallel." },
-                  overlap_ok: { type: "boolean", description: "True only for intentional concurrent background tasks paired with anchored work." },
-                  parallel_group_id: { type: "string", description: "Shared id for concurrently overlapping companions." },
-                },
-                required: ["start_time", "duration_min", "title", "type", "kind"],
-                additionalProperties: false,
-              },
+WHEN (hard constraints — no exceptions):
+- Current local time: ${nowHHMM} (${timezone || "UTC"}).
+- Planning date: ${plan_date || todayLocal}${isPlanningToday ? " (TODAY)" : " (future date)"}.
+- Available window: ${earliestStart} → ${activeEnd}${activeEnd !== "23:59" ? " (user's preferred hours — respect unless a task explicitly requires another time)" : ""}.${isReplan ? "\n- MID-DAY RE-PLAN: schedule only what's left, starting from now." : ""}
+- Realistic time to plan into: ~${trueHoursLeft.toFixed(1)}h (after ${committed.toFixed(1)}h already committed).
+- HARD BUDGET: total task duration MUST NOT exceed ${Math.round(trueHoursLeft * 60)} minutes. If tasks overflow, drop lowest-priority ones and start subtext with "⚠️ Heads up: dropped '[task]' — only ${trueHoursLeft.toFixed(1)}h left."
+
+WHAT ORDER (follow exactly, highest priority first):
+1. EXPLICIT TIMES — any task with "at 3pm / 15:00 / в 14:30 / к 9 утра" is FIXED. Never shift it. Schedule everything else around it.
+2. USER CLARIFICATION ANSWERS — if the user answered questions before planning, those answers are HARD scheduling rules (see section below if present).
+3. SEQUENCING CUES — "after / потом / then / once I finish / по возвращении" → that task comes AFTER; "before / перед / до / by" → BEFORE. Honor these even if it conflicts with what seems "optimal".
+4. PART-OF-DAY HINTS — "утром / morning / вечером / evening / first thing / tonight" → schedule in that window.
+5. USER'S WRITTEN ORDER — treat the list roughly as the user's intended day order. Only re-order to honor rules 1–4 above or to fit a clearly mentioned meal/break.
+
+IMPLICIT COMMON SENSE (apply automatically without asking):
+- Physical activity away from home (gym, pool, run outside, store, pharmacy, appointment) → add a travel block before AND after (15–30 min each depending on context). Title it "Travel to [place]" / "Return from [place]", kind="break", block_type="rest".
+- Important meeting, call, or presentation → add 10–15 min "Prep for [meeting]" block just before it.
+- Two locations in different parts of the city back-to-back → add a 20–30 min travel buffer between them.
+- Task clearly implying cooking or food prep → budget realistic time (dinner ≠ 10 min).
+- If user mentions they're tired, low energy, sick, or it's late → prefer shorter blocks, lighter tasks first, don't pack the day.
+
+TASK RULES:
+- One task in = one block out (unless >90 min forces a split into parts).
+- Splits: keep base title, add "(part 1)", "(part 2)". Never use "Work session 1" style.
+- NEVER invent tasks not in the input. NEVER merge two tasks into one.
+- Titles: reuse the user's exact wording. Only fix capitalization/punctuation.
+- FORBIDDEN: "Deep focus session", "Focus block", "Work session", "Task block" — generic labels are banned.
+- Classify type: deep_work (focused solo work), communication (calls/meetings/messages), or routine (errands, admin, chores).
+- block_type: "rest" for breaks/travel/transitions, "personal" for errands/family/appointments, "work" for everything else.
+- If location mentioned in raw text, extract a short location string.
+- For EVERY block include one-sentence reasoning explaining the placement.
+- Parallel tasks: only when user clearly implies doing two things simultaneously (e.g. "walking + call") → overlap_ok=true, same parallel_group_id, same start_time.
+- Splits for long tasks: ONLY when duration clearly exceeds 90 min. Don't split medium tasks to fill time.
+
+BREAKS & MEALS:
+- Insert a 10–15 min break after 2+ hours of continuous focused work — only if time allows.
+- Suggest a meal break (lunch ~60 min, or dinner if evening plan) ONLY if it falls naturally in the window and user hasn't mentioned eating.
+- Light day (≤60 min total tasks, ≥4h remaining): schedule what's given, start subtext with "✨ Light day — " + one warm suggestion.
+
+GIBBERISH GUARD: if input is completely unintelligible (random keys, "test", no real intent) → return ONE 15-min task: title "Clarify today's goals", type="routine", kind="task", reasoning "Couldn't parse the input.", summary "Awaiting clear tasks", subtext "Try writing out your actual goals."
+
+OUTPUT FORMAT:
+- Summary: short, e.g. "4 tasks · done by 6pm".
+- Subtext: one short sentence.${planningPrefsHints}${clarifiedHints}${patternHints}${behaviorHints}${overshootHints}${memoryHints}${emotionalHints}${calHints}${personalContextHints}`;
+
+    const schema = {
+      type: "OBJECT",
+      properties: {
+        summary: { type: "STRING" },
+        subtext: { type: "STRING" },
+        blocks: {
+          type: "ARRAY",
+          items: {
+            type: "OBJECT",
+            properties: {
+              start_time: { type: "STRING", description: "HH:MM 24h" },
+              duration_min: { type: "INTEGER" },
+              title: { type: "STRING" },
+              type: { type: "STRING", enum: ["deep_work", "communication", "routine"] },
+              kind: { type: "STRING", enum: ["task", "break", "lunch"] },
+              block_type: { type: "STRING", enum: ["work", "rest", "personal"] },
+              reasoning: { type: "STRING" },
+              location: { type: "STRING" },
+              parallel_with_index: { type: "INTEGER", description: "Zero-based index of another block this one happens IN PARALLEL with (overlapping times intended to be done together). Omit if not parallel." },
+              overlap_ok: { type: "BOOLEAN", description: "True only for intentional concurrent background tasks paired with anchored work." },
+              parallel_group_id: { type: "STRING", description: "Shared id for concurrently overlapping companions." },
             },
+            required: ["start_time", "duration_min", "title", "type", "kind"],
           },
-          required: ["summary", "subtext", "blocks"],
-          additionalProperties: false,
         },
       },
-    }];
+      required: ["summary", "subtext", "blocks"],
+    };
 
     // Model fallback chain: pro for quality, flash as a faster fallback when
     // pro is rate-limited or overloaded.
-    const MODEL_CHAIN = ["gemini-2.5-pro", "gemini-2.5-flash", "gemini-1.5-flash-latest"];
+    const MODEL_CHAIN = ["gemini-2.5-flash", "gemini-2.0-flash"];
     const isTransient = (s: number) => s === 500 || s === 502 || s === 503 || s === 504;
     const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
-    const planMessages = [
-      { role: "system", content: system },
-      { role: "user", content: `Name: ${name || "User"}\nRaw tasks:\n${raw_input}${emotionalContext ? `\nOptional context:\n${emotionalContext}` : ""}` },
-    ];
+    const planSystem = system;
+    const planUser = `Name: ${name || "User"}\nRaw tasks:\n${raw_input}${emotionalContext ? `\nOptional context:\n${emotionalContext}` : ""}`;
 
     let resp: Response | null = null;
     let lastStatus = 0;
@@ -636,14 +618,17 @@ Rules:
       const ctrl = new AbortController();
       const t = setTimeout(() => ctrl.abort(), Math.max(3_000, budgetMs));
       try {
-        return await fetch("https://generativelanguage.googleapis.com/v1beta/openai/chat/completions", {
+        return await fetch(`https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent?key=${GEMINI_API_KEY}`, {
           method: "POST",
-          headers: { Authorization: `Bearer ${GEMINI_API_KEY}`, "Content-Type": "application/json" },
+          headers: { "Content-Type": "application/json" },
           body: JSON.stringify({
-            model,
-            messages: planMessages,
-            tools,
-            tool_choice: { type: "function", function: { name: "build_schedule" } },
+            systemInstruction: { parts: [{ text: planSystem }] },
+            contents: [{ role: "user", parts: [{ text: planUser }] }],
+            generationConfig: {
+              responseMimeType: "application/json",
+              responseSchema: schema,
+              thinkingConfig: { thinkingBudget: 6144 },
+            },
           }),
           signal: ctrl.signal,
         });
@@ -690,9 +675,9 @@ Rules:
       return new Response(JSON.stringify({ error: msg }), { headers: { ...corsHeaders, "Content-Type": "application/json" } });
     }
     const data = await resp.json();
-    const call = data.choices?.[0]?.message?.tool_calls?.[0];
-    if (!call) throw new Error("No tool call returned");
-    const args = JSON.parse(call.function.arguments);
+    const textOut = data.candidates?.[0]?.content?.parts?.[0]?.text;
+    if (!textOut) throw new Error("No content returned");
+    const args = JSON.parse(textOut);
     const withPartQualifier = (title: string, part: number) => {
       const clean = String(title || "").trim();
       if (!clean) return `Task (part ${part})`;
@@ -702,12 +687,20 @@ Rules:
 
     const splitLongTask = (b: any) => {
       const total = Number(b.duration_min) || 0;
+      if (total <= 0) return [b];
+      // Split into the fewest 90-min-max pieces, evenly, so the TOTAL duration is
+      // preserved exactly. The old greedy "take 90, floor the rest to 20" inflated
+      // short remainders (e.g. 100m → 90+20 = 110m, 95m → 90+20 = 115m), which
+      // silently pushed every later task forward. Even split keeps pieces in a
+      // tidy 45–90 min band and never adds phantom minutes.
+      const n = Math.max(1, Math.ceil(total / 90));
+      const base = Math.floor(total / n);
+      let remainder = total - base * n; // spread 1 extra min across the first `remainder` pieces
       const pieces: any[] = [];
-      let left = total;
       let cursor = b.start_time;
-      let part = 1;
-      while (left > 0) {
-        const pieceMin = Math.max(20, Math.min(90, left));
+      for (let part = 1; part <= n; part++) {
+        const pieceMin = base + (remainder > 0 ? 1 : 0);
+        if (remainder > 0) remainder -= 1;
         pieces.push({
           ...b,
           title: withPartQualifier(b.title, part),
@@ -717,8 +710,6 @@ Rules:
         const [h, m] = String(cursor).split(":").map(Number);
         const next = (Number.isFinite(h) ? h : 0) * 60 + (Number.isFinite(m) ? m : 0) + pieceMin;
         cursor = `${String(Math.floor(next / 60)).padStart(2, "0")}:${String(next % 60).padStart(2, "0")}`;
-        left -= pieceMin;
-        part += 1;
       }
       return pieces;
     };

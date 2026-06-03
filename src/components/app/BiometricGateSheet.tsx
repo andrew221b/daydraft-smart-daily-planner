@@ -25,8 +25,8 @@ const COPY: Record<GateFeature, { icon: React.ElementType; headline: string; bod
   billing: {
     icon: Shield,
     headline: "App Lock",
-    body: "Your sensitive data — payment details and exported reports — will be locked behind biometrics. You'll verify once each time you access them.",
-    verifyReason: "View saved payment details",
+    body: "Your sensitive rate and billing data will be locked behind biometrics.",
+    verifyReason: "View rate & billing",
   },
   export: {
     icon: Shield,

@@ -4,10 +4,9 @@ import { Sheet, SheetContent, SheetTitle } from "@/components/ui/sheet";
 import { Shield, Check, Lock } from "lucide-react";
 import { startCheckout } from "@/hooks/useEntitlement";
 import { toast } from "sonner";
-import { supabase } from "@/integrations/supabase/client";
-import { useAuth } from "@/hooks/useAuth";
 import { haptics } from "@/lib/haptics";
 import { PRO_FEATURES, PRO_PLANS, ProFeatureCard, ProPlanRow, type ProPlanId } from "@/components/app/proPaywall";
+import { usePlanPrices } from "@/hooks/usePlanPrices";
 
 export type UpgradeReason = "quota" | "feature" | "trial-banner" | "momentum";
 
@@ -40,34 +39,34 @@ export const UpgradeSheet = ({
 }) => {
   const [plan, setPlan] = useState<ProPlanId>("annual");
   const [busy, setBusy] = useState(false);
-  const { user } = useAuth();
-  const isDev = import.meta.env.DEV;
+  const [restoring, setRestoring] = useState(false);
+  const prices = usePlanPrices();
 
   const checkout = async () => {
     haptics.impact();
     setBusy(true);
     try {
       await startCheckout(plan, {
+        onSuccess: () => { toast.success("You're Pro — enjoy DayDraft."); onOpenChange(false); },
         onUnavailable: () => toast("Payments coming soon — we'll let you know."),
+        onError: () => toast.error("Couldn't complete the purchase. Please try again."),
       });
     } finally {
       setBusy(false);
     }
   };
 
-  const simulatePro = async () => {
-    if (!user) return;
-    const { error } = await supabase.from("subscriptions").upsert(
-      {
-        user_id: user.id, status: "active", plan: "annual",
-        current_period_end: new Date(Date.now() + 365 * 86400000).toISOString(),
-      } as any,
-      { onConflict: "user_id" },
-    );
-    if (error) { toast.error(error.message); return; }
-    toast.success("Simulated Pro · refresh to see");
-    onOpenChange(false);
-    setTimeout(() => location.reload(), 600);
+  const restore = async () => {
+    setRestoring(true);
+    try {
+      const { restorePurchases } = await import("@/lib/revenueCat");
+      const { ok, isPro } = await restorePurchases();
+      if (!ok) { toast("Restore isn't available here."); return; }
+      if (isPro) { toast.success("Purchases restored — Pro is active."); onOpenChange(false); }
+      else toast("No previous purchases found.");
+    } finally {
+      setRestoring(false);
+    }
   };
 
   useEffect(() => {
@@ -75,7 +74,7 @@ export const UpgradeSheet = ({
     try { localStorage.setItem(PAYWALL_COOLDOWN_KEY, String(Date.now())); } catch { /* ignore */ }
   }, [open]);
 
-  const { h, sub } = HEADLINE[reason];
+  const { h } = HEADLINE[reason];
 
   const ctaLabel = busy
     ? "Opening…"
@@ -104,7 +103,7 @@ export const UpgradeSheet = ({
           className="flex-1 overflow-y-auto overscroll-contain scrollbar-none"
         >
           {/* ─── Hero ─────────────────────────────────────────────── */}
-          <div className="relative px-6 pt-6 pb-5 text-center flex flex-col items-center">
+          <div className="relative px-6 pt-5 pb-4 text-center flex flex-col items-center">
             <div
               aria-hidden
               className="pointer-events-none absolute inset-x-0 top-0 h-40"
@@ -118,12 +117,9 @@ export const UpgradeSheet = ({
               <span className="text-[11px] font-semibold tracking-[0.08em] uppercase text-primary">DayDraft Pro</span>
             </div>
 
-            <h2 className="font-semibold text-[28px] leading-[1.15] tracking-tight text-foreground relative z-10 max-w-[280px]">
+            <h2 className="font-semibold text-[22px] leading-[1.2] tracking-tight text-foreground relative z-10 whitespace-nowrap">
               {h}
             </h2>
-            <p className="text-[13px] text-secondary-fg mt-2.5 leading-relaxed relative z-10 max-w-[260px]">
-              {sub}
-            </p>
           </div>
 
           {/* ─── Feature cards ────────────────────────────────────── */}
@@ -140,6 +136,7 @@ export const UpgradeSheet = ({
                 key={p.id}
                 plan={p}
                 active={plan === p.id}
+                priceInfo={prices[p.id]}
                 onClick={() => { haptics.selection(); setPlan(p.id); }}
               />
             ))}
@@ -168,14 +165,14 @@ export const UpgradeSheet = ({
               ))}
             </div>
 
-            {isDev && (
-              <button
-                onClick={simulatePro}
-                className="block mx-auto mt-5 text-[11px] text-secondary-fg/30 hover:text-primary transition-colors underline"
-              >
-                dev: simulate Pro
-              </button>
-            )}
+            <button
+              type="button"
+              onClick={restore}
+              disabled={restoring}
+              className="block w-full text-center mt-3.5 text-[12px] text-secondary-fg/60 hover:text-foreground pressable disabled:opacity-50 transition-colors"
+            >
+              {restoring ? "Restoring…" : "Restore purchases"}
+            </button>
 
             <button
               onClick={() => onOpenChange(false)}

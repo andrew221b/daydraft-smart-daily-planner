@@ -1,8 +1,8 @@
 import { useProfile } from "@/hooks/useProfile";
 import { useAuth } from "@/hooks/useAuth";
 import { Switch } from "@/components/ui/switch";
-import { Input } from "@/components/ui/input";
-import { Textarea } from "@/components/ui/textarea";
+import { Input, DebouncedInput } from "@/components/ui/input";
+import { DebouncedTextarea } from "@/components/ui/textarea";
 import { Button } from "@/components/ui/button";
 import { useEffect, useState } from "react";
 import { ThemeToggle } from "@/components/app/ThemeToggle";
@@ -18,7 +18,6 @@ import {
 import { haptics, getHapticsEnabled, setHapticsEnabled } from "@/lib/haptics";
 import { toast } from "sonner";
 import { useEntitlement } from "@/hooks/useEntitlement";
-import { isSimulateProUiAllowed, writeDevSimulatePro } from "@/lib/devEntitlement";
 import { Sheet, SheetContent, SheetHeader, SheetTitle, SheetDescription } from "@/components/ui/sheet";
 import { UpgradeSheet } from "@/components/app/UpgradeSheet";
 import { ProFeatureHighlights } from "@/components/app/ProFeatureHighlights";
@@ -43,12 +42,12 @@ export default function Settings() {
   // would otherwise spam writes mid-thought.
   const [aboutDraft, setAboutDraft] = useState("");
   const [aboutSaving, setAboutSaving] = useState(false);
-  const { entitlement, isPro, devSimulatePro, subscriptionPro, planQuotaUsed, planQuotaLimit, planQuotaRemaining } = useEntitlement();
+  const { entitlement, isPro, subscriptionPro, planQuotaUsed, planQuotaLimit, planQuotaRemaining, refresh: refreshEntitlement } = useEntitlement();
   const [upgradeOpen, setUpgradeOpen] = useState(false);
   const [proSheetOpen, setProSheetOpen] = useState(false);
 
   const [visualMode, setVisualMode] = useVisualMode();
-  const [pushState] = useState(() => pushAvailability());
+  const [pushState, setPushState] = useState(() => pushAvailability());
   const pushReady = pushState === "ok";
 
   // ── Biometric / Security ──────────────────────────────────────────────────
@@ -74,9 +73,14 @@ export default function Settings() {
   // made via BiometricGateSheet (from Reports/billing) are reflected here.
   useEffect(() => {
     if (location.pathname === "/settings") {
+      // Settings stays mounted (PersistentTabs) — re-read everything that can
+      // change while the user is on another tab: biometric pref, OS push
+      // capability, and subscription tier (re-fetch so the label isn't stale).
       setAppLockOn(getGatePref() === "on");
+      setPushState(pushAvailability());
+      void refreshEntitlement();
     }
-  }, [location.pathname]);
+  }, [location.pathname, refreshEntitlement]);
 
   const toggleAppLock = async (enable: boolean) => {
     if (bioTogglingLock) return;
@@ -202,37 +206,20 @@ export default function Settings() {
 
         <div className="space-y-8">
           <ProCard
-            entitlement={entitlement} isPro={isPro} subscriptionPro={subscriptionPro} devSimulatePro={devSimulatePro}
+            entitlement={entitlement} isPro={isPro} subscriptionPro={subscriptionPro}
             planQuotaUsed={planQuotaUsed} planQuotaLimit={planQuotaLimit} planQuotaRemaining={planQuotaRemaining}
             onUpgrade={() => setUpgradeOpen(true)}
             onOpenDetails={!isPro ? () => setProSheetOpen(true) : undefined}
           />
-          {isSimulateProUiAllowed() && (
-            <Section title="Developer">
-              <div className="rounded-[14px] border border-dashed border-soft surface-card px-4 py-3 space-y-2">
-                <div className="flex items-center justify-between gap-3">
-                  <div>
-                    <div className="text-[14px] text-foreground">Simulate Pro</div>
-                    <p className="text-[11px] text-secondary-fg mt-1 leading-relaxed">
-                      Unlocks Pro UI in this browser. Server planning quota still follows your real subscription unless you enable this for testing.
-                    </p>
-                  </div>
-                  <Switch
-                    checked={!!devSimulatePro}
-                    onCheckedChange={(v) => writeDevSimulatePro(v)}
-                  />
-                </div>
-              </div>
-            </Section>
-          )}
 
           {/* 2. Profile — name + appearance grouped */}
           <Section title="You">
             <div className="rounded-[18px] border border-border/35 hero-glass divide-y divide-border/35 overflow-hidden">
               <div className="px-4 py-3">
-                <div className="text-[11px] text-secondary-fg mb-1">Name</div>
-                <Input value={name} onChange={e => setName(e.target.value)} onBlur={() => update({ display_name: name })}
-                  className="h-9 bg-transparent border-0 px-0 focus-visible:ring-0 text-[14px]" />
+                <div className="flex flex-col gap-2">
+                  <label className="text-[11px] text-secondary-fg">Name</label>
+                  <DebouncedInput maxLength={50} value={name} onDebouncedChange={setName} onBlur={() => update({ display_name: name })} className="bg-card/45 h-9 rounded-lg border-border/45 text-[14px]" />
+                </div>
               </div>
               <div className="px-4 py-3">
                 <div className="text-[11px] text-secondary-fg mb-2">Appearance</div>
@@ -273,9 +260,9 @@ export default function Settings() {
                 <div className="text-[11px] text-secondary-fg leading-relaxed">
                   Your work, schedule quirks, hard constraints. Used by AI for every plan and morning insight.
                 </div>
-                <Textarea
+                <DebouncedTextarea
                   value={aboutDraft}
-                  onChange={(e) => setAboutDraft(e.target.value)}
+                  onDebouncedChange={setAboutDraft}
                   placeholder="e.g. I'm a freelance iOS designer in Lisbon. I walk my dog 1–2pm and don't take hard tasks after 5pm."
                   maxLength={500}
                   className="min-h-[96px] rounded-xl border-border/45 bg-card/45 text-[13.5px] leading-snug resize-none placeholder:text-secondary-fg/55 focus-visible:border-primary/55 focus-visible:ring-0"
@@ -366,6 +353,34 @@ export default function Settings() {
                   </div>
                   <Switch checked={hapticsOn} onCheckedChange={toggleHaptics} />
                 </div>
+                {/* On-device self-test — settles "is it the code or the phone?".
+                    Fires a strong medium impact and reports a verdict so the user
+                    can tell a code failure from the OS "System Haptics" setting. */}
+                <button
+                  type="button"
+                  onClick={async () => {
+                    const r = await haptics.test();
+                    if (r.ok) {
+                      toast.success("Haptic sent", {
+                        description:
+                          r.platform === "ios"
+                            ? "Felt nothing? Turn ON Settings ▸ Sounds & Haptics ▸ System Haptics (and disable Low Power Mode)."
+                            : r.platform === "android"
+                              ? "Felt nothing? Enable Touch/Haptic vibration in your system settings."
+                              : "If you felt nothing, your device is suppressing haptics.",
+                      });
+                    } else if (r.reason === "not-native") {
+                      toast("Haptics need the app", { description: "Native vibration only works in the installed app, not the browser." });
+                    } else if (r.reason === "plugin-unavailable") {
+                      toast.error("Haptics plugin missing", { description: "Rebuild the app (clean build) — the native plugin isn't compiled in." });
+                    } else {
+                      toast.error("Haptic test failed", { description: r.reason });
+                    }
+                  }}
+                  className="mt-2 ml-7 text-[12px] font-medium text-primary/85 hover:text-primary pressable"
+                >
+                  Test vibration
+                </button>
               </div>
             </div>
           </Section>
@@ -495,11 +510,10 @@ const Section = ({ title, children }: { title: string; children: React.ReactNode
   </div>
 );
 
-const ProCard = ({ entitlement, isPro, subscriptionPro, devSimulatePro, planQuotaUsed, planQuotaLimit, planQuotaRemaining, onUpgrade, onOpenDetails }: {
+const ProCard = ({ entitlement, isPro, subscriptionPro, planQuotaUsed, planQuotaLimit, planQuotaRemaining, onUpgrade, onOpenDetails }: {
   entitlement: ReturnType<typeof useEntitlement>["entitlement"];
   isPro: boolean;
   subscriptionPro: boolean;
-  devSimulatePro: boolean;
   planQuotaUsed: number;
   planQuotaLimit: number;
   planQuotaRemaining: number;
@@ -507,9 +521,7 @@ const ProCard = ({ entitlement, isPro, subscriptionPro, devSimulatePro, planQuot
   onOpenDetails?: () => void;
 }) => {
   const tier = entitlement?.tier || "free";
-  const badge = devSimulatePro && !subscriptionPro
-    ? "Pro (simulated)"
-    : tier === "pro" ? "Pro"
+  const badge = tier === "pro" ? "Pro"
     : tier === "trial" ? `Trial · ${entitlement?.daysLeftInTrial}d left`
     : "Free";
   const isOverQuota = !isPro && Number.isFinite(planQuotaRemaining) && planQuotaRemaining <= 0;

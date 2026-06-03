@@ -1,0 +1,12 @@
+# Android release signing — copy to `android/key.properties` and fill in.
+# This file (the .example) is safe to commit; key.properties itself is gitignored.
+#
+# Generate the upload keystore first:
+#   keytool -genkey -v -keystore daydraft-upload.jks \
+#     -keyalg RSA -keysize 2048 -validity 10000 -alias daydraft
+# Put daydraft-upload.jks in android/app/ then fill the values below.
+
+storeFile=daydraft-upload.jks
+storePassword=CHANGE_ME
+keyAlias=daydraft
+keyPassword=CHANGE_ME

@@ -269,6 +269,85 @@ struct HeroTimerBox: View {
     }
 }
 
+// MARK: - Full-width action label (Stop / Mark Done) — wrap in a Link at call site
+
+/// A full-width, filled button label with a rounded rectangle background.
+/// Generic over the fill so it accepts a solid `Color` (Stop) or the brand
+/// `LinearGradient` (Done). Tuned compact so the whole card fits the Dynamic
+/// Island expanded height budget.
+struct LiveActionLabel<S: ShapeStyle>: View {
+    let title: String
+    let icon: String
+    let fill: S
+
+    var body: some View {
+        HStack(spacing: 6) {
+            Image(systemName: icon)
+                .font(.system(size: 14, weight: .bold))
+            Text(title)
+                .font(.system(size: 15, weight: .bold, design: .rounded))
+        }
+        .foregroundStyle(.white)
+        .frame(maxWidth: .infinity)
+        .padding(.vertical, 10)
+        .background(
+            RoundedRectangle(cornerRadius: 13, style: .continuous).fill(fill)
+        )
+        .overlay(
+            RoundedRectangle(cornerRadius: 13, style: .continuous)
+                .strokeBorder(Color.white.opacity(0.18), lineWidth: 0.7)
+        )
+    }
+}
+
+// MARK: - Shared Live Activity card — identical body for Lock Screen + Island
+
+/// The single vertical card used by BOTH the Lock Screen and the Dynamic Island
+/// expanded `.bottom` region. Layout: a centered hero (small-caps eyebrow title
+/// sitting tight above the big live timer), then the info slot, then the
+/// full-width action button. The timer is the visual centerpiece — centered
+/// horizontally with the title as its eyebrow. The eyebrow is tight to the timer
+/// (1pt) so the pair reads as one unit and the card still fits the Dynamic Island
+/// expanded height budget.
+struct LiveActivityCard<Info: View, Action: View>: View {
+    let title: String
+    let titleTint: Color
+    let start: Date
+    let timerTint: Color
+    var heroFont: CGFloat = 30
+    var spacing: CGFloat = 8
+    @ViewBuilder var info: () -> Info
+    @ViewBuilder var action: () -> Action
+
+    var body: some View {
+        VStack(spacing: spacing) {
+            // Centered hero — eyebrow title above the big live timer.
+            VStack(spacing: 1) {
+                Text(title.uppercased())
+                    .font(.system(size: 11, weight: .heavy, design: .rounded))
+                    .foregroundStyle(titleTint)
+                    .tracking(1.0)
+                    .lineLimit(1)
+                    .minimumScaleFactor(0.6)
+
+                Text(start, style: .timer)
+                    .font(.system(size: heroFont, weight: .heavy, design: .rounded))
+                    .monospacedDigit()
+                    .foregroundStyle(timerTint)
+                    .shadow(color: timerTint.opacity(0.4), radius: 6, y: 1)
+                    .lineLimit(1)
+                    .minimumScaleFactor(0.5)
+            }
+            .frame(maxWidth: .infinity)
+
+            info()
+
+            action()
+        }
+        .frame(maxWidth: .infinity)
+    }
+}
+
 // MARK: - Equalizer bar — a wide animated "recording" waveform on a faint track
 
 /// A full-width animated waveform sitting on a faint rounded track. Conveys an
@@ -291,6 +370,31 @@ struct EqualizerBar: View {
         }
         .frame(height: height)
         .clipped()
+    }
+}
+
+// MARK: - Pulse Track — sleek indeterminate progress
+
+/// An indeterminate sleek track replacing the equalizer. Gives the illusion of
+/// a progress bar with a pulsing head, suitable for open-ended tracking.
+struct PulseTrack: View {
+    let tint: Color
+    
+    var body: some View {
+        HStack(spacing: 6) {
+            Image(systemName: "circle.fill")
+                .font(.system(size: 8))
+                .foregroundStyle(tint)
+                .symbolEffect(.pulse, options: .repeating)
+                .shadow(color: tint.opacity(0.8), radius: 4)
+            
+            Capsule()
+                .fill(
+                    LinearGradient(colors: [tint.opacity(0.6), tint.opacity(0.05)], startPoint: .leading, endPoint: .trailing)
+                )
+                .frame(height: 5)
+        }
+        .frame(maxWidth: .infinity)
     }
 }
 

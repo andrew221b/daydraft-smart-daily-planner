@@ -1,6 +1,7 @@
-import { lazy, Suspense, useMemo, useState } from "react";
+import { lazy, Suspense, useEffect, useMemo, useState } from "react";
 import { keepPreviousData, useQuery } from "@tanstack/react-query";
 import { useAuth } from "@/hooks/useAuth";
+import { useProfile } from "@/hooks/useProfile";
 import { supabase } from "@/integrations/supabase/client";
 
 import { BarChart3, ChevronDown, Download, FileText, ListFilter, ChevronRight, Timer } from "lucide-react";
@@ -18,6 +19,7 @@ import { getGatePref, verifyBiometric } from "@/lib/biometricGate";
 import { Sheet, SheetContent, SheetTitle } from "@/components/ui/sheet";
 import { PaymentMethodFields, type PaymentFieldsValue } from "@/components/app/PaymentMethodFields";
 import { categoryBillingToDraft } from "@/lib/categoryBilling";
+import { useTour, TOUR_REPORTS } from "@/components/app/Tour";
 
 // Recharts is its own ~100kB chunk. Lazy-load it so the Reports first paint
 // shows headline numbers + the per-day list while the chart streams in.
@@ -119,10 +121,13 @@ const fmtMoney = (amount: number, currency = "USD") => {
     return new Intl.NumberFormat(undefined, {
       style: "currency",
       currency: code,
-      maximumFractionDigits: Math.abs(amount) >= 100 ? 0 : 2,
+      // Always show cents — earnings must read exactly the same here as on the
+      // Tracker (e.g. $15.53, not a rounded $16). No ">=100 → whole" shortcut.
+      minimumFractionDigits: 2,
+      maximumFractionDigits: 2,
     }).format(amount);
   } catch {
-    return `${Math.abs(amount) >= 100 ? amount.toFixed(0) : amount.toFixed(2)} ${code}`;
+    return `${amount.toFixed(2)} ${code}`;
   }
 };
 
@@ -130,6 +135,7 @@ type CategoryGroup = {
   id: string;
   name: string;
   color: string;
+  isDeleted: boolean;
   /** Tracker currency — what the hourly_rate is denominated in. Source of
    *  truth for "what was actually earned at the timer's rate". */
   currency: string;
@@ -143,19 +149,38 @@ type CategoryGroup = {
   earnings: number;
   pct: number;
   entries: RollingEntry[];
+  /** Per-rate breakdown for this period. Key = the rate each session was
+   *  billed at (snapshot rate, in tracker `currency`); `0` = no rate. Lets the
+   *  detail view group sessions under a labeled "$5/h", "$50/h" divider so a
+   *  rate change is visible, while earnings stay snapshot-correct. */
+  rateTiers: Map<number, { sec: number; earned: number; entries: RollingEntry[]; lastStart: number }>;
 };
 
 export default function Reports() {
   const { user } = useAuth();
+  const { profile } = useProfile();
   const nav = useNavigate();
+  const tour = useTour();
   const { isPro } = useEntitlement();
   // Categories already live in the TimeTrackerProvider — reading them from the
   // shared context avoids a Reports-only fetch on every tab switch.
-  const { categories, updateCategoryBilling } = useTimeTracker();
+  const { categories, allCatMap: contextAllCatMap, updateCategoryBilling } = useTimeTracker();
   // Subscribing to elapsedSec keeps live totals (running timer in the active
   // category) ticking inside Reports without a per-tab Supabase query.
   useTimeTrackerElapsed();
   const reportsTabVisible = useTabVisible();
+
+  // Per-page tutorial — only when Reports is the *active* tab (PersistentTabs
+  // keeps every tab mounted, so without this gate the timer would fire while the
+  // user is on another tab). Mirror Home's guards: onboarded + not already seen,
+  // with profile in deps so a slow cold-start profile load doesn't re-show it.
+  useEffect(() => {
+    if (!reportsTabVisible || !profile?.onboarded) return;
+    if ((profile.tour_seen as Record<string, unknown> | null)?.reports) return;
+    const t = setTimeout(() => tour.start(TOUR_REPORTS), 800);
+    return () => clearTimeout(t);
+  }, [reportsTabVisible, profile?.onboarded, profile?.tour_seen, tour]);
+
   const [period, setPeriod] = useState<Period>("week");
   const minDateStrVal = useMemo(() => {
     const d = new Date();
@@ -205,10 +230,15 @@ export default function Reports() {
     queryKey: rollingEntriesQueryKey(user?.id),
     queryFn: () => fetchRollingEntries(user!.id),
     enabled: !!user?.id && reportsTabVisible,
-    staleTime: 60_000,
+    staleTime: 30_000,  // 30s so a tab switch shows fresh data without waiting 60s
     gcTime: 30 * 60_000,
     placeholderData: keepPreviousData,
+    refetchOnWindowFocus: true,
   });
+
+  // Task title is now snapshotted directly on time_entries.task_title at session
+  // start, so it survives block deletion without any extra query.
+  const titleFor = (e: { task_title?: string | null }) => e.task_title ?? null;
 
   const { data: paymentDetails = null } = useQuery({
     queryKey: ["billing-payment-details", user?.id],
@@ -236,10 +266,9 @@ export default function Reports() {
     },
   });
 
-  const catMap = useMemo(
-    () => new Map(categories.map((c) => [c.id, c])),
-    [categories],
-  );
+  // Use allCatMap from context (includes soft-deleted) so historical entries
+  // still resolve to their original category name with "(Deleted)" label.
+  const catMap = contextAllCatMap;
 
   const periodEntries = useMemo(() => {
     const inRange = filterEntriesByRange(rollingEntries, range);
@@ -260,9 +289,14 @@ export default function Reports() {
     let earnedTotal = 0;
     const groups = new Map<string, CategoryGroup>();
     const dMap = new Map<string, number>();
+    // Accumulate earnings per snapshot currency (not per current category currency)
+    // so that changing a category's currency never rebuckets historical earnings.
+    const byCurrency = new Map<string, number>();
     for (const e of periodEntries) {
-      const s = new Date(e.started_at).getTime();
-      const en = e.ended_at ? new Date(e.ended_at).getTime() : now;
+      const started = new Date(e.started_at).getTime();
+      const ended = e.ended_at ? new Date(e.ended_at).getTime() : now;
+      const s = Math.max(started, range.from.getTime());
+      const en = Math.min(ended, range.to.getTime());
       const sec = Math.max(0, (en - s) / 1000);
       if (sec <= 0) continue;
       total += sec;
@@ -270,32 +304,55 @@ export default function Reports() {
       const cat = (e.category_id ? catMap.get(e.category_id) : undefined) as
         | (typeof categories)[number]
         | undefined;
-      const rate = cat?.hourly_rate ?? null;
+      // Use only the snapshot rate captured at session start. Changing the
+      // category's current rate must never retroactively alter report totals.
+      const rate = e.snapshot_hourly_rate;
       const earned = ((rate || 0) * sec) / 3600;
       earnedTotal += earned;
+
+      // Bucket earnings under the snapshot currency (not the current category
+      // currency) so the "Total Tracked → Estimated pay" total stays correct
+      // after a currency change.
+      if (earned > 0) {
+        const entryCur = (e.snapshot_currency ?? cat?.currency ?? "USD").toUpperCase();
+        byCurrency.set(entryCur, (byCurrency.get(entryCur) ?? 0) + earned);
+      }
+
       let group = groups.get(id);
       if (!group) {
-        const trackerCurrency = (cat?.currency || "USD").toUpperCase();
+        const trackerCurrency = (e.snapshot_currency ?? cat?.currency ?? "USD").toUpperCase();
         group = {
           id,
-          name: cat?.name || "Uncategorized",
-          color: cat?.color || "hsl(var(--muted-foreground))",
+          name: cat?.name ?? "Uncategorized",
+          color: cat?.color ?? "hsl(var(--muted-foreground))",
+          isDeleted: !!(cat?.deleted_at),
           currency: trackerCurrency,
-          // Report currency = override (if any) or the tracker currency.
-          // Stored on the group so downstream renderers and the export
-          // payload builder both read from one place.
           reportCurrency: getReportCurrency(id, trackerCurrency),
           hourlyRate: rate,
           sec: 0,
           earnings: 0,
           pct: 0,
           entries: [],
+          rateTiers: new Map(),
         };
         groups.set(id, group);
       }
       group.sec += sec;
       group.earnings += earned;
       group.entries.push(e);
+
+      // Fold the session into its rate tier (the rate it was actually billed
+      // at) so the detail view can group sessions under a labeled rate divider.
+      const tierKey = rate ?? 0;
+      let tier = group.rateTiers.get(tierKey);
+      if (!tier) {
+        tier = { sec: 0, earned: 0, entries: [], lastStart: 0 };
+        group.rateTiers.set(tierKey, tier);
+      }
+      tier.sec += sec;
+      tier.earned += earned;
+      tier.entries.push(e);
+      tier.lastStart = Math.max(tier.lastStart, started);
 
       const d = new Date(s);
       const key = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
@@ -310,12 +367,6 @@ export default function Reports() {
         day: k.slice(5),
         hours: Number((sec / 3600).toFixed(2)),
       }));
-    const byCurrency = new Map<string, number>();
-    for (const g of groupList) {
-      if (g.earnings > 0) {
-        byCurrency.set(g.currency, (byCurrency.get(g.currency) ?? 0) + g.earnings);
-      }
-    }
     return {
       totalSec: total,
       totalEarnings: earnedTotal,
@@ -411,12 +462,19 @@ export default function Reports() {
         };
       }),
       entries: filteredEntries.map((e) => {
-        const s = new Date(e.started_at);
-        const en = e.ended_at ? new Date(e.ended_at) : new Date();
+        const started = new Date(e.started_at).getTime();
+        const ended = e.ended_at ? new Date(e.ended_at).getTime() : Date.now();
+        const s = new Date(Math.max(started, range.from.getTime()));
+        const en = new Date(Math.min(ended, range.to.getTime()));
         const cat = e.category_id ? catMap.get(e.category_id) : undefined;
         const durationMin = Math.max(0, Math.round((en.getTime() - s.getTime()) / 60000));
-        const hourlyRate = cat?.hourly_rate ?? null;
-        const trackerCur = (cat?.currency || "USD").toUpperCase();
+        let hourlyRate = e.snapshot_hourly_rate;
+        if (hourlyRate === null && cat?.hourly_rate != null) {
+          if (!cat.rate_set_at || started >= new Date(cat.rate_set_at).getTime()) {
+            hourlyRate = cat.hourly_rate;
+          }
+        }
+        const trackerCur = (e.snapshot_currency || cat?.currency || "USD").toUpperCase();
         const reportCur = cat ? getReportCurrency(cat.id, trackerCur) : trackerCur;
         const earningsTracker = ((hourlyRate || 0) * durationMin) / 60;
         const earnings = reportCur !== trackerCur
@@ -430,6 +488,7 @@ export default function Reports() {
           startedAt: s.toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" }),
           endedAt: en.toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" }),
           category: cat?.name || "Uncategorized",
+          taskTitle: titleFor(e),
           durationMin,
           currency: reportCur,
           hourlyRate: displayedRate,
@@ -694,7 +753,7 @@ export default function Reports() {
             provides. Without this, Reports felt flatter / darker than
             the other tabs even though the Shell background is identical.
           */}
-          <section className="rounded-[28px] hero-glass border px-5 pt-5 pb-4 deep-float" style={{ animationDelay: '0.4s' }}>
+          <section data-tour="reports-summary" className="rounded-[28px] hero-glass border px-5 pt-5 pb-4 deep-float" style={{ animationDelay: '0.4s' }}>
             <p className="text-[11px] font-semibold uppercase tracking-[0.16em] text-secondary-fg/70">
               Total tracked
             </p>
@@ -769,97 +828,130 @@ export default function Reports() {
               <ul className="space-y-2 enter-stagger reports-category-list">
                 {categoryGroups.map((group) => {
                   const isOpen = expandedCategoryIds.has(group.id);
+                  // Header shows the category's CURRENT rate (live — updates the
+                  // moment it's changed in Tracker). Earnings stay snapshot-correct.
+                  const liveCat = group.id === "uncategorized" ? undefined : catMap.get(group.id);
+                  const currentRate = liveCat?.hourly_rate ?? null;
+                  const currentCurrency = liveCat?.currency || group.currency;
+                  // "Mixed rate" only when the period contains sessions that were
+                  // ACTUALLY TRACKED at 2+ different positive rates. Changing the
+                  // current rate without tracking again must NOT trigger "Mixed rate".
+                  const positiveTierRates = [...group.rateTiers.keys()].filter(r => r > 0);
+                  const showTiers = positiveTierRates.length > 1;
+                  // Header rate: current if set, else the most-recent POSITIVE tier.
+                  const headerRate =
+                    currentRate ??
+                    [...group.rateTiers.entries()]
+                      .filter(([r]) => r > 0)
+                      .sort((a, b) => b[1].lastStart - a[1].lastStart)[0]?.[0] ??
+                    null;
                   return (
                     <li key={group.id} className="reports-category-card overflow-hidden rounded-2xl border border-soft/50 surface-soft card-volumetric">
                       <button
                         type="button"
                         onClick={() => toggleCategoryExpanded(group.id)}
-                        className="flex w-full items-start gap-3 px-3 py-3 text-left"
+                        className="flex w-full items-start gap-3 px-4 py-3.5 text-left"
                         aria-expanded={isOpen}
                       >
+                        {/* Category colour dot — aligned with the name baseline */}
                         <span
-                          className="reports-cat-dot mt-1.5 h-2.5 w-2.5 rounded-full shrink-0"
+                          className="mt-[5px] h-2 w-2 rounded-full shrink-0"
                           style={{ background: group.color }}
                         />
+
                         <div className="min-w-0 flex-1">
+                          {/* ── Layer 1: identity ────────────────────────── */}
                           <div className="flex items-baseline justify-between gap-3">
-                            <span className="text-[13.5px] font-semibold text-foreground truncate">
+                            <span className="text-[14px] font-semibold text-foreground truncate">
                               {group.name}
+                              {group.isDeleted && (
+                                <span className="text-[11px] font-medium text-destructive/70"> (Deleted)</span>
+                              )}
                             </span>
-                            <span className="reports-cat-total text-[12px] font-semibold tabular-nums text-foreground/85 shrink-0">
+                            <span className="text-[13px] font-semibold tabular-nums text-foreground/90 shrink-0">
                               {fmtHM(group.sec)}
                             </span>
                           </div>
-                          <div className="reports-cat-meta mt-1 flex flex-wrap items-center gap-x-3 gap-y-1 text-[11px] tabular-nums text-secondary-fg/75">
-                            <span>{(group.pct * 100).toFixed(0)}% of period</span>
-                            <span>
-                              {group.entries.length} session{group.entries.length === 1 ? "" : "s"}
-                            </span>
-                            {group.hourlyRate ? (
-                              <span>{fmtMoney(group.hourlyRate, group.currency)}/h</span>
-                            ) : (
-                              <span>No rate</span>
-                            )}
-                            {group.earnings > 0 && (() => {
-                              // Convert earnings to report currency for display
-                              // when override differs. Falls back to original
-                              // amount silently if rates aren't loaded yet.
-                              const shouldConvert = group.reportCurrency !== group.currency;
-                              const displayedAmount = shouldConvert
-                                ? convertCurrency(group.earnings, group.currency, group.reportCurrency, rates)
-                                : group.earnings;
-                              return (
-                                <span className="font-semibold text-success">
-                                  {fmtMoney(displayedAmount, group.reportCurrency)} earned
-                                </span>
-                              );
-                            })()}
-                            {/* Report-currency chip — taps to override the
-                                display currency for this category's report.
-                                Has a subtle accent ring when an override is
-                                active (report ≠ tracker). */}
-                            <button
-                              type="button"
-                              onClick={(e) => {
-                                e.stopPropagation();
-                                if (group.id === "uncategorized") return;
-                                setReportCurrencyTarget({ catId: group.id, trackerCurrency: group.currency });
-                              }}
-                              disabled={group.id === "uncategorized"}
-                              aria-label={`Change report currency for ${group.name}`}
-                              className={[
-                                "inline-flex items-center gap-1 rounded-md px-1.5 py-0.5 text-[10px] font-semibold tabular-nums tracking-[0.04em]",
-                                "transition-[transform,box-shadow,background-color] duration-150 ease-[cubic-bezier(0.32,0.72,0,1)] active:scale-[0.96]",
-                                group.id === "uncategorized" ? "cursor-default" : "pressable",
-                              ].join(" ")}
-                              style={
-                                group.reportCurrency !== group.currency
-                                  ? {
-                                      background:
-                                        "linear-gradient(180deg, hsl(var(--primary) / 0.18) 0%, hsl(var(--primary) / 0.08) 100%)",
-                                      boxShadow: [
-                                        "inset 0 1px 0 hsl(0 0% 100% / 0.12)",
-                                        "inset 0 -1px 0 hsl(var(--primary) / 0.30)",
-                                        "0 0 0 1px hsl(var(--primary) / 0.40)",
-                                      ].join(", "),
-                                      color: "hsl(var(--primary))",
-                                    }
-                                  : {
-                                      background: "hsl(var(--foreground) / 0.05)",
-                                      boxShadow: "inset 0 0 0 1px hsl(var(--border) / 0.40)",
-                                      color: "hsl(var(--foreground) / 0.65)",
-                                    }
-                              }
-                            >
-                              {group.reportCurrency}
-                              {group.id !== "uncategorized" && (
-                                <ChevronDown className="h-2.5 w-2.5 opacity-70" />
-                              )}
-                            </button>
+
+                          {/* ── Layer 2: context (muted, smaller) ─────────── */}
+                          <div className="mt-1 flex items-center gap-2 text-[11.5px] text-secondary-fg/60">
+                            <span className="tabular-nums">{(group.pct * 100).toFixed(0)}%</span>
+                            <span className="text-secondary-fg/30">·</span>
+                            <span>{group.entries.length} session{group.entries.length === 1 ? "" : "s"}</span>
                           </div>
+
+                          {/* ── Layer 3: financial (only when there's a rate or earnings) */}
+                          {(headerRate != null || group.earnings > 0) && (
+                            <div className="mt-2.5 pt-2.5 border-t border-soft/50 flex items-center gap-3">
+                              {/* LEFT: rate pill OR mixed badge — flex-1 so it never overflows into RIGHT */}
+                              <div className="flex flex-1 min-w-0 items-center gap-1.5 overflow-hidden">
+                                {showTiers ? (
+                                  <span className="inline-flex shrink-0 items-center rounded-full bg-foreground/[0.06] border border-border/35 px-1.5 py-0.5 text-[9.5px] font-bold uppercase tracking-wider text-secondary-fg/55">
+                                    Mixed rate
+                                  </span>
+                                ) : headerRate != null && headerRate > 0 ? (
+                                  <span className="inline-flex items-center rounded-full bg-foreground/[0.06] border border-border/40 px-2 py-0.5 text-[11px] font-medium tabular-nums text-secondary-fg/80 max-w-full truncate">
+                                    {fmtMoney(headerRate, currentCurrency)}/h
+                                  </span>
+                                ) : (
+                                  <span className="text-[11px] text-secondary-fg/45">No rate</span>
+                                )}
+                              </div>
+
+                              {/* RIGHT: earned + currency chip */}
+                              <div className="flex items-center gap-1.5 shrink-0">
+                                {group.earnings > 0 && (() => {
+                                  const shouldConvert = group.reportCurrency !== group.currency;
+                                  const displayedAmount = shouldConvert
+                                    ? convertCurrency(group.earnings, group.currency, group.reportCurrency, rates)
+                                    : group.earnings;
+                                  return (
+                                    <span className="text-[13px] font-semibold tabular-nums text-success">
+                                      {fmtMoney(displayedAmount, group.reportCurrency)}
+                                    </span>
+                                  );
+                                })()}
+                                {/* Currency chip */}
+                                <button
+                                  type="button"
+                                  onClick={(e) => {
+                                    e.stopPropagation();
+                                    if (group.id === "uncategorized") return;
+                                    setReportCurrencyTarget({ catId: group.id, trackerCurrency: group.currency });
+                                  }}
+                                  disabled={group.id === "uncategorized"}
+                                  aria-label={`Change report currency for ${group.name}`}
+                                  className={[
+                                    "inline-flex items-center gap-0.5 rounded-md px-1.5 py-0.5 text-[10px] font-semibold tabular-nums tracking-[0.04em]",
+                                    "transition-[transform,box-shadow,background-color] duration-150 active:scale-[0.96]",
+                                    group.id === "uncategorized" ? "cursor-default" : "pressable",
+                                  ].join(" ")}
+                                  style={
+                                    group.reportCurrency !== group.currency
+                                      ? {
+                                          background: "linear-gradient(180deg, hsl(var(--primary) / 0.18) 0%, hsl(var(--primary) / 0.08) 100%)",
+                                          boxShadow: "inset 0 1px 0 hsl(0 0% 100% / 0.12), 0 0 0 1px hsl(var(--primary) / 0.40)",
+                                          color: "hsl(var(--primary))",
+                                        }
+                                      : {
+                                          background: "hsl(var(--foreground) / 0.05)",
+                                          boxShadow: "inset 0 0 0 1px hsl(var(--border) / 0.40)",
+                                          color: "hsl(var(--foreground) / 0.55)",
+                                        }
+                                  }
+                                >
+                                  {group.reportCurrency}
+                                  {group.id !== "uncategorized" && (
+                                    <ChevronDown className="h-2 w-2 opacity-60" />
+                                  )}
+                                </button>
+                              </div>
+                            </div>
+                          )}
                         </div>
+
                         <ChevronDown
-                          className={`mt-0.5 h-4 w-4 shrink-0 text-secondary-fg transition-transform duration-300 ease-[cubic-bezier(0.34,1.2,0.64,1)] ${
+                          className={`mt-1 h-4 w-4 shrink-0 text-secondary-fg/50 transition-transform duration-300 ease-[cubic-bezier(0.34,1.2,0.64,1)] ${
                             isOpen ? "rotate-180" : ""
                           }`}
                         />
@@ -875,43 +967,112 @@ export default function Reports() {
                             style={{ overflow: "hidden" }}
                           >
                             <div className="border-t border-soft">
-                              <ul className="divide-y divide-border/30">
-                                {group.entries.map((e) => {
-                                  const s = new Date(e.started_at);
-                                  const en = e.ended_at ? new Date(e.ended_at) : new Date();
+                              {(() => {
+                                // Convert a tracker-currency amount to the report currency for display.
+                                const toDisplay = (amt: number) =>
+                                  group.reportCurrency !== group.currency
+                                    ? convertCurrency(amt, group.currency, group.reportCurrency, rates)
+                                    : amt;
+                                // One session row — shared by flat and grouped views.
+                                const renderSession = (e: RollingEntry, inTier = false) => {
+                                  const started = new Date(e.started_at).getTime();
+                                  const ended = e.ended_at ? new Date(e.ended_at).getTime() : Date.now();
+                                  const s = new Date(Math.max(started, range.from.getTime()));
+                                  const en = new Date(Math.min(ended, range.to.getTime()));
                                   const sec = Math.max(0, (en.getTime() - s.getTime()) / 1000);
-                                  const earned = ((group.hourlyRate || 0) * sec) / 3600;
+                                  const rate = e.snapshot_hourly_rate;
+                                  const earned = ((rate || 0) * sec) / 3600;
+                                  const taskTitle = titleFor(e);
+                                  const dateStr = s.toLocaleDateString(undefined, { month: "short", day: "numeric" });
+                                  const timeStr = `${s.toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })} – ${en.toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })}`;
                                   return (
-                                    <li key={e.id} className="flex items-center gap-3 px-4 py-2.5">
-                                      <div className="min-w-0 flex-1">
-                                        <p className="text-[11px] text-secondary-fg/75 tabular-nums">
-                                          {s.toLocaleDateString(undefined, { month: "short", day: "numeric" })} ·{" "}
-                                          {s.toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })} -{" "}
-                                          {en.toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })}
-                                        </p>
+                                    <li
+                                      key={e.id}
+                                      className={`flex items-start justify-between gap-4 py-3 ${inTier ? "px-4 pl-5" : "px-4"}`}
+                                    >
+                                      {/* Left: tracked task (when known) primary, else date; time range secondary */}
+                                      <div className="min-w-0">
+                                        {taskTitle ? (
+                                          <>
+                                            <p className="truncate text-[12px] font-medium text-foreground/85">{taskTitle}</p>
+                                            <p className="mt-0.5 text-[11px] text-secondary-fg/55 tabular-nums">
+                                              {dateStr} · {timeStr}
+                                            </p>
+                                          </>
+                                        ) : (
+                                          <>
+                                            <p className="text-[12px] font-medium text-foreground/80">{dateStr}</p>
+                                            <p className="mt-0.5 text-[11px] text-secondary-fg/55 tabular-nums">{timeStr}</p>
+                                          </>
+                                        )}
                                         {e.note && (
-                                          <p className="mt-0.5 truncate text-[12px] text-foreground/80">{e.note}</p>
+                                          <p className="mt-0.5 truncate text-[11px] text-secondary-fg/65 italic">{e.note}</p>
                                         )}
                                       </div>
-                                      <span className="text-right">
-                                        <span className="block text-[12px] tabular-nums text-secondary-fg/85">
+                                      {/* Right: duration (neutral) then earned (green, same size) */}
+                                      <div className="text-right shrink-0">
+                                        <p className="text-[12.5px] font-semibold tabular-nums text-foreground/75">
                                           {fmtHM(sec)}
-                                        </span>
-                                        {earned > 0 && (() => {
-                                          const display = group.reportCurrency !== group.currency
-                                            ? convertCurrency(earned, group.currency, group.reportCurrency, rates)
-                                            : earned;
-                                          return (
-                                            <span className="block text-[10px] tabular-nums text-success">
-                                              {fmtMoney(display, group.reportCurrency)}
-                                            </span>
-                                          );
-                                        })()}
-                                      </span>
+                                        </p>
+                                        {earned > 0 && (
+                                          <p className="mt-0.5 text-[12px] font-semibold tabular-nums text-success">
+                                            {fmtMoney(toDisplay(earned), group.reportCurrency)}
+                                          </p>
+                                        )}
+                                      </div>
                                     </li>
                                   );
-                                })}
-                              </ul>
+                                };
+
+                                // Single rate — clean flat list.
+                                if (!showTiers) {
+                                  return (
+                                    <ul className="divide-y divide-border/25">
+                                      {group.entries.map((e) => renderSession(e, false))}
+                                    </ul>
+                                  );
+                                }
+
+                                // Multiple rates — grouped with section headers.
+                                const tiers = [...group.rateTiers.entries()].sort(
+                                  (a, b) => b[1].lastStart - a[1].lastStart,
+                                );
+                                return (
+                                  <div className="divide-y divide-border/25">
+                                    {tiers.map(([tierRate, tier]) => (
+                                      <div key={tierRate}>
+                                        {/* Tier header: stripe + rate LEFT, subtotals RIGHT */}
+                                        <div className="flex items-center justify-between gap-3 px-4 py-2.5 bg-foreground/[0.035]">
+                                          <div className="flex items-center gap-2 min-w-0">
+                                            <div
+                                              className="w-[3px] h-[18px] rounded-full shrink-0"
+                                              style={{ background: group.color, opacity: 0.75 }}
+                                            />
+                                            <span className="text-[12px] font-semibold tabular-nums text-foreground/85">
+                                              {tierRate > 0
+                                                ? `${fmtMoney(toDisplay(tierRate), group.reportCurrency)}/h`
+                                                : "No rate"}
+                                            </span>
+                                          </div>
+                                          <div className="flex items-center gap-3 shrink-0">
+                                            <span className="text-[11.5px] tabular-nums text-secondary-fg/55 font-medium">
+                                              {fmtHM(tier.sec)}
+                                            </span>
+                                            {tier.earned > 0 && (
+                                              <span className="text-[12px] tabular-nums text-success font-semibold">
+                                                {fmtMoney(toDisplay(tier.earned), group.reportCurrency)}
+                                              </span>
+                                            )}
+                                          </div>
+                                        </div>
+                                        <ul className="divide-y divide-border/20">
+                                          {tier.entries.map((e) => renderSession(e, true))}
+                                        </ul>
+                                      </div>
+                                    ))}
+                                  </div>
+                                );
+                              })()}
                               <div className="grid grid-cols-2 gap-2 px-4 py-3">
                                 <button
                                   type="button"
@@ -1093,7 +1254,6 @@ export default function Reports() {
       >
         <SheetContent
           side="bottom"
-          hideClose
           className="rounded-t-[28px] border-border/45 bg-popover max-h-[90vh] flex flex-col p-0"
         >
           <SheetTitle className="sr-only">

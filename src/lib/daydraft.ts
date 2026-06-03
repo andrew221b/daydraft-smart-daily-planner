@@ -44,6 +44,13 @@ export const minutesToHHMM = (min: number) => {
   return `${String(h).padStart(2, "0")}:${String(m).padStart(2, "0")}`;
 };
 
+/** Shift a YYYY-MM-DD date string by N calendar days (local time). */
+export function shiftDate(ymd: string, days: number): string {
+  const d = parseDateStr(ymd);
+  d.setDate(d.getDate() + days);
+  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
+}
+
 /** Local wall-clock instant for YYYY-MM-DD + HH:mm on the user's calendar. */
 export function wallMsOnPlanDay(planDateYMD: string, hhmm: string): number {
   const [y, mo, d] = planDateYMD.split("-").map(Number);
@@ -51,11 +58,13 @@ export function wallMsOnPlanDay(planDateYMD: string, hhmm: string): number {
   return new Date(y, (mo || 1) - 1, d || 1, h || 0, m || 0, 0, 0).getTime();
 }
 
-/** Effective slot end (persisted or start + duration). */
+/** Effective slot end (persisted or start + duration). Wraps past midnight so a
+ *  late block never yields an invalid "24:30"/"25:00". The stricter regex also
+ *  rejects legacy out-of-range stored values, recomputing a valid end. */
 export function blockSlotEndHHMM(b: Pick<Block, "start_time" | "duration_min" | "slot_end_time">): string {
   const raw = typeof b.slot_end_time === "string" ? b.slot_end_time.trim() : "";
-  if (/^\d{2}:\d{2}$/.test(raw)) return raw;
-  return minutesToHHMM(timeToMinutes(b.start_time) + Number(b.duration_min || 0));
+  if (/^([01]\d|2[0-3]):[0-5]\d$/.test(raw)) return raw;
+  return minutesToHHMM((timeToMinutes(b.start_time) + Number(b.duration_min || 0)) % 1440);
 }
 
 export function addMinutesToWallClock(planDateYMD: string, hhmm: string, addMin: number): string {
@@ -84,9 +93,125 @@ export function packLinearSchedule<T extends Pick<Block, "start_time" | "duratio
     }
     // Strict packing: the block starts exactly when the previous block ends.
     // If a user wants a gap, a "break" block should be inserted explicitly.
-    const nb = { ...b, start_time: minutesToHHMM(cursorMin) };
-    cursorMin = cursorMin + Number(nb.duration_min || 0);
+    // Wrap the stored time by 24h so a plan that runs past midnight keeps valid
+    // HH:MM (the internal cursor stays unbounded to preserve sequence/order).
+    // A frameless task (duration_min = 0) stays at 0 and does NOT advance the
+    // cursor — the next block starts at the same time. Real durations floor to 5.
+    const rawDur = Number(b.duration_min || 0);
+    const safeDur = rawDur <= 0 ? 0 : Math.max(5, Math.round(rawDur));
+    const nb = { ...b, start_time: minutesToHHMM(cursorMin % 1440), duration_min: safeDur };
+    cursorMin = cursorMin + safeDur;
     out.push(nb);
+  }
+  return out;
+}
+
+/**
+ * Insert invisible gap markers (kind: "break") between consecutive blocks that
+ * don't touch — i.e. wherever `next.start > cur.end`. The blocks are assumed to
+ * already be in chronological order. `makeBreak` supplies a fully-formed break
+ * block (the caller owns id / plan_id / user_id), so this stays pure.
+ */
+export function materializeGaps<T extends Block>(
+  ordered: T[],
+  makeBreak: (fromMin: number, toMin: number) => T,
+): T[] {
+  const out: T[] = [];
+  for (let i = 0; i < ordered.length; i++) {
+    out.push(ordered[i]);
+    const next = ordered[i + 1];
+    if (!next) break;
+    const curEnd = timeToMinutes(ordered[i].start_time) + Number(ordered[i].duration_min || 0);
+    const nextStart = timeToMinutes(next.start_time);
+    if (nextStart > curEnd) out.push(makeBreak(curEnd, nextStart));
+  }
+  return out;
+}
+
+/**
+ * Retime a plan around one or more *anchor* blocks (the task the user just
+ * placed or moved). Anchors keep their exact start_time; every other block is
+ * sorted by time and slides forward ONLY as far as needed to avoid overlapping
+ * the block before it — so untouched downstream tasks keep their times and gaps
+ * whenever they don't conflict ("user is boss", minimal movement).
+ *
+ * Returns null when the non-anchor blocks aren't already monotonic by HH:MM
+ * (a cross-midnight / out-of-order plan, where sorting by clock time is unsafe);
+ * the caller should fall back to its existing retiming in that case.
+ *
+ * Existing break blocks are dropped and rebuilt fresh via `materializeGaps`.
+ */
+export function normalizeSchedule<T extends Block>(
+  blocks: T[],
+  anchorIds: Set<string>,
+  makeBreak: (fromMin: number, toMin: number) => T,
+): T[] | null {
+  const nonBreak = blocks.filter((b) => b.kind !== "break");
+  // Bail unless the blocks we're NOT moving are already in clock order.
+  const fixed = nonBreak.filter((b) => !anchorIds.has(b.id));
+  for (let i = 1; i < fixed.length; i++) {
+    if (timeToMinutes(fixed[i].start_time) < timeToMinutes(fixed[i - 1].start_time)) return null;
+  }
+  const sorted = [...nonBreak].sort((a, b) => timeToMinutes(a.start_time) - timeToMinutes(b.start_time));
+  let cursor = -1;
+  const retimed = sorted.map((t) => {
+    const desired = timeToMinutes(t.start_time);
+    // Anchors win their exact time; others yield forward to clear the previous block.
+    const s = anchorIds.has(t.id) ? desired : Math.max(desired, cursor);
+    cursor = s + Math.max(0, Number(t.duration_min || 0));
+    return { ...t, start_time: minutesToHHMM(s % 1440) };
+  });
+  return materializeGaps(retimed, makeBreak);
+}
+
+const DAY_MS = 86_400_000;
+
+/**
+ * Absolute wall-clock start/end for each block of a plan that may run past
+ * midnight. Blocks are taken in their given (position) order; each time the
+ * clock wraps — a non-`overlap_ok` block's start minute is *less than* the
+ * previous one — the day rolls forward by 24h. A slot whose end HH:MM is before
+ * its own start gains an extra day too. This is the single source of truth for
+ * "what real instant is this slot," so cross-midnight tasks resolve correctly
+ * without leaving the plan's calendar date.
+ */
+export function planBlockInstants(
+  planDateYMD: string,
+  orderedBlocks: Array<
+    Pick<Block, "id" | "start_time" | "duration_min" | "slot_end_time"> & { overlap_ok?: boolean | null }
+  >,
+): Map<string, { startMs: number; endMs: number }> {
+  const out = new Map<string, { startMs: number; endMs: number }>();
+  let cursorMin = -1;
+  let currentDayOffset = 0;
+  
+  for (const b of orderedBlocks) {
+    if (cursorMin === -1) cursorMin = timeToMinutes(b.start_time);
+    
+    const startMin = timeToMinutes(b.start_time);
+    
+    if (!b.overlap_ok) {
+      if (startMin < (cursorMin % 1440)) {
+        // Crossed midnight
+        cursorMin = cursorMin + (1440 - (cursorMin % 1440)) + startMin;
+      } else {
+        // Jump cursor to startMin within the same day
+        cursorMin = cursorMin - (cursorMin % 1440) + startMin;
+      }
+      currentDayOffset = Math.floor(cursorMin / 1440);
+    }
+
+    const startMs = wallMsOnPlanDay(planDateYMD, b.start_time) + currentDayOffset * DAY_MS;
+    
+    if (!b.overlap_ok) {
+      cursorMin += Number(b.duration_min || 0);
+    }
+    
+    const endHHMM = blockSlotEndHHMM(b);
+    const endMin = timeToMinutes(endHHMM);
+    const endDayOffset = currentDayOffset + (endMin < startMin ? 1 : 0);
+    const endMs = wallMsOnPlanDay(planDateYMD, endHHMM) + endDayOffset * DAY_MS;
+    out.set(b.id, { startMs, endMs });
   }
   return out;
 }

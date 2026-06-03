@@ -206,15 +206,15 @@ export function PaymentMethodFields({
             exit="exit"
             className="relative overflow-hidden rounded-2xl p-3.5 space-y-2.5 border border-border/20 shadow-sm"
             style={{
-              background: "linear-gradient(180deg, hsl(var(--m-accent) / 0.08) 0%, hsl(var(--background) / 1) 100%)",
-              boxShadow: "inset 0 1px 0 hsl(0 0% 100% / 0.15), 0 0 0 1px hsl(var(--m-accent) / 0.12)",
+              background: "linear-gradient(180deg, hsl(var(--m-accent) / 0.14) 0%, hsl(var(--m-accent) / 0.04) 100%)",
+              boxShadow: "inset 0 1px 0 hsl(0 0% 100% / 0.18), 0 0 0 1px hsl(var(--m-accent) / 0.22)",
               ["--m-accent" as string]: method.accent,
             } as CSSProperties}
           >
             <motion.div variants={DETAIL_ITEM_VARIANTS} className="flex items-center gap-2 px-0.5">
               <span
                 className="flex h-5 w-5 shrink-0 items-center justify-center rounded-md"
-                style={{ background: "hsl(var(--m-accent) / 0.20)", color: "hsl(var(--m-accent))" }}
+                style={{ background: "hsl(var(--m-accent) / 0.28)", color: "hsl(var(--m-accent))" }}
               >
                 <method.Icon className="h-3 w-3" strokeWidth={2.4} />
               </span>
@@ -308,8 +308,8 @@ function KindToggle({
           className="pointer-events-none absolute top-1 bottom-1 left-1 w-[calc(50%-4px)] rounded-xl border border-border/20 shadow-sm transition-transform duration-200 ease-[cubic-bezier(0.32,0.72,0,1)]"
           style={{
             transform: kind === "crypto" ? "translateX(calc(100% + 4px))" : "translateX(0)",
-            background: `linear-gradient(180deg, hsl(${tintHsl} / 0.10) 0%, hsl(var(--background) / 1) 100%)`,
-            boxShadow: `inset 0 1px 0 hsl(0 0% 100% / 0.15), 0 0 0 1px hsl(${tintHsl} / 0.12), 0 2px 8px -2px hsl(${tintHsl} / 0.10)`,
+            background: `linear-gradient(180deg, hsl(${tintHsl} / 0.18) 0%, hsl(${tintHsl} / 0.05) 100%)`,
+            boxShadow: `inset 0 1px 0 hsl(0 0% 100% / 0.18), 0 0 0 1px hsl(${tintHsl} / 0.22), 0 2px 8px -2px hsl(${tintHsl} / 0.14)`,
           }}
         />
         <KindTab active={kind === "fiat"} onClick={() => onChange("fiat")} icon={Banknote} label="Fiat" tintHsl={fiatHsl} />
@@ -404,8 +404,8 @@ function CurrencyPickerInline({
         style={
           displayValue
             ? {
-                background: `linear-gradient(180deg, hsl(${tintHsl} / 0.08) 0%, hsl(var(--background) / 1) 100%)`,
-                boxShadow: `inset 0 1px 0 hsl(0 0% 100% / 0.15), 0 0 0 1px hsl(${tintHsl} / 0.12)`,
+                background: `linear-gradient(180deg, hsl(${tintHsl} / 0.14) 0%, hsl(${tintHsl} / 0.04) 100%)`,
+                boxShadow: `inset 0 1px 0 hsl(0 0% 100% / 0.18), 0 0 0 1px hsl(${tintHsl} / 0.22)`,
               }
             : undefined
         }
@@ -456,8 +456,8 @@ function CurrencyPickerInline({
                       style={
                         selected
                           ? {
-                              background: `linear-gradient(180deg, hsl(${tintHsl} / 0.10) 0%, hsl(var(--background) / 1) 100%)`,
-                              boxShadow: `inset 0 1px 0 hsl(0 0% 100% / 0.15), 0 0 0 1px hsl(${tintHsl} / 0.12)`,
+                              background: `linear-gradient(180deg, hsl(${tintHsl} / 0.17) 0%, hsl(${tintHsl} / 0.05) 100%)`,
+                              boxShadow: `inset 0 1px 0 hsl(0 0% 100% / 0.18), 0 0 0 1px hsl(${tintHsl} / 0.22)`,
                             }
                           : undefined
                       }
@@ -596,8 +596,8 @@ function MethodChip({
         selected
           ? ({
               "--m-accent": method.accent,
-              background: "linear-gradient(180deg, hsl(var(--m-accent) / 0.10) 0%, hsl(var(--background) / 1) 100%)",
-              boxShadow: "inset 0 1px 0 hsl(0 0% 100% / 0.15), 0 0 0 1px hsl(var(--m-accent) / 0.12)",
+              background: "linear-gradient(180deg, hsl(var(--m-accent) / 0.18) 0%, hsl(var(--m-accent) / 0.05) 100%)",
+              boxShadow: "inset 0 1px 0 hsl(0 0% 100% / 0.18), 0 0 0 1px hsl(var(--m-accent) / 0.22)",
             } as CSSProperties)
           : ({ "--m-accent": method.accent } as CSSProperties)
       }

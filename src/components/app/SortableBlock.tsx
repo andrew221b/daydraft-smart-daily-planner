@@ -55,14 +55,14 @@ export const SortableBlock = memo(({
   onDeleteBlock,
   isOverlay,
   isFuturePlan = false,
-  minTime,
+  lateMin,
 }: {
   block: BlockExt;
   editing: boolean;
   onTap?: (b: any) => void;
   onTapTime?: (b: any, newTime?: string) => void;
   /** Earliest selectable time (HH:MM). Passed to the inline time input's min attribute. */
-  minTime?: string;
+
   onToggleComplete?: (b: any) => void;
   onStartTrack?: (b: any) => void;
   onStopTrack?: (b: any) => void;
@@ -78,6 +78,9 @@ export const SortableBlock = memo(({
   /** True when the plan date is in the future — completion is locked. */
   isFuturePlan?: boolean;
   isOverlay?: boolean;
+  /** Minutes past the scheduled start for the single next-overdue open task.
+   *  Shown as amber "~Xm late" below the time pill. Only passed for that one block. */
+  lateMin?: number;
 }) => {
   const [expanded, setExpanded] = useState(false);
   const [confirmDelete, setConfirmDelete] = useState(false);
@@ -85,7 +88,7 @@ export const SortableBlock = memo(({
   const sortableDisabled =
     !!block.is_calendar_event || (block.kind === "task" && !isOpenUserTask(block));
 
-  const { attributes, listeners, setNodeRef, transform, transition, isDragging } = useSortable({
+  const { attributes, listeners, setNodeRef, transform, transition, isDragging, isOver } = useSortable({
     id: block.id,
     disabled: sortableDisabled,
   });
@@ -102,6 +105,9 @@ export const SortableBlock = memo(({
     zIndex: isDragging ? 30 : undefined,
     opacity: isDragging ? 0.98 : 1,
     touchAction: sortableDisabled ? undefined : "manipulation",
+    ...(isOver && !isDragging
+      ? { boxShadow: "0 0 0 2px hsl(var(--primary) / 0.8)", transform: "scale(1.01)", transition: "all 150ms ease" }
+      : {}),
   };
 
   const isCal = block.is_calendar_event;
@@ -120,9 +126,14 @@ export const SortableBlock = memo(({
             ? "hsl(var(--type-routine))"
             : "hsl(var(--type-deep))";
 
-  const dur = block.duration_min < 60
-    ? `${block.duration_min}m`
-    : `${Math.floor(block.duration_min / 60)}h${block.duration_min % 60 ? ` ${block.duration_min % 60}m` : ""}`;
+  // Frameless task (duration_min <= 0) = a point in the day, no timer span:
+  // show no duration pill at all.
+  const durMin = Number(block.duration_min) || 0;
+  const dur = durMin <= 0
+    ? ""
+    : durMin < 60
+      ? `${durMin}m`
+      : `${Math.floor(durMin / 60)}h${durMin % 60 ? ` ${durMin % 60}m` : ""}`;
 
   const fmtMin = (mins: number) =>
     mins < 60 ? `${mins}m` : `${Math.floor(mins / 60)}h${mins % 60 ? ` ${mins % 60}m` : ""}`;
@@ -161,6 +172,40 @@ export const SortableBlock = memo(({
     { id: "delete",    icon: <Trash2   className="h-3.5 w-3.5" />, label: "Delete",    cb: onDeleteBlock,   color: "text-destructive/50", destructive: true },
   ] as const;
 
+  if (block.kind === "break") {
+    const h = Math.floor(block.duration_min / 60);
+    const m = block.duration_min % 60;
+    const durStr = h > 0 ? (m > 0 ? `${h}h ${m}m` : `${h}h`) : `${m}m`;
+    
+    return (
+      <div
+        ref={setNodeRef}
+        style={style}
+        {...(sortableDisabled ? {} : attributes)}
+        {...(sortableDisabled ? {} : listeners)}
+        className={[
+          "group relative flex items-center justify-center py-2 px-4 cursor-pointer outline-none",
+          isDragging ? "is-dragging opacity-50" : "opacity-60 hover:opacity-100 transition-opacity",
+        ].filter(Boolean).join(" ")}
+      >
+        <div className="absolute inset-x-0 h-px border-t border-dashed border-border/40" />
+        <div className="relative z-10 flex items-center gap-2 px-3 py-1 bg-background rounded-full border border-border/40 text-[11px] font-medium text-secondary-fg">
+          <span>{durStr} free time</span>
+          <button
+            onClick={(e) => {
+              e.stopPropagation();
+              onDeleteBlock(block);
+            }}
+            className="p-1 -mr-1 hover:bg-destructive/10 hover:text-destructive rounded-full transition-colors pressable"
+            aria-label="Remove gap"
+          >
+            <Trash2 className="h-3 w-3" />
+          </button>
+        </div>
+      </div>
+    );
+  }
+
   return (
     <div
       ref={setNodeRef}
@@ -169,9 +214,13 @@ export const SortableBlock = memo(({
       {...(sortableDisabled ? {} : attributes)}
       {...(sortableDisabled ? {} : listeners)}
       className={[
-        "group cursor-pointer tappable app-card rounded-[18px] px-3.5 py-3.5 shadow-sm",
+        "group relative cursor-pointer tappable app-card rounded-[18px] px-3.5 py-3.5",
+        // Onboarding-showcase card shadow: a soft drop + an inner top highlight
+        // for a glassy lift. Tracking adds the primary glow on top of that base.
         isDragging ? "is-dragging" : "",
-        trackingActive ? "ring-[1.5px] ring-primary/40 bg-primary/[0.04] shadow-[0_0_32px_hsl(var(--primary)/0.12)]" : "",
+        trackingActive
+          ? "ring-[1.5px] ring-primary/40 bg-primary/[0.04] shadow-[0_8px_30px_rgba(0,0,0,0.12),inset_0_1px_1px_rgba(255,255,255,0.2),0_0_32px_hsl(var(--primary)/0.12)] dark:shadow-[0_8px_30px_rgba(0,0,0,0.5),inset_0_1px_1px_rgba(255,255,255,0.05),0_0_32px_hsl(var(--primary)/0.12)]"
+          : "shadow-[0_8px_30px_rgba(0,0,0,0.12),inset_0_1px_1px_rgba(255,255,255,0.2)] dark:shadow-[0_8px_30px_rgba(0,0,0,0.5),inset_0_1px_1px_rgba(255,255,255,0.05)]",
         isDone && block.kind === "task" ? "opacity-80" : "",
         !isCal && block.overlap_ok ? "border-l-[3px] border-l-primary/45" : "",
         isCal
@@ -190,8 +239,14 @@ export const SortableBlock = memo(({
         if (canExpand) { haptics.selection(); setExpanded((v) => !v); }
       }}
     >
+      {/* Glassy diagonal sheen — matches the onboarding showcase cards. Sits
+          below the content (z-0) and is clipped to the card's rounded corners. */}
+      <div
+        className="pointer-events-none absolute inset-0 rounded-[18px] bg-gradient-to-br from-white/10 to-transparent"
+        aria-hidden
+      />
       {/* ── Main content row ── */}
-      <div className={`flex ${rowAlign} gap-2`}>
+      <div className={`relative z-10 flex ${rowAlign} gap-2`}>
 
         {/* Drag handle — decorative, the whole card is the drag target */}
         {!sortableDisabled ? (
@@ -216,39 +271,47 @@ export const SortableBlock = memo(({
             if (isTerminal) {
               return <div className="shrink-0 h-6 w-[38px]" aria-hidden />;
             }
+            const lateIndicator = (lateMin ?? 0) >= 2 ? (
+              <div className="text-[9px] font-semibold text-amber-500 dark:text-amber-400 tabular-nums leading-none mt-0.5 text-center whitespace-nowrap">
+                ~{lateMin}m late
+              </div>
+            ) : null;
             if (onTapTime && !block.is_calendar_event) {
-              // Overlay a transparent <input type="time"> directly inside the
-              // tap target. iOS requires the input to be at the physical tap
-              // location — a remote hidden input at top-left triggers
-              // "The variant selector cell index number could not be found".
               return (
-                <label
+                <div
+                  className="relative shrink-0 self-start mt-[3px] flex flex-col items-center"
                   onPointerDown={(e) => e.stopPropagation()}
                   onClick={(e) => e.stopPropagation()}
-                  className="relative shrink-0 self-start mt-[3px] h-6 px-1.5 inline-flex items-center justify-center text-secondary-fg/85 text-[10px] font-mono-sf tabular-nums pressable hover:text-foreground transition-colors rounded-md cursor-pointer select-none"
-                  aria-label="Change start time"
                 >
-                  <span className="pointer-events-none">{fmtTime(block.start_time)}</span>
+                  <div
+                    className="h-6 px-1.5 inline-flex items-center justify-center text-secondary-fg/85 text-[10px] font-mono-sf tabular-nums pressable hover:text-foreground transition-colors rounded-md cursor-pointer select-none"
+                    aria-label="Change start time"
+                  >
+                    <span className="pointer-events-none">{fmtTime(block.start_time)}</span>
+                  </div>
+                  {/* Native time picker — covers only the time pill row, not the late indicator */}
                   <input
                     type="time"
-                    className="absolute inset-0 opacity-0 w-full h-full cursor-pointer"
-                    value={block.start_time || "00:00"}
-                    min={minTime}
+                    className="absolute left-0 top-0 opacity-0 w-full h-6 cursor-pointer"
+                    value={block.start_time || ""}
+                    min={undefined}
                     tabIndex={-1}
-                    onChange={(e) => {
-                      if (e.target.value) onTapTime(block, e.target.value);
-                    }}
-                    onPointerDown={(e) => e.stopPropagation()}
-                    onClick={(e) => e.stopPropagation()}
-                    // font-size 16px prevents iOS from auto-zooming the page
                     style={{ fontSize: 16 }}
+                    onChange={(e) => {
+                      const val = e.target.value;
+                      if (val) onTapTime(block, val);
+                    }}
                   />
-                </label>
+                  {lateIndicator}
+                </div>
               );
             }
             return (
-              <div className="shrink-0 self-start mt-[3px] h-6 px-1.5 inline-flex items-center justify-center text-secondary-fg/70 text-[10px] font-mono-sf tabular-nums">
-                {fmtTime(block.start_time)}
+              <div className="shrink-0 self-start mt-[3px] flex flex-col items-center px-1.5">
+                <div className="h-6 inline-flex items-center justify-center text-secondary-fg/70 text-[10px] font-mono-sf tabular-nums">
+                  {fmtTime(block.start_time)}
+                </div>
+                {lateIndicator}
               </div>
             );
           })()}
@@ -311,11 +374,11 @@ export const SortableBlock = memo(({
                     <span className="text-faint"> · {fmtMin(estimatedMin)} est</span>
                   )}
                 </>
-              ) : isDone ? (
+              ) : isDone && estimatedMin > 0 ? (
                 <span className="text-faint">{fmtMin(estimatedMin)} planned</span>
-              ) : (
+              ) : dur ? (
                 <span className="text-faint">{dur}</span>
-              )}
+              ) : null}
             </div>
 
             {isDone && actualMin != null && estimatedMin > 0 && actualMin >= 2 && (
@@ -378,11 +441,13 @@ export const SortableBlock = memo(({
               )
             )}
 
-            {/* Status / complete circle */}
+            {/* Status / complete circle — skipped & missed stay tappable so the
+                user can still mark the task done after the fact (opens the
+                late-complete sheet via onToggleComplete). */}
             {isTask && block.resolution === "skipped" ? (
-              <div className="h-7 w-7 rounded-full border border-amber-500/40 bg-amber-500/10 shrink-0" title="Skipped" aria-hidden />
+              <StatusCompleteCircle tone="amber" label="Skipped — tap to mark done" onToggle={() => onToggleComplete?.(block)} />
             ) : isTask && block.resolution === "missed" ? (
-              <div className="h-7 w-7 rounded-full border border-destructive/35 bg-destructive/10 shrink-0" title="Missed" aria-hidden />
+              <StatusCompleteCircle tone="red" label="Missed — tap to mark done" onToggle={() => onToggleComplete?.(block)} />
             ) : isDone || (block.completed && block.kind !== "task") ? (
               <CompleteCircleDone tourSpotlight={tourSpotlight} onToggle={() => onToggleComplete?.(block)} />
             ) : isFuturePlan && isTask ? (
@@ -443,6 +508,7 @@ export const SortableBlock = memo(({
         {expanded && canExpand && (
           <motion.div
             key="expand"
+            className="relative z-10"
             initial={{ height: 0, opacity: 0 }}
             animate={{ height: "auto", opacity: 1 }}
             exit={{ height: 0, opacity: 0 }}
@@ -524,6 +590,37 @@ function CompleteCircleLocked() {
         />
       </svg>
     </div>
+  );
+}
+
+/** Skipped / missed status circle — colored but still tappable, so the user can
+ *  reopen and mark the task done after the fact. */
+function StatusCompleteCircle({
+  tone,
+  label,
+  onToggle,
+}: {
+  tone: "amber" | "red";
+  label: string;
+  onToggle: () => void;
+}) {
+  const toneClass =
+    tone === "amber"
+      ? "border-amber-500/40 bg-amber-500/10 hover:bg-amber-500/20"
+      : "border-destructive/35 bg-destructive/10 hover:bg-destructive/20";
+  return (
+    <button
+      type="button"
+      onPointerDown={(e) => e.stopPropagation()}
+      onClick={(e) => {
+        e.stopPropagation();
+        haptics.tap();
+        onToggle();
+      }}
+      className={`h-7 w-7 rounded-full border shrink-0 pressable transition-colors ${toneClass}`}
+      aria-label={label}
+      title={label}
+    />
   );
 }
 

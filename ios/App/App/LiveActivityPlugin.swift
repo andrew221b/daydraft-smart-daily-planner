@@ -38,7 +38,9 @@ public class LiveActivityPlugin: CAPPlugin, CAPBridgedPlugin {
     public let pluginMethods: [CAPPluginMethod] = [
         CAPPluginMethod(name: "isSupported", returnType: CAPPluginReturnPromise),
         CAPPluginMethod(name: "startFocus", returnType: CAPPluginReturnPromise),
+        CAPPluginMethod(name: "ensureFocus", returnType: CAPPluginReturnPromise),
         CAPPluginMethod(name: "stopFocus", returnType: CAPPluginReturnPromise),
+        CAPPluginMethod(name: "updateFocusCategory", returnType: CAPPluginReturnPromise),
         CAPPluginMethod(name: "startTracker", returnType: CAPPluginReturnPromise),
         CAPPluginMethod(name: "stopTracker", returnType: CAPPluginReturnPromise),
         CAPPluginMethod(name: "stopAll", returnType: CAPPluginReturnPromise),
@@ -117,9 +119,89 @@ public class LiveActivityPlugin: CAPPlugin, CAPBridgedPlugin {
         let planned = call.getInt("plannedMinutes") ?? 0
         let blockId = call.getString("blockId") ?? ""
         let nextTaskTitle = call.getString("nextTaskTitle")
+        let categoryName = call.getString("categoryName")
+        let colorHex = call.getString("colorHex")
         let startedAt = dateFromMillis(call.getDouble("startedAt"))
-        LALog("startFocus params — title='\(title)', planned=\(planned)m, blockId='\(blockId)', startedAt=\(startedAt)")
+        LALog("startFocus params — title='\(title)', planned=\(planned)m, blockId='\(blockId)', startedAt=\(startedAt), category=\(categoryName ?? "nil")")
 
+        let result = requestFocusActivity(
+            title: title, planned: planned, blockId: blockId, nextTaskTitle: nextTaskTitle,
+            startedAt: startedAt, categoryName: categoryName, colorHex: colorHex
+        )
+        if result.started {
+            call.resolve(["started": true, "id": result.id ?? ""])
+        } else {
+            call.reject("Could not start Focus Live Activity: \(result.error ?? "unknown")", "LA_START_FAILED")
+        }
+    }
+
+    /// Re-arm the Focus Live Activity WITHOUT tearing down a healthy one.
+    /// Called on every app foreground while a focus session is active.
+    /// • If an activity already exists → leave its timer running untouched and
+    ///   only refresh the category chip (heals a chip lost to an OS snapshot).
+    /// • If none exists → create one, identical to `startFocus`.
+    /// This avoids the flash / lost `nextTaskTitle` / wiped category that a blind
+    /// end+recreate would cause every time the app comes to the foreground.
+    @objc public func ensureFocus(_ call: CAPPluginCall) {
+        LALog("ensureFocus called")
+        guard #available(iOS 16.1, *) else {
+            call.resolve(["started": false, "reason": "os-too-old"])
+            return
+        }
+        guard ActivityAuthorizationInfo().areActivitiesEnabled else {
+            LALog("⚠️ ensureFocus aborted — areActivitiesEnabled is FALSE.")
+            call.resolve(["started": false, "reason": "disabled-in-settings"])
+            return
+        }
+
+        let categoryName = call.getString("categoryName")
+        let colorHex = call.getString("colorHex")
+
+        let existing = Activity<FocusActivityAttributes>.activities
+        if !existing.isEmpty {
+            LALog("ensureFocus — \(existing.count) focus activity(ies) already live; refreshing category only")
+            Task {
+                for activity in existing {
+                    let current = activity.content.state
+                    let newState = FocusActivityAttributes.ContentState(
+                        startedAt: current.startedAt,
+                        categoryName: categoryName,
+                        categoryColorHex: colorHex
+                    )
+                    await activity.update(ActivityContent(state: newState, staleDate: nil))
+                }
+            }
+            focusActivity = existing.first
+            call.resolve(["started": true, "existed": true])
+            return
+        }
+
+        // Nothing live — create one (same path as startFocus).
+        let title = call.getString("taskTitle") ?? "Focus session"
+        let planned = call.getInt("plannedMinutes") ?? 0
+        let blockId = call.getString("blockId") ?? ""
+        let nextTaskTitle = call.getString("nextTaskTitle")
+        let startedAt = dateFromMillis(call.getDouble("startedAt"))
+        LALog("ensureFocus — none live; creating. title='\(title)', planned=\(planned)m, category=\(categoryName ?? "nil")")
+        let result = requestFocusActivity(
+            title: title, planned: planned, blockId: blockId, nextTaskTitle: nextTaskTitle,
+            startedAt: startedAt, categoryName: categoryName, colorHex: colorHex
+        )
+        if result.started {
+            call.resolve(["started": true, "existed": false, "id": result.id ?? ""])
+        } else {
+            call.resolve(["started": false, "reason": result.error ?? "unknown"])
+        }
+    }
+
+    /// Shared builder: ends any other Live Activity, then requests a fresh Focus
+    /// activity (seeding the optional tracker category). Used by both `startFocus`
+    /// and `ensureFocus`.
+    @available(iOS 16.1, *)
+    private func requestFocusActivity(
+        title: String, planned: Int, blockId: String, nextTaskTitle: String?,
+        startedAt: Date, categoryName: String?, colorHex: String?
+    ) -> (started: Bool, id: String?, error: String?) {
         endTrackerActivity()
         endFocusActivity()
 
@@ -129,28 +211,54 @@ public class LiveActivityPlugin: CAPPlugin, CAPBridgedPlugin {
             blockId: blockId,
             nextTaskTitle: nextTaskTitle
         )
-        let state = FocusActivityAttributes.ContentState(startedAt: startedAt)
+        let state = FocusActivityAttributes.ContentState(
+            startedAt: startedAt,
+            categoryName: categoryName,
+            categoryColorHex: colorHex
+        )
         let content = ActivityContent(state: state, staleDate: nil)
 
         do {
-            let activity = try Activity.request(
-                attributes: attributes,
-                content: content,
-                pushType: nil
-            )
+            let activity = try Activity.request(attributes: attributes, content: content, pushType: nil)
             focusActivity = activity
             LALog("✅ Focus Live Activity STARTED — id=\(activity.id)")
-            call.resolve(["started": true, "id": activity.id])
+            return (true, activity.id, nil)
         } catch {
             let detail = decodeActivityError(error)
-            LALog("❌ startFocus FAILED — \(detail)")
-            call.reject("Could not start Focus Live Activity: \(detail)", "LA_START_FAILED", error)
+            LALog("❌ start Focus FAILED — \(detail)")
+            return (false, nil, detail)
         }
     }
 
     @objc public func stopFocus(_ call: CAPPluginCall) {
         LALog("stopFocus called")
         if #available(iOS 16.1, *) { endFocusActivity() }
+        call.resolve()
+    }
+
+    /// Update the Focus Live Activity's content state with a tracker category.
+    /// Pass nil values to clear the category (tracker stopped).
+    @objc public func updateFocusCategory(_ call: CAPPluginCall) {
+        LALog("updateFocusCategory called")
+        guard #available(iOS 16.1, *) else {
+            call.resolve()
+            return
+        }
+        let categoryName = call.getString("categoryName")
+        let colorHex = call.getString("colorHex")
+        LALog("updateFocusCategory — name=\(categoryName ?? "nil"), color=\(colorHex ?? "nil")")
+        Task {
+            for activity in Activity<FocusActivityAttributes>.activities {
+                let current = activity.content.state
+                let newState = FocusActivityAttributes.ContentState(
+                    startedAt: current.startedAt,
+                    categoryName: categoryName,
+                    categoryColorHex: colorHex
+                )
+                await activity.update(ActivityContent(state: newState, staleDate: nil))
+                LALog("updateFocusCategory ✅ activity id=\(activity.id)")
+            }
+        }
         call.resolve()
     }
 
@@ -224,18 +332,22 @@ public class LiveActivityPlugin: CAPPlugin, CAPBridgedPlugin {
 
     @available(iOS 16.1, *)
     private func endFocusActivity() {
-        if let activity = focusActivity as? Activity<FocusActivityAttributes> {
-            LALog("Ending Focus activity id=\(activity.id)")
-            Task { await activity.end(nil, dismissalPolicy: .immediate) }
+        LALog("Ending Focus activities...")
+        Task {
+            for activity in Activity<FocusActivityAttributes>.activities {
+                await activity.end(nil, dismissalPolicy: .immediate)
+            }
         }
         focusActivity = nil
     }
 
     @available(iOS 16.1, *)
     private func endTrackerActivity() {
-        if let activity = trackerActivity as? Activity<TrackerActivityAttributes> {
-            LALog("Ending Tracker activity id=\(activity.id)")
-            Task { await activity.end(nil, dismissalPolicy: .immediate) }
+        LALog("Ending Tracker activities...")
+        Task {
+            for activity in Activity<TrackerActivityAttributes>.activities {
+                await activity.end(nil, dismissalPolicy: .immediate)
+            }
         }
         trackerActivity = nil
     }

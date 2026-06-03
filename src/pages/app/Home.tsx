@@ -46,7 +46,7 @@ export default function Home() {
   const [searchParams] = useSearchParams();
   const queryClient = useQueryClient();
   const viewDate = todayDateStr();
-  const { categories } = useTimeTracker();
+  const { allCatMap } = useTimeTracker();
 
   useEffect(() => {
     if (location.hash === "#tracker" || searchParams.get("tracker") === "1") {
@@ -129,24 +129,38 @@ export default function Home() {
     const ds = dayStart.getTime();
     const de = dayEnd.getTime();
     const todays = filterEntriesByRange(rollingEntries, { from: dayStart, to: dayEnd });
-    const now = Date.now();
-    const map = new Map<string, number>();
+    const map = new Map<string, { sec: number; earned: number }>();
     let total = 0;
     for (const e of todays) {
+      if (!e.ended_at) continue; // only show completed sessions
       const s = Math.max(new Date(e.started_at).getTime(), ds);
-      const en = Math.min(e.ended_at ? new Date(e.ended_at).getTime() : now, de);
+      const en = Math.min(new Date(e.ended_at).getTime(), de);
       const sec = Math.max(0, (en - s) / 1000);
       if (sec <= 0 || !e.category_id) continue;
       total += sec;
-      map.set(e.category_id, (map.get(e.category_id) || 0) + sec);
+      // Use only the snapshot rate captured at session start — changing the
+      // current rate must never retroactively alter what was earned.
+      const rate = e.snapshot_hourly_rate ?? 0;
+      const earned = (rate > 0) ? (rate * sec) / 3600 : 0;
+      const prev = map.get(e.category_id) ?? { sec: 0, earned: 0 };
+      map.set(e.category_id, { sec: prev.sec + sec, earned: prev.earned + earned });
     }
-    const catMap = new Map(categories.map((c) => [c.id, c]));
     return Array.from(map.entries())
-      .map(([id, sec]) => ({ cat: catMap.get(id), sec, pct: total > 0 ? sec / total : 0 }))
-      .filter((r) => r.cat)
+      .map(([id, { sec, earned }]) => {
+        const cat = allCatMap.get(id);
+        if (!cat) return null;
+        return {
+          cat,
+          sec,
+          earned,
+          pct: total > 0 ? sec / total : 0,
+          isDeleted: !!cat.deleted_at,
+        };
+      })
+      .filter((r): r is NonNullable<typeof r> => r !== null)
       .sort((a, b) => b.sec - a.sec)
       .slice(0, 5);
-  }, [rollingEntries, categories]);
+  }, [rollingEntries, allCatMap]);
 
   return (
     <PullToRefresh onRefresh={onRefresh}>
@@ -156,7 +170,7 @@ export default function Home() {
             <p className="text-[10px] font-semibold tracking-[0.18em] uppercase text-secondary-fg/50 mb-1">
               {new Date().toLocaleDateString("en-US", { weekday: "long", month: "long", day: "numeric" })}
             </p>
-            <h1 className="page-title text-foreground overflow-hidden text-ellipsis whitespace-nowrap">
+            <h1 className="page-title text-foreground break-words pr-2">
               {greeting}
             </h1>
           </header>
@@ -229,17 +243,20 @@ export default function Home() {
                 {breakdown.map((row) => (
                   <li key={row.cat!.id} className="flex items-center gap-3">
                     <span className="h-2 w-2 rounded-full shrink-0" style={{ background: row.cat!.color }} />
-                    <span className="text-[13px] font-medium text-foreground/85 truncate flex-1">{row.cat!.name}</span>
+                    <span className="text-[13px] font-medium text-foreground/85 truncate flex-1">
+                      {row.cat!.name}
+                      {row.isDeleted && <span className="text-destructive/70"> (Deleted)</span>}
+                    </span>
                     <div className="flex-1 max-w-[72px] h-[3px] rounded-full bg-foreground/[0.07] overflow-hidden">
                       <div className="h-full rounded-full" style={{ width: `${Math.max(8, row.pct * 100)}%`, background: row.cat!.color }} />
                     </div>
                     <div className="flex flex-col items-end shrink-0 w-[3.8rem]">
                       <span className="text-[12px] tabular-nums text-secondary-fg/80 font-medium leading-tight">{fmtHM(row.sec)}</span>
-                      {row.cat!.hourly_rate && row.cat!.hourly_rate > 0 && (() => {
-                        const earned = fmtMoney((row.sec / 3600) * row.cat!.hourly_rate!, row.cat!.currency || "USD");
-                        if (!earned) return null;
-                        return <span className="text-[10px] tabular-nums text-success/70 font-medium leading-tight">{earned}</span>;
-                      })()}
+                      {row.earned > 0 && (
+                        <span className="text-[10px] tabular-nums text-success/70 font-medium leading-tight">
+                          {fmtMoney(row.earned, row.cat!.currency || "USD")}
+                        </span>
+                      )}
                     </div>
                   </li>
                 ))}

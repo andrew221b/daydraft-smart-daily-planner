@@ -17,6 +17,11 @@ dist-ssr
 .env.*
 !.env.example
 
+# Android release signing — keystore + credentials stay local
+android/key.properties
+android/app/*.jks
+android/app/*.keystore
+
 # Editor directories and files
 .vscode/*
 !.vscode/extensions.json

@@ -3,7 +3,7 @@ import webpush from "npm:web-push@3.6.7";
 
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
-  "Access-Control-Allow-Headers": "authorization, x-client-info, api-key, apikey, content-type, x-dd-dev-pro",
+  "Access-Control-Allow-Headers": "authorization, x-client-info, api-key, apikey, content-type",
 };
 
 /**

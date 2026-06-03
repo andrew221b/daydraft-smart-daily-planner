@@ -162,30 +162,9 @@ export const TOUR_TODAY: TourFlow = {
     {
       id: "tracker",
       selector: "[data-tour='hero-tracker']",
-      title: "Track time as you go",
-      body: "This is your hero: pick a category and tap Start tracking. Today's total and the running session live right here.",
+      title: "Track your time",
+      body: "Pick a category and tap Start. Your running session and today's total live here — open Plan to add a structured schedule.",
       placement: "bottom",
-    },
-    {
-      id: "tab-today",
-      selector: "[data-tour='tab-today']",
-      title: "Plan",
-      body: "Brain-dump your tasks here and DayDraft turns them into a timed plan. Optional — the tracker works on its own.",
-      placement: "top",
-    },
-    {
-      id: "tab-reports",
-      selector: "[data-tour='tab-reports']",
-      title: "Reports",
-      body: "Day, week, and month breakdowns by category. Export PDF or billing-ready reports on Pro.",
-      placement: "top",
-    },
-    {
-      id: "tab-settings",
-      selector: "[data-tour='tab-settings']",
-      title: "Settings",
-      body: "Profile, appearance, reminders, AI tone of voice — and Replay tutorial anytime if you want a refresher.",
-      placement: "top",
     },
   ],
 };
@@ -196,15 +175,28 @@ export const TOUR_DAYVIEW: TourFlow = {
     {
       id: "block",
       selector: "[data-tour='dayview-block']",
-      title: "Your timed blocks",
-      body: "Each row is a slice of your day — time, duration, and type (deep work, routine, etc.). Tap a row for Focus mode when you're ready to work.",
+      title: "Focus mode",
+      body: "Tap any task to enter Focus — start working, track time automatically, and mark it done when finished.",
       placement: "bottom",
     },
     {
       id: "complete",
       selector: "[data-tour='dayview-complete']",
-      title: "Mark progress",
-      body: "Tap the circle when you finish a block. Completed tasks move down so your next step stays obvious.",
+      title: "Mark done",
+      body: "Tap the circle to check a task off. It's marked done right where it is — a clear record of what you've finished today.",
+      placement: "bottom",
+    },
+  ],
+};
+
+export const TOUR_REPORTS: TourFlow = {
+  key: "reports",
+  steps: [
+    {
+      id: "summary",
+      selector: "[data-tour='reports-summary']",
+      title: "Your time summary",
+      body: "See total tracked time and earnings broken down by category. Switch between day, week, and month. Pro unlocks PDF and CSV export.",
       placement: "bottom",
     },
   ],

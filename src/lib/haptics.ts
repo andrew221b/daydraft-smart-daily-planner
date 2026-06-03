@@ -3,18 +3,24 @@
  *
  * Priority order:
  *   1. Native iOS / Android via `@capacitor/haptics` when running inside
- *      Capacitor and the plugin is installed (best feel — real Taptic
- *      Engine vibrations).
+ *      Capacitor (best feel — real Taptic Engine / Vibrator).
  *   2. `navigator.vibrate` on Android Chrome / supported browsers.
  *   3. No-op everywhere else (iOS Safari ignores `navigator.vibrate`
  *      silently; doing nothing is the right behaviour there).
  *
- * The Capacitor call is wrapped in a dynamic import that fails closed,
- * so this file builds and runs whether or not `@capacitor/haptics` is
- * in `package.json` yet. Install the plugin (`npm i @capacitor/haptics`
- * + `npx cap sync ios`) to light up real iOS haptics — no code changes
- * needed in callers.
+ * IMPORTANT — why this is a STATIC import (not a lazy `import()`):
+ * `@capacitor/haptics` is a hard dependency. Importing it at module load
+ * guarantees the plugin REGISTERS with the Capacitor bridge and is bundled
+ * into the main chunk. The previous lazy-import version could fail to load
+ * the chunk (or read `window.Capacitor` before the bridge attached) and then
+ * permanently cache `null` — on iOS that means ZERO feedback forever, because
+ * the `navigator.vibrate` fallback is a no-op there. Matching the rest of the
+ * app (which all use `Capacitor.isNativePlatform()`) removes that whole class
+ * of failure.
  */
+
+import { Capacitor } from "@capacitor/core";
+import { Haptics, ImpactStyle, NotificationType } from "@capacitor/haptics";
 
 type Impact = "light" | "medium" | "heavy";
 type Notify = "success" | "warning" | "error";
@@ -35,6 +41,11 @@ export function setHapticsEnabled(enabled: boolean): void {
   try { localStorage.setItem(HAPTICS_KEY, enabled ? "1" : "0"); } catch { /* ignore */ }
 }
 
+/** True only inside a Capacitor native shell. Same check the rest of the app uses. */
+const isNative = (): boolean => {
+  try { return Capacitor.isNativePlatform(); } catch { return false; }
+};
+
 // Respect the OS "Reduce Motion" preference for the crude web vibrate fallback
 // (vestibular-sensitive users often want buzzes gone too). Native Taptic Engine
 // haptics already honour the iOS system Haptics setting on their own, so this
@@ -44,88 +55,55 @@ const prefersReducedMotion = (): boolean => {
   catch { return false; }
 };
 
-// Cached plugin module reference. `undefined` = not yet loaded, `null` =
-// confirmed web (non-native) environment, otherwise the live module.
-// We only permanently cache `null` for web so native retries after a
-// transient bridge-not-ready failure instead of locking out forever.
-let capPluginCache: {
-  impact: (o: { style: string }) => unknown;
-  notification: (o: { type: string }) => unknown;
-  selectionStart: () => unknown;
-  selectionChanged: () => unknown;
-  selectionEnd: () => unknown;
-} | null | undefined;
-
-type CapacitorGlobal = {
-  isNativePlatform?: () => boolean;
-  isPluginAvailable?: (name: string) => boolean;
-};
-const getCapacitor = (): CapacitorGlobal | undefined => {
-  try {
-    return (window as unknown as { Capacitor?: CapacitorGlobal }).Capacitor;
-  } catch { return undefined; }
-};
-
-const isNative = (): boolean => {
-  try { return !!getCapacitor()?.isNativePlatform?.(); } catch { return false; }
-};
-
-const getCapPlugin = async () => {
-  // Fast path: already loaded.
-  if (capPluginCache != null) return capPluginCache;
-  // Permanent null only for non-native (web / SSR) — no point retrying there.
-  if (!isNative()) { capPluginCache = null; return null; }
-  // If the plugin isn't registered yet (stale binary / bridge not ready),
-  // return null WITHOUT caching so the next call retries.
-  const cap = getCapacitor();
-  if (cap?.isPluginAvailable && !cap.isPluginAvailable("Haptics")) {
-    return null;
-  }
-  try {
-    // eslint-disable-next-line @typescript-eslint/ban-ts-comment
-    // @ts-ignore — optional dependency; resolves only when installed.
-    const mod = await import("@capacitor/haptics");
-    if (mod?.Haptics) capPluginCache = mod.Haptics as typeof capPluginCache;
-  } catch {
-    // Import failed — don't cache, let next call try again.
-  }
-  return capPluginCache ?? null;
-};
-
 const vibrate = (pattern: number | number[]) => {
   if (prefersReducedMotion()) return;
   try { navigator.vibrate?.(pattern); } catch { /* ignore */ }
 };
 
-const fireCapImpact = async (style: Impact) => {
-  const p = await getCapPlugin();
-  if (!p) return false;
-  try {
-    const map = { light: "LIGHT", medium: "MEDIUM", heavy: "HEAVY" } as const;
-    await p.impact({ style: map[style] });
-    return true;
-  } catch { return false; }
+const IMPACT_STYLE: Record<Impact, ImpactStyle> = {
+  light: ImpactStyle.Light,
+  medium: ImpactStyle.Medium,
+  heavy: ImpactStyle.Heavy,
+};
+const NOTIFY_TYPE: Record<Notify, NotificationType> = {
+  success: NotificationType.Success,
+  warning: NotificationType.Warning,
+  error: NotificationType.Error,
 };
 
-const fireCapNotify = async (type: Notify) => {
-  const p = await getCapPlugin();
-  if (!p) return false;
+const fireCapImpact = async (style: Impact): Promise<boolean> => {
+  if (!isNative()) return false;
   try {
-    const map = { success: "SUCCESS", warning: "WARNING", error: "ERROR" } as const;
-    await p.notification({ type: map[type] });
+    await Haptics.impact({ style: IMPACT_STYLE[style] });
     return true;
-  } catch { return false; }
+  } catch (e) {
+    console.warn("[haptics] impact failed", e);
+    return false;
+  }
 };
 
-const fireCapSelection = async () => {
-  const p = await getCapPlugin();
-  if (!p) return false;
+const fireCapNotify = async (type: Notify): Promise<boolean> => {
+  if (!isNative()) return false;
+  try {
+    await Haptics.notification({ type: NOTIFY_TYPE[type] });
+    return true;
+  } catch (e) {
+    console.warn("[haptics] notification failed", e);
+    return false;
+  }
+};
+
+const fireCapSelection = async (): Promise<boolean> => {
+  if (!isNative()) return false;
   // The API requires selectionStart → selectionChanged; there is no selection().
   try {
-    await p.selectionStart();
-    await p.selectionChanged();
+    await Haptics.selectionStart();
+    await Haptics.selectionChanged();
     return true;
-  } catch { return false; }
+  } catch (e) {
+    console.warn("[haptics] selection failed", e);
+    return false;
+  }
 };
 
 export const haptics = {
@@ -159,5 +137,37 @@ export const haptics = {
   selection: () => {
     if (!getHapticsEnabled()) return;
     void fireCapSelection().then((ok) => { if (!ok) vibrate(5); });
+  },
+
+  /**
+   * On-device self-test. Fires a clearly-noticeable MEDIUM impact regardless of
+   * the in-app toggle and returns a verdict you can read from the JS console or
+   * surface in the UI. Use this to settle "is it the code or the phone?":
+   *   • returns { ok:false, reason:"not-native" } → running as web/PWA.
+   *   • returns { ok:false, reason:"plugin-unavailable" } → the native Haptics
+   *     plugin isn't compiled into this build (clean build folder & rebuild).
+   *   • returns { ok:true } but you feel NOTHING → it's the device:
+   *     iOS  → Settings ▸ Sounds & Haptics ▸ "System Haptics" must be ON
+   *            (and the device must not be in Low Power Mode).
+   *     Android → enable "Touch vibration"/"Haptic feedback" in system settings.
+   */
+  async test(): Promise<{ ok: boolean; platform: string; reason?: string }> {
+    const platform = Capacitor.getPlatform();
+    if (!isNative()) {
+      console.warn(`[haptics] test: not native (platform=${platform}) — native haptics are unavailable on web.`);
+      return { ok: false, platform, reason: "not-native" };
+    }
+    if (Capacitor.isPluginAvailable && !Capacitor.isPluginAvailable("Haptics")) {
+      console.error(`[haptics] test: ❌ "Haptics" plugin NOT registered — it isn't compiled into the app target. Clean build folder & rebuild.`);
+      return { ok: false, platform, reason: "plugin-unavailable" };
+    }
+    try {
+      await Haptics.impact({ style: ImpactStyle.Medium });
+      console.log(`[haptics] test: ✅ impact fired on ${platform}. If you felt nothing, the OS is suppressing it — iOS: Settings ▸ Sounds & Haptics ▸ System Haptics = ON (and disable Low Power Mode); Android: enable system Haptic/Touch vibration.`);
+      return { ok: true, platform };
+    } catch (e) {
+      console.error(`[haptics] test: impact threw on ${platform}`, e);
+      return { ok: false, platform, reason: String(e) };
+    }
   },
 };

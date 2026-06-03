@@ -2,7 +2,6 @@ import { useCallback, useEffect, useState } from "react";
 import { keepPreviousData, useQuery, useQueryClient } from "@tanstack/react-query";
 import { supabase } from "@/integrations/supabase/client";
 import { useAuth } from "./useAuth";
-import { isSimulateProUiAllowed, readDevSimulatePro } from "@/lib/devEntitlement";
 
 export type Tier = "free" | "trial" | "pro";
 
@@ -69,15 +68,17 @@ async function fetchEntitlement(userId: string): Promise<EntitlementSnapshot> {
 export const useEntitlement = () => {
   const { user } = useAuth();
   const queryClient = useQueryClient();
-  const [devSimulatePro, setDevSimulatePro] = useState(() =>
-    isSimulateProUiAllowed() ? readDevSimulatePro() : false,
-  );
 
+  // RevenueCat client-side Pro flag — instant UI reflection after a
+  // purchase/restore/renewal, ahead of the webhook persisting to `subscriptions`.
+  // Dynamic import keeps the RC plugin out of the main web chunk.
+  const [rcPro, setRcPro] = useState(false);
   useEffect(() => {
-    if (!isSimulateProUiAllowed()) return;
-    const on = () => setDevSimulatePro(readDevSimulatePro());
-    window.addEventListener("dd-dev-simulate-pro", on);
-    return () => window.removeEventListener("dd-dev-simulate-pro", on);
+    let active = true;
+    void import("@/lib/revenueCat").then(({ getRcPro }) => { if (active) setRcPro(getRcPro()); });
+    const on = (e: Event) => setRcPro(!!(e as CustomEvent<boolean>).detail);
+    window.addEventListener("dd-rc-pro", on as EventListener);
+    return () => { active = false; window.removeEventListener("dd-rc-pro", on as EventListener); };
   }, []);
 
   const { data, isLoading } = useQuery({
@@ -97,7 +98,7 @@ export const useEntitlement = () => {
   const ent = data?.ent ?? null;
   const planQuotaUsed = data?.planQuotaUsed ?? 0;
   const subscriptionPro = ent?.tier === "pro" || ent?.tier === "trial";
-  const isPro = subscriptionPro || devSimulatePro;
+  const isPro = subscriptionPro || rcPro;
   const planQuotaLimit = isPro ? Infinity : FREE_PLAN_QUOTA;
   const planQuotaRemaining = isPro ? Infinity : Math.max(0, FREE_PLAN_QUOTA - planQuotaUsed);
   const overQuota = !isPro && planQuotaUsed >= FREE_PLAN_QUOTA;
@@ -106,7 +107,6 @@ export const useEntitlement = () => {
     entitlement: ent,
     loading: !!user?.id && isLoading,
     isPro,
-    devSimulatePro,
     subscriptionPro,
     planQuotaUsed,
     planQuotaLimit,
@@ -119,12 +119,24 @@ export const useEntitlement = () => {
 export { fetchEntitlement };
 
 /**
- * Provider-agnostic checkout entry-point. Wired later to App Store / Stripe / Paddle
- * via the same interface — no UI changes required.
+ * Checkout entry-point — runs the native RevenueCat purchase sheet (App Store /
+ * Play Billing). On success the global RC listener has already flipped the UI to
+ * Pro; the webhook persists `subscriptions` for server-side gating.
+ *
+ * `onUnavailable` fires when purchases can't run (web, missing keys, no offering),
+ * preserving the existing caller contract. `onSuccess` fires on a completed buy;
+ * a user cancellation resolves silently.
  */
 export const startCheckout = async (
-  _plan: "weekly" | "monthly" | "annual",
-  opts?: { onUnavailable?: () => void }
+  plan: "weekly" | "monthly" | "annual",
+  opts?: { onUnavailable?: () => void; onSuccess?: () => void; onError?: () => void },
 ) => {
-  opts?.onUnavailable?.();
+  const { purchasePlan } = await import("@/lib/revenueCat");
+  const { outcome } = await purchasePlan(plan);
+  switch (outcome) {
+    case "purchased": opts?.onSuccess?.(); return;
+    case "cancelled": return; // user backed out — no toast
+    case "error": (opts?.onError ?? opts?.onUnavailable)?.(); return;
+    default: opts?.onUnavailable?.(); return; // "unavailable"
+  }
 };

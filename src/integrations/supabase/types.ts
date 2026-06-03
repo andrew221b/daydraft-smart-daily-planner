@@ -14,6 +14,45 @@ export type Database = {
   }
   public: {
     Tables: {
+      billing_payment_details: {
+        Row: {
+          bank_name: string | null
+          created_at: string
+          crypto_network: string | null
+          crypto_wallet: string | null
+          display_name: string | null
+          iban: string | null
+          notes: string | null
+          payment_link: string | null
+          updated_at: string
+          user_id: string
+        }
+        Insert: {
+          bank_name?: string | null
+          created_at?: string
+          crypto_network?: string | null
+          crypto_wallet?: string | null
+          display_name?: string | null
+          iban?: string | null
+          notes?: string | null
+          payment_link?: string | null
+          updated_at?: string
+          user_id: string
+        }
+        Update: {
+          bank_name?: string | null
+          created_at?: string
+          crypto_network?: string | null
+          crypto_wallet?: string | null
+          display_name?: string | null
+          iban?: string | null
+          notes?: string | null
+          payment_link?: string | null
+          updated_at?: string
+          user_id?: string
+        }
+        Relationships: []
+      }
       block_templates: {
         Row: {
           created_at: string
@@ -42,12 +81,12 @@ export type Database = {
         Row: {
           actual_minutes: number | null
           ai_reasoning: string | null
-          block_type: string | null
+          block_type: string
           completed: boolean
           completed_at: string | null
           created_at: string
           duration_min: number
-          estimated_minutes: number | null
+          estimated_minutes: number
           id: string
           is_calendar_event: boolean
           kind: string
@@ -71,12 +110,12 @@ export type Database = {
         Insert: {
           actual_minutes?: number | null
           ai_reasoning?: string | null
-          block_type?: string | null
+          block_type?: string
           completed?: boolean
           completed_at?: string | null
           created_at?: string
           duration_min: number
-          estimated_minutes?: number | null
+          estimated_minutes?: number
           id?: string
           is_calendar_event?: boolean
           kind?: string
@@ -100,12 +139,12 @@ export type Database = {
         Update: {
           actual_minutes?: number | null
           ai_reasoning?: string | null
-          block_type?: string | null
+          block_type?: string
           completed?: boolean
           completed_at?: string | null
           created_at?: string
           duration_min?: number
-          estimated_minutes?: number | null
+          estimated_minutes?: number
           id?: string
           is_calendar_event?: boolean
           kind?: string
@@ -162,6 +201,30 @@ export type Database = {
           expires_at?: string | null
           refresh_token?: string
           updated_at?: string
+          user_id?: string
+        }
+        Relationships: []
+      }
+      notification_log: {
+        Row: {
+          id: string
+          kind: string
+          local_date: string
+          sent_at: string
+          user_id: string
+        }
+        Insert: {
+          id?: string
+          kind: string
+          local_date: string
+          sent_at?: string
+          user_id: string
+        }
+        Update: {
+          id?: string
+          kind?: string
+          local_date?: string
+          sent_at?: string
           user_id?: string
         }
         Relationships: []
@@ -298,6 +361,42 @@ export type Database = {
         }
         Relationships: []
       }
+      push_tokens: {
+        Row: {
+          created_at: string
+          device_id: string | null
+          device_model: string | null
+          enabled: boolean
+          id: string
+          platform: string
+          token: string
+          updated_at: string
+          user_id: string
+        }
+        Insert: {
+          created_at?: string
+          device_id?: string | null
+          device_model?: string | null
+          enabled?: boolean
+          id?: string
+          platform: string
+          token: string
+          updated_at?: string
+          user_id: string
+        }
+        Update: {
+          created_at?: string
+          device_id?: string | null
+          device_model?: string | null
+          enabled?: boolean
+          id?: string
+          platform?: string
+          token?: string
+          updated_at?: string
+          user_id?: string
+        }
+        Relationships: []
+      }
       quick_captures: {
         Row: {
           consumed: boolean
@@ -414,11 +513,13 @@ export type Database = {
           created_at: string
           currency: string
           daily_cap_minutes: number | null
+          deleted_at: string | null
           hourly_rate: number | null
           id: string
           is_default: boolean
           name: string
           payment_method: string | null
+          rate_set_at: string | null
           user_id: string
         }
         Insert: {
@@ -434,11 +535,13 @@ export type Database = {
           created_at?: string
           currency?: string
           daily_cap_minutes?: number | null
+          deleted_at?: string | null
           hourly_rate?: number | null
           id?: string
           is_default?: boolean
           name: string
           payment_method?: string | null
+          rate_set_at?: string | null
           user_id: string
         }
         Update: {
@@ -454,11 +557,13 @@ export type Database = {
           created_at?: string
           currency?: string
           daily_cap_minutes?: number | null
+          deleted_at?: string | null
           hourly_rate?: number | null
           id?: string
           is_default?: boolean
           name?: string
           payment_method?: string | null
+          rate_set_at?: string | null
           user_id?: string
         }
         Relationships: []
@@ -471,8 +576,11 @@ export type Database = {
           ended_at: string | null
           id: string
           note: string | null
+          snapshot_currency: string | null
+          snapshot_hourly_rate: number | null
           source: string
           started_at: string
+          task_title: string | null
           user_id: string
         }
         Insert: {
@@ -482,8 +590,11 @@ export type Database = {
           ended_at?: string | null
           id?: string
           note?: string | null
+          snapshot_currency?: string | null
+          snapshot_hourly_rate?: number | null
           source?: string
           started_at?: string
+          task_title?: string | null
           user_id: string
         }
         Update: {
@@ -493,8 +604,11 @@ export type Database = {
           ended_at?: string | null
           id?: string
           note?: string | null
+          snapshot_currency?: string | null
+          snapshot_hourly_rate?: number | null
           source?: string
           started_at?: string
+          task_title?: string | null
           user_id?: string
         }
         Relationships: [
@@ -669,3 +783,6 @@ export const Constants = {
     Enums: {},
   },
 } as const
+<claude-code-hint v="1" type="plugin" value="supabase@claude-plugins-official" />
+A new version of Supabase CLI is available: v2.104.0 (currently installed v2.98.2)
+We recommend updating regularly for new features and bug fixes: https://supabase.com/docs/guides/cli/getting-started#updating-the-supabase-cli

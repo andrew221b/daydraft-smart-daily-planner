@@ -23,6 +23,8 @@ export const AuthProvider = ({ children }: { children: ReactNode }) => {
         setLoading(false);
         if (s?.user?.id && (event === "SIGNED_IN" || event === "TOKEN_REFRESHED")) {
           void registerNativePush(s.user.id);
+          // Tie RevenueCat purchases to this Supabase user (webhook maps it back).
+          void import("@/lib/revenueCat").then(({ identifyRevenueCat }) => identifyRevenueCat(s.user.id));
         }
       });
       unsubscribe = () => sub.subscription.unsubscribe();
@@ -52,7 +54,10 @@ export const AuthProvider = ({ children }: { children: ReactNode }) => {
           const sess = result.data.session;
           setSession(sess);
           setSentryUser(sess?.user?.id ?? null, sess?.user?.email ?? null);
-          if (sess?.user?.id) void registerNativePush(sess.user.id);
+          if (sess?.user?.id) {
+            void registerNativePush(sess.user.id);
+            void import("@/lib/revenueCat").then(({ identifyRevenueCat }) => identifyRevenueCat(sess.user!.id));
+          }
         }
       } catch {
         // Network/auth error: leave session untouched (likely null on first
@@ -80,6 +85,7 @@ export const AuthProvider = ({ children }: { children: ReactNode }) => {
           if (uid) {
             try { await unregisterNativePush(uid); } catch { /* never block sign-out */ }
           }
+          try { const { logoutRevenueCat } = await import("@/lib/revenueCat"); await logoutRevenueCat(); } catch { /* never block sign-out */ }
           await supabase.auth.signOut();
           // After the Supabase session is cleared, also drop the cached native
           // OAuth grant. Without this step, Google's iOS SDK keeps the picked

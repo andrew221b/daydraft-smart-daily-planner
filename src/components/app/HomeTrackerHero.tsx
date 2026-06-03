@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useRef, useState, type CSSProperties, type FormEvent } from "react";
-import { AnimatePresence, motion } from "framer-motion";
+import { motion } from "framer-motion";
 import { Check, Play, Square, Plus, Search, ChevronDown, Wallet, Pencil, Trash2 } from "lucide-react";
 import { useTimeTracker, subscribeElapsed, getElapsedSec, fmtHMS, fmtHM } from "@/hooks/useTimeTracker";
 import { LiveElapsed } from "@/components/app/LiveElapsed";
@@ -13,6 +13,7 @@ import { haptics } from "@/lib/haptics";
 import { toast } from "sonner";
 import { PaymentMethodFields, type PaymentFieldsValue } from "@/components/app/PaymentMethodFields";
 import { getPaymentMethod } from "@/lib/paymentMethods";
+import { parseHourlyRate } from "@/lib/rateInput";
 import { verifyBiometric, getGatePref } from "@/lib/biometricGate";
 import { BiometricGateSheet } from "@/components/app/BiometricGateSheet";
 import { useTabVisible } from "@/components/app/PersistentTabs";
@@ -32,7 +33,9 @@ function fmtMoney(amount: number, currency: string): string {
     return new Intl.NumberFormat("en-US", {
       style: "currency",
       currency,
-      minimumFractionDigits: 0,
+      // Always 2 decimals so the live earnings read consistently with cents
+      // (e.g. +$0.00 → +$15.53), matching the Tracker and Reports.
+      minimumFractionDigits: 2,
       maximumFractionDigits: 2,
     }).format(amount);
   } catch {
@@ -138,7 +141,7 @@ export function HomeTrackerHero({ onOpenDetails }: { onOpenDetails: () => void }
   const [paymentSaving, setPaymentSaving] = useState(false);
   const [rateSaving, setRateSaving] = useState(false);
   const [upgradeOpen, setUpgradeOpen] = useState(false);
-  const [bioGateOpen, setBioGateOpen] = useState(false);
+  const [bioGateIntent, setBioGateIntent] = useState<"expand" | "payment" | false>(false);
   // Picker-sheet inline manage state — long-press a row to edit/delete it
   // without leaving the picker. Surfaces what was previously only
   // discoverable via the tracker page's swipe-row affordance.
@@ -151,8 +154,16 @@ export function HomeTrackerHero({ onOpenDetails }: { onOpenDetails: () => void }
   const savedRateStr = selectedCat?.hourly_rate == null ? "" : String(selectedCat.hourly_rate);
   const rateDirty = draftRate.replace(",", ".").trim() !== savedRateStr;
   const accent = activeCat?.color || selectedCat?.color || "hsl(var(--primary))";
-  const topCats = categories.slice(0, 4);
-  const moreCats = categories.slice(4);
+  // Always put the selected category first so it stays visible even when
+  // there are 5+ categories and some are hidden behind "More".
+  const orderedCats = useMemo(() => {
+    if (!selectedCategoryId) return categories;
+    const sel = categories.find((c) => c.id === selectedCategoryId);
+    if (!sel) return categories;
+    return [sel, ...categories.filter((c) => c.id !== selectedCategoryId)];
+  }, [categories, selectedCategoryId]);
+  const topCats = orderedCats.slice(0, 4);
+  const moreCats = orderedCats.slice(4);
   const filteredCategories = useMemo(() => {
     const q = categoryQuery.trim().toLowerCase();
     if (!q) return categories;
@@ -215,14 +226,19 @@ export function HomeTrackerHero({ onOpenDetails }: { onOpenDetails: () => void }
 
   const saveRate = async (silent = false) => {
     if (!selectedCat) return;
-    const cleaned = draftRate.replace(",", ".").trim();
-    const rateNum = cleaned === "" ? null : Number(cleaned);
-    const rateNorm =
-      rateNum === null || !Number.isFinite(rateNum) || rateNum < 0 ? null : Math.round(rateNum * 100) / 100;
+    const parsed = parseHourlyRate(draftRate);
+    // Garbage input (letters, symbols, "0123") — never silently report "saved".
+    // On an explicit Save, tell the user the format is wrong and keep the
+    // existing rate; on blur, stay quiet but still don't overwrite the rate.
+    if (parsed.kind === "invalid") {
+      if (!silent) toast.error("Invalid rate — enter a number like 25 or 25.50");
+      return;
+    }
+    const rateNorm = parsed.kind === "cleared" ? null : parsed.value;
     setRateSaving(true);
     try {
       await updateCategoryRate(selectedCat.id, rateNorm);
-      if (!silent) toast.success("Hourly rate saved");
+      if (!silent) toast.success(rateNorm === null ? "Hourly rate cleared" : "Hourly rate saved");
     } catch (e: unknown) {
       toast.error(e instanceof Error ? e.message : "Save failed");
     } finally {
@@ -364,12 +380,19 @@ export function HomeTrackerHero({ onOpenDetails }: { onOpenDetails: () => void }
                   className="font-display text-[3.4rem] font-semibold tabular-nums leading-none tracking-[-0.04em] text-foreground"
                 />
               </div>
-              {activeCat?.hourly_rate && activeCat.hourly_rate > 0 && (
-                <FlipEarnings
-                  rate={activeCat.hourly_rate}
-                  currency={activeCat.currency || "USD"}
-                />
-              )}
+              {(() => {
+                // Use only the snapshot rate captured when this session started.
+                // Changing the category rate mid-session must not alter the live
+                // earnings display — the session is billed at the rate it began with.
+                const currentSessionRate = active?.snapshot_hourly_rate;
+                if (!currentSessionRate || currentSessionRate <= 0) return null;
+                return (
+                  <FlipEarnings
+                    rate={currentSessionRate}
+                    currency={activeCat?.currency || "USD"}
+                  />
+                );
+              })()}
               <button
                 type="button"
                 onClick={() => { haptics.impact("medium"); void stop(); }}
@@ -422,7 +445,7 @@ export function HomeTrackerHero({ onOpenDetails }: { onOpenDetails: () => void }
 
         {/* Quick category chips when idle */}
         {!active && topCats.length > 0 && (
-          <div className="mt-4 -mx-1 flex gap-1.5 overflow-x-auto pb-1 px-1 scrollbar-none">
+          <div className="mt-4 -mx-1 flex gap-1.5 overflow-x-auto pb-1 px-1 no-scrollbar">
             {topCats.map((c) => (
               <button
                 key={c.id}
@@ -469,7 +492,8 @@ export function HomeTrackerHero({ onOpenDetails }: { onOpenDetails: () => void }
         )}
         {/* Billing — collapsed by default, tap to expand. */}
         {!active && selectedCat && (
-          <div className="mt-3 rounded-2xl border border-border/40 bg-background/30 overflow-hidden">
+          <div className="mt-3 rounded-2xl border border-border/50 bg-card overflow-hidden shadow-sm">
+            {/* Accordion header */}
             <button
               type="button"
               onClick={async () => {
@@ -477,127 +501,136 @@ export function HomeTrackerHero({ onOpenDetails }: { onOpenDetails: () => void }
                   setBillingExpanded(false);
                 } else {
                   if (getGatePref() === "unset") {
-                    setBioGateOpen(true);
+                    setBioGateIntent("expand");
                     return;
                   }
                   const allowed = await verifyBiometric("Access Rate & Billing");
                   if (allowed) setBillingExpanded(true);
                 }
               }}
-              className="w-full flex items-center justify-between px-3.5 py-3 hover:bg-foreground/[0.015] pressable transition-colors"
+              className="w-full flex items-center justify-between px-4 py-3 hover:bg-foreground/[0.02] pressable transition-colors"
             >
-              <span className="text-[11px] font-semibold uppercase tracking-[0.16em] text-secondary-fg/60">
-                Rate & billing
-              </span>
               <div className="flex items-center gap-2">
-                {selectedCat.hourly_rate != null && (
-                  <span className="text-[12px] font-semibold text-foreground/70 tabular-nums">
+                <span className="text-[12px] font-semibold text-foreground/75">Rate & Billing</span>
+                {!billingExpanded && selectedCat.hourly_rate != null && (
+                  <span className="inline-flex items-center rounded-full bg-primary/10 border border-primary/20 px-2 py-0.5 text-[11px] font-semibold tabular-nums text-primary">
                     {fmtMoney(selectedCat.hourly_rate, selectedCat.currency || "USD")}/h
                   </span>
                 )}
-                <ChevronDown
-                  className={`h-3.5 w-3.5 text-secondary-fg/50 transition-transform duration-200 ${billingExpanded ? "rotate-180" : ""}`}
-                />
               </div>
+              <ChevronDown
+                className={`h-3.5 w-3.5 text-secondary-fg/50 transition-transform duration-200 ${billingExpanded ? "rotate-180" : ""}`}
+              />
             </button>
 
-            <AnimatePresence initial={false}>
-              {billingExpanded && (
-                <motion.div
-                  initial={{ height: 0, opacity: 0 }}
-                  animate={{ height: "auto", opacity: 1 }}
-                  exit={{ height: 0, opacity: 0 }}
-                  transition={{ type: "spring", stiffness: 340, damping: 28, mass: 0.85 }}
-                  style={{ overflow: "hidden" }}
-                >
-                  <div className="px-3.5 pb-3.5 flex flex-col gap-4 pt-1 overflow-hidden">
-                    <motion.div
-                      initial={{ opacity: 0, y: 8 }}
-                      animate={{ opacity: 1, y: 0 }}
-                      transition={{ delay: 0.06, type: "spring", stiffness: 380, damping: 28 }}
-                      className="space-y-1"
-                    >
-                      <span className="text-[10px] text-secondary-fg/70">Hourly rate</span>
-                      <div className="flex items-center gap-2">
-                        <Input
-                          inputMode="decimal"
-                          value={draftRate}
-                          onChange={(e) => setDraftRate(e.target.value)}
-                          onBlur={() => { if (rateDirty && !rateSaving) void saveRate(true); }}
-                          placeholder="—"
-                          className="flex-1 h-10 rounded-xl bg-transparent text-[13px] font-mono tabular-nums border-border/35 focus-visible:ring-1 focus-visible:ring-primary/25 focus-visible:border-primary/35 shadow-none"
-                        />
-                        {rateDirty && (
-                          <Button
-                            type="button"
-                            size="sm"
-                            disabled={rateSaving}
-                            onClick={() => void saveRate(false)}
-                            className="h-10 rounded-xl text-[12px] font-semibold px-4"
-                          >
-                            {rateSaving ? "Saving…" : "Save"}
-                          </Button>
-                        )}
-                      </div>
-                    </motion.div>
+            {/* CSS-only accordion — avoids Framer height remeasure on keyboard open */}
+            <div
+              className="overflow-hidden"
+              style={{
+                maxHeight: billingExpanded ? 500 : 0,
+                opacity: billingExpanded ? 1 : 0,
+                transition: billingExpanded
+                  ? "max-height 260ms ease-out, opacity 180ms ease-out"
+                  : "max-height 200ms ease-in, opacity 140ms ease-in",
+              }}
+            >
+              {/* Divider between header and content */}
+              <div className="h-px bg-border/40 mx-4" />
 
-                    <motion.div
-                      initial={{ opacity: 0, y: 8 }}
-                      animate={{ opacity: 1, y: 0 }}
-                      transition={{ delay: 0.12, type: "spring", stiffness: 380, damping: 28 }}
-                      className="space-y-1"
-                    >
-                      <span className="text-[10px] text-secondary-fg/70">Payment method</span>
-                      <button
+              <div className="px-4 pb-4 flex flex-col gap-3.5 pt-3.5">
+                {/* Hourly rate row */}
+                <div>
+                  <p className="text-[10.5px] font-semibold uppercase tracking-[0.12em] text-secondary-fg/55 mb-1.5">Hourly rate</p>
+                  <div className="flex items-center gap-2">
+                    <Input
+                      inputMode="decimal"
+                      value={draftRate}
+                      onChange={(e) => setDraftRate(e.target.value)}
+                      onBlur={() => { if (rateDirty && !rateSaving) void saveRate(true); }}
+                      onFocus={(e) => {
+                        const len = e.target.value.length;
+                        e.target.setSelectionRange(len, len);
+                      }}
+                      placeholder="0.00"
+                      className="flex-1 h-10 rounded-xl bg-foreground/[0.04] text-[13px] font-mono tabular-nums border-border/40 focus-visible:ring-1 focus-visible:ring-primary/30 focus-visible:border-primary/40"
+                    />
+                    {rateDirty && (
+                      <Button
                         type="button"
-                        onClick={() => {
-                          if (!isPro) { setUpgradeOpen(true); return; }
-                          setBillingOpen(true);
-                        }}
-                        className="group relative flex w-full items-center gap-2.5 rounded-xl border border-border/40 bg-transparent hover:bg-foreground/[0.015] px-3 py-2.5 text-left pressable active:scale-[0.99] transition-all shadow-[inset_0_1px_2px_rgba(0,0,0,0.02)] dark:shadow-[inset_0_1px_4px_rgba(0,0,0,0.2)]"
+                        size="sm"
+                        disabled={rateSaving}
+                        onClick={() => void saveRate(false)}
+                        className="h-10 rounded-xl text-[12px] font-semibold px-4 shrink-0"
                       >
-                        {(() => {
-                          const m = getPaymentMethod(selectedCat.payment_method);
-                          const cur = (selectedCat.currency || "USD").toUpperCase();
-                          if (m) {
-                            const Icon = m.Icon;
-                            return (
-                              <>
-                                <span
-                                  className="flex h-7 w-7 shrink-0 items-center justify-center rounded-lg bg-primary/10 text-primary"
-                                >
-                                  <Icon className="h-3.5 w-3.5" strokeWidth={2.4} />
-                                </span>
-                                <span className="min-w-0 flex-1 text-[13px] font-semibold text-foreground truncate leading-tight">
-                                  {m.label}
-                                </span>
-                                <span className="shrink-0 inline-flex items-center rounded-md bg-foreground/[0.06] px-1.5 py-0.5 text-[10.5px] font-semibold tabular-nums tracking-[0.04em] text-foreground/75">
-                                  {cur}
-                                </span>
-                              </>
-                            );
-                          }
-                          return (
-                            <>
-                              <span className="flex h-7 w-7 shrink-0 items-center justify-center rounded-lg bg-secondary text-secondary-fg">
-                                <Wallet className="h-3.5 w-3.5" strokeWidth={2} />
-                              </span>
-                              <span className="min-w-0 flex-1 text-[13px] font-medium text-secondary-fg/85 truncate leading-tight">
-                                Add payment details
-                              </span>
-                              <span className="shrink-0 inline-flex items-center rounded-md bg-foreground/[0.04] px-1.5 py-0.5 text-[10.5px] font-semibold tabular-nums tracking-[0.04em] text-secondary-fg/65">
-                                {cur}
-                              </span>
-                            </>
-                          );
-                        })()}
-                        <ChevronDown className="h-4 w-4 -rotate-90 text-secondary-fg/55 shrink-0" />
-                      </button>
-                    </motion.div>
+                        {rateSaving ? "Saving…" : "Save"}
+                      </Button>
+                    )}
                   </div>
-                </motion.div>
-              )}
-            </AnimatePresence>
+                </div>
+
+                {/* Payment method row */}
+                <div>
+                  <p className="text-[10.5px] font-semibold uppercase tracking-[0.12em] text-secondary-fg/55 mb-1.5">Payment method</p>
+                  <button
+                    type="button"
+                    onClick={() => {
+                      if (!isPro) { setUpgradeOpen(true); return; }
+                      setBillingOpen(true);
+                    }}
+                    className="group relative flex w-full items-center gap-2.5 rounded-xl border px-3 py-2.5 text-left pressable active:scale-[0.99] transition-all"
+                    style={(() => {
+                      const m = getPaymentMethod(selectedCat.payment_method);
+                      if (!m) return { borderColor: "hsl(var(--border) / 0.45)", background: "hsl(var(--foreground) / 0.03)" };
+                      return {
+                        borderColor: `hsl(${m.accent} / 0.35)`,
+                        background: `linear-gradient(135deg, hsl(${m.accent} / 0.08) 0%, hsl(${m.accent} / 0.03) 100%)`,
+                      };
+                    })()}
+                  >
+                    {(() => {
+                      const m = getPaymentMethod(selectedCat.payment_method);
+                      const cur = (selectedCat.currency || "USD").toUpperCase();
+                      if (m) {
+                        const Icon = m.Icon;
+                        return (
+                          <>
+                            <span
+                              className="flex h-7 w-7 shrink-0 items-center justify-center rounded-lg"
+                              style={{ background: `hsl(${m.accent} / 0.18)`, color: `hsl(${m.accent})` }}
+                            >
+                              <Icon className="h-3.5 w-3.5" strokeWidth={2.4} />
+                            </span>
+                            <span className="min-w-0 flex-1 text-[13px] font-semibold text-foreground truncate leading-tight">
+                              {m.label}
+                            </span>
+                            <span
+                              className="shrink-0 inline-flex items-center rounded-md px-1.5 py-0.5 text-[10.5px] font-semibold tabular-nums tracking-[0.04em]"
+                              style={{ background: `hsl(${m.accent} / 0.12)`, color: `hsl(${m.accent} / 0.9)` }}
+                            >
+                              {cur}
+                            </span>
+                          </>
+                        );
+                      }
+                      return (
+                        <>
+                          <span className="flex h-7 w-7 shrink-0 items-center justify-center rounded-lg bg-foreground/[0.06] text-secondary-fg">
+                            <Wallet className="h-3.5 w-3.5" strokeWidth={2} />
+                          </span>
+                          <span className="min-w-0 flex-1 text-[13px] font-medium text-secondary-fg/80 truncate leading-tight">
+                            Add payment details
+                          </span>
+                          <span className="shrink-0 inline-flex items-center rounded-md bg-foreground/[0.06] px-1.5 py-0.5 text-[10.5px] font-semibold tabular-nums tracking-[0.04em] text-secondary-fg/60">
+                            {cur}
+                          </span>
+                        </>
+                      );
+                    })()}
+                    <ChevronDown className="h-4 w-4 -rotate-90 text-secondary-fg/55 shrink-0" />
+                  </button>
+                </div>
+              </div>
+            </div>
           </div>
         )}
       </div>
@@ -772,7 +805,6 @@ export function HomeTrackerHero({ onOpenDetails }: { onOpenDetails: () => void }
       <Sheet open={billingOpen} onOpenChange={setBillingOpen}>
         <SheetContent
           side="bottom"
-          hideClose
           className="rounded-t-[28px] border-border/45 bg-popover max-h-[90vh] flex flex-col p-0"
           style={{ paddingBottom: "var(--keyboard-inset, 0px)" }}
         >
@@ -823,12 +855,15 @@ export function HomeTrackerHero({ onOpenDetails }: { onOpenDetails: () => void }
       </Sheet>
 
       <BiometricGateSheet
-        open={bioGateOpen}
-        onClose={() => setBioGateOpen(false)}
+        open={!!bioGateIntent}
+        onClose={() => setBioGateIntent(false)}
         feature="billing"
         onResult={(success) => {
-          setBioGateOpen(false);
-          if (success) setBillingOpen(true);
+          if (success) {
+            if (bioGateIntent === "expand") setBillingExpanded(true);
+            else if (bioGateIntent === "payment") setBillingOpen(true);
+          }
+          setBioGateIntent(false);
         }}
       />
 

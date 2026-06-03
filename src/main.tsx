@@ -85,13 +85,20 @@ function tryFadeOverlay(): void {
 }
 
 if (Capacitor.isNativePlatform()) {
-  // Pre-warm the iOS WKWebView keyboard while the native splash screen
-  // is still covering the app. This eliminates the 1-3 second main-thread
-  // freeze that occurs the first time an input is focused in a session.
+  // Pre-warm the iOS WKWebView TextKit engine while the native splash screen
+  // is still covering the app. TextKit initialises lazily on first editable
+  // focus, causing a 200-800ms main-thread freeze. Rules for the warmup:
+  //   - Element must be IN the viewport (not top:-9999px) — iOS skips TextKit
+  //     for out-of-viewport elements.
+  //   - opacity must be > 0 (even 0.01 works) — opacity:0 is also skipped.
+  //   - fontSize ≥ 16px — prevents iOS from zooming the viewport on focus.
+  //   - inputMode "none" — tells iOS not to actually show the keyboard UI
+  //     while still triggering the TextKit warm-up path.
+  //   - Hold focus for ≥ 250ms — the engine needs time to fully initialise.
   const prewarm = document.createElement("input");
-  prewarm.style.position = "fixed";
-  prewarm.style.top = "-9999px";
-  prewarm.style.opacity = "0";
+  prewarm.setAttribute("inputmode", "none");
+  prewarm.style.cssText =
+    "position:fixed;top:0;left:0;width:1px;height:1px;font-size:16px;opacity:0.01;pointer-events:none;border:none;outline:none;background:transparent;";
   document.body.appendChild(prewarm);
   prewarm.focus();
 
@@ -115,7 +122,7 @@ if (Capacitor.isNativePlatform()) {
         splashGone = true;
         tryFadeOverlay();
       });
-  }, 60);
+  }, 300);
   // Hard failsafe: if SplashScreen.hide never resolves at all, don't
   // leave the user staring at the boot loader forever.
   window.setTimeout(() => {
@@ -148,6 +155,8 @@ whenIdle(() => {
   try { startOfflineQueueDrainer(); } catch (e) { console.error("[offlineQueue]", e); }
   // Capacitor native shim init — status bar, haptics availability, etc.
   void initCapacitor();
+  // RevenueCat (native IAP) — configures once; no-op on web / without keys.
+  void import("./lib/revenueCat").then(({ configureRevenueCat }) => configureRevenueCat());
   // Service worker registration (web only — no-ops on Capacitor native).
   registerServiceWorker();
   // Time-to-interactive marker for the perf debug panel.

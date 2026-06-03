@@ -1,5 +1,5 @@
 import { motion, AnimatePresence } from "framer-motion";
-import { Check, Clock } from "lucide-react";
+import { Check, Clock, RotateCcw } from "lucide-react";
 import { Sheet, SheetContent, SheetTitle } from "@/components/ui/sheet";
 import { haptics } from "@/lib/haptics";
 import { useSheetSwipeDown } from "@/hooks/useSheetSwipeDown";
@@ -10,6 +10,8 @@ type Props = {
   taskTitle: string;
   resolution: "missed" | "skipped";
   onConfirm: () => void;
+  /** Bring the task back to the active list and let the user re-pick time/duration. */
+  onReturn: () => void;
 };
 
 export function LateCompleteSheet({
@@ -18,6 +20,7 @@ export function LateCompleteSheet({
   taskTitle,
   resolution,
   onConfirm,
+  onReturn,
 }: Props) {
   const swipe = useSheetSwipeDown(() => onOpenChange(false));
 
@@ -26,6 +29,12 @@ export function LateCompleteSheet({
   const handleConfirm = () => {
     haptics.notify("success");
     onConfirm();
+    onOpenChange(false);
+  };
+
+  const handleReturn = () => {
+    haptics.tap();
+    onReturn();
     onOpenChange(false);
   };
 
@@ -126,7 +135,7 @@ export function LateCompleteSheet({
             transition={{ delay: 0.1, type: "spring", bounce: 0.2, duration: 0.5 }}
             className="font-display text-[20px] font-semibold tracking-tight text-foreground/95 mb-2"
           >
-            Mark as completed?
+            {isMissed ? "This task was missed" : "This task was skipped"}
           </motion.h2>
 
           {/* Subtitle */}
@@ -136,9 +145,7 @@ export function LateCompleteSheet({
             transition={{ delay: 0.15, type: "spring", bounce: 0.15, duration: 0.5 }}
             className="text-[13px] text-secondary-fg/70 leading-relaxed max-w-[280px] mb-5"
           >
-            {isMissed
-              ? "This task was marked as missed — did you actually complete it and forgot to check it off?"
-              : "This task was skipped — did you actually finish it?"}
+            Did you finish it after all — or put it back on your list to reschedule?
           </motion.p>
 
           {/* Task title card */}
@@ -210,11 +217,21 @@ export function LateCompleteSheet({
               Yes, I completed it
             </button>
 
+            {/* Return to task list — secondary */}
+            <button
+              type="button"
+              onClick={handleReturn}
+              className="w-full h-[50px] rounded-[16px] text-[14px] font-semibold text-foreground/90 border border-border/45 bg-card/40 hover:bg-card/70 pressable flex items-center justify-center gap-2 transition-colors"
+            >
+              <RotateCcw className="h-4 w-4 shrink-0" strokeWidth={2.25} />
+              Return to task list
+            </button>
+
             {/* Cancel — ghost */}
             <button
               type="button"
               onClick={handleCancel}
-              className="w-full h-[46px] rounded-[16px] text-[14px] font-medium text-secondary-fg/80 hover:text-foreground border border-border/35 bg-card/30 hover:bg-card/60 pressable transition-colors"
+              className="w-full h-[44px] rounded-[16px] text-[13px] font-medium text-secondary-fg/70 hover:text-foreground pressable transition-colors"
             >
               Cancel
             </button>

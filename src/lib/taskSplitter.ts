@@ -103,6 +103,88 @@ export function extractDurationFromTitle(rawTitle: string): { title: string; dur
   return { title: cleanedTitle || cleanupTitle(original), duration: capped };
 }
 
+export function extractStartTimeFromTitle(rawTitle: string): { title: string; start_time: string | null } {
+  const toHHMM = (h: number, m: number) =>
+    `${String(Math.min(23, h)).padStart(2, "0")}:${String(Math.min(59, m)).padStart(2, "0")}`;
+
+  // Noon / midnight
+  if (/\bв?\s*полдень\b/i.test(rawTitle))
+    return { title: cleanupTitle(rawTitle.replace(/\bв?\s*полдень\b/gi, "")), start_time: "12:00" };
+  if (/\bat?\s*noon\b/i.test(rawTitle))
+    return { title: cleanupTitle(rawTitle.replace(/\bat?\s*noon\b/gi, "")), start_time: "12:00" };
+  if (/\bв?\s*полночь\b/i.test(rawTitle))
+    return { title: cleanupTitle(rawTitle.replace(/\bв?\s*полночь\b/gi, "")), start_time: "00:00" };
+  if (/\bat?\s*midnight\b/i.test(rawTitle))
+    return { title: cleanupTitle(rawTitle.replace(/\bat?\s*midnight\b/gi, "")), start_time: "00:00" };
+
+  let m: RegExpMatchArray | null;
+
+  // "в NN:MM" or "в NN.MM" — Russian explicit time
+  m = rawTitle.match(/\bв\s+(\d{1,2})[:.](\d{2})\b/i);
+  if (m) {
+    const h = parseInt(m[1], 10), min = parseInt(m[2], 10);
+    if (h <= 23 && min <= 59)
+      return { title: cleanupTitle(rawTitle.replace(m[0], "")), start_time: toHHMM(h, min) };
+  }
+
+  // "в N утра/вечера/дня/ночи" — Russian hour + period of day
+  m = rawTitle.match(/\bв\s+(\d{1,2})(?:[:.](\d{2}))?\s*(утра|утром|вечера|вечером|дня|ночи|ночью)\b/i);
+  if (m) {
+    let h = parseInt(m[1], 10);
+    const min = m[2] ? parseInt(m[2], 10) : 0;
+    const p = m[3].toLowerCase();
+    if (p === "вечера" || p === "вечером") { if (h !== 12 && h < 12) h += 12; }
+    else if (p === "дня") { if (h > 0 && h < 12) h += 12; }
+    else if (p === "ночи" || p === "ночью") { if (h >= 7) h = 0; }
+    if (h <= 23 && min <= 59)
+      return { title: cleanupTitle(rawTitle.replace(m[0], "")), start_time: toHHMM(h, min) };
+  }
+
+  // "at NN:MM am/pm" — English with colon
+  m = rawTitle.match(/\bat\s+(\d{1,2}):(\d{2})\s*(am|pm)?\b/i);
+  if (m) {
+    let h = parseInt(m[1], 10);
+    const min = parseInt(m[2], 10);
+    const ampm = (m[3] || "").toLowerCase();
+    if (ampm === "pm" && h !== 12 && h < 12) h += 12;
+    if (ampm === "am" && h === 12) h = 0;
+    if (h <= 23 && min <= 59)
+      return { title: cleanupTitle(rawTitle.replace(m[0], "")), start_time: toHHMM(h, min) };
+  }
+
+  // "at N am/pm" — English hour-only
+  m = rawTitle.match(/\bat\s+(\d{1,2})\s*(am|pm)\b/i);
+  if (m) {
+    let h = parseInt(m[1], 10);
+    const ampm = m[2].toLowerCase();
+    if (ampm === "pm" && h !== 12 && h < 12) h += 12;
+    if (ampm === "am" && h === 12) h = 0;
+    if (h <= 23)
+      return { title: cleanupTitle(rawTitle.replace(m[0], "")), start_time: toHHMM(h, 0) };
+  }
+
+  // Standalone "HH:MM" — unambiguous format
+  m = rawTitle.match(/\b(\d{1,2}):(\d{2})\b/);
+  if (m) {
+    const h = parseInt(m[1], 10), min = parseInt(m[2], 10);
+    if (h <= 23 && min <= 59)
+      return { title: cleanupTitle(rawTitle.replace(m[0], "")), start_time: toHHMM(h, min) };
+  }
+
+  // "Npm" / "Nam" — compact English (e.g. "meeting 3pm")
+  m = rawTitle.match(/\b(\d{1,2})(am|pm)\b/i);
+  if (m) {
+    let h = parseInt(m[1], 10);
+    const ampm = m[2].toLowerCase();
+    if (ampm === "pm" && h !== 12 && h < 12) h += 12;
+    if (ampm === "am" && h === 12) h = 0;
+    if (h <= 23)
+      return { title: cleanupTitle(rawTitle.replace(m[0], "")), start_time: toHHMM(h, 0) };
+  }
+
+  return { title: cleanupTitle(rawTitle), start_time: null };
+}
+
 export function parseBulkTasks(input: string): string[] {
   const normalized = input
     .replace(/[\u2018\u2019]/g, "'")

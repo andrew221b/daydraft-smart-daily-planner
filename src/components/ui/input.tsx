@@ -1,4 +1,5 @@
 import * as React from "react";
+import { useEffect, useState } from "react";
 
 import { cn } from "@/lib/utils";
 
@@ -18,5 +19,39 @@ const Input = React.forwardRef<HTMLInputElement, React.ComponentProps<"input">>(
   },
 );
 Input.displayName = "Input";
+
+export function DebouncedInput({
+  value,
+  onDebouncedChange,
+  debounceMs = 300,
+  ...props
+}: Omit<React.ComponentProps<"input">, "value" | "onChange"> & { value?: string; onDebouncedChange?: (val: string) => void; debounceMs?: number }) {
+  const [localValue, setLocalValue] = useState(value || "");
+
+  useEffect(() => {
+    setLocalValue(value || "");
+  }, [value]);
+
+  useEffect(() => {
+    const t = setTimeout(() => {
+      if (onDebouncedChange) {
+        onDebouncedChange(localValue);
+      }
+    }, debounceMs);
+    return () => clearTimeout(t);
+  }, [localValue, debounceMs, onDebouncedChange]);
+
+  return (
+    <Input
+      {...props}
+      value={localValue}
+      onChange={(e) => setLocalValue(e.target.value)}
+      onBlur={(e) => {
+        if (onDebouncedChange) onDebouncedChange(e.target.value);
+        if (props.onBlur) props.onBlur(e);
+      }}
+    />
+  );
+}
 
 export { Input };

@@ -1,8 +1,9 @@
 import { useEffect, useMemo, useState, useRef } from "react";
 import { useNavigate } from "react-router-dom";
 import { Button } from "@/components/ui/button";
-import { Textarea } from "@/components/ui/textarea";
+import { DebouncedTextarea } from "@/components/ui/textarea";
 import { useProfile, writeOnboardedFlag } from "@/hooks/useProfile";
+import { useAuth } from "@/hooks/useAuth";
 import {
   ArrowRight,
   Sparkles,
@@ -19,6 +20,7 @@ import { haptics } from "@/lib/haptics";
 import { startCheckout } from "@/hooks/useEntitlement";
 import { toast } from "sonner";
 import { PRO_FEATURES, PRO_PLANS, ProFeatureCard, ProPlanRow } from "@/components/app/proPaywall";
+import { usePlanPrices } from "@/hooks/usePlanPrices";
 
 const PROGRESS_KEY = "dd_onboarding_progress_v6";
 const STEPS = 3;
@@ -53,6 +55,7 @@ export default function Onboarding() {
   const [busyCheckout, setBusyCheckout] = useState(false);
 
   const { profile, update, refresh } = useProfile();
+  const { user } = useAuth();
   const nav = useNavigate();
 
   useEffect(() => {
@@ -99,8 +102,12 @@ export default function Onboarding() {
         timezone: tz,
       };
 
-      // Navigate immediately so the user sees the app without waiting for Supabase.
-      // Profile update fires in the background — the app reads the local flag anyway.
+      // Write the sticky localStorage flag BEFORE navigating. RequireAuth reads
+      // this flag synchronously; without it the route guard sees onboarded=false
+      // and instantly bounces the user back to /onboarding before the Supabase
+      // update round-trip has a chance to complete.
+      const uid = user?.id ?? profile?.id;
+      if (uid) writeOnboardedFlag(uid);
       try { sessionStorage.removeItem(PROGRESS_KEY); } catch { /* ignore */ }
       haptics.notify("success");
       nav("/home");
@@ -138,11 +145,16 @@ export default function Onboarding() {
     haptics.tap();
     try {
       await startCheckout(plan, {
-        onUnavailable: () => toast("Payments coming soon — you're set up for free."),
+        // Purchased — advance to the app.
+        onSuccess: () => void finish(true),
+        // Payments not available here — proceed as free.
+        onUnavailable: () => { toast("Payments coming soon — you're set up for free."); void finish(false); },
+        // Store error — stay on paywall so the user can retry.
+        onError: () => toast.error("Purchase failed — please try again."),
+        // Cancelled (no callback) — finally resets busy, user stays on paywall.
       });
     } finally {
       setBusyCheckout(false);
-      finish(true);
     }
   };
 
@@ -151,7 +163,10 @@ export default function Onboarding() {
       <div className="relative w-full max-w-[440px] min-h-full flex flex-col">
         <div className="pointer-events-none absolute inset-x-0 top-0 h-[320px]" style={{ background: "var(--gradient-glow)" }} />
 
-        <div className="relative z-10 flex-1 flex flex-col px-6 pt-[max(env(safe-area-inset-top),14px)] pb-[calc(env(safe-area-inset-bottom)+1.25rem)]">
+        <div 
+          className="relative z-10 flex-1 flex flex-col px-6 pt-[max(env(safe-area-inset-top),14px)] transition-[padding-bottom] duration-[220ms] ease-[cubic-bezier(0.32,0.72,0,1)]"
+          style={{ paddingBottom: 'calc(env(safe-area-inset-bottom) + 1.25rem + var(--keyboard-inset, 0px))' }}
+        >
           {/* Nav bar */}
           <div className="flex items-center justify-between h-9 -mx-1 mb-4">
             {step === 1 ? (
@@ -506,9 +521,9 @@ function WelcomeSetupStep({
           animate={{ opacity: 1, y: 0 }}
           transition={{ delay: 1.5, type: "spring", stiffness: 300, damping: 24 }}
         >
-          <Textarea
+          <DebouncedTextarea
             value={aiAbout}
-            onChange={(e) => onAiAbout(e.target.value)}
+            onDebouncedChange={onAiAbout}
             onFocus={() => setFocused(true)}
             onBlur={() => setFocused(false)}
             placeholder={placeholder + (focused ? "" : "▋")}
@@ -577,19 +592,24 @@ function MockBlock({
   from?: "left" | "right" | "bottom";
 }) {
   const initial =
-    from === "left"  ? { opacity: 0, x: -420, y: 0 } :
-    from === "right" ? { opacity: 0, x:  420, y: 0 } :
-                       { opacity: 0, x:    0, y: 200 };
+    from === "left"  ? { opacity: 0, x: -90 } :
+    from === "right" ? { opacity: 0, x:  90 } :
+                       { opacity: 0, y:  64 };
   return (
     <motion.div
       initial={initial}
-      animate={{ opacity: 1, x: 0, y: 0, scale: 1 }}
-      transition={{ delay, type: "spring", stiffness: 450, damping: 14, mass: 0.8 }}
+      animate={{ opacity: 1, x: 0, y: 0 }}
+      transition={{ delay, duration: 0.42, ease: [0.16, 1, 0.3, 1] }}
       className={[
-        "group app-card rounded-[18px] px-3.5 py-3.5 border transition-[border-color,box-shadow,transform] duration-300 relative overflow-hidden",
-        glow 
-          ? "ring-[1.5px] ring-primary/40 bg-primary/[0.04] shadow-[0_0_32px_hsl(var(--primary)/0.12)] border-primary/20 scale-[1.02]" 
-          : "bg-surface/80 backdrop-blur-xl shadow-[0_8px_30px_rgba(0,0,0,0.12),inset_0_1px_1px_rgba(255,255,255,0.2)] dark:shadow-[0_8px_30px_rgba(0,0,0,0.5),inset_0_1px_1px_rgba(255,255,255,0.05)]"
+        // NOTE: `transform` is intentionally NOT in the CSS transition list —
+        // framer-motion drives transform inline per-frame; a CSS transform
+        // transition would re-interpolate every frame and smear the motion.
+        // Also: solid (non-glass) background — animating a backdrop-filter is
+        // the iOS WebKit jank cliff.
+        "group app-card rounded-[18px] px-3.5 py-3.5 border transition-[border-color,box-shadow] duration-300 relative overflow-hidden",
+        glow
+          ? "ring-[1.5px] ring-primary/40 bg-primary/[0.04] shadow-[0_0_32px_hsl(var(--primary)/0.12)] border-primary/20"
+          : "bg-card shadow-[0_8px_30px_rgba(0,0,0,0.12),inset_0_1px_1px_rgba(255,255,255,0.2)] dark:shadow-[0_8px_30px_rgba(0,0,0,0.5),inset_0_1px_1px_rgba(255,255,255,0.05)]"
       ].join(" ")}
       style={glow ? {} : { borderColor: `hsl(${typeVar} / .3)` } as any}
     >
@@ -666,7 +686,7 @@ function LiveTrackerCard({ baseElapsed, delay = 0.55 }: { baseElapsed: number, d
     // Wait for the spring entrance animation to mostly finish before we
     // start ticking and running CSS animations, which ensures the layout
     // layer isn't fighting with the JS timer or CSS engine for frames.
-    const timer = setTimeout(() => setIsSettled(true), (delay + 0.5) * 1000);
+    const timer = setTimeout(() => setIsSettled(true), (delay + 0.45) * 1000);
     return () => clearTimeout(timer);
   }, [delay]);
 
@@ -685,25 +705,39 @@ function LiveTrackerCard({ baseElapsed, delay = 0.55 }: { baseElapsed: number, d
 
   return (
     <motion.div
-      initial={{ opacity: 0, y: 480 }}
+      initial={{ opacity: 0, y: 72 }}
       animate={{ opacity: 1, y: 0 }}
-      transition={{ delay, type: "spring", stiffness: 380, damping: 16, mass: 0.85 }}
-      className="relative overflow-hidden rounded-[28px] hero-glass border border-[color-mix(in_srgb,var(--hero-accent)_45%,hsl(var(--border)/0.5))] px-5 pt-6 pb-5 tracker-hero-clock shadow-[0_12px_40px_-12px_rgba(0,0,0,0.5)]"
+      transition={{ delay, duration: 0.46, ease: [0.16, 1, 0.3, 1] }}
+      // During the slide-in keep it a plain solid card: `bd-none` kills the
+      // blur(40px) backdrop-filter and the rotating conic sweep (tracker-hero-clock)
+      // is held back — both re-paint every frame and would jank the entrance.
+      // Once settled, swap to the full glass + sweep (cheap when static).
+      className={`relative overflow-hidden rounded-[28px] hero-glass border border-[color-mix(in_srgb,var(--hero-accent)_45%,hsl(var(--border)/0.5))] px-5 pt-6 pb-5 shadow-[0_12px_40px_-12px_rgba(0,0,0,0.5)] ${isSettled ? "tracker-hero-clock" : "bd-none"}`}
       style={{ "--hero-accent": "hsl(var(--type-deep))" } as any}
     >
       <div className="relative">
-        <div className="flex items-center justify-between">
+        <motion.div 
+          initial={{ opacity: 0, y: -10 }} 
+          animate={{ opacity: 1, y: 0 }} 
+          transition={{ delay: delay + 0.15, duration: 0.45, ease: [0.22, 1, 0.36, 1] }}
+          className="flex items-center justify-between"
+        >
           <span className="text-[10px] font-semibold uppercase tracking-[0.2em] text-secondary-fg/70">
             Recording
           </span>
           <span className="text-[12px] font-medium text-secondary-fg/80">
             All stats →
           </span>
-        </div>
+        </motion.div>
 
         {/* Hero timer */}
         <div className="mt-4 flex flex-col items-center text-center">
-          <div className="inline-flex items-center gap-2 rounded-full bg-foreground/[0.07] px-3 py-1 border border-border/30">
+          <motion.div 
+            initial={{ opacity: 0, scale: 0.9 }} 
+            animate={{ opacity: 1, scale: 1 }} 
+            transition={{ delay: delay + 0.25, type: "spring", stiffness: 260, damping: 28 }}
+            className="inline-flex items-center gap-2 rounded-full bg-foreground/[0.07] px-3 py-1 border border-border/30"
+          >
             <span
               className={`h-1.5 w-1.5 rounded-full shadow-[0_0_0_3px_color-mix(in_srgb,var(--hero-accent)_22%,transparent)] ${isSettled ? "animate-pulse" : ""}`}
               style={{ background: "hsl(var(--type-deep))" }}
@@ -711,25 +745,38 @@ function LiveTrackerCard({ baseElapsed, delay = 0.55 }: { baseElapsed: number, d
             <span className="text-[12px] font-medium text-foreground/85 truncate">
               Design review
             </span>
-          </div>
+          </motion.div>
 
-          <div className={`mt-3 ${isSettled ? "breathe" : ""}`}>
+          <motion.div 
+            initial={{ opacity: 0, y: 15 }} 
+            animate={{ opacity: 1, y: 0 }} 
+            transition={{ delay: delay + 0.38, type: "spring", stiffness: 220, damping: 26 }}
+            className={`mt-3 ${isSettled ? "breathe" : ""}`}
+          >
             <div className="font-display text-[3.4rem] font-semibold tabular-nums leading-none tracking-[-0.04em] text-foreground">
               {fmt(h)}:{fmt(m)}:{fmt(s)}
             </div>
-          </div>
+          </motion.div>
           
-          <div
+          <motion.div
+            initial={{ opacity: 0, y: 10, scale: 0.9, filter: "blur(4px)" }}
+            animate={{ opacity: 1, y: 0, scale: 1, filter: "blur(0px)" }}
+            transition={{ delay: delay + 0.52, type: "spring", stiffness: 260, damping: 26 }}
             className="mt-1.5 inline-flex items-center gap-1.5 rounded-full bg-success/10 border border-success/20 px-3 py-1 tabular-nums"
           >
             <span className="text-[11px] font-medium text-success/65">earned</span>
             <span className="text-[14px] font-semibold text-success">${earnings}</span>
-          </div>
+          </motion.div>
 
-          <div className="mt-4 inline-flex items-center gap-2 rounded-full bg-foreground text-background px-7 py-3 text-[14px] font-semibold shadow-[0_8px_22px_-12px_rgba(0,0,0,0.45)]">
+          <motion.div 
+            initial={{ opacity: 0, y: 20 }} 
+            animate={{ opacity: 1, y: 0 }} 
+            transition={{ delay: delay + 0.65, type: "spring", stiffness: 260, damping: 26 }}
+            className="mt-4 inline-flex items-center gap-2 rounded-full bg-foreground text-background px-7 py-3 text-[14px] font-semibold shadow-[0_8px_22px_-12px_rgba(0,0,0,0.45)]"
+          >
             <Square className="h-3.5 w-3.5" fill="currentColor" />
             Stop
-          </div>
+          </motion.div>
         </div>
       </div>
     </motion.div>
@@ -746,52 +793,62 @@ function FeaturesShowcaseStep({
 }) {
   const BASE_ELAPSED = 5432;
 
+  // For motion to read as "one after another", each element starts roughly when
+  // the previous one finishes landing — i.e. stagger ≈ move duration (~0.4s).
+  const T_CARD1  = 0.08;
+  const T_CARD2  = 0.46;
+  const T_TIMER  = 0.86;
+  const T_BUTTON = 1.30;
+
   return (
     <div className="flex-1 flex flex-col">
       <div className="flex-1 flex flex-col">
         {/* ── Header copy ──────────────────────────────── */}
         <motion.p
           className="eyebrow"
-          initial={{ opacity: 0, y: -10 }}
+          initial={{ opacity: 0, y: 8 }}
           animate={{ opacity: 1, y: 0 }}
-          transition={{ duration: 0.4 }}
+          transition={{ duration: 0.4, ease: [0.22, 1, 0.36, 1] }}
         >
           Plan · Track · Bill
         </motion.p>
         <motion.h1
           className="font-display text-[26px] font-semibold leading-tight tracking-tight mt-2 text-balance"
-          initial={{ opacity: 0, y: -10 }}
+          initial={{ opacity: 0, y: 10 }}
           animate={{ opacity: 1, y: 0 }}
-          transition={{ duration: 0.4, delay: 0.05 }}
+          transition={{ duration: 0.4, delay: 0.1, ease: [0.22, 1, 0.36, 1] }}
         >
           Everything your day needs, in one place.
         </motion.h1>
 
         {/* ── Showcase area ────────────────────────────── */}
         <div className="mt-6 flex-1 relative overflow-hidden">
-          {/* Two task blocks: first from left, second from right */}
+          {/* Card 1 — slides in from LEFT edge */}
           <div className="space-y-3 relative z-10">
-            {PLAN_BLOCKS.slice(0, 2).map((b, i) => (
-              <MockBlock
-                key={b.title}
-                time={b.time}
-                title={b.title}
-                typeVar={b.typeVar}
-                mins={b.mins}
-                delay={0.15 + i * 0.12}
-                glow={false}
-                from={i === 0 ? "left" : "right"}
-              />
-            ))}
+            <MockBlock
+              time={PLAN_BLOCKS[0].time}
+              title={PLAN_BLOCKS[0].title}
+              typeVar={PLAN_BLOCKS[0].typeVar}
+              mins={PLAN_BLOCKS[0].mins}
+              delay={T_CARD1}
+              glow={false}
+              from="left"
+            />
+            {/* Card 2 — slides in from RIGHT edge after card 1 settles */}
+            <MockBlock
+              time={PLAN_BLOCKS[1].time}
+              title={PLAN_BLOCKS[1].title}
+              typeVar={PLAN_BLOCKS[1].typeVar}
+              mins={PLAN_BLOCKS[1].mins}
+              delay={T_CARD2}
+              glow={false}
+              from="right"
+            />
           </div>
 
-          {/* Small static divider — elegant line instead of heavy animated dots */}
-          <div className="flex justify-center py-5">
-            <div className="w-12 h-px bg-gradient-to-r from-transparent via-border/60 to-transparent" />
-          </div>
-
-          <div className="relative z-20">
-            <LiveTrackerCard baseElapsed={BASE_ELAPSED} delay={0.4} />
+          {/* Timer — rises from below after both cards are visible */}
+          <div className="mt-4 relative z-20">
+            <LiveTrackerCard baseElapsed={BASE_ELAPSED} delay={T_TIMER} />
           </div>
         </div>
       </div>
@@ -799,7 +856,7 @@ function FeaturesShowcaseStep({
       <motion.div
         initial={{ opacity: 0, y: 20 }}
         animate={{ opacity: 1, y: 0 }}
-        transition={{ delay: 0.6, type: "spring", stiffness: 340, damping: 22 }}
+        transition={{ delay: T_BUTTON, duration: 0.4, ease: [0.22, 1, 0.36, 1] }}
       >
         <Button
           disabled={disabled}
@@ -835,6 +892,19 @@ function PaywallStep({
   finishing: boolean;
 }) {
   const busy = busyCheckout || finishing;
+  const [restoring, setRestoring] = useState(false);
+  const prices = usePlanPrices();
+  const restore = async () => {
+    setRestoring(true);
+    try {
+      const { restorePurchases } = await import("@/lib/revenueCat");
+      const { ok, isPro } = await restorePurchases();
+      if (!ok) { toast("Restore isn't available here."); return; }
+      toast[isPro ? "success" : "message"](isPro ? "Purchases restored — Pro is active." : "No previous purchases found.");
+    } finally {
+      setRestoring(false);
+    }
+  };
   const ctaLabel = busyCheckout
     ? "Opening checkout…"
     : plan === "annual"
@@ -871,12 +941,9 @@ function PaywallStep({
             <Lock className="h-2.5 w-2.5 text-primary" strokeWidth={2.5} />
             <span className="text-[11px] font-semibold tracking-[0.08em] uppercase text-primary">DayDraft Pro</span>
           </div>
-          <h1 className="font-semibold text-[26px] leading-[1.15] tracking-tight text-foreground relative z-10 max-w-[280px]">
+          <h1 className="font-semibold text-[22px] leading-[1.2] tracking-tight text-foreground relative z-10 whitespace-nowrap">
             Unlock the full DayDraft.
           </h1>
-          <p className="text-[13px] text-secondary-fg mt-2.5 leading-relaxed relative z-10 max-w-[260px]">
-            Unlimited AI plans, smart nudges, and billing-ready reports — everything serious planners rely on.
-          </p>
         </div>
 
         {/* Feature cards */}
@@ -893,6 +960,7 @@ function PaywallStep({
               key={p.id}
               plan={p}
               active={plan === p.id}
+              priceInfo={prices[p.id]}
               onClick={() => { haptics.selection(); onPlan(p.id); }}
             />
           ))}
@@ -914,6 +982,14 @@ function PaywallStep({
             className="w-full h-[46px] rounded-[18px] text-[14px] font-medium text-secondary-fg/70 hover:text-foreground pressable disabled:opacity-50 disabled:pointer-events-none transition-colors"
           >
             Continue with Free
+          </button>
+          <button
+            type="button"
+            onClick={restore}
+            disabled={busy || restoring}
+            className="w-full text-center text-[12px] text-secondary-fg/55 hover:text-foreground pressable disabled:opacity-50 transition-colors"
+          >
+            {restoring ? "Restoring…" : "Restore purchases"}
           </button>
           <p className="text-[11px] text-secondary-fg/50 text-center">
             Cancel anytime · No surprise add-ons

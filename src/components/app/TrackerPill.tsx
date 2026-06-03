@@ -17,6 +17,7 @@ import { useEntitlement } from "@/hooks/useEntitlement";
 import { Block, isUserTask, todayDateStr } from "@/lib/daydraft";
 import { fetchPlanDashboard, planDashboardQueryKey } from "@/lib/planQueries";
 import { fetchRollingEntries, rollingEntriesQueryKey } from "@/lib/timeEntriesQuery";
+import { parseHourlyRate } from "@/lib/rateInput";
 import { triggerDownload } from "@/lib/reportExport";
 import { useTabVisible } from "@/components/app/PersistentTabs";
 import { UpgradeSheet } from "@/components/app/UpgradeSheet";
@@ -86,7 +87,9 @@ const fmtMoney = (amount: number, currency = "USD") => {
     return new Intl.NumberFormat(undefined, {
       style: "currency",
       currency: safeCurrency,
-      maximumFractionDigits: Math.abs(amount) >= 100 ? 0 : 2,
+      // Always show cents (e.g. $15.53, $120.00) — never round earnings to whole.
+      minimumFractionDigits: 2,
+      maximumFractionDigits: 2,
     }).format(amount);
   } catch {
     return `${safeCurrency} ${amount.toFixed(2)}`;
@@ -105,13 +108,6 @@ function categoryHasSavedBilling(c: TimeCategory): boolean {
     c.billing_notes
   );
 }
-
-const parseRateInput = (value: string) => {
-  const cleaned = value.replace(",", ".").trim();
-  if (!cleaned) return null;
-  const parsed = Number(cleaned);
-  return Number.isFinite(parsed) && parsed >= 0 ? parsed : null;
-};
 
 function clipDuration(e: Entry, dayStart: number, dayEnd: number, now: number) {
   const s = new Date(e.started_at).getTime();
@@ -135,6 +131,10 @@ type ParsedEntry = {
   endMs: number | null; // null = "still running" — resolve to `now` at the call site
   note: string | null;
   block_id?: string | null;
+  // Rate snapshot captured at session start — use this, not the current category
+  // rate, so changing a rate never retroactively alters historical earnings.
+  snapshotRate: number | null;
+  snapshotCurrency: string | null;
 };
 
 function clipParsed(p: ParsedEntry, dayStart: number, dayEnd: number, now: number): number {
@@ -180,6 +180,8 @@ function TrackerInner({ embedded = false, onClose }: { embedded?: boolean; onClo
   const simpleMode = false;
   const [showAllCategories, setShowAllCategories] = useState(false);
 
+  // Rename-only mode for non-Pro: same visual as editingCat but no rate/billing.
+  const [renamingCat, setRenamingCat] = useState<string | null>(null);
   const [stopBusy, setStopBusy] = useState(false);
   const [categoryBusyId, setCategoryBusyId] = useState<string | null>(null);
   const [paymentDetails, setPaymentDetails] = useState<PaymentDetailsDraft>(emptyPaymentDetails);
@@ -216,6 +218,8 @@ function TrackerInner({ embedded = false, onClose }: { embedded?: boolean; onClo
         endMs: e.ended_at ? new Date(e.ended_at).getTime() : null,
         note: e.note,
         block_id: e.block_id ?? null,
+        snapshotRate: (e as any).snapshot_hourly_rate ?? null,
+        snapshotCurrency: (e as any).snapshot_currency ?? null,
       })),
     [entries],
   );
@@ -251,6 +255,21 @@ function TrackerInner({ embedded = false, onClose }: { embedded?: boolean; onClo
     }
   };
 
+  // Full editor (rate + billing + rename) — Pro only.
+  // Non-Pro opening path: pencil → UpgradeSheet; long-press → rename-only.
+  const openCategoryEditor = (c: TimeCategory, opts?: { resetRate?: boolean }) => {
+    setEditingName(c.name);
+    setEditingRate(opts?.resetRate ? "" : (c.hourly_rate == null ? "" : String(c.hourly_rate)));
+    setEditingCat(c.id);
+    setRenamingCat(null);
+  };
+
+  const openRenameOnly = (c: TimeCategory) => {
+    setEditingName(c.name);
+    setRenamingCat(c.id);
+    setEditingCat(null);
+  };
+
   const todayDate = todayDateStr();
   const { data: todayPlanData } = useQuery({
     queryKey: planDashboardQueryKey(user?.id ?? "", todayDate),
@@ -276,13 +295,13 @@ function TrackerInner({ embedded = false, onClose }: { embedded?: boolean; onClo
     return () => window.clearInterval(id);
   }, [trackerTabVisible, active]);
 
-  // Collapse Rate & Billing when leaving this tab or backgrounding the app.
+  // Collapse editor/rename when leaving this tab or backgrounding the app.
   useEffect(() => {
-    if (!trackerTabVisible) setEditingCat(null);
+    if (!trackerTabVisible) { setEditingCat(null); setRenamingCat(null); }
   }, [trackerTabVisible]);
 
   useEffect(() => {
-    const onVisibility = () => { if (document.hidden) setEditingCat(null); };
+    const onVisibility = () => { if (document.hidden) { setEditingCat(null); setRenamingCat(null); } };
     document.addEventListener("visibilitychange", onVisibility);
     return () => document.removeEventListener("visibilitychange", onVisibility);
   }, []);
@@ -443,28 +462,26 @@ function TrackerInner({ embedded = false, onClose }: { embedded?: boolean; onClo
     return map;
   }, [parsedEntries, period, now]);
 
-  // Billable seconds per category for the active period — only sessions that
-  // started ON OR AFTER rate_set_at. If rate_set_at is null the rate applies
-  // to all time (user explicitly chose to backfill or rate was set from day 0).
-  const billableSecByCat = useMemo(() => {
+  // Per-category earnings for the active period, computed per-entry using the
+  // rate snapshot captured at session start. This means changing a category's
+  // hourly rate never retroactively alters earnings shown for past sessions.
+  // Uses only the rate snapshot captured at session start. Changing a category's
+  // current rate must never retroactively alter displayed historical earnings —
+  // so catMap is intentionally not a dependency of this memo.
+  const earnedByCat = useMemo(() => {
     const map = new Map<string, number>();
-    for (const c of categories) {
-      if (!c.hourly_rate) continue;
-      const cutoffMs = c.rate_set_at ? new Date(c.rate_set_at).getTime() : null;
-      let billable = 0;
-      for (const p of parsedEntries) {
-        if (p.category_id !== c.id) continue;
-        if (cutoffMs !== null && p.startMs < cutoffMs) continue;
-        const en = p.endMs ?? now;
-        const a = p.startMs > period.start ? p.startMs : period.start;
-        const b = en < period.end ? en : period.end;
-        if (b <= a) continue;
-        billable += (b - a) / 1000;
-      }
-      map.set(c.id, billable);
+    for (const p of parsedEntries) {
+      if (!p.category_id) continue;
+      const rate = p.snapshotRate;
+      if (!rate || rate <= 0) continue;
+      const en = p.endMs ?? now;
+      const a = p.startMs > period.start ? p.startMs : period.start;
+      const b = en < period.end ? en : period.end;
+      if (b <= a) continue;
+      map.set(p.category_id, (map.get(p.category_id) ?? 0) + ((b - a) / 3_600_000) * rate);
     }
     return map;
-  }, [categories, parsedEntries, period, now]);
+  }, [parsedEntries, period, now]);
 
   const headerTotalSec = tab === "today" ? todayTotalSec : tab === "week" ? weekTotal : monthTotal;
   const headerLabel =
@@ -531,10 +548,9 @@ function TrackerInner({ embedded = false, onClose }: { embedded?: boolean; onClo
 
   const savePaymentDetails = async () => {
     if (!editingCat) return true;
-    if (!isPro) {
-      setUpgradeOpen(true);
-      return false;
-    }
+    // Billing is Pro-only. For free users there's nothing to persist — let the
+    // (free) rename go through and close the editor instead of forcing upgrade.
+    if (!isPro) return true;
     setPaymentDetailsSaving(true);
     try {
       await updateCategoryBilling(editingCat, paymentDetails);
@@ -850,8 +866,8 @@ function TrackerInner({ embedded = false, onClose }: { embedded?: boolean; onClo
                   transition={{ type: "spring", stiffness: 340, damping: 28, mass: 0.85 }}
                 >
                   <div className="text-[10px] font-semibold uppercase tracking-wider text-secondary-fg mb-2">Where today went</div>
-                  <AnimatePresence mode="popLayout" initial={false}>
-                    <div className="space-y-1.5">
+                  <div className="space-y-1.5">
+                    <AnimatePresence mode="popLayout" initial={false}>
                       {todayByCat.map((x, i) => {
                         const pct = (x.sec / Math.max(1, todayTotalSec)) * 100;
                         return (
@@ -873,8 +889,8 @@ function TrackerInner({ embedded = false, onClose }: { embedded?: boolean; onClo
                           </motion.div>
                         );
                       })}
-                    </div>
-                  </AnimatePresence>
+                    </AnimatePresence>
+                  </div>
                 </motion.div>
               )}
             </AnimatePresence>
@@ -901,21 +917,67 @@ function TrackerInner({ embedded = false, onClose }: { embedded?: boolean; onClo
                 const isOpen = selectedCat === c.id;
                 const stat = periodCatStats.get(c.id);
                 const periodSec = stat?.sec || 0;
-                const rate = Number(c.hourly_rate || 0);
-                // Only bill time tracked after rate_set_at; use full period when null.
-                const billableSec = rate > 0 ? (billableSecByCat.get(c.id) ?? periodSec) : 0;
-                const earned = rate > 0 ? (billableSec / 3600) * rate : 0;
+                const rate = Number(c.hourly_rate || 0); // display-only: shows current rate label
+                const earned = earnedByCat.get(c.id) ?? 0;
                 return (
-                  <SwipeRow key={c.id} disabled={c.is_default || isActive || editingCat === c.id} onDelete={() => setConfirmDeleteCat(c.id)}>
+                  <SwipeRow key={c.id} disabled={c.is_default || isActive || editingCat === c.id || renamingCat === c.id} onDelete={() => setConfirmDeleteCat(c.id)}>
                   <div className={`rounded-[18px] border transition-[border-color,background-color,box-shadow,transform] duration-300 shadow-card tracker-category-luxe ${isActive ? "border-accent surface-accent ring-2 ring-primary/12 ring-offset-2 ring-offset-background" : "border-soft surface-card"} overflow-hidden backdrop-blur-sm`}>
                     <AnimatePresence mode="popLayout" initial={false}>
-                    {editingCat === c.id ? (
+                    {renamingCat === c.id ? (
+                      /* ── Rename-only form (free tier) ─────────────── */
+                      <motion.form
+                        key="rename"
+                        onSubmit={async (e) => {
+                          e.preventDefault();
+                          if (editingName.trim() && editingName.trim() !== c.name) {
+                            await renameCategory(c.id, editingName);
+                          }
+                          setRenamingCat(null);
+                        }}
+                        className="w-full min-w-0 px-3 pt-3 pb-2"
+                        initial={{ height: 0, opacity: 0 }}
+                        animate={{ height: "auto", opacity: 1 }}
+                        exit={{ height: 0, opacity: 0 }}
+                        transition={{ type: "spring", stiffness: 340, damping: 28, mass: 0.85 }}
+                        style={{ overflow: "hidden" }}
+                      >
+                        <div className="flex items-center gap-2 mb-2">
+                          <span className="h-3 w-3 rounded-full shrink-0" style={{ background: c.color }} />
+                          <Input
+                            value={editingName}
+                            onChange={(e) => setEditingName(e.target.value)}
+                            onKeyDown={(e) => { if (e.key === "Escape") setRenamingCat(null); }}
+                            className="flex-1 h-8 bg-transparent border-0 px-0 text-[15px] font-medium focus-visible:ring-0 shadow-none"
+                            autoFocus
+                          />
+                        </div>
+                        <div className="flex items-center gap-2">
+                          <button
+                            type="submit"
+                            className="flex-1 h-9 rounded-xl bg-primary text-[12px] font-semibold text-primary-foreground pressable"
+                          >
+                            Save
+                          </button>
+                          <button type="button" onClick={() => setRenamingCat(null)} className="h-9 w-9 rounded-xl border border-border/40 text-secondary-fg pressable" aria-label="Cancel">
+                            <X className="mx-auto h-4 w-4" />
+                          </button>
+                        </div>
+                      </motion.form>
+                    ) : editingCat === c.id ? (
                       /* ── Edit / billing form ──────────────────────── */
                       <motion.form
                         key="edit"
                         onSubmit={async (e) => {
                           e.preventDefault();
-                          const rateValue = parseRateInput(editingRate);
+                          // Validate the rate BEFORE saving anything — garbage
+                          // input (letters, symbols, "0123") must surface a
+                          // format error, not a misleading "saved" message.
+                          const parsedRate = parseHourlyRate(editingRate);
+                          if (parsedRate.kind === "invalid") {
+                            toast.error("Invalid rate — enter a number like 25 or 25.50");
+                            return;
+                          }
+                          const rateValue = parsedRate.kind === "cleared" ? null : parsedRate.value;
                           if (editingName.trim() && editingName.trim() !== c.name) {
                             await renameCategory(c.id, editingName);
                           }
@@ -956,21 +1018,38 @@ function TrackerInner({ embedded = false, onClose }: { embedded?: boolean; onClo
                           animate={{ opacity: 1, y: 0 }}
                           transition={{ delay: 0.09, type: "spring", stiffness: 400, damping: 32 }}
                         >
-                          <span className="text-[11px] font-semibold text-primary/80 shrink-0">Rate / h</span>
-                          <Input
-                            inputMode="decimal"
-                            value={editingRate}
-                            onChange={(e) => setEditingRate(e.target.value)}
-                            placeholder="0"
-                            className="h-7 flex-1 bg-transparent border-0 px-0 text-right text-[13px] font-mono tabular-nums focus-visible:ring-0 shadow-none"
-                          />
-                          <Input
-                            value={paymentDetails.currency}
-                            onChange={(e) => updatePaymentField("currency", e.target.value.toUpperCase().slice(0, 3))}
-                            placeholder="USD"
-                            className="h-7 w-14 bg-transparent border-l border-soft rounded-none px-2 text-center text-[11px] font-semibold font-mono focus-visible:ring-0 shadow-none"
-                            maxLength={3}
-                          />
+                          {isPro ? (
+                            <>
+                              <span className="text-[11px] font-semibold text-primary/80 shrink-0">Rate / h</span>
+                              <Input
+                                inputMode="decimal"
+                                value={editingRate}
+                                onChange={(e) => setEditingRate(e.target.value)}
+                                placeholder="0"
+                                className="h-7 flex-1 bg-transparent border-0 px-0 text-right text-[13px] font-mono tabular-nums focus-visible:ring-0 shadow-none"
+                              />
+                              <Input
+                                value={paymentDetails.currency}
+                                onChange={(e) => updatePaymentField("currency", e.target.value.toUpperCase().slice(0, 3))}
+                                placeholder="USD"
+                                className="h-7 w-14 bg-transparent border-l border-soft rounded-none px-2 text-center text-[11px] font-semibold font-mono focus-visible:ring-0 shadow-none"
+                                maxLength={3}
+                              />
+                            </>
+                          ) : (
+                            // Rate is a Pro feature — locked CTA in place of the inputs.
+                            <button
+                              type="button"
+                              onClick={() => setUpgradeOpen(true)}
+                              className="flex w-full items-center gap-2 text-left pressable"
+                            >
+                              <span className="flex h-5 w-5 shrink-0 items-center justify-center rounded-md text-primary bg-primary/10 border border-primary/20">
+                                <Lock className="h-3 w-3" />
+                              </span>
+                              <span className="text-[11px] font-semibold text-secondary-fg flex-1">Hourly rate &amp; earnings</span>
+                              <span className="text-[10px] font-semibold text-primary">Pro</span>
+                            </button>
+                          )}
                         </motion.div>
 
                         {/* ②½ Rate scope — only when a rate is set AND rate_set_at is non-null */}
@@ -1112,7 +1191,10 @@ function TrackerInner({ embedded = false, onClose }: { embedded?: boolean; onClo
                             if (simpleMode) return;
                             setSelectedCat(isOpen ? null : c.id);
                           }}
-                          onLongPress={() => { setEditingName(c.name); setEditingRate(c.hourly_rate == null ? "" : String(c.hourly_rate)); setEditingCat(c.id); }}
+                          onLongPress={() => {
+                            if (isPro) openCategoryEditor(c);
+                            else openRenameOnly(c);
+                          }}
                           className="flex-1 flex items-center gap-2 min-w-0 text-left pressable"
                           ariaLabel={`${c.name} details — long press to rename`}
                         >
@@ -1137,12 +1219,12 @@ function TrackerInner({ embedded = false, onClose }: { embedded?: boolean; onClo
                                 type="button"
                                 onClick={(e) => {
                                   e.stopPropagation();
-                                  setEditingName(c.name);
-                                  setEditingRate("");
-                                  setEditingCat(c.id);
+                                  if (!isPro) { setUpgradeOpen(true); return; }
+                                  openCategoryEditor(c, { resetRate: true });
                                 }}
-                                className="block text-[10px] font-medium text-primary/85 hover:text-primary pressable mt-0.5"
+                                className="inline-flex items-center gap-1 text-[10px] font-medium text-primary/85 hover:text-primary pressable mt-0.5"
                               >
+                                {!isPro && <Lock className="h-2.5 w-2.5" />}
                                 + Set hourly rate
                               </button>
                             )}
@@ -1155,15 +1237,14 @@ function TrackerInner({ embedded = false, onClose }: { embedded?: boolean; onClo
                         </LongPressButton>
                         <button
                           onClick={() => {
-                            setEditingName(c.name);
-                            setEditingRate(c.hourly_rate == null ? "" : String(c.hourly_rate));
-                            setEditingCat(c.id);
+                            if (isPro) openCategoryEditor(c);
+                            else setUpgradeOpen(true);
                           }}
                           className="p-1.5 text-secondary-fg hover:text-foreground pressable"
-                          aria-label={`Edit ${c.name} rate`}
-                          title="Edit rate"
+                          aria-label={`Edit ${c.name}`}
+                          title={isPro ? "Edit category" : "Rate & billing — Pro feature"}
                         >
-                          <Pencil className="h-3.5 w-3.5" />
+                          {isPro ? <Pencil className="h-3.5 w-3.5" /> : <Lock className="h-3.5 w-3.5" />}
                         </button>
                         {isActive ? (
                           <button disabled={stopBusy} onClick={handleStop} className="inline-flex items-center gap-1 h-9 px-3 rounded-lg bg-primary text-primary-foreground text-xs font-medium pressable disabled:opacity-50 disabled:pointer-events-none">

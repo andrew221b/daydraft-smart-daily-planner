@@ -1,6 +1,6 @@
 import { Capacitor } from "@capacitor/core";
 import { LocalNotifications } from "@capacitor/local-notifications";
-import { Block, parseDateStr, blockSlotEndHHMM, isUserTask } from "./daydraft";
+import { Block, isUserTask, planBlockInstants } from "./daydraft";
 import { getReminderConfig } from "./blockReminders";
 import { getAssignedCategoryId } from "./blockCategory";
 
@@ -213,14 +213,6 @@ type Candidate = {
   blockId: string;
 };
 
-const hhmmToDate = (dateStr: string, hhmm: string): Date | null => {
-  const [h, m] = String(hhmm || "").split(":").map(Number);
-  if (Number.isNaN(h) || Number.isNaN(m)) return null;
-  const d = parseDateStr(dateStr);
-  d.setHours(h, m, 0, 0);
-  return d;
-};
-
 export async function syncBlockNotifications(dateStr: string, blocks: Block[]) {
   if (!isNative()) return;
 
@@ -245,6 +237,10 @@ export async function syncBlockNotifications(dateStr: string, blocks: Block[]) {
 
   const now = Date.now();
   const candidates: Candidate[] = [];
+  // Cross-midnight aware instants: a task packed past midnight schedules its
+  // pings for the real next-day time instead of this morning (which would be in
+  // the past and silently dropped).
+  const instants = planBlockInstants(dateStr, blocks);
 
   for (const b of blocks) {
     // Only actionable user tasks. Skip calendar events and resolved tasks.
@@ -254,9 +250,10 @@ export async function syncBlockNotifications(dateStr: string, blocks: Block[]) {
     const cfg = getReminderConfig(b.id);
     if (!cfg.enabled) continue;
 
-    const startAt = hhmmToDate(dateStr, b.start_time);
-    if (!startAt) continue;
-    const endAt = hhmmToDate(dateStr, blockSlotEndHHMM(b));
+    const inst = instants.get(b.id);
+    if (!inst) continue;
+    const startAt = new Date(inst.startMs);
+    const endAt = new Date(inst.endMs);
 
     const hasCategory = !!getAssignedCategoryId(b.id);
     const startType = hasCategory ? TYPE_TRACK : TYPE_START;
@@ -287,7 +284,10 @@ export async function syncBlockNotifications(dateStr: string, blocks: Block[]) {
       });
     }
 
-    if (endAt) {
+    // Frameless tasks (duration 0) have no end — skip every end-of-block ping.
+    // The lead + start pings above still fire, so the user is notified BEFORE
+    // the task starts; there's just no "task ended" follow-up.
+    if (endAt && dur > 0) {
       // 3. Ending-soon ping (only meaningful for longer tasks; opt-in via endAlertLeadMin > 0)
       const lead = typeof cfg.endAlertLeadMin === "number" ? cfg.endAlertLeadMin : 0;
       if (dur >= 12 && lead > 0) {
@@ -322,15 +322,30 @@ export async function syncBlockNotifications(dateStr: string, blocks: Block[]) {
   candidates.sort((a, b) => a.at.getTime() - b.at.getTime());
   const capped = candidates.slice(0, MAX_SCHEDULED);
 
-  const notifications = capped.map((c, i) => ({
-    id: i + 1,
+  // Stable, deterministic ids derived from the ping's identity (block + action
+  // + time) instead of array position. A reschedule re-derives the same id for
+  // the same logical ping, so a stale pending notification can never collapse
+  // onto — or be mistaken for — a different block's ping. (Java int range.)
+  const usedIds = new Set<number>();
+  const stableNotifId = (key: string): number => {
+    let h = 0x811c9dc5;
+    for (let i = 0; i < key.length; i++) { h ^= key.charCodeAt(i); h = Math.imul(h, 0x01000193); }
+    let id = ((h >>> 0) % 2_000_000_000) || 1;
+    while (usedIds.has(id)) id = (id % 2_000_000_000) + 1; // probe collisions
+    usedIds.add(id);
+    return id;
+  };
+
+  const notifications = capped.map((c) => ({
+    id: stableNotifId(`${c.blockId}:${c.actionTypeId}:${c.at.getTime()}`),
     title: c.title,
     body: c.body,
-    // Do NOT pass sound:"default" — iOS interprets that as a filename lookup
-    // for "default.caf" which doesn't exist in the bundle, producing silence.
-    // Omitting the field causes the plugin to use UNNotificationSound.default
-    // (the system chime) which is what we want. Android uses channelId for
-    // all sound + vibration behaviour and ignores this field entirely.
+    // iOS: pass "default" — the plugin calls UNNotificationSound(named: "default").
+    // When "default.caf" isn't in the bundle, iOS falls back to the system default
+    // notification chime. Omitting sound (or passing "") produces silence because
+    // the plugin only calls content.sound when the field is a non-empty string.
+    // Android: channelId governs all sound + vibration; this field is ignored there.
+    sound: "default",
     channelId: ANDROID_CHANNEL_ID,
     schedule: { at: c.at },
     actionTypeId: c.actionTypeId,

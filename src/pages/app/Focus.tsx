@@ -2,7 +2,7 @@ import { useEffect, useRef, useState } from "react";
 import { useNavigate, useParams, useSearchParams } from "react-router-dom";
 import { supabase } from "@/integrations/supabase/client";
 import { useAbortOnUnmount } from "@/hooks/useAbortOnUnmount";
-import { Block, todayDateStr, wallMsOnPlanDay, blockSlotEndHHMM, fmtTime, isOpenUserTask } from "@/lib/daydraft";
+import { Block, todayDateStr, wallMsOnPlanDay, blockSlotEndHHMM, fmtTime, isOpenUserTask, planBlockInstants, normalizeSchedule, minutesToHHMM } from "@/lib/daydraft";
 import { minutesFromFocusArmSeconds, resolveActualMinutesOnComplete } from "@/lib/blockActualTime";
 import { Check, Timer, Square, X, ShieldAlert } from "lucide-react";
 import { motion } from "framer-motion";
@@ -19,7 +19,6 @@ import {
 } from "@/components/ui/popover";
 import { haptics } from "@/lib/haptics";
 import { liveActivity } from "@/lib/liveActivity";
-import { PreflightSheet } from "@/components/app/PreflightSheet";
 import { getAssignedCategoryId } from "@/lib/blockCategory";
 import { getCalmMode, setCalmMode } from "@/lib/calmMode";
 import { useEntitlement } from "@/hooks/useEntitlement";
@@ -40,25 +39,37 @@ export default function Focus() {
   const { user } = useAuth();
   const { profile } = useProfile();
   const tone = getTone(profile as any);
-  const { active: tracking, start: startTracking, stop: stopTracking, categories, addCategory, refresh: refreshTracker, entries } = useTimeTracker();
+  const { active: tracking, start: startTracking, stop: stopTracking, clearActive, categories, addCategory, entries } = useTimeTracker();
   // Read elapsed seconds synchronously each render. `sessionTick` (below)
   // drives the once-per-second re-render that keeps this value fresh.
   const elapsedSec = getElapsedSec();
   const [block, setBlock] = useState<any | null>(null);
   const [next, setNext] = useState<Block | null>(null);
+  // Full ordered plan, kept so complete() can cascade-shift later tasks when a
+  // frameless (stopwatch) task overruns into them.
+  const planBlocksRef = useRef<Block[]>([]);
   const windowWallRef = useRef({ startMs: 0, endMs: 0 });
   /** Ticks once per second while armed so session elapsed re-renders without countdown pressure. */
   const [sessionTick, setSessionTick] = useState(0);
   const [showCheck, setShowCheck] = useState(false);
-  const [preflightOpen, setPreflightOpen] = useState(false);
+  const [showNextSheet, setShowNextSheet] = useState(false);
+  const [showNextSheetIsSkip, setShowNextSheetIsSkip] = useState(false);
   const [armed, setArmed] = useState(false);
   // Cancels any in-flight AI calls if the user leaves Focus mid-request.
   const getAbortSignal = useAbortOnUnmount();
   const startedHereRef = useRef(false);
   const autoStartedRef = useRef(false);
+  // Tracks the current block id in a ref so the unmount cleanup (empty-dep effect)
+  // can access it without stale-closure issues.
+  const blockIdRef = useRef(blockId);
   // Guards so the Focus Live Activity (Dynamic Island) starts once per block,
   // and the deep-link "Mark done" auto-completes only once.
   const focusLAStartedRef = useRef(false);
+  // Latest tracker category for the Live Activity, mirrored into a ref so the
+  // appStateChange (foreground) listener reads the *current* value instead of a
+  // stale closure — otherwise a background→foreground round-trip could restore
+  // an out-of-date chip.
+  const liveCatRef = useRef<{ categoryName: string; color: string | null | undefined } | null>(null);
   const autoCompletedRef = useRef(false);
   const [confirmSkipOpen, setConfirmSkipOpen] = useState(false);
   const [confirmCancelOpen, setConfirmCancelOpen] = useState(false);
@@ -103,8 +114,11 @@ export default function Focus() {
     // doesn't leave the previous block's UI (e.g. green checkmark) on screen.
     setBlock(null);
     setNext(null);
+    planBlocksRef.current = [];
     windowWallRef.current = { startMs: 0, endMs: 0 };
     setShowCheck(false);
+    setShowNextSheet(false);
+    setShowNextSheetIsSkip(false);
     setArmed(false);
     setTrackerSkipped(false);
     autoStartedRef.current = false;
@@ -126,41 +140,35 @@ export default function Focus() {
       setBlock(data as Block);
       const pd =
         ((planRow as { date?: string } | null)?.date ?? todayDateStr());
-      const startMs = wallMsOnPlanDay(pd, data.start_time);
-      const endMs = wallMsOnPlanDay(pd, blockSlotEndHHMM(data as Block));
-      windowWallRef.current = { startMs, endMs };
-      const { data: rest } = await supabase
+      // Fetch the whole plan (ordered) so the window can be made cross-midnight
+      // aware: a task packed past midnight resolves to the real next-day instant
+      // instead of this morning, so the countdown isn't shown already-expired.
+      const { data: allBlocks } = await supabase
         .from("blocks")
         .select("*")
         .eq("plan_id", data.plan_id)
-        .eq("kind", "task")
-        .eq("is_calendar_event", false)
-        .gt("position", data.position)
-        .order("position")
-        .limit(24);
-      const nextOpen = (rest || []).find((row) => isOpenUserTask(row as Block));
+        .order("position");
+      const ordered = (allBlocks || []) as Block[];
+      planBlocksRef.current = ordered;
+      const inst = planBlockInstants(pd, ordered).get(data.id as string);
+      const startMs = inst?.startMs ?? wallMsOnPlanDay(pd, data.start_time);
+      const endMs = inst?.endMs ?? wallMsOnPlanDay(pd, blockSlotEndHHMM(data as Block));
+      windowWallRef.current = { startMs, endMs };
+      const nextOpen = ordered.find(
+        (row) =>
+          row.position > data.position &&
+          row.kind === "task" &&
+          !row.is_calendar_event &&
+          isOpenUserTask(row as Block),
+      );
       setNext((nextOpen as Block) || null);
-      // Show preflight on first visit per session — unless the user opted out.
-      // Skip on intra-session block transitions to avoid nagging. Also skip
-      // entirely when we arrived via the Live Activity "Mark done" deep link
-      // (?complete=1): the user already decided, so arm immediately and let
-      // the auto-complete effect run without a preflight flash.
-      const wantsComplete = searchParams.get("complete") === "1";
-      const optedOut = (() => { try { return localStorage.getItem("dd_preflight_disabled") === "1"; } catch { return false; } })();
-      if (!wantsComplete && !optedOut && !sessionStorage.getItem("dd_preflight_seen") && !sessionStorage.getItem("dd_focus_active")) {
-        setPreflightOpen(true);
-      } else {
-        setArmed(true);
-      }
+      // Arm the focus session immediately — no pre-focus checklist. The user
+      // tapped into Focus to work; the old "Ready to focus?" sheet just added a
+      // tap and a flash before the timer.
+      setArmed(true);
       sessionStorage.setItem("dd_focus_active", "1");
     })();
   }, [blockId, user?.id]);
-
-  const dismissPreflight = () => {
-    sessionStorage.setItem("dd_preflight_seen", "1");
-    setPreflightOpen(false);
-    setArmed(true);
-  };
 
   // Mark the wall-clock start the first time the timer is armed for this block.
   useEffect(() => {
@@ -169,6 +177,9 @@ export default function Focus() {
     }
   }, [armed]);
 
+  // Keep blockIdRef in sync so the unmount cleanup knows which block was active.
+  useEffect(() => { blockIdRef.current = blockId; }, [blockId]);
+
   // Auto-start the tracker the moment the focus session arms IF the user
   // already earmarked a category for this block on the Plan screen. If
   // they didn't, we leave tracking off and a prompt below offers a choice
@@ -176,14 +187,19 @@ export default function Focus() {
   useEffect(() => {
     if (!armed || !block || autoStartedRef.current) return;
     if (tracking) return; // a timer is already running — don't double-start
+    // Don't start a new tracker session when the deep-link ?complete=1 flag is
+    // present: the task is about to be auto-completed, so starting tracking now
+    // would create a session that immediately gets abandoned, and could race with
+    // complete() making the tracker appear stuck after the app restarts.
+    if (searchParams.get("complete") === "1") return;
     const assignedId = getAssignedCategoryId(block.id);
     if (!assignedId) return;
     const cat = categories.find((c) => c.id === assignedId);
     if (!cat) return;
     autoStartedRef.current = true;
     startedHereRef.current = true;
-    void startTracking(cat.id, { source: "focus", blockId: block.id, note: block.title });
-  }, [armed, block?.id, categories, tracking, startTracking]);
+    void startTracking(cat.id, { source: "focus", blockId: block.id });
+  }, [armed, block?.id, categories, tracking, startTracking, searchParams]);
 
   useEffect(() => {
     if (!armed || !block) return;
@@ -216,8 +232,12 @@ export default function Focus() {
 
   useEffect(() => {
     return () => {
-      // Stop tracking on unmount (leaving Focus entirely)
-      if (startedHereRef.current && trackingRef.current) stopTracking();
+      // Stop tracking on unmount (leaving Focus entirely). Also covers the case
+      // where the tracker was started from outside this session (e.g. plan-screen
+      // tracker pill) but is running for the same block — we don't want it
+      // orphaned when the user navigates away.
+      const tr = trackingRef.current;
+      if (tr && (startedHereRef.current || tr.block_id === blockIdRef.current)) void stopTracking();
       // Tear down the Dynamic Island / Lock Screen activity. Moving between
       // blocks keeps this component mounted (only the param changes), so this
       // fires only when the user actually leaves Focus — exactly when we want
@@ -229,6 +249,71 @@ export default function Focus() {
   }, []);
 
   const trackingCat = categories.find(c => c.id === tracking?.category_id);
+  const trackingThisBlock = !!(tracking && block && tracking.block_id === block.id);
+
+  /**
+   * A frameless task just got a real length (the time the stopwatch ran).
+   * Re-pack the plan around it: it keeps its start, later tasks slide forward
+   * only where they now overlap, and gap markers are rebuilt. Tasks/lunch rows
+   * are touched only on their scheduling fields (never clobbering other columns);
+   * break rows are replaced wholesale. Cross-midnight plans are left untouched.
+   */
+  const reconcileFramelessOverrun = async (actualMin: number) => {
+    if (!block || !user) return;
+    const planBlocks = planBlocksRef.current;
+    if (!planBlocks.length) return;
+    const makeBreak = (fromMin: number, toMin: number): Block => ({
+      id: crypto.randomUUID(),
+      plan_id: block.plan_id,
+      user_id: block.user_id,
+      start_time: minutesToHHMM(fromMin % 1440),
+      duration_min: toMin - fromMin,
+      estimated_minutes: toMin - fromMin,
+      actual_minutes: null,
+      title: "Break",
+      type: "routine",
+      kind: "break",
+      completed: false,
+      position: 0,
+    });
+    const updated = planBlocks.map((b) => (b.id === block.id ? { ...b, duration_min: actualMin } : b));
+    // Other resolved tasks are extra anchors — their times must not shift
+    // when the frameless task expands and cascades downstream.
+    const lockedIds = new Set(
+      updated
+        .filter(b => b.id !== block.id && (!!b.is_calendar_event || (b.kind === "task" && !isOpenUserTask(b))))
+        .map(b => b.id),
+    );
+    const packed = normalizeSchedule(updated, new Set([block.id, ...lockedIds]), makeBreak);
+    if (!packed) return; // cross-midnight / out-of-order → leave the plan as-is
+    try {
+      const oldBreakIds = planBlocks.filter((b) => b.kind === "break").map((b) => b.id);
+      if (oldBreakIds.length) await supabase.from("blocks").delete().in("id", oldBreakIds);
+      const breakInserts: any[] = [];
+      for (let i = 0; i < packed.length; i++) {
+        const b = packed[i];
+        if (b.kind === "break") {
+          breakInserts.push({
+            id: b.id, plan_id: b.plan_id, user_id: b.user_id,
+            start_time: b.start_time, duration_min: b.duration_min,
+            estimated_minutes: b.duration_min, title: "Break", type: "routine",
+            kind: "break", completed: false, position: i, slot_end_time: blockSlotEndHHMM(b),
+          });
+        } else {
+          // Scheduling fields only — never overwrite the row's other columns.
+          await supabase.from("blocks").update({
+            start_time: b.start_time,
+            duration_min: b.duration_min,
+            slot_end_time: blockSlotEndHHMM(b),
+            position: i,
+          }).eq("id", b.id);
+        }
+      }
+      if (breakInserts.length) await supabase.from("blocks").insert(breakInserts);
+    } catch {
+      /* best-effort: the task's own completion already saved above */
+    }
+  };
 
   const complete = async () => {
     if (!block || !user) return;
@@ -241,7 +326,9 @@ export default function Focus() {
     const completedAtMs = Date.now();
     const completedIso = new Date(completedAtMs).toISOString();
     // Stop linked tracker first so `actual_minutes` can be derived from time_entries.
-    const hadTrackerForBlock = !!(startedHereRef.current && tracking);
+    // Also covers trackers started from outside Focus (e.g. plan-screen pill) that
+    // happen to be running for this same block.
+    const hadTrackerForBlock = !!(tracking && (startedHereRef.current || tracking.block_id === block.id));
     let trackerStopOk = true;
     if (hadTrackerForBlock) {
       try {
@@ -258,7 +345,12 @@ export default function Focus() {
       resolved_at: completedIso,
     };
     if (!hadTrackerForBlock) {
-      const fromArm = minutesFromFocusArmSeconds(actualSec);
+      // If the focus timer was armed at all, record at least 1 min — an
+      // armed-then-instantly-done session would otherwise lose its signal
+      // (minutesFromFocusArmSeconds(0) can't tell "never armed" from "armed 0s").
+      const fromArm = actualStartMsRef.current != null
+        ? Math.max(1, Math.round(actualSec / 60))
+        : minutesFromFocusArmSeconds(actualSec);
       if (fromArm != null) patch.actual_minutes = fromArm;
       else {
         patch.actual_minutes = resolveActualMinutesOnComplete(
@@ -290,26 +382,40 @@ export default function Focus() {
         patch.actual_minutes = fromArm ?? null;
       }
     }
+    // Frameless (stopwatch) task: give it the real length the timer ran, so it
+    // occupies actual time in the plan. Use the wall-clock the stopwatch showed.
+    const isFramelessTask = Number(block.duration_min) <= 0;
+    const framelessActualMin =
+      isFramelessTask && actualStartMsRef.current != null ? Math.max(1, Math.round(actualSec / 60)) : 0;
+    if (isFramelessTask && framelessActualMin >= 1) {
+      patch.duration_min = framelessActualMin;
+      patch.slot_end_time = blockSlotEndHHMM({ start_time: block.start_time, duration_min: framelessActualMin } as Block);
+    }
     const { error } = await supabase.from("blocks").update(patch as never).eq("id", block.id);
     if (error) {
       setShowCheck(false);
       toast.error("Unable to save. Please try again.");
       return;
     }
+    // After the length is set, cascade-shift any later tasks it now overlaps.
+    if (isFramelessTask && framelessActualMin >= 1) {
+      await reconcileFramelessOverrun(framelessActualMin);
+    }
     try { localStorage.setItem(`dd_last_plan_progress_${planDate || todayDateStr()}`, new Date().toISOString()); } catch {/* ignore */}
-    const recap = `/recap?date=${planDate || todayDateStr()}`;
     if (oneThingMode) {
       setOneThingDoneFlash(true);
       setTimeout(() => {
         if (next) nav(`/focus/${next.id}?mode=one`);
-        else nav(recap);
+        else nav(backPlanPath);
       }, 3000);
       return;
     }
     setTimeout(() => {
-      if (next) nav(`/focus/${next.id}`);
-      else nav(recap);
-    }, 600);
+      // If there's a next task, show the choice sheet instead of auto-jumping.
+      // If this was the last task, return to the plan.
+      if (next) setShowNextSheet(true);
+      else nav(backPlanPath);
+    }, 800);
   };
 
   const skip = async () => {
@@ -317,9 +423,12 @@ export default function Focus() {
     haptics.impact("light");
     if (startedHereRef.current && tracking) {
       const entryId = tracking.id;
+      // Clear the active timer immediately (stops the worker + resets elapsed display)
+      // then delete the entry from Supabase. Doing it in this order means the next
+      // block's Focus screen never sees a stale "still tracking" state.
+      clearActive(entryId);
       try {
         await supabase.from("time_entries").delete().eq("id", entryId);
-        await refreshTracker();
       } catch {/* ignore */}
       startedHereRef.current = false;
     }
@@ -333,9 +442,14 @@ export default function Focus() {
       toast.error("Could not save skip");
       return;
     }
+    if (next) {
+      setShowNextSheetIsSkip(true);
+      setShowNextSheet(true);
+      return;
+    }
     const backPlan =
       planDate && planDate !== todayDateStr() ? `/today/plan?date=${planDate}` : "/today/plan";
-    if (next) nav(`/focus/${next.id}`); else nav(backPlan);
+    nav(backPlan);
   };
 
   // Cancel = leave focus mode without changing anything (no completion, no
@@ -344,9 +458,9 @@ export default function Focus() {
   const cancel = async () => {
     if (startedHereRef.current && tracking) {
       const entryId = tracking.id;
+      clearActive(entryId);
       try {
         await supabase.from("time_entries").delete().eq("id", entryId);
-        await refreshTracker();
       } catch {/* ignore */}
       startedHereRef.current = false;
     }
@@ -368,7 +482,53 @@ export default function Focus() {
       blockId: block.id,
       nextTaskTitle: next?.title,
       startedAt: actualStartMsRef.current ?? Date.now(),
+      // Seed the chip if a tracker is already running for this block on arm.
+      category: liveCatRef.current,
     });
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [armed, block?.id, oneThingMode]);
+
+  // Keep the Focus Live Activity's category badge in sync with the running tracker.
+  // Runs on every tracking state change — clears the badge when the tracker stops.
+  // Also mirrors the value into liveCatRef so the foreground re-arm below reads
+  // the current category, not a stale closure.
+  useEffect(() => {
+    if (!armed) return;
+    const cat = trackingThisBlock && trackingCat
+      ? { categoryName: trackingCat.name, color: trackingCat.color }
+      : null;
+    liveCatRef.current = cat;
+    void liveActivity.updateFocusCategory(cat);
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [armed, trackingThisBlock, trackingCat?.id]);
+
+  // Re-arm the Focus Live Activity when the app returns to the foreground while a
+  // focus session is active — covers an activity quietly evicted by the OS. This
+  // is NON-destructive: ensureFocus starts one ONLY if none is live; if the
+  // activity is still alive it leaves the timer untouched and just refreshes the
+  // category chip (which an OS snapshot can drop). Respects oneThingMode exactly
+  // like the start effect, and carries nextTaskTitle + the live category.
+  useEffect(() => {
+    if (!armed || !block || oneThingMode) return;
+    let removed = false;
+    let detach: (() => void) | null = null;
+    void import("@capacitor/app").then(({ App }) => {
+      if (removed) return; // unmounted before the dynamic import resolved
+      const handle = App.addListener("appStateChange", ({ isActive }) => {
+        if (!isActive) return;
+        void liveActivity.ensureFocus({
+          taskTitle: block.title,
+          plannedMinutes: block.duration_min,
+          blockId: block.id,
+          nextTaskTitle: next?.title,
+          startedAt: actualStartMsRef.current ?? Date.now(),
+          category: liveCatRef.current,
+        });
+      });
+      detach = () => void Promise.resolve(handle).then((h) => h.remove());
+    }).catch(() => { /* @capacitor/app unavailable on web */ });
+    return () => { removed = true; detach?.(); };
+  // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [armed, block?.id, oneThingMode]);
 
   // Deep-link "Mark done" from the Live Activity lands here as ?complete=1.
@@ -386,6 +546,7 @@ export default function Focus() {
 
   const lateDeepWork = !!block && block.type === "deep_work" && new Date().getHours() >= 18;
   const longSession = !!block && block.duration_min >= 90;
+  const backPlanPath = planDate && planDate !== todayDateStr() ? `/today/plan?date=${planDate}` : "/today/plan";
 
   useEffect(() => {
     if (!armed || guardrailToastShownRef.current) return;
@@ -418,7 +579,6 @@ export default function Focus() {
     ? Math.max(0, Math.floor((Date.now() - actualStartMsRef.current) / 1000))
     : 0;
   const oneThingElapsedSec = focusElapsedSec;
-  const trackingThisBlock = !!(tracking && block && tracking.block_id === block.id);
   // The big ring should reflect the *tracker* when it's actually attributing
   // time to a category. With no tracker running, it falls back to a plain
   // wall-clock since-arm count (which doesn't persist to time_entries).
@@ -429,9 +589,12 @@ export default function Focus() {
 
   const RING_R = 100;
   const RING_CIRC = 2 * Math.PI * RING_R;
+  // A frameless task (no set duration) runs as a plain count-up stopwatch:
+  // no planned window, so no progress fill and never "overtime".
+  const isFrameless = Number(block.duration_min) <= 0;
   const plannedSec = block.duration_min * 60;
-  const progressRatio = plannedSec > 0 ? Math.min(1, ringElapsedSec / plannedSec) : 0;
-  const isOverTime = ringElapsedSec > 0 && ringElapsedSec > plannedSec;
+  const progressRatio = !isFrameless && plannedSec > 0 ? Math.min(1, ringElapsedSec / plannedSec) : 0;
+  const isOverTime = !isFrameless && ringElapsedSec > 0 && ringElapsedSec > plannedSec;
 
   if (oneThingMode) {
     return (
@@ -568,14 +731,14 @@ export default function Focus() {
                     {fmtHMS(ringElapsedSec)}
                   </div>
                   <div className="text-[12px] text-secondary-fg/60 mt-2">
-                    of {fmtDur(block.duration_min)}
+                    {isFrameless ? "no set length" : `of ${fmtDur(block.duration_min)}`}
                   </div>
                 </div>
               </>
             )}
           </div>
           {/* Stop-tracking control */}
-          {armed && trackingThisBlock && trackingCat && (
+          {armed && trackingThisBlock && trackingCat && !showCheck && (
             <button
               type="button"
               onClick={() => { stopTracking(); startedHereRef.current = false; }}
@@ -584,9 +747,24 @@ export default function Focus() {
               <Square className="h-3 w-3" /> Stop tracking
             </button>
           )}
+          {/* Victory text — slides in after the check circle pops */}
+          {showCheck && (
+            <div className="mt-5 flex flex-col items-center gap-1.5 focus-done-text">
+              <p className="text-[15px] font-semibold text-success text-center leading-tight px-4">
+                {block.title}
+              </p>
+              {next ? (
+                <p className="text-[13px] text-secondary-fg text-center">
+                  Next up: <span className="text-foreground font-medium">{next.title}</span>
+                </p>
+              ) : (
+                <p className="text-[13px] text-secondary-fg text-center">That&apos;s all for today</p>
+              )}
+            </div>
+          )}
         </div>
 
-        <div className="mt-5 w-full max-w-[320px] space-y-2">
+        {!showCheck && <div className="mt-5 w-full max-w-[320px] space-y-2">
           <button
             type="button"
             onClick={() => void complete()}
@@ -602,11 +780,11 @@ export default function Focus() {
           >
             Skip
           </button>
-        </div>
+        </div>}
         {/* Decision prompt when this block has no tracker category yet and
             the user hasn't opted out for this session. Two clear paths so
             the user is never silently un-tracked. */}
-        {!trackingThisBlock && armed && !assignedCatIdForBlock && !trackerSkipped && (
+        {!showCheck && !trackingThisBlock && armed && !assignedCatIdForBlock && !trackerSkipped && (
           <div className="mt-6 w-full max-w-[320px] rounded-[28px] app-card p-5 space-y-4 shadow-lg border border-soft">
             <div className="flex items-start gap-3">
               <Timer className="h-4 w-4 text-primary mt-0.5 shrink-0" />
@@ -630,7 +808,7 @@ export default function Focus() {
                         type="button"
                         onClick={() => {
                           startedHereRef.current = true;
-                          void startTracking(c.id, { source: "focus", blockId: block.id, note: block.title });
+                          void startTracking(c.id, { source: "focus", blockId: block.id });
                           setCatPickerOpen(false);
                         }}
                         className="flex w-full items-center gap-2 rounded-lg px-2 py-2 text-left text-sm text-foreground pressable hover:bg-muted"
@@ -652,7 +830,7 @@ export default function Focus() {
                       const c = await addCategory(name);
                       if (!c) return;
                       startedHereRef.current = true;
-                      await startTracking(c.id, { source: "focus", blockId: block.id, note: block.title });
+                      await startTracking(c.id, { source: "focus", blockId: block.id });
                       setNewFocusCatName("");
                       setCatPickerOpen(false);
                     }}
@@ -702,7 +880,7 @@ export default function Focus() {
                     type="button"
                     onClick={() => {
                       startedHereRef.current = true;
-                      void startTracking(c.id, { source: "focus", blockId: block.id, note: block.title });
+                      void startTracking(c.id, { source: "focus", blockId: block.id });
                       setCatPickerOpen(false);
                     }}
                     className="flex w-full items-center gap-2 rounded-lg px-2 py-2 text-left text-sm text-foreground pressable hover:bg-muted"
@@ -724,7 +902,7 @@ export default function Focus() {
                   const c = await addCategory(name);
                   if (!c) return;
                   startedHereRef.current = true;
-                  await startTracking(c.id, { source: "focus", blockId: block.id, note: block.title });
+                  await startTracking(c.id, { source: "focus", blockId: block.id });
                   setNewFocusCatName("");
                   setCatPickerOpen(false);
                 }}
@@ -748,7 +926,9 @@ export default function Focus() {
         )}
         <div className="mt-auto pt-8 text-center px-2">
           <p className="text-[13px] text-secondary-fg/80 leading-relaxed">
-            {next ? (
+            {showCheck ? (
+              "Heading back to your plan…"
+            ) : next ? (
               <>Next up: <span className="text-foreground font-medium">{next.title}</span></>
             ) : block.kind === "task" ? (
               "Last block — finish strong."
@@ -761,13 +941,92 @@ export default function Focus() {
         </div>
 
       </motion.div>
-      <PreflightSheet
-        open={preflightOpen}
-        onOpenChange={(v) => { if (!v) dismissPreflight(); }}
-        onStart={dismissPreflight}
-        taskTitle={block?.title}
-        taskType={block?.type}
-      />
+
+      {/* ── "What's next?" choice sheet ─────────────────────────────────
+          Slides up after the victory moment (800ms after Done is tapped).
+          Gives the user explicit control: start the next task or go back
+          to the plan. Tapping the backdrop is a soft "back to plan". */}
+      {showNextSheet && next && (
+        <div
+          className="fixed inset-0 z-50 flex flex-col justify-end"
+          onClick={() => nav(backPlanPath)}
+        >
+          {/* Backdrop — fades in slightly ahead of the sheet */}
+          <motion.div
+            className="absolute inset-0 bg-black/50"
+            style={{ backdropFilter: "blur(14px)", WebkitBackdropFilter: "blur(14px)" }}
+            initial={{ opacity: 0 }}
+            animate={{ opacity: 1 }}
+            transition={{ duration: 0.18 }}
+          />
+          {/* Sheet — GPU-promoted before first frame via will-change */}
+          <motion.div
+            className="relative bg-card rounded-t-[28px] px-5 pt-4 pb-[calc(1.5rem+env(safe-area-inset-bottom))] shadow-[0_-16px_56px_-8px_hsl(0_0%_0%/0.28)]"
+            style={{ willChange: "transform" }}
+            initial={{ y: "100%" }}
+            animate={{ y: 0 }}
+            transition={{ type: "spring", bounce: 0.18, duration: 0.44 }}
+            onClick={(e) => e.stopPropagation()}
+            onAnimationStart={() => haptics.impact("light")}
+          >
+            {/* iOS-style drag handle */}
+            <div className="w-9 h-1 rounded-full bg-secondary-fg/25 mx-auto mb-4" />
+
+            {/* Completed / Skipped task header */}
+            <div className="flex items-center gap-3 mb-5">
+              <div className={`h-10 w-10 rounded-full flex items-center justify-center shrink-0 ${showNextSheetIsSkip ? "bg-muted" : "bg-success shadow-[0_4px_14px_-3px_hsl(var(--success)/0.45)]"}`}>
+                {showNextSheetIsSkip
+                  ? <X className="h-5 w-5 text-secondary-fg" strokeWidth={2.75} />
+                  : <Check className="h-5 w-5 text-success-foreground" strokeWidth={2.75} />}
+              </div>
+              <div>
+                <div className={`text-[11px] font-semibold uppercase tracking-[0.1em] ${showNextSheetIsSkip ? "text-secondary-fg" : "text-success"}`}>
+                  {showNextSheetIsSkip ? "Skipped" : "Completed"}
+                </div>
+                <div className="text-[15px] font-semibold text-foreground leading-tight line-clamp-1">{block.title}</div>
+              </div>
+            </div>
+
+            {/* Next task card */}
+            <div className="text-[11px] font-semibold text-secondary-fg uppercase tracking-[0.1em] mb-2">Next up</div>
+            <div className="rounded-[16px] bg-muted/40 border border-soft p-4 mb-5">
+              <div className="text-[16px] font-semibold text-foreground leading-snug">{next.title}</div>
+              {(() => {
+                const [h, m] = next.start_time.split(":").map(Number);
+                const scheduledMin = h * 60 + m;
+                const now = new Date();
+                const nowMin = now.getHours() * 60 + now.getMinutes();
+                const shiftMin = nowMin - scheduledMin;
+                return (
+                  <div className="text-[13px] text-secondary-fg mt-1">
+                    {shiftMin > 2
+                      ? <>Was at {fmtTime(next.start_time)} · <span className="text-amber-500 dark:text-amber-400">~{shiftMin}m late</span></>
+                      : <>Scheduled at {fmtTime(next.start_time)}</>
+                    }
+                  </div>
+                );
+              })()}
+            </div>
+
+            <button
+              type="button"
+              onClick={() => { haptics.impact("medium"); nav(`/focus/${next.id}`); }}
+              className="w-full h-14 flex items-center justify-center gap-2 rounded-[18px] bg-primary text-[17px] font-semibold text-primary-foreground pressable shadow-[0_0_28px_-4px_hsl(var(--primary)/0.5)] mb-2.5"
+            >
+              <Check className="h-5 w-5 shrink-0" strokeWidth={2.75} />
+              Start task
+            </button>
+            <button
+              type="button"
+              onClick={() => nav(backPlanPath)}
+              className="w-full h-12 flex items-center justify-center rounded-[18px] border border-soft bg-transparent text-[14px] font-medium text-secondary-fg pressable"
+            >
+              Back to plan
+            </button>
+          </motion.div>
+        </div>
+      )}
+
       <AlertDialog open={confirmSkipOpen} onOpenChange={setConfirmSkipOpen}>
         <AlertDialogContent>
           <AlertDialogHeader>

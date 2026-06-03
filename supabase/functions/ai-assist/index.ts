@@ -105,7 +105,7 @@ Deno.serve(async (req) => {
 
     const safeMessages = messages
       .filter((m: any) => m && typeof m.content === "string" && (m.role === "user" || m.role === "assistant"))
-      .slice(-20)
+      .slice(-15)
       .map((m: any) => ({ role: m.role, content: String(m.content).slice(0, 4000) }));
 
     const payloadMessages = [{ role: "system", content: systemPrompt }, ...safeMessages];
