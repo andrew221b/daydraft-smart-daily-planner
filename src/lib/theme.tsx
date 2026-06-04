@@ -52,7 +52,7 @@ export const ThemeProvider = ({ children }: { children: ReactNode }) => {
       const { data: { session } } = await supabase.auth.getSession();
       if (!session?.user || cancelled) return;
       const { data } = await supabase.from("profiles").select("theme").eq("id", session.user.id).maybeSingle();
-      const t = (data as any)?.theme as Theme | undefined;
+      const t = (data)?.theme as Theme | undefined;
       if (t && t !== theme) setThemeState(t);
     })();
     return () => { cancelled = true; };
@@ -64,7 +64,7 @@ export const ThemeProvider = ({ children }: { children: ReactNode }) => {
     try { localStorage.setItem(STORAGE_KEY, t); } catch { /* private mode / quota */ }
     supabase.auth.getSession().then(({ data }) => {
       if (data.session?.user) {
-        supabase.from("profiles").update({ theme: t } as any).eq("id", data.session.user.id).then(() => {});
+        supabase.from("profiles").update({ theme: t }).eq("id", data.session.user.id).then(() => {});
       }
     });
   };

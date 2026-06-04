@@ -218,8 +218,8 @@ function TrackerInner({ embedded = false, onClose }: { embedded?: boolean; onClo
         endMs: e.ended_at ? new Date(e.ended_at).getTime() : null,
         note: e.note,
         block_id: e.block_id ?? null,
-        snapshotRate: (e as any).snapshot_hourly_rate ?? null,
-        snapshotCurrency: (e as any).snapshot_currency ?? null,
+        snapshotRate: (e).snapshot_hourly_rate ?? null,
+        snapshotCurrency: (e).snapshot_currency ?? null,
       })),
     [entries],
   );
@@ -555,7 +555,7 @@ function TrackerInner({ embedded = false, onClose }: { embedded?: boolean; onClo
     try {
       await updateCategoryBilling(editingCat, paymentDetails);
       return true;
-    } catch (e: any) {
+    } catch (e) {
       toast.error(e?.message || "Unable to save payment details");
       return false;
     } finally {
@@ -586,7 +586,7 @@ function TrackerInner({ embedded = false, onClose }: { embedded?: boolean; onClo
       doc.setTextColor(0);
 
       // Section: by category
-      const catRows: any[] = [];
+      const catRows: string[][] = [];
       const catTotals = Array.from(periodCatStats.entries())
         .map(([id, v]) => ({ cat: catMap.get(id), sec: v.sec, sessions: v.sessions.length }))
         .filter(x => x.cat)
@@ -604,7 +604,7 @@ function TrackerInner({ embedded = false, onClose }: { embedded?: boolean; onClo
         headStyles: { fillColor: [240, 240, 245], textColor: 30 },
         margin: { left: margin, right: margin },
       });
-      y = (doc as any).lastAutoTable.finalY + 24;
+      y = (doc as unknown as { lastAutoTable: { finalY: number } }).lastAutoTable.finalY + 24;
 
       // Section: per day
       const periodDays: Array<{ key: string; date: Date; total: number }> = [];
@@ -640,7 +640,7 @@ function TrackerInner({ embedded = false, onClose }: { embedded?: boolean; onClo
       y += 10;
 
       // Section: all sessions
-      const allSessions: any[] = [];
+      const allSessions: Array<{ start: number; end: number; dur: number; cat: string; note: string }> = [];
       entries.forEach(e => {
         const s = new Date(e.started_at).getTime();
         const en = e.ended_at ? new Date(e.ended_at).getTime() : now;
@@ -674,7 +674,7 @@ function TrackerInner({ embedded = false, onClose }: { embedded?: boolean; onClo
       }
 
       // Footer
-      const pageCount = (doc as any).internal.getNumberOfPages();
+      const pageCount = (doc.internal as unknown as { getNumberOfPages: () => number }).getNumberOfPages();
       for (let p = 1; p <= pageCount; p++) {
         doc.setPage(p);
         doc.setFontSize(8); doc.setTextColor(140);
@@ -687,7 +687,7 @@ function TrackerInner({ embedded = false, onClose }: { embedded?: boolean; onClo
       const pdfBlob = doc.output("blob") as Blob;
       await triggerDownload(pdfBlob, filename, "application/pdf");
       toast.success("PDF exported");
-    } catch (err: any) {
+    } catch (err) {
       toast.error(err?.message || "Export failed");
     } finally {
       setExporting(false);
@@ -1681,7 +1681,8 @@ function StackedBar({ segments, totalSec }: { segments: Array<{ value: number; c
   );
 }
 
-function DayDetail({ detail, catMap }: { detail: NonNullable<ReturnType<() => any>>; catMap: Map<string, TimeCategory> }) {
+type DayDetailData = { date: Date; total: number; byCat: Map<string, number>; items: Array<{ id: string; cat: TimeCategory | undefined; start: number; end: number; dur: number; fromPlanner: boolean }> };
+function DayDetail({ detail, catMap }: { detail: DayDetailData; catMap: Map<string, TimeCategory> }) {
   const byCat = Array.from(detail.byCat.entries() as IterableIterator<[string, number]>)
     .map(([id, sec]) => ({ cat: catMap.get(id), sec }))
     .filter(x => x.cat)
@@ -1703,7 +1704,7 @@ function DayDetail({ detail, catMap }: { detail: NonNullable<ReturnType<() => an
           <StackedBar segments={byCat.map(x => ({ value: x.sec, color: x.cat!.color, label: x.cat!.name }))} totalSec={detail.total} />
 
           <DayTimeline24h
-            segments={detail.items.map((it: any) => ({
+            segments={detail.items.map((it) => ({
               id: it.id,
               start: it.start - detail.date.getTime(),
               end: it.end - detail.date.getTime(),
@@ -1728,7 +1729,7 @@ function DayDetail({ detail, catMap }: { detail: NonNullable<ReturnType<() => an
             <div className="pt-2 mt-2 border-t border-soft">
               <div className="text-[11px] font-medium uppercase tracking-wide text-secondary-fg mb-2">Sessions</div>
               <div className="space-y-1.5 max-h-48 overflow-y-auto">
-                {detail.items.map((it: any) => {
+                {detail.items.map((it) => {
                   const startStr = new Date(it.start).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" });
                   const endStr = new Date(it.end).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" });
                   return (
@@ -1932,7 +1933,7 @@ function LongPressButton({
     fired.current = false;
     timer.current = window.setTimeout(() => {
       fired.current = true;
-      try { (navigator as any).vibrate?.(15); } catch {}
+      try { navigator.vibrate?.(15); } catch { /* vibrate unsupported */ }
       onLongPress();
     }, 500);
   };

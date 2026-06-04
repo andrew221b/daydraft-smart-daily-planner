@@ -1,4 +1,4 @@
-import { useRef, useState } from "react";
+import { useRef, useState, type CSSProperties } from "react";
 import { useSortable } from "@dnd-kit/sortable";
 import { SortableContext, verticalListSortingStrategy } from "@dnd-kit/sortable";
 import { useDroppable } from "@dnd-kit/core";
@@ -6,6 +6,7 @@ import { CSS } from "@dnd-kit/utilities";
 import { GripVertical, ChevronDown, MoreHorizontal, Plus, Check, ListChecks } from "lucide-react";
 import type { ChecklistGroup as Group, ChecklistItem } from "@/hooks/useChecklist";
 import { haptics } from "@/lib/haptics";
+import { checklistCategoryTint, checklistTintVars } from "@/lib/checklistColors";
 
 /* The checklist's identity colour is a vivid two-stop accent gradient
    (`--accent` → `--accent-2`, theme-aware). It carries the done checkbox, the
@@ -148,12 +149,30 @@ export function AddItemRow({
 }) {
   const [draft, setDraft] = useState("");
   const inputRef = useRef<HTMLInputElement>(null);
+  // Keep this row above the soft keyboard. The global keyboard handler only
+  // reveals the focused field on the keyboard's OPEN transition; this row is
+  // inline in the scrolling page (not a bottom-anchored sheet), so once the
+  // keyboard is already open — on first focus, and after each add pushes the
+  // row further down the growing list — it would slip underneath it. Re-center
+  // it ourselves so what you're typing always sits above the keyboard.
+  const reveal = (delay = 0) => {
+    window.setTimeout(() => {
+      try {
+        inputRef.current?.scrollIntoView({ block: "center", behavior: "smooth" });
+      } catch {
+        /* WKWebView can throw on an early scroll root — safe to ignore */
+      }
+    }, delay);
+  };
   const submit = () => {
     const t = draft.trim();
     if (!t) return;
     onAdd(t);
     setDraft("");
-    requestAnimationFrame(() => inputRef.current?.focus());
+    requestAnimationFrame(() => {
+      inputRef.current?.focus();
+      reveal();
+    });
   };
   return (
     <label className="relative z-10 flex items-center gap-1.5 py-2.5 cursor-text">
@@ -164,6 +183,7 @@ export function AddItemRow({
         ref={inputRef}
         value={draft}
         onChange={(e) => setDraft(e.target.value)}
+        onFocus={() => reveal(300)}
         onKeyDown={(e) => {
           if (e.key === "Enter") submit();
         }}
@@ -212,9 +232,14 @@ export function ChecklistGroup({
   const { setNodeRef, isOver } = useDroppable({ id: group.id });
   const done = items.filter((i) => i.done).length;
   const total = items.length;
+  // Each category gets its own identity colour. Re-tinting `--accent`/`--accent-2`
+  // here makes the list chip, checkboxes, progress ring and title all adopt it —
+  // ungrouped items (outside any group) keep the page's emerald accent.
+  const tint = checklistCategoryTint(group.id);
 
   return (
     <div
+      style={checklistTintVars(tint) as CSSProperties}
       className={`relative app-card checklist-surface rounded-[20px] overflow-hidden transition-shadow ${
         isOver ? "ring-2 ring-accent/55" : ""
       }`}
@@ -231,7 +256,7 @@ export function ChecklistGroup({
           <span className="accent-grad flex h-[22px] w-[22px] items-center justify-center rounded-[7px] shrink-0 shadow-sm">
             <ListChecks className="h-3 w-3 text-white" strokeWidth={2.75} />
           </span>
-          <span className="font-semibold text-[15px] text-foreground/95 truncate">{group.title}</span>
+          <span className="font-semibold text-[15px] truncate" style={{ color: "hsl(var(--accent))" }}>{group.title}</span>
         </button>
         <ProgressRing done={done} total={total} />
         <button

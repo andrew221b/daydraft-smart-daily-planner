@@ -95,7 +95,7 @@ export const enablePush = async (userId: string) => {
     userVisibleOnly: true,
     applicationServerKey: urlBase64ToUint8(PUBLIC_VAPID_KEY),
   });
-  const json: any = sub.toJSON();
+  const json = sub.toJSON();
   const { error } = await supabase
     .from("push_subscriptions")
     .upsert(
@@ -104,7 +104,7 @@ export const enablePush = async (userId: string) => {
         endpoint: json.endpoint,
         p256dh: json.keys.p256dh,
         auth: json.keys.auth,
-      } as any,
+      },
       { onConflict: "user_id,endpoint", ignoreDuplicates: false }
     );
   if (error) throw error;

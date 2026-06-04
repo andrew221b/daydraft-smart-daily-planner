@@ -3,6 +3,7 @@
 // chunk for everyone — including users who never tap "Export PDF".
 // They're loaded lazily inside `downloadReportPdf` instead.
 import type { jsPDF as JsPdfType, jsPDFOptions } from "jspdf";
+import { getErrorMessage } from "@/lib/errors";
 
 export type ReportCategoryRow = {
   name: string;
@@ -126,11 +127,9 @@ export async function triggerDownload(blob: Blob, filename: string, mimeType: st
       } catch (err) {
         // User dismissed the share sheet — not a failure. Capacitor's Share
         // plugin throws a plain object {message, errorMessage} (NOT an Error
-        // instance) when the user cancels, so we check both shapes.
-        const msg = err instanceof Error
-          ? err.message
-          : (err as any)?.message ?? (err as any)?.errorMessage ?? "";
-        if (/cancel/i.test(String(msg))) return;
+        // instance) when the user cancels; getErrorMessage handles both shapes.
+        const msg = getErrorMessage(err);
+        if (/cancel/i.test(msg)) return;
         throw err;
       }
       return;

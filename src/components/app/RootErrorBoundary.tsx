@@ -17,18 +17,23 @@ export class RootErrorBoundary extends Component<Props, State> {
     // payloads) stringify to `{}` because their interesting props are
     // non-enumerable. Pull them out explicitly so the iOS log isn't
     // useless. Without this you get the dreaded "[error] - {}" lines.
+    const e = error as Partial<{
+      constructor: { name?: string };
+      message: unknown; name: unknown; code: unknown; stack: unknown;
+      cause: unknown; status: unknown; details: unknown; hint: unknown;
+    }>;
     const dump = {
       type: typeof error,
-      ctor: (error as any)?.constructor?.name,
-      message: (error as any)?.message,
-      name: (error as any)?.name,
-      code: (error as any)?.code,
-      stack: (error as any)?.stack,
+      ctor: e?.constructor?.name,
+      message: e?.message,
+      name: e?.name,
+      code: e?.code,
+      stack: e?.stack,
       // Supabase / fetch wrap their failures here:
-      cause: (error as any)?.cause,
-      status: (error as any)?.status,
-      details: (error as any)?.details,
-      hint: (error as any)?.hint,
+      cause: e?.cause,
+      status: e?.status,
+      details: e?.details,
+      hint: e?.hint,
       ownKeys: error && typeof error === "object" ? Object.getOwnPropertyNames(error) : null,
       json: (() => { try { return JSON.stringify(error); } catch { return "<unstringifiable>"; } })(),
     };

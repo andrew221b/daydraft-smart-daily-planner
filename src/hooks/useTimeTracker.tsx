@@ -12,6 +12,7 @@ import { keepPreviousData, useQuery, useQueryClient } from "@tanstack/react-quer
 import { Capacitor } from "@capacitor/core";
 import { billingDraftToCategoryUpdate } from "@/lib/categoryBilling";
 import { supabase } from "@/integrations/supabase/client";
+import type { TablesUpdate } from "@/integrations/supabase/types";
 import {
   fetchRollingEntries,
   hydrateRollingEntries,
@@ -608,6 +609,9 @@ export function TimeTrackerProvider({ children }: { children: ReactNode }) {
           note: entry.note,
           block_id: entry.block_id,
           source: entry.source,
+          task_title: payload.task_title,
+          snapshot_hourly_rate: payload.snapshot_hourly_rate,
+          snapshot_currency: payload.snapshot_currency,
         };
         return [next, ...(prev ?? [])];
       },
@@ -695,7 +699,7 @@ export function TimeTrackerProvider({ children }: { children: ReactNode }) {
         const actualMin = Math.max(
           0,
           Math.round(
-            (rows || []).reduce((sum: number, e: any) => {
+            (rows || []).reduce((sum: number, e: { started_at: string; ended_at: string | null }) => {
               const s = new Date(e.started_at).getTime();
               const en = e.ended_at ? new Date(e.ended_at).getTime() : s;
               return sum + Math.max(0, (en - s) / 60000);
@@ -823,7 +827,7 @@ export function TimeTrackerProvider({ children }: { children: ReactNode }) {
       return;
     }
     const deletedAt = new Date().toISOString();
-    const { error } = await (supabase as any)
+    const { error } = await (supabase)
       .from("time_categories")
       .update({ deleted_at: deletedAt })
       .eq("id", id);
@@ -870,7 +874,7 @@ export function TimeTrackerProvider({ children }: { children: ReactNode }) {
     if (normalized === null) patch.rate_set_at = null;
     const { error } = await supabase
       .from("time_categories")
-      .update(patch as any)
+      .update(patch as TablesUpdate<"time_categories">)
       .eq("id", id);
     if (error) {
       toast.error(error.message);
@@ -888,7 +892,7 @@ export function TimeTrackerProvider({ children }: { children: ReactNode }) {
   const resetRateSetAt: Ctx["resetRateSetAt"] = async (id) => {
     const { error } = await supabase
       .from("time_categories")
-      .update({ rate_set_at: null } as any)
+      .update({ rate_set_at: null })
       .eq("id", id);
     if (error) { toast.error(error.message); return; }
     setCategoriesData((prev) =>
@@ -900,7 +904,7 @@ export function TimeTrackerProvider({ children }: { children: ReactNode }) {
     const row = billingDraftToCategoryUpdate(draft);
     const { error } = await supabase
       .from("time_categories")
-      .update(row as any)
+      .update(row)
       .eq("id", id);
     if (error) {
       toast.error(error.message);
@@ -939,7 +943,7 @@ export function TimeTrackerProvider({ children }: { children: ReactNode }) {
     }
     const m = Math.round(durationSec / 60);
     toast.success(`Logged ${m < 60 ? `${m}m` : `${Math.floor(m / 60)}h ${m % 60}m`}`);
-    const inserted = data as any;
+    const inserted = data;
     queryClient.setQueryData<RollingEntry[]>(
       rollingEntriesQueryKey(user.id),
       (prev) => {
@@ -951,6 +955,9 @@ export function TimeTrackerProvider({ children }: { children: ReactNode }) {
           note: inserted.note,
           block_id: inserted.block_id ?? null,
           source: inserted.source,
+          task_title: inserted.task_title ?? null,
+          snapshot_hourly_rate: inserted.snapshot_hourly_rate ?? null,
+          snapshot_currency: inserted.snapshot_currency ?? null,
         };
         return [row, ...(prev ?? [])];
       },

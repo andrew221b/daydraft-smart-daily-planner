@@ -211,7 +211,7 @@ export async function signInWithGoogleNative(): Promise<{ error?: Error | null }
       } : undefined,
     });
 
-    const idToken = (res as any)?.result?.idToken as string | undefined;
+    const idToken = (res as { result?: { idToken?: string } })?.result?.idToken;
     const claims = idToken ? decodeJwtPayload(idToken) : null;
     const tokenNonceClaim = typeof claims?.nonce === "string" ? (claims.nonce as string) : "";
     const tokenHasNonce = tokenNonceClaim.length > 0;
@@ -290,7 +290,7 @@ export async function signInWithAppleNative(): Promise<{ error?: Error | null }>
         nonce: hashedNonce,
       },
     });
-    const idToken = (res as any)?.result?.idToken as string | undefined;
+    const idToken = (res as { result?: { idToken?: string } })?.result?.idToken;
     const claims = idToken ? decodeJwtPayload(idToken) : null;
     console.info("[nativeAuth] Apple: plugin returned", {
       hasIdToken: !!idToken,

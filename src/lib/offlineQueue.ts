@@ -16,42 +16,43 @@ import { listQueuedWrites, removeQueuedWrite, type QueuedWrite } from "@/lib/idb
  */
 let draining = false;
 
-function isPermanentError(error: any): boolean {
+function isPermanentError(error: unknown): boolean {
   if (!error) return false;
-  if (typeof error.code === "string") {
-    if (error.code.startsWith("23") || error.code.startsWith("42") || error.code.startsWith("PGRST")) return true;
+  const e = error as { code?: string; status?: number };
+  if (typeof e.code === "string") {
+    if (e.code.startsWith("23") || e.code.startsWith("42") || e.code.startsWith("PGRST")) return true;
   }
-  if (typeof error.status === "number" && error.status >= 400 && error.status < 500) {
+  if (typeof e.status === "number" && e.status >= 400 && e.status < 500) {
     return true;
   }
   return false;
 }
 
 async function replay(item: QueuedWrite): Promise<boolean> {
-  const table = supabase.from(item.table as never) as any;
+  const table = supabase.from(item.table as never);
   try {
     if (item.op === "insert") {
       const { error } = await table.insert(item.payload as never);
-      if (error && isPermanentError(error)) { console.warn("[offlineQueue] dropping permanently-failed write", item.table, item.op, (error as any)?.code); return true; }
+      if (error && isPermanentError(error)) { console.warn("[offlineQueue] dropping permanently-failed write", item.table, item.op, (error)?.code); return true; }
       return !error;
     }
     if (item.op === "upsert") {
       const { error } = await table.upsert(item.payload as never);
-      if (error && isPermanentError(error)) { console.warn("[offlineQueue] dropping permanently-failed write", item.table, item.op, (error as any)?.code); return true; }
+      if (error && isPermanentError(error)) { console.warn("[offlineQueue] dropping permanently-failed write", item.table, item.op, (error)?.code); return true; }
       return !error;
     }
     if (item.op === "update") {
       let q = table.update(item.payload as never);
       for (const [k, v] of Object.entries(item.filter || {})) q = q.eq(k, v);
       const { error } = await q;
-      if (error && isPermanentError(error)) { console.warn("[offlineQueue] dropping permanently-failed write", item.table, item.op, (error as any)?.code); return true; }
+      if (error && isPermanentError(error)) { console.warn("[offlineQueue] dropping permanently-failed write", item.table, item.op, (error)?.code); return true; }
       return !error;
     }
     if (item.op === "delete") {
       let q = table.delete();
       for (const [k, v] of Object.entries(item.filter || {})) q = q.eq(k, v);
       const { error } = await q;
-      if (error && isPermanentError(error)) { console.warn("[offlineQueue] dropping permanently-failed write", item.table, item.op, (error as any)?.code); return true; }
+      if (error && isPermanentError(error)) { console.warn("[offlineQueue] dropping permanently-failed write", item.table, item.op, (error)?.code); return true; }
       return !error;
     }
   } catch {

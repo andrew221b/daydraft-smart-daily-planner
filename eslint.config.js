@@ -5,7 +5,18 @@ import reactRefresh from "eslint-plugin-react-refresh";
 import tseslint from "typescript-eslint";
 
 export default tseslint.config(
-  { ignores: ["dist"] },
+  {
+    // Generated/native build output and the Deno edge functions are not part of
+    // the browser bundle and shouldn't be linted with this browser config
+    // (supabase/functions run on Deno with their own globals/import maps).
+    ignores: [
+      "dist",
+      "android",
+      "ios",
+      "supabase/functions",
+      "**/*.config.{js,ts}",
+    ],
+  },
   {
     extends: [js.configs.recommended, ...tseslint.configs.recommended],
     files: ["**/*.{ts,tsx}"],

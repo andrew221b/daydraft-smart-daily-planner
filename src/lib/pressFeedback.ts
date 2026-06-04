@@ -5,7 +5,6 @@ let installed = false;
 let pressedEl: HTMLElement | null = null;
 let pressStartX = 0;
 let pressStartY = 0;
-let pressTimer: number | null = null;
 let lastTouchTime = 0;
 let pressStartTime = 0;
 

@@ -19,6 +19,7 @@ import { ChecklistGroup, ChecklistItemRow, AddItemRow, CheckCircleAccent } from 
 import { ChecklistItemSheet } from "@/components/app/ChecklistItemSheet";
 import { useChecklist, type ChecklistGroup as Group, type ChecklistItem } from "@/hooks/useChecklist";
 import { haptics } from "@/lib/haptics";
+import { checklistCategoryTint, checklistTintVars } from "@/lib/checklistColors";
 
 const UNGROUPED = "ungrouped";
 
@@ -181,6 +182,20 @@ export function ChecklistView({
     toggleItem(id);
   };
 
+  // Keep the inline "Add list" field above the soft keyboard. It sits at the
+  // very bottom of the scrolling page, so on focus and after each add (the
+  // global keyboard handler only fires on the keyboard's open transition) we
+  // re-center it ourselves — otherwise it slips under the keyboard.
+  const revealGroupInput = (delay = 0) => {
+    window.setTimeout(() => {
+      try {
+        groupInputRef.current?.scrollIntoView({ block: "center", behavior: "smooth" });
+      } catch {
+        /* WKWebView can throw on an early scroll root — safe to ignore */
+      }
+    }, delay);
+  };
+
   const submitGroup = () => {
     const t = groupDraft.trim();
     if (!t) {
@@ -189,7 +204,10 @@ export function ChecklistView({
     }
     addGroup(t);
     setGroupDraft("");
-    requestAnimationFrame(() => groupInputRef.current?.focus());
+    requestAnimationFrame(() => {
+      groupInputRef.current?.focus();
+      revealGroupInput();
+    });
   };
 
   return (
@@ -274,7 +292,11 @@ export function ChecklistView({
           {activeItem && (
             <div
               className="relative app-card checklist-surface rounded-2xl flex items-center gap-1.5 px-3 py-2.5 ring-2 ring-accent/40"
-              style={{ boxShadow: "0 18px 40px -10px rgba(0,0,0,0.6), 0 0 0 0.5px hsl(var(--accent) / 0.3)" }}
+              style={{
+                boxShadow: "0 18px 40px -10px rgba(0,0,0,0.6), 0 0 0 0.5px hsl(var(--accent) / 0.3)",
+                // Keep the dragged ghost in its category's colour (ungrouped → page accent).
+                ...(activeItem.group_id ? checklistTintVars(checklistCategoryTint(activeItem.group_id)) : {}),
+              }}
             >
               <span className="relative z-10 shrink-0 flex h-7 w-6 items-center justify-center" style={{ color: "hsl(var(--accent))" }}>
                 <GripVertical className="h-3.5 w-3.5" />
@@ -299,6 +321,7 @@ export function ChecklistView({
             autoFocus
             value={groupDraft}
             onChange={(e) => setGroupDraft(e.target.value)}
+            onFocus={() => revealGroupInput(300)}
             onKeyDown={(e) => {
               if (e.key === "Enter") submitGroup();
               if (e.key === "Escape") {

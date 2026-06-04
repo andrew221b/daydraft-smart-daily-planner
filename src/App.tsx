@@ -111,7 +111,7 @@ const NavigationBridge = () => {
   // 2. Hardware back button listener for Android.
   useEffect(() => {
     if (!Capacitor.isNativePlatform()) return;
-    let listener: any = null;
+    let listener: Promise<{ remove: () => void }> | null = null;
     void import("@capacitor/app").then(({ App }) => {
       listener = App.addListener("backButton", ({ canGoBack }) => {
         // A) If a modal/sheet is open, close it and consume the back button.
@@ -135,7 +135,7 @@ const NavigationBridge = () => {
       });
     });
     return () => {
-      if (listener) void listener.remove();
+      if (listener) void listener.then((l) => l.remove());
     };
   }, []);
 
@@ -188,6 +188,13 @@ const ThemedToaster = () => {
       // safe-area-inset-top so toasts clear the notch on every device.
       position="top-center"
       offset="calc(env(safe-area-inset-top, 44px) + 75px)"
+      // CRITICAL: sonner applies `offset` ONLY above 600px wide. On every phone
+      // (≤600px) it falls back to its DEFAULT `mobileOffset` (16px), which pins
+      // toasts right under the notch — ignoring the offset above. We must set
+      // `mobileOffset` to the SAME value, or the toast lands in the wrong place
+      // on the actual device even though `offset` looks correct. Side margins
+      // keep the full-width mobile toast off the screen edges.
+      mobileOffset={{ top: "calc(env(safe-area-inset-top, 44px) + 75px)", left: "16px", right: "16px" }}
       // Above sheets/overlays (z-50) and the tab bar (z-40) so a toast is ALWAYS
       // on top — never dimmed behind a sheet's backdrop.
       style={{ zIndex: 2147483647 }}
@@ -252,7 +259,6 @@ const AppContent = () => {
               <Route path="/home" element={null} />
               <Route path="/today" element={null} />
               <Route path="/today/plan" element={null} />
-              <Route path="/tracker" element={null} />
               <Route path="/reports" element={null} />
               <Route path="/settings" element={null} />
             </Route>

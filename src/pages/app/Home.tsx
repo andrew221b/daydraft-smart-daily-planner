@@ -39,7 +39,7 @@ function fmtMoney(amount: number, currency: string): string | null {
 export default function Home() {
   const { user } = useAuth();
   const { profile } = useProfile();
-  const tone = getTone(profile as any);
+  const tone = getTone(profile);
   const tour = useTour();
   const nav = useNavigate();
   const location = useLocation();
@@ -47,12 +47,6 @@ export default function Home() {
   const queryClient = useQueryClient();
   const viewDate = todayDateStr();
   const { allCatMap } = useTimeTracker();
-
-  useEffect(() => {
-    if (location.hash === "#tracker" || searchParams.get("tracker") === "1") {
-      nav("/tracker", { replace: true });
-    }
-  }, [location.hash, searchParams, nav]);
 
   useEffect(() => {
     if (!profile?.onboarded) return;
@@ -82,8 +76,8 @@ export default function Home() {
     const run = async () => {
       const d = await fetchPlanDashboard(user.id, viewDate);
       if (!d.planBlocks.length || !alive) return;
-      const changed = await applyAutoMissedBlocks(supabase, viewDate, d.planBlocks as Block[]);
-      if (alive && changed) void queryClient.invalidateQueries({ queryKey: planDashboardQueryKey(user.id, viewDate) });
+      const missed = await applyAutoMissedBlocks(supabase, viewDate, d.planBlocks as Block[]);
+      if (alive && missed.length) void queryClient.invalidateQueries({ queryKey: planDashboardQueryKey(user.id, viewDate) });
     };
     void run();
     const id = setInterval(run, 60_000);

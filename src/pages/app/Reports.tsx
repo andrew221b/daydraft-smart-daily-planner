@@ -247,7 +247,7 @@ export default function Reports() {
     gcTime: 30 * 60_000,
     placeholderData: keepPreviousData,
     queryFn: async () => {
-      const { data, error } = await (supabase as any)
+      const { data, error } = await (supabase)
         .from("billing_payment_details")
         .select("display_name,bank_name,iban,crypto_network,crypto_wallet,payment_link,notes")
         .eq("user_id", user!.id)
@@ -505,7 +505,7 @@ export default function Reports() {
       if (kind === "pdf") await downloadReportPdf(payload);
       else await downloadReportCsv(payload);
       if (!payload.entries.length) toast("Exported an empty report — no entries in this period");
-    } catch (e: any) {
+    } catch (e) {
       toast.error(e?.message || "Export failed");
     }
   };
@@ -601,7 +601,7 @@ export default function Reports() {
       });
       // Override is now redundant — tracker matches report. Clear it.
       clearCatOverride(m.catId);
-    } catch (e: any) {
+    } catch (e) {
       toast.error(e?.message || "Could not save payment details");
       return;
     }
@@ -696,7 +696,7 @@ export default function Reports() {
             because filtering by which categories count is useful regardless
             of the time window. Empty applied-set means "no filter, show all". */}
         <CategoryFilterChip
-          categories={categories as any}
+          categories={categories}
           appliedIds={appliedCatIds}
           onOpen={() => setCatSheetOpen(true)}
           onClear={() => setAppliedCatIds(new Set())}
@@ -1109,7 +1109,7 @@ export default function Reports() {
               body="Start a timer on the Track tab and your work will show up here — by category, by day, with billing totals."
               primaryAction={{
                 label: "Open Tracker",
-                onClick: () => nav("/tracker"),
+                onClick: () => nav("/home"),
                 icon: Timer,
               }}
             />
@@ -1209,7 +1209,7 @@ export default function Reports() {
       <CategoryFilterSheet
         open={catSheetOpen}
         onOpenChange={setCatSheetOpen}
-        categories={categories as any}
+        categories={categories}
         initialSelected={appliedCatIds}
         onApply={setAppliedCatIds}
       />

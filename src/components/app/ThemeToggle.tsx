@@ -1,7 +1,7 @@
-import { Monitor, Moon, Sun } from "lucide-react";
+import { Monitor, Moon, Sun, type LucideIcon } from "lucide-react";
 import { useTheme, Theme } from "@/lib/theme";
 
-const opts: { v: Theme; label: string; Icon: any }[] = [
+const opts: { v: Theme; label: string; Icon: LucideIcon }[] = [
   { v: "system", label: "Auto", Icon: Monitor },
   { v: "light", label: "Light", Icon: Sun },
   { v: "dark", label: "Dark", Icon: Moon },

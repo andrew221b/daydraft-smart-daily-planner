@@ -35,8 +35,8 @@ struct TrackerLiveActivityWidget: Widget {
                         currency: ctx.attributes.currencyCode
                     )
                     .padding(.horizontal, 14)
-                    .padding(.top, 2)
-                    .padding(.bottom, 6)
+                    .padding(.top, 0)
+                    .padding(.bottom, 4)
                 }
             } compactLeading: {
                 Image(systemName: "record.circle")
@@ -79,16 +79,20 @@ private struct TrackerCard: View {
             titleTint: accent,
             start: start,
             timerTint: accent,
-            heroFont: 32
+            heroFont: 30,
+            spacing: 6
         ) {
             if hasRate {
                 Text("BILLABLE: \(ddRate(rate, currency))")
                     .font(.system(size: 12, weight: .bold, design: .rounded))
                     .foregroundStyle(DD.green)
+                    .lineLimit(1)
+                    .minimumScaleFactor(0.7)
             } else {
                 Text("STARTED AT \(start, style: .time)")
                     .font(.system(size: 12, weight: .semibold, design: .rounded))
                     .foregroundStyle(DD.faint)
+                    .lineLimit(1)
             }
         } action: {
             Link(destination: stopURL) {

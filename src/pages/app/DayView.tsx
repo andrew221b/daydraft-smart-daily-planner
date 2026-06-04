@@ -11,10 +11,10 @@ import { enqueueWrite } from "@/lib/idbCache";
 import { invokeAiCached } from "@/lib/aiCache";
 import { useAbortOnUnmount } from "@/hooks/useAbortOnUnmount";
 import {
-  Block, fmtTime, todayDateStr, parseDateStr, friendlyDateFor, isFutureDateStr, isUserTask, isOpenUserTask, isUserTaskDone, inferScheduleBlockType, packLinearSchedule,
+  Block, type BlockType, type BlockKind, fmtTime, todayDateStr, parseDateStr, friendlyDateFor, isFutureDateStr, isUserTask, isOpenUserTask, isUserTaskDone, inferScheduleBlockType, packLinearSchedule,
   blockSlotEndHHMM, timeToMinutes, minutesToHHMM, planBlockInstants, wallMsOnPlanDay, shiftDate, normalizeSchedule,
 } from "@/lib/daydraft";
-import { ChevronLeft, ChevronRight, Play, CalendarDays, Trash2, Bell, BellOff, MoreHorizontal, Clock, Timer, MapPin, Copy, Sparkles, ListPlus, Wand2, ArrowRightCircle, Loader2, Bookmark, X, ListChecks, SkipForward } from "lucide-react";
+import { ChevronLeft, ChevronRight, Play, CalendarDays, Trash2, Bell, BellOff, MoreHorizontal, Clock, Timer, Copy, Sparkles, ListPlus, Wand2, ArrowRightCircle, Loader2, X, ListChecks } from "lucide-react";
 import { DayPickerSheet } from "@/components/app/DayPickerSheet";
 import { UncompleteTaskSheet } from "@/components/app/UncompleteTaskSheet";
 import { ChecklistView } from "@/components/app/ChecklistView";
@@ -44,7 +44,6 @@ import { haptics } from "@/lib/haptics";
 import { SkeletonBlock } from "@/components/app/SkeletonBlock";
 import { scheduleBlockReminders, ensureNotificationPermission, clearScheduledReminders, getReminderConfig, setReminderConfig, ReminderConfig } from "@/lib/blockReminders";
 import { DurationPicker } from "@/components/app/DurationPicker";
-import { mapsUrl } from "@/lib/maps";
 import { firstTaskCompleteMessage } from "@/lib/microDelights";
 import { PullToRefresh } from "@/components/app/PullToRefresh";
 import { formatPlanAsPlainText, copyTextToClipboard } from "@/lib/planTextExport";
@@ -117,6 +116,46 @@ type ExBlock = Block & {
 };
 
 type BulkTemplate = { id: string; name: string; raw_input: string };
+
+/** One block in an AI planning response (loose: it's external JSON). */
+type AiPlanBlock = {
+  title?: string;
+  kind?: string;
+  type?: string;
+  duration_min?: number;
+  start_time?: string;
+  reasoning?: string;
+  ai_reasoning?: string;
+  overlap_ok?: boolean;
+  parallel_group_id?: string | null;
+  estimated_minutes?: number;
+  actual_minutes?: number | null;
+  location?: string | null;
+  location_lat?: number | null;
+  location_lng?: number | null;
+  slot_end_time?: string | null;
+};
+
+/** Shape returned by the generate-plan / reschedule AI edge functions. */
+type AiPlanResponse = {
+  blocks?: AiPlanBlock[];
+  questions?: Array<{ id: string; text: string; options: string[] }>;
+  error?: string;
+  code?: string;
+};
+
+/** A composer/brain-dump row before it becomes a Block. The AI-enrichment fields
+ *  (kind/type/reasoning/overlap) are optional — only the planner path fills them. */
+type BulkRow = {
+  title: string;
+  duration: number | null;
+  start_time?: string;
+  type?: string;
+  kind?: string;
+  ai_reasoning?: string;
+  overlap_ok?: boolean;
+  parallel_group_id?: string | null;
+};
 
 // Resolved/locked tasks (done, skipped, missed, calendar) always stay at the
 // top of the list — regardless of their start_time vs active tasks. Within
@@ -248,7 +287,7 @@ export default function DayView() {
     if (loadedBlocksDate !== viewDate) return false;
     if (blocks.length === 0 || viewDate !== shiftDate(todayDateStr(), -1)) return false;
     let lastEnd = 0;
-    for (const v of planBlockInstants(viewDate, blocks as any).values()) lastEnd = Math.max(lastEnd, v.endMs);
+    for (const v of planBlockInstants(viewDate, blocks).values()) lastEnd = Math.max(lastEnd, v.endMs);
     return lastEnd > now.getTime();
   }, [viewDate, blocks, now, loadedBlocksDate]);
   const isToday = viewDate === todayDateStr() || isActiveNightPlan;
@@ -276,7 +315,7 @@ export default function DayView() {
   const [activeDragId, setActiveDragId] = useState<string | null>(null);
   const [composerOpen, setComposerOpen] = useState(false);
   const [bulkInput, setBulkInput] = useState("");
-  const [bulkRows, setBulkRows] = useState<{ title: string; duration: number | null; start_time?: string; type?: string; kind?: string; ai_reasoning?: string; overlap_ok?: boolean; parallel_group_id?: string | null }[]>([]);
+  const [bulkRows, setBulkRows] = useState<BulkRow[]>([]);
   const [durationWarnKind, setDurationWarnKind] = useState<"some" | "all" | null>(null);
   const [highlightMissingDuration, setHighlightMissingDuration] = useState(false);
   const [highlightMissingStartTime, setHighlightMissingStartTime] = useState(false);
@@ -295,7 +334,6 @@ export default function DayView() {
   const [bulkAiStep, setBulkAiStep] = useState<"clarifying" | "planning" | null>(null);
   const [confirmDeletePlan, setConfirmDeletePlan] = useState(false);
   const [moreOpen, setMoreOpen] = useState(false);
-  const [tappedBlock, setTappedBlock] = useState<ExBlock | null>(null);
   const [reminderBlockId, setReminderBlockId] = useState<string | null>(null);
   const [reminderAdvancedOpen, setReminderAdvancedOpen] = useState(false);
   const [reminderCfg, setReminderCfg] = useState<ReminderConfig>({
@@ -413,7 +451,6 @@ export default function DayView() {
   const openReminders = (id: string) => {
     setReminderCfg(getReminderConfig(id));
     setReminderBlockId(id);
-    setTappedBlock(null);
   };
 
   /**
@@ -443,26 +480,41 @@ export default function DayView() {
           resolution: null,
           resolved_at: null,
           start_time: newStart,
-          duration_min: newDur
+          duration_min: newDur,
+          // Keep the denormalized end in lock-step with the new start/duration so
+          // reminders + auto-missed read the right window.
+          slot_end_time: blockSlotEndHHMM({ start_time: newStart, duration_min: newDur } as Block),
         }).eq("id", b.id);
         if (error) throw error;
       } else {
+        // Continuation copy. Tag it "(Part 2)" (don't double-tag) and insert the
+        // SAME full field set a normal task gets — earlier it was a bare row with
+        // no slot_end_time/block_type, so its reminder + end pings never scheduled
+        // ("the program doesn't see it").
+        const cloneTitle = b.title.trim().endsWith("(Part 2)") ? b.title : `${b.title} (Part 2)`;
         const { error } = await supabase.from("blocks").insert({
           plan_id: b.plan_id,
           user_id: user?.id,
-          title: b.title,
+          title: cloneTitle,
           duration_min: newDur,
           start_time: newStart,
           position: b.position + 1,
           type: b.type,
           kind: "task",
-          completed: false
+          block_type: inferScheduleBlockType(b),
+          estimated_minutes: newDur,
+          slot_end_time: blockSlotEndHHMM({ start_time: newStart, duration_min: newDur } as Block),
+          completed: false,
         });
         if (error) throw error;
       }
-      await queryClient.invalidateQueries({ queryKey: planDayQueryKey(todayDateStr) });
-      await queryClient.invalidateQueries({ queryKey: planDashboardQueryKey() });
-    } catch (e: any) {
+      // Refetch the plan, then (re)schedule reminders off the fresh blocks so the
+      // restored/cloned task gets its pings (e.g. the default 5-min-before nudge)
+      // just like every other task — the load effect can miss a brand-new row.
+      const { data: fresh } = await refetch();
+      await queryClient.invalidateQueries({ queryKey: planDashboardQueryKey(user?.id ?? "", viewDate) });
+      if (isToday && fresh?.blocks) void syncBlockNotifications(viewDate, fresh.blocks as Block[]);
+    } catch (e) {
       toast.error(e?.message || "Failed to update task");
     }
   };
@@ -494,11 +546,11 @@ export default function DayView() {
     if (isToday) {
       if (Capacitor.isNativePlatform()) {
         // Native: re-sync the real scheduled notifications with the new config.
-        void syncBlockNotifications(viewDate, blocks as any);
+        void syncBlockNotifications(viewDate, blocks);
       } else {
         // Web: foreground-only Notification API fallback.
         ensureNotificationPermission().then((ok) => {
-          if (ok) scheduleBlockReminders(blocks as any, { planDate: viewDate });
+          if (ok) scheduleBlockReminders(blocks, { planDate: viewDate });
         });
       }
     }
@@ -511,7 +563,7 @@ export default function DayView() {
     if (Capacitor.isNativePlatform()) {
       // syncBlockNotifications cancels everything when the master switch is off,
       // and reschedules the day's pings when it's back on.
-      void syncBlockNotifications(viewDate, blocks as any);
+      void syncBlockNotifications(viewDate, blocks);
     }
     toast(enabled ? "Notifications on" : "All notifications muted");
   };
@@ -586,7 +638,7 @@ export default function DayView() {
   const copyDayOutline = async () => {
     if (!blocks.length) return;
     const headline = plan?.ai_summary || `Plan · ${friendlyDateFor(parseDateStr(viewDate))}`;
-    const text = formatPlanAsPlainText({ headline, blocks: blocks as any });
+    const text = formatPlanAsPlainText({ headline, blocks: blocks });
     const ok = await copyTextToClipboard(text);
     if (ok) toast.success("Copied outline");
     else toast.error("Could not copy");
@@ -602,7 +654,7 @@ export default function DayView() {
     (async () => {
       const ok = await ensureNotificationPermission();
       if (cancelled || !ok) return;
-      scheduleBlockReminders(blocks as any, { planDate: viewDate });
+      scheduleBlockReminders(blocks, { planDate: viewDate });
     })();
     return () => { cancelled = true; clearScheduledReminders(); };
   }, [blocks, isToday, viewDate]);
@@ -623,7 +675,7 @@ export default function DayView() {
         .from("block_templates")
         .select("id, name, raw_input")
         .eq("user_id", user.id)
-        .order("created_at" as any, { ascending: false });
+        .order("created_at", { ascending: false });
       if (error) throw error;
       return (data ?? []) as { id: string; name: string; raw_input: string }[];
     },
@@ -638,11 +690,11 @@ export default function DayView() {
         user_id: user.id,
         name: blk.title,
         raw_input: blk.title,
-      } as any);
+      });
       await queryClient.invalidateQueries({ queryKey: ["block-templates", user.id] });
       haptics.notify("success");
       toast.success("Saved as template");
-    } catch (e: any) {
+    } catch (e) {
       toast.error(e?.message || "Couldn't save template");
     }
   };
@@ -653,7 +705,7 @@ export default function DayView() {
       await supabase.from("block_templates").delete().eq("id", id);
       await queryClient.invalidateQueries({ queryKey: ["block-templates", user.id] });
       toast.success("Template removed");
-    } catch (e: any) {
+    } catch (e) {
       toast.error(e?.message || "Couldn't remove template");
     }
   };
@@ -662,8 +714,22 @@ export default function DayView() {
     if (!user?.id || !viewDate || blocks.length === 0 || isFuture) return;
     let cancelled = false;
     (async () => {
-      const changed = await applyAutoMissedBlocks(supabase, viewDate, blocks as Block[]);
-      if (!cancelled && changed) void invalidatePlanCaches();
+      const missed = await applyAutoMissedBlocks(supabase, viewDate, blocks as Block[]);
+      if (cancelled || !missed.length) return;
+      // Flip the status locally RIGHT NOW so the timeline shows "missed" the
+      // instant a window passes (or the moment you open the plan) instead of
+      // waiting on the refetch round-trip. The invalidate below reconciles.
+      const byId = new Map(missed.map((m) => [m.id, m.resolved_at]));
+      setBlocks((prev) =>
+        resolvedFirstOrder(
+          prev.map((b) =>
+            byId.has(b.id)
+              ? { ...b, resolution: "missed", resolved_at: byId.get(b.id) ?? b.resolved_at, completed: false }
+              : b,
+          ),
+        ),
+      );
+      void invalidatePlanCaches();
     })();
     return () => {
       cancelled = true;
@@ -738,13 +804,13 @@ export default function DayView() {
               resolution: removed.resolution ?? null,
               resolved_at: removed.resolved_at ?? null,
               completed_at: removed.completed_at ?? null,
-            } as any);
+            });
             await persistOrder(snapshot);
             void invalidatePlanCaches();
           },
         },
       });
-    } catch (e: any) {
+    } catch (e) {
       setBlocks(snapshot);
       toast.error(e?.message || "Unable to remove block");
     } finally {
@@ -873,7 +939,7 @@ export default function DayView() {
           },
         },
       });
-    } catch (e: any) {
+    } catch (e) {
       setBlocks(snapshot);
       toast.error(e?.message || "Unable to update task");
     } finally {
@@ -930,46 +996,11 @@ export default function DayView() {
           },
         },
       });
-    } catch (e: any) {
+    } catch (e) {
       setBlocks(snapshot);
       toast.error(e?.message || "Unable to skip task");
     } finally {
       blockOpLocksRef.current.delete(`skip:${id}`);
-    }
-  };
-
-  /** Bring a skipped / missed task back to the active list (clears its resolution). */
-  const reactivateBlock = async (id: string) => {
-    const snapshot = blocks;
-    const target = snapshot.find((b) => b.id === id);
-    if (!target) return;
-    // Give it a fresh, actionable start so it doesn't fall straight back into
-    // "missed": on today, clamp to the next 5-min slot (a past start would be
-    // auto-missed again before the user can touch it). Other days keep their time.
-    const freshStart = isToday ? roundedNowHHMM() : target.start_time;
-
-    const cleared = blocks.map((b) =>
-      b.id === id
-        ? { ...b, completed: false, completed_at: null, actual_minutes: null, resolution: null, resolved_at: null, moved_to_date: null, start_time: freshStart }
-        : b,
-    );
-    // Re-sort so the now-open task drops into its chronological place among the
-    // active tasks (it was pinned to the top while resolved). resolvedFirstOrder
-    // only reorders — it never re-times other tasks.
-    const reordered = resolvedFirstOrder(cleared);
-
-    setBlocks(reordered);
-    if (dayData && user?.id) {
-      queryClient.setQueryData(planDayQueryKey(user.id, viewDate), { ...dayData, blocks: reordered });
-    }
-    haptics.tap();
-    try {
-      await persistOrder(reordered);
-      void invalidatePlanCaches();
-      if (isToday) void syncBlockNotifications(viewDate, reordered);
-    } catch (e: any) {
-      setBlocks(snapshot);
-      toast.error(e?.message || "Couldn't restore task");
     }
   };
 
@@ -979,7 +1010,7 @@ export default function DayView() {
     if (plan?.id) return plan.id;
     const { data: created, error } = await supabase
       .from("plans")
-      .insert({ user_id: user.id, date: viewDate, raw_input: bulkInput || "" } as any)
+      .insert({ user_id: user.id, date: viewDate, raw_input: bulkInput || "" })
       .select("id")
       .single();
       
@@ -1011,7 +1042,7 @@ export default function DayView() {
 
     setBulkParsing(true);
     setPreFetchedQuestions(null);
-    let rows: { title: string; duration: number | null; start_time?: string }[] = [];
+    let rows: BulkRow[] = [];
 
     if (isPro) {
       try {
@@ -1020,7 +1051,7 @@ export default function DayView() {
         });
         if (error) throw error;
         if (data?.tasks && Array.isArray(data.tasks) && data.tasks.length > 0) {
-          rows = data.tasks.map((t: any) => ({
+          rows = data.tasks.map((t: { title: string; duration_min?: number | null; start_time?: string }) => ({
             title: t.title,
             duration: t.duration_min ?? null,
             ...(t.start_time ? { start_time: t.start_time } : {}),
@@ -1064,7 +1095,7 @@ export default function DayView() {
   const handleComposerContinue = useCallback((text: string) => { void prepareBulkRowsRef.current(text); }, []);
   const handleComposerDeleteTemplate = useCallback((id: string) => { void deleteTemplateRef.current(id); }, []);
 
-  const addBulkRows = async (rows: { title: string; duration: number | null; start_time?: string }[]) => {
+  const addBulkRows = async (rows: BulkRow[]) => {
     if (planMutating || !user) return;
     const clean = rows.filter((t) => t.title.trim());
     if (!clean.length) {
@@ -1111,7 +1142,7 @@ export default function DayView() {
       // next morning those are missed → new free-floating tasks would start at 22:00).
       const settledResolutions = new Set(["missed", "skipped"]);
       const packableBlocks = blocks.filter(
-        (b) => !settledResolutions.has((b as any).resolution ?? ""),
+        (b) => !settledResolutions.has(b.resolution ?? ""),
       );
       const lastExistingBlock = packableBlocks.length > 0 ? packableBlocks[packableBlocks.length - 1] : null;
       const lastExistingEndMin = lastExistingBlock
@@ -1131,7 +1162,7 @@ export default function DayView() {
         // No 30-min placeholder: a task the user left frameless stays at 0
         // (a point in the day, no timer span). Real durations floor to 5.
         const duration = task.duration && task.duration > 0 ? Math.max(5, task.duration) : 0;
-        const finalKind = (task as any).kind || "task";
+        const finalKind = (task.kind || "task") as BlockKind;
 
         if (task.start_time) {
           const taskStartMin = timeToMinutes(task.start_time);
@@ -1145,12 +1176,12 @@ export default function DayView() {
             estimated_minutes: duration,
             actual_minutes: null,
             title: task.title.trim(),
-            type: (task as any).type || "deep_work",
+            type: (task.type || "deep_work") as BlockType,
             kind: finalKind,
             block_type: inferScheduleBlockType({ kind: finalKind, title: task.title }),
-            ai_reasoning: (task as any).ai_reasoning || null,
-            overlap_ok: Boolean((task as any).overlap_ok),
-            parallel_group_id: (task as any).parallel_group_id || null,
+            ai_reasoning: task.ai_reasoning || null,
+            overlap_ok: Boolean(task.overlap_ok),
+            parallel_group_id: task.parallel_group_id || null,
             completed: false,
             position: pos++,
           });
@@ -1169,12 +1200,12 @@ export default function DayView() {
             estimated_minutes: duration,
             actual_minutes: null,
             title: task.title.trim(),
-            type: (task as any).type || "deep_work",
+            type: (task.type || "deep_work") as BlockType,
             kind: finalKind,
             block_type: inferScheduleBlockType({ kind: finalKind, title: task.title }),
-            ai_reasoning: (task as any).ai_reasoning || null,
-            overlap_ok: Boolean((task as any).overlap_ok),
-            parallel_group_id: (task as any).parallel_group_id || null,
+            ai_reasoning: task.ai_reasoning || null,
+            overlap_ok: Boolean(task.overlap_ok),
+            parallel_group_id: task.parallel_group_id || null,
             completed: false,
             position: pos++,
           });
@@ -1196,7 +1227,7 @@ export default function DayView() {
       // missed — causing a normalizeSchedule pass that inserts a huge gap block
       // (e.g. 09:30 → 21:00 Free time) between the new task and the missed tasks.
       const existingActiveNonBreak = existingNonBreak.filter(
-        (b) => !settledResolutions.has((b as any).resolution ?? ""),
+        (b) => !settledResolutions.has(b.resolution ?? ""),
       );
       const insertsMidPlan =
         blocks.length > 0 &&
@@ -1249,11 +1280,11 @@ export default function DayView() {
             block_type: inferScheduleBlockType(b),
             position: b.position,
             slot_end_time: blockSlotEndHHMM(b),
-            ai_reasoning: (b as any).ai_reasoning || null,
-            overlap_ok: Boolean((b as any).overlap_ok),
+            ai_reasoning: b.ai_reasoning || null,
+            overlap_ok: Boolean(b.overlap_ok),
             parallel_group_id: b.parallel_group_id || null,
           }));
-        const { error: insertErr } = await supabase.from("blocks").insert(toInsert as any);
+        const { error: insertErr } = await supabase.from("blocks").insert(toInsert);
         if (insertErr) {
           if (!navigator.onLine || insertErr.message?.toLowerCase().includes("fetch")) {
             for (const b of toInsert) {
@@ -1270,7 +1301,7 @@ export default function DayView() {
       // First task on a brand-new day burns a trial slot — refresh the counter.
       if (wouldStartNewDay) void refreshEntitlement();
       toast.success(`Added ${clean.length} task${clean.length === 1 ? "" : "s"}`);
-    } catch (e: any) {
+    } catch (e) {
       setBlocks(snapshot);
       const msg = e?.message || "";
       if (msg.includes("PLAN_QUOTA_REACHED")) {
@@ -1318,7 +1349,7 @@ export default function DayView() {
       resolved_at: b.resolved_at ?? null,
       completed_at: b.completed_at ?? null,
     }));
-    const { error: upErr } = await supabase.from("blocks").upsert(payload as any);
+    const { error: upErr } = await supabase.from("blocks").upsert(payload);
     if (upErr) {
       if (!navigator.onLine || upErr.message?.toLowerCase().includes("fetch")) {
         await enqueueWrite({ table: "blocks", op: "upsert", payload });
@@ -1451,7 +1482,7 @@ export default function DayView() {
       await persistOrder(packed);
       void invalidatePlanCaches();
       if (isToday) void syncBlockNotifications(viewDate, packed);
-    } catch (e: any) {
+    } catch (e) {
       setBlocks(snapshot);
       toast.error(e?.message || "Couldn't update start time");
     } finally {
@@ -1508,7 +1539,7 @@ export default function DayView() {
         await persistOrder(reordered);
         invalidatePlanCaches();
         if (isToday) void syncBlockNotifications(viewDate, reordered);
-      } catch (err: any) {
+      } catch (err) {
         setBlocks(snapshot);
         toast.error(err?.message || "Unable to reorder blocks");
         void invalidatePlanCaches();
@@ -1527,7 +1558,7 @@ export default function DayView() {
       const remaining = blocks.filter((b) => isUserTask(b) && isOpenUserTask(b));
       const nowHM = `${String(now.getHours()).padStart(2,"0")}:${String(now.getMinutes()).padStart(2,"0")}`;
       const tz = profile?.timezone || Intl.DateTimeFormat().resolvedOptions().timeZone;
-      const { data, error } = await invokeAiCached<any>(
+      const { data, error } = await invokeAiCached<AiPlanResponse>(
         "generate-plan",
         {
           raw_input: remaining.map(b => `${b.title} (${b.duration_min}m)`).join("\n"),
@@ -1538,12 +1569,12 @@ export default function DayView() {
           plan_date: viewDate,
           now_iso: new Date().toISOString(),
           timezone: tz,
-          active_hours_start: (profile as any)?.active_hours_start || undefined,
-          active_hours_end: (profile as any)?.active_hours_end || undefined,
-          ai_tone: (profile as any)?.ai_tone || "professional",
-          ai_tone_custom: (profile as any)?.ai_tone_custom || null,
-          ai_planning_rules: (profile as any)?.ai_planning_rules || "",
-          ai_context_custom: (profile as any)?.ai_context_custom || null,
+          active_hours_start: profile?.active_hours_start || undefined,
+          active_hours_end: profile?.active_hours_end || undefined,
+          ai_tone: profile?.ai_tone || "professional",
+          ai_tone_custom: profile?.ai_tone_custom || null,
+          ai_planning_rules: profile?.ai_planning_rules || "",
+          ai_context_custom: profile?.ai_context_custom || null,
         },
         { ttlMs: 0, timeoutMs: 75_000, signal },
       );
@@ -1566,7 +1597,7 @@ export default function DayView() {
         await supabase.from("blocks").delete().in("id", toRemoveIds);
       }
       const startPos = keep.length;
-      const newBlocks = (data.blocks || []).map((b: any, i: number) => ({
+      const newBlocks = (data.blocks || []).map((b, i: number) => ({
         plan_id: plan.id, user_id: user.id,
         start_time: b.start_time, duration_min: b.duration_min, title: b.title,
         type: b.type, kind: b.kind, block_type: inferScheduleBlockType(b), position: startPos + i,
@@ -1588,7 +1619,7 @@ export default function DayView() {
       void invalidatePlanCaches();
       if (isToday) void syncBlockNotifications(viewDate, (bs || []) as Block[]);
       toast.success("Re-planned");
-    } catch (e: any) {
+    } catch (e) {
       if (signal.aborted) return;
       toast.error(e.message || "Unable to re-plan remaining tasks");
     } finally {
@@ -1633,7 +1664,7 @@ export default function DayView() {
     setBulkAiStep("clarifying");
     const signal = getAiAbortSignal();
     try {
-      const { data, error } = await invokeAiCached<any>(
+      const { data, error } = await invokeAiCached<AiPlanResponse>(
         "generate-clarification",
         {
           raw_input: bulkRows.map(r =>
@@ -1652,7 +1683,7 @@ export default function DayView() {
       } else {
         await autoScheduleBulkRows();
       }
-    } catch (e: any) {
+    } catch (e) {
       if (signal.aborted) return;
       console.warn("Clarification failed, proceeding to plan:", e);
       toast("Couldn't load clarification questions — planning directly", { duration: 2500 });
@@ -1674,7 +1705,7 @@ export default function DayView() {
       const nowHM = `${String(now.getHours()).padStart(2,"0")}:${String(now.getMinutes()).padStart(2,"0")}`;
       const startHHMM = targetDate === todayDateStr() ? nowHM : "09:00";
       const tz = profile?.timezone || Intl.DateTimeFormat().resolvedOptions().timeZone;
-      const { data, error } = await invokeAiCached<any>(
+      const { data, error } = await invokeAiCached<AiPlanResponse>(
         "generate-plan",
         {
           // Embed time + duration hints already set in the review step so
@@ -1702,12 +1733,12 @@ export default function DayView() {
           // Send only user-configured hours; edge function defaults to 00:00–23:59
           // when nothing is provided, so the AI is uncapped unless the user has
           // explicitly set their own active window in Settings.
-          active_hours_start: (profile as any)?.active_hours_start || undefined,
-          active_hours_end: (profile as any)?.active_hours_end || undefined,
-          ai_tone: (profile as any)?.ai_tone || "professional",
-          ai_tone_custom: (profile as any)?.ai_tone_custom || null,
-          ai_planning_rules: (profile as any)?.ai_planning_rules || "",
-          ai_context_custom: (profile as any)?.ai_context_custom || null,
+          active_hours_start: profile?.active_hours_start || undefined,
+          active_hours_end: profile?.active_hours_end || undefined,
+          ai_tone: profile?.ai_tone || "professional",
+          ai_tone_custom: profile?.ai_tone_custom || null,
+          ai_planning_rules: profile?.ai_planning_rules || "",
+          ai_context_custom: profile?.ai_context_custom || null,
         },
         { ttlMs: 0, timeoutMs: 75_000, signal },
       );
@@ -1717,7 +1748,7 @@ export default function DayView() {
 
       if (data?.blocks && Array.isArray(data.blocks)) {
         // Filter to task blocks only — AI may insert breaks/buffers that shift indices.
-        const taskBlocks = (data.blocks as any[]).filter(b => b.kind === "task");
+        const taskBlocks = (data.blocks || []).filter(b => b.kind === "task");
         // Match each original row to an AI block by title similarity, not by index,
         // so that splits, breaks, or re-orderings can't cause tasks to vanish.
         const normalize = (s: string) =>
@@ -1767,7 +1798,7 @@ export default function DayView() {
         // explicitly instead of leaving the user on a blank review step.
         toast.error("AI returned an empty plan — try rephrasing your tasks.");
       }
-    } catch (e: any) {
+    } catch (e) {
       if (signal.aborted) return;
       const raw = (e?.message || "").toString();
       const friendly =
@@ -1794,7 +1825,7 @@ export default function DayView() {
     if (existing?.id) return existing.id as string;
     const { data: created, error } = await supabase
       .from("plans")
-      .insert({ user_id: user.id, date, raw_input: "" } as any)
+      .insert({ user_id: user.id, date, raw_input: "" })
       .select("id")
       .single();
     if (error || !created?.id) {
@@ -1844,7 +1875,7 @@ export default function DayView() {
         duration_min: b.duration_min,
       } as Block),
     }));
-    const { error: insertErr } = await supabase.from("blocks").insert(toInsert as any);
+    const { error: insertErr } = await supabase.from("blocks").insert(toInsert);
     if (insertErr) {
       const msg = insertErr.message || "";
       if (msg.includes("PLAN_QUOTA_REACHED")) {
@@ -1892,7 +1923,7 @@ export default function DayView() {
         toast.success(`Moved to ${friendlyDateFor(parseDateStr(targetDate))}`, {
           action: { label: "Open", onClick: () => navigateToDay(targetDate) },
         });
-      } catch (e: any) {
+      } catch (e) {
         toast.error(e?.message || "Couldn't move that task");
       }
       return;
@@ -1916,7 +1947,7 @@ export default function DayView() {
           `Moved ${result.moved} task${result.moved === 1 ? "" : "s"} to ${friendlyDateFor(parseDateStr(targetDate))}`,
           { action: { label: "Open", onClick: () => navigateToDay(targetDate) } },
         );
-      } catch (e: any) {
+      } catch (e) {
         toast.error(e?.message || "Unable to carry tasks forward");
       }
     }
@@ -1975,7 +2006,6 @@ export default function DayView() {
   // state change. We keep the live closures in a ref and expose STABLE wrappers
   // so identities never change — rows only re-render when their own data does.
   const liveBlockHandlers = {
-    onTap: (blk: Block) => setTappedBlock(blk),
     onTapTime: (blk: Block, newTime?: string) => {
       if (newTime) {
         startTimeTargetRef.current = blk.id;
@@ -2004,12 +2034,12 @@ export default function DayView() {
       setAskAiOpen(true);
     },
     onSaveTemplate: (blk: Block) => void saveAsTemplate(blk),
+    onSkip: (blk: Block) => void skipBlock(blk.id),
     onDeleteBlock: (blk: Block) => removeBlock(blk.id),
   };
   const blockHandlersRef = useRef(liveBlockHandlers);
   blockHandlersRef.current = liveBlockHandlers;
   const blockHandlers = useMemo(() => ({
-    onTap: (b: Block) => blockHandlersRef.current.onTap(b),
     onTapTime: (b: Block, t?: string) => blockHandlersRef.current.onTapTime(b, t),
     onToggleComplete: (b: Block) => blockHandlersRef.current.onToggleComplete(b),
     onStartTrack: (b: Block) => blockHandlersRef.current.onStartTrack(b),
@@ -2018,6 +2048,7 @@ export default function DayView() {
     onEditReminders: (b: Block) => blockHandlersRef.current.onEditReminders(b),
     onAskAi: (b: Block) => blockHandlersRef.current.onAskAi(b),
     onSaveTemplate: (b: Block) => blockHandlersRef.current.onSaveTemplate(b),
+    onSkip: (b: Block) => blockHandlersRef.current.onSkip(b),
     onDeleteBlock: (b: Block) => blockHandlersRef.current.onDeleteBlock(b),
   }), []);
   // Carry-forward is hidden on future plans — preserve the undefined semantics
@@ -2109,7 +2140,7 @@ export default function DayView() {
           <ChecklistView
             userId={user?.id}
             viewDate={viewDate}
-            eveningNudgeTime={(profile as any)?.evening_nudge_local_time}
+            eveningNudgeTime={profile?.evening_nudge_local_time}
             onChange={handleChecklistChange}
           />
           </div>
@@ -2184,7 +2215,7 @@ export default function DayView() {
             className="w-full h-12 rounded-2xl bg-primary hover:bg-primary/90 text-primary-foreground text-[15px] font-semibold pressable shadow-[0_8px_30px_-6px_hsl(var(--primary)/0.5)] border border-primary/20 mt-4 mb-1"
           >
             <Play className="h-4 w-4 mr-2" fill="currentColor" />
-            {toneCopy(getTone(profile as any), doneTasks === 0 ? "start_first" : "start_next")}
+            {toneCopy(getTone(profile), doneTasks === 0 ? "start_first" : "start_next")}
           </Button>
         )}
 
@@ -2251,10 +2282,15 @@ export default function DayView() {
                       // is a real card. Lunch renders as a normal rest card.
                       const assignedId = getAssignedCategoryId(b.id);
                       const assignedCat = assignedId ? categoryMap.get(assignedId) || null : null;
-                      // Calculate late minutes for timeless tasks
+                      // "Running late" amber hint — shown for ANY open user task
+                      // (timed OR frameless) whose start time has passed and which
+                      // you haven't acted on or aren't actively tracking. A frameless
+                      // task stays late until you act; a timed task is flipped to
+                      // "missed" by applyAutoMissedBlocks once its window ends, which
+                      // replaces this hint with the Missed badge.
                       const nowMin = now.getHours() * 60 + now.getMinutes();
-                      const isTimeless = !b.duration_min || Number(b.duration_min) <= 0;
-                      const lateMin = isToday && isTimeless && isUserTask(b) && isOpenUserTask(b) && !b.is_calendar_event && timeToMinutes(b.start_time) < nowMin
+                      const isTrackingThis = !!tracker.active && tracker.active.block_id === b.id;
+                      const lateMin = isToday && isUserTask(b) && isOpenUserTask(b) && !b.is_calendar_event && !isTrackingThis && timeToMinutes(b.start_time) < nowMin
                         ? nowMin - timeToMinutes(b.start_time)
                         : undefined;
 
@@ -2270,7 +2306,6 @@ export default function DayView() {
                         readOnly={isPast}
                         lateMin={lateMin}
 
-                        onTap={blockHandlers.onTap}
                         onTapTime={blockHandlers.onTapTime}
                         onToggleComplete={blockHandlers.onToggleComplete}
                         onStartTrack={blockHandlers.onStartTrack}
@@ -2280,6 +2315,7 @@ export default function DayView() {
                         onEditReminders={blockHandlers.onEditReminders}
                         onAskAi={blockHandlers.onAskAi}
                         onSaveTemplate={blockHandlers.onSaveTemplate}
+                        onSkip={isPast ? undefined : blockHandlers.onSkip}
                         onDeleteBlock={blockHandlers.onDeleteBlock}
                       />
                       );
@@ -2355,130 +2391,6 @@ export default function DayView() {
         </AnimatePresence>,
         document.body
       )}
-
-      {/* Block tap sheet — single place for all per-block actions */}
-      <Sheet open={!!tappedBlock} onOpenChange={(v) => !v && setTappedBlock(null)}>
-        <SheetContent side="bottom" className="rounded-t-[28px] border-border/45 bg-popover">
-          {tappedBlock && (
-            <div className="space-y-1">
-              <SheetHeader className="text-left mb-3">
-                <SheetTitle className="text-[16px]">{tappedBlock.title}</SheetTitle>
-                <div className="text-[12px] text-secondary-fg tabular-nums">
-                  {fmtTime(tappedBlock.start_time)} ·{" "}
-                  {tappedBlock.completed && typeof tappedBlock.actual_minutes === "number"
-                    ? `${tappedBlock.actual_minutes}m actual${
-                        tappedBlock.duration_min !== tappedBlock.actual_minutes
-                          ? ` · ${tappedBlock.duration_min}m planned`
-                          : ""
-                      }`
-                    : tappedBlock.duration_min < 60
-                      ? `${tappedBlock.duration_min}m planned`
-                      : `${Math.floor(tappedBlock.duration_min / 60)}h${tappedBlock.duration_min % 60 ? ` ${tappedBlock.duration_min % 60}m` : ""} planned`}
-                </div>
-              </SheetHeader>
-
-              {!tappedBlock.is_calendar_event && tappedBlock.kind === "task" && isOpenUserTask(tappedBlock as Block) && (
-                <ActionRow
-                  onClick={() => { const blk = tappedBlock; setTappedBlock(null); setTrackPickerBlock(blk); }}
-                  icon={<Play className="h-4 w-4" fill="currentColor" />}
-                  label={tracker.active && tracker.active.block_id === tappedBlock.id ? "Tracking now · stop" : "Start tracking"}
-                />
-              )}
-              {!tappedBlock.is_calendar_event && (
-                <ActionRow
-                  onClick={() => { setDurationEditId(tappedBlock.id); setTappedBlock(null); }}
-                  icon={<Timer className="h-4 w-4" />}
-                  label="Change duration"
-                />
-              )}
-              {!tappedBlock.is_calendar_event && (
-                <ActionRow
-                  icon={<Clock className="h-4 w-4" />}
-                  label="Change start time"
-                >
-                  <input
-                    type="time"
-                    className="absolute inset-0 opacity-0 w-full h-full cursor-pointer"
-                    value={tappedBlock.start_time || "09:00"}
-                    min={isToday ? roundedNowHHMM() : undefined}
-                    onChange={(e) => {
-                      const val = e.target.value;
-                      if (!val) return;
-                      setTappedBlock(null);
-                      startTimeTargetRef.current = tappedBlock.id;
-                      void commitStartTime(val);
-                    }}
-                  />
-                </ActionRow>
-              )}
-              {!tappedBlock.is_calendar_event && tappedBlock.kind === "task" && isOpenUserTask(tappedBlock as Block) && (
-                <ActionRow
-                  onClick={() => {
-                    const id = tappedBlock.id;
-                    setTappedBlock(null);
-                    setDayPickerIntent({ kind: "move-task", blockId: id });
-                  }}
-                  icon={<ArrowRightCircle className="h-4 w-4" />}
-                  label="Move to another day"
-                />
-              )}
-              {!tappedBlock.is_calendar_event && tappedBlock.kind === "task" && isOpenUserTask(tappedBlock as Block) && (
-                <ActionRow
-                  onClick={() => { const id = tappedBlock.id; setTappedBlock(null); void skipBlock(id); }}
-                  icon={<SkipForward className="h-4 w-4" />}
-                  label="Skip"
-                />
-              )}
-              {!tappedBlock.is_calendar_event && isToday && (
-                <ActionRow
-                  onClick={() => openReminders(tappedBlock.id)}
-                  icon={getReminderConfig(tappedBlock.id).enabled ? <Bell className="h-4 w-4" /> : <BellOff className="h-4 w-4" />}
-                  label="Reminders"
-                />
-              )}
-              {tappedBlock.location && (
-                <a
-                  href={mapsUrl(tappedBlock.location, tappedBlock.location_lat, tappedBlock.location_lng)}
-                  target="_blank" rel="noopener noreferrer"
-                  className="flex items-center gap-3 px-3 py-3 rounded-lg hover:bg-surface/50 pressable text-[14px]"
-                >
-                  <MapPin className="h-4 w-4 text-secondary-fg" />
-                  <span className="flex-1">{tappedBlock.location}</span>
-                </a>
-              )}
-              <ActionRow
-                onClick={() => {
-                  const blk = tappedBlock;
-                  setTappedBlock(null);
-                  const activeTrackerMin = tracker.active?.block_id === blk?.id 
-                    ? Math.floor((Date.now() - new Date(tracker.active.started_at).getTime()) / 60000) 
-                    : undefined;
-                  setAskAiTaskTitle(blk!.title);
-                  setAskAiContext(buildTaskSeedContext(blk! as ExBlock, blocks, activeTrackerMin));
-                  setAskAiOpen(true);
-                }}
-                icon={<Sparkles className="h-4 w-4" />}
-                label="Ask AI about this"
-              />
-              {!tappedBlock.is_calendar_event && tappedBlock.kind === "task" && (
-                <ActionRow
-                  onClick={() => { const blk = tappedBlock; setTappedBlock(null); void saveAsTemplate(blk); }}
-                  icon={<Bookmark className="h-4 w-4" />}
-                  label="Save as template"
-                />
-              )}
-              {!tappedBlock.is_calendar_event && (
-                <ActionRow
-                  onClick={() => { const id = tappedBlock.id; setTappedBlock(null); removeBlock(id); }}
-                  icon={<Trash2 className="h-4 w-4" />}
-                  label="Delete"
-                  destructive
-                />
-              )}
-            </div>
-          )}
-        </SheetContent>
-      </Sheet>
 
       {/* Header "more" sheet — Re-plan, Delete plan */}
       <Sheet open={moreOpen} onOpenChange={setMoreOpen}>
@@ -2906,7 +2818,7 @@ export default function DayView() {
                   void invalidatePlanCaches();
                   toast.success("Plan deleted");
                   nav(isToday ? "/today" : `/today?date=${viewDate}`);
-                } catch (e: any) {
+                } catch (e) {
                   toast.error(e?.message || "Unable to delete plan");
                 } finally {
                   setPlanMutating(false);
@@ -3198,7 +3110,12 @@ export default function DayView() {
         taskTitle={lateCompleteBlock?.title ?? ""}
         resolution={(lateCompleteBlock?.resolution as "missed" | "skipped") ?? "missed"}
         onConfirm={() => { if (lateCompleteBlock) completeBlock(lateCompleteBlock.id); }}
-        onReturn={() => { if (lateCompleteBlock) void reactivateBlock(lateCompleteBlock.id); }}
+        onReturn={() => {
+          // Don't auto-drop it back at "now". Hand off to the time/duration
+          // picker (the same "Return to timeline?" sheet used when un-completing
+          // a done task) so the user chooses when to reschedule it.
+          if (lateCompleteBlock) setUncompleteTarget(lateCompleteBlock as Block);
+        }}
       />
 
       <DayPickerSheet
@@ -3374,7 +3291,7 @@ export default function DayView() {
             await persistOrder(next);
             void invalidatePlanCaches();
             if (isToday) void syncBlockNotifications(viewDate, next);
-          } catch (e: any) {
+          } catch (e) {
             setBlocks(snapshot);
             toast.error(e?.message || "Couldn't update duration");
           } finally {

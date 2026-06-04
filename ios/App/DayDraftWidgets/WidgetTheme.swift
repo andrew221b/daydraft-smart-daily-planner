@@ -135,6 +135,37 @@ struct PulseBadge: View {
     }
 }
 
+// MARK: - Category pill — a centered coloured chip (dot + small-caps name)
+
+/// The tracked category, shown as a soft tinted capsule that hugs its content
+/// and centers within the available width. Used as its own line under the hero
+/// timer so the category reads as a distinct, centered element.
+struct CategoryPill: View {
+    let name: String
+    var colorHex: String? = nil
+
+    var body: some View {
+        let c = Color(hex: colorHex ?? "0A84FF")
+        HStack(spacing: 5) {
+            Circle()
+                .fill(c)
+                .frame(width: 5, height: 5)
+                .shadow(color: c.opacity(0.7), radius: 2)
+            Text(name.uppercased())
+                .font(.system(size: 9.5, weight: .heavy, design: .rounded))
+                .tracking(0.9)
+                .foregroundStyle(DD.dim)
+                .lineLimit(1)
+                .minimumScaleFactor(0.7)
+        }
+        .padding(.horizontal, 9)
+        .padding(.vertical, 3)
+        .background(Capsule().fill(c.opacity(0.12)))
+        .overlay(Capsule().strokeBorder(c.opacity(0.22), lineWidth: 0.7))
+        .frame(maxWidth: .infinity)
+    }
+}
+
 // MARK: - Live recording wave — accent waveform that animates its colours
 
 struct LiveWave: View {
@@ -289,7 +320,7 @@ struct LiveActionLabel<S: ShapeStyle>: View {
         }
         .foregroundStyle(.white)
         .frame(maxWidth: .infinity)
-        .padding(.vertical, 10)
+        .padding(.vertical, 9)
         .background(
             RoundedRectangle(cornerRadius: 13, style: .continuous).fill(fill)
         )

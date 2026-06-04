@@ -190,7 +190,7 @@ export function parseBulkTasks(input: string): string[] {
     .replace(/[\u2018\u2019]/g, "'")
     .replace(/[\u201C\u201D]/g, '"')
     .replace(connectorBeforeStarterRe, "\n")
-    .replace(/\s+(?:[+\/|]|->|=>)\s+/g, "\n")
+    .replace(/\s+(?:[+/|]|->|=>)\s+/g, "\n")
     .replace(/\s+[—–]\s+/g, "\n")
     .replace(/\.\s+(?=[A-ZА-ЯЁ])/g, "\n");
 

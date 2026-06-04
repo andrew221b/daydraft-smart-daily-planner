@@ -5,7 +5,7 @@ export default function TestTimePicker() {
     if (inputRef.current) {
       inputRef.current.type = "time";
       try {
-        (inputRef.current as any).showPicker();
+        (inputRef.current).showPicker();
       } catch (e) {
         inputRef.current.click();
       }

@@ -58,13 +58,25 @@ export function wallMsOnPlanDay(planDateYMD: string, hhmm: string): number {
   return new Date(y, (mo || 1) - 1, d || 1, h || 0, m || 0, 0, 0).getTime();
 }
 
-/** Effective slot end (persisted or start + duration). Wraps past midnight so a
- *  late block never yields an invalid "24:30"/"25:00". The stricter regex also
- *  rejects legacy out-of-range stored values, recomputing a valid end. */
+/** Effective slot end. Wraps past midnight so a late block never yields an
+ *  invalid "24:30"/"25:00".
+ *
+ *  A timed task's end is ALWAYS start + duration — we recompute it fresh rather
+ *  than trusting the persisted `slot_end_time`. The persisted value is only a
+ *  denormalized cache, and it goes stale the moment a task's duration or start
+ *  is edited (every writer here re-derives via this function, so a stored value
+ *  perpetuates itself). Trusting it meant shortening a task left its OLD, later
+ *  end in place — so `applyAutoMissedBlocks` read a future end and the task was
+ *  never marked "missed". Recomputing kills that whole class of bug.
+ *
+ *  Only frameless tasks (duration 0 — no real window) fall back to a valid
+ *  persisted end, else collapse to the start time. */
 export function blockSlotEndHHMM(b: Pick<Block, "start_time" | "duration_min" | "slot_end_time">): string {
+  const dur = Number(b.duration_min || 0);
+  if (dur > 0) return minutesToHHMM((timeToMinutes(b.start_time) + dur) % 1440);
   const raw = typeof b.slot_end_time === "string" ? b.slot_end_time.trim() : "";
   if (/^([01]\d|2[0-3]):[0-5]\d$/.test(raw)) return raw;
-  return minutesToHHMM((timeToMinutes(b.start_time) + Number(b.duration_min || 0)) % 1440);
+  return minutesToHHMM(timeToMinutes(b.start_time) % 1440);
 }
 
 export function addMinutesToWallClock(planDateYMD: string, hhmm: string, addMin: number): string {

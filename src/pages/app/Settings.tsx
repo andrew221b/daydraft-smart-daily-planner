@@ -189,7 +189,7 @@ export default function Settings() {
         await disablePush(user.id);
         update({ notifications_enabled: false });
       }
-    } catch (e: any) {
+    } catch (e) {
       toast.error(e.message || "Unable to update notification settings");
     }
   };

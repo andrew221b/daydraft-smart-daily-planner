@@ -26,7 +26,6 @@ const activeTabIndex = (pathname: string) => {
   if (
     pathname === "/" ||
     pathname.startsWith("/home") ||
-    pathname.startsWith("/tracker") ||
     pathname.startsWith("/focus")
   ) {
     return 0;

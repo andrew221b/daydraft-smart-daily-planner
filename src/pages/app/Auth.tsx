@@ -76,7 +76,7 @@ export default function Auth() {
         if (error) throw error;
         nav("/today");
       }
-    } catch (err: any) {
+    } catch (err) {
       toast.error(getErrorMessage(err.message || "Something went wrong"));
     } finally { setBusy(false); }
   };
@@ -92,7 +92,7 @@ export default function Auth() {
       });
       if (error) throw error;
       toast.success("Confirmation email sent again");
-    } catch (err: any) {
+    } catch (err) {
       toast.error(getErrorMessage(err.message || "Something went wrong"));
     } finally {
       setResending(false);
@@ -162,7 +162,7 @@ export default function Auth() {
       const result = await lovable.auth.signInWithOAuth(provider, { redirect_uri: window.location.origin });
       if (result.error) throw result.error;
       // result.redirected handled by browser; otherwise tokens set, useEffect navigates
-    } catch (err: any) {
+    } catch (err) {
       console.error(`[auth] ${provider} sign-in failed`, err);
       // Detect real user-cancellation only — narrow patterns so we don't
       // swallow legit errors like "URL canceled by system" or
@@ -170,7 +170,7 @@ export default function Auth() {
       // surfaces as code 1001; the @capgo plugin maps it to the strings
       // matched below. Anything else gets surfaced to the user.
       const msg = String(err?.message || "");
-      const code = String(err?.code || (err as any)?.errorMessage || "");
+      const code = String(err?.code || (err)?.errorMessage || "");
       const userCancelled =
         /user.*cancell?ed|sign.?in.*cancell?ed|the operation was cancelled by the user|ASAuthorizationError.*canceled|com\.apple\.AuthenticationServices.*1001/i
           .test(`${msg} ${code}`);

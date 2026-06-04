@@ -117,7 +117,7 @@ export function ProfileProvider({ children }: { children: ReactNode }) {
       // Fire-and-forget; ignore errors. Don't await the network — it can hang.
       try {
         const localTz = Intl.DateTimeFormat().resolvedOptions().timeZone;
-        if (localTz && data && (data as any).timezone !== localTz) {
+        if (localTz && data && (data).timezone !== localTz) {
           void supabase.from("profiles").update({ timezone: localTz }).eq("id", user.id);
           setProfile({ ...(data as Profile), timezone: localTz });
         }

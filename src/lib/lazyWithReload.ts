@@ -13,6 +13,7 @@ import { lazy, type ComponentType } from "react";
 const RELOAD_KEY = "dd_chunk_reload_at";
 const RELOAD_COOLDOWN_MS = 60_000;
 
+// eslint-disable-next-line @typescript-eslint/no-explicit-any -- React.lazy requires ComponentType<any> to accept components with arbitrary props
 export function lazyWithReload<T extends { default: ComponentType<any> }>(
   factory: () => Promise<T>,
 ) {

@@ -31,7 +31,7 @@ export default function ResetPassword() {
       if (error) throw error;
       toast.success("Password updated");
       nav("/today", { replace: true });
-    } catch (err: any) {
+    } catch (err) {
       toast.error(err.message || "Couldn't update password");
     } finally { setBusy(false); }
   };

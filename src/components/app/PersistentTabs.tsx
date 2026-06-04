@@ -23,10 +23,10 @@ import { lazyWithReload } from "@/lib/lazyWithReload";
  * the React Query cache means the data layer is also stable.
  */
 
-type TabKey = "home" | "day" | "tracker" | "reports" | "settings";
+type TabKey = "home" | "day" | "reports" | "settings";
 
 const TAB_ORDER: Record<TabKey, number> = {
-  home: 0, day: 1, tracker: 2, reports: 3, settings: 4,
+  home: 0, day: 1, reports: 2, settings: 3,
 };
 
 type TabDef = {
@@ -47,11 +47,6 @@ const TABS: TabDef[] = [
     load: () => import("@/pages/app/DayView"),
   },
   {
-    key: "tracker",
-    matches: (p) => p === "/tracker" || p.startsWith("/tracker/"),
-    load: () => import("@/pages/app/Tracker"),
-  },
-  {
     key: "reports",
     matches: (p) => p === "/reports" || p.startsWith("/reports/"),
     load: () => import("@/pages/app/Reports"),
@@ -66,7 +61,6 @@ const TABS: TabDef[] = [
 const LazyComponents: Record<TabKey, ComponentType<unknown>> = {
   home: lazyWithReload(() => import("@/pages/app/Home")),
   day: lazyWithReload(() => import("@/pages/app/DayView")),
-  tracker: lazyWithReload(() => import("@/pages/app/Tracker")),
   reports: lazyWithReload(() => import("@/pages/app/Reports")),
   settings: lazyWithReload(() => import("@/pages/app/Settings")),
 };
@@ -199,7 +193,6 @@ export const PERSISTENT_TAB_PATHS = [
   "/home",
   "/today",
   "/today/plan",
-  "/tracker",
   "/reports",
   "/settings",
 ] as const;

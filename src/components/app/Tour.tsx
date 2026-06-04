@@ -91,7 +91,7 @@ export function TourProvider({ children }: { children: ReactNode }) {
 
   const markSeen = useCallback(async (key: string) => {
     const next = { ...(profile?.tour_seen || {}), [key]: true };
-    await update({ tour_seen: next } as any);
+    await update({ tour_seen: next });
   }, [profile?.tour_seen, update]);
 
   const stop = useCallback(() => {
@@ -118,7 +118,7 @@ export function TourProvider({ children }: { children: ReactNode }) {
   }, [profile?.tour_seen, flow?.key]);
 
   const resetAll = useCallback(async () => {
-    await update({ tour_seen: {} } as any);
+    await update({ tour_seen: {} });
   }, [update]);
 
   const value: Ctx = useMemo(

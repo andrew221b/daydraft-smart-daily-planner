@@ -108,7 +108,7 @@ const fire = (title: string, body: string) => {
       tag: `block-${title}`,
       // `renotify` is not in the standard TS lib type, but supported by most
       // browsers — cast to any so re-firing reminders surface a fresh ping.
-      ...({ renotify: true } as any),
+      ...({ renotify: true }),
     });
   } catch { /* some browsers throw inside iframes */ }
 };
@@ -130,7 +130,7 @@ export const scheduleBlockReminders = (
   if (Notification.permission !== "granted") return;
 
   const now = Date.now();
-  blocks.forEach((b: any) => {
+  blocks.forEach((b) => {
     if (b.completed) return;
     if (b.kind === "task" && !b.is_calendar_event && !isOpenUserTask(b)) return;
     if (b.kind !== "task" && b.kind !== "lunch" && b.kind !== "break") {

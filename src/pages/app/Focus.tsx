@@ -1,8 +1,10 @@
 import { useEffect, useRef, useState } from "react";
 import { useNavigate, useParams, useSearchParams } from "react-router-dom";
+import { useQueryClient } from "@tanstack/react-query";
 import { supabase } from "@/integrations/supabase/client";
 import { useAbortOnUnmount } from "@/hooks/useAbortOnUnmount";
-import { Block, todayDateStr, wallMsOnPlanDay, blockSlotEndHHMM, fmtTime, isOpenUserTask, planBlockInstants, normalizeSchedule, minutesToHHMM } from "@/lib/daydraft";
+import { Block, todayDateStr, wallMsOnPlanDay, blockSlotEndHHMM, fmtTime, isOpenUserTask, planBlockInstants, normalizeSchedule } from "@/lib/daydraft";
+import { planDayQueryKey, planDashboardQueryKey, type DayPlanData, type PlanDashboardData } from "@/lib/planQueries";
 import { minutesFromFocusArmSeconds, resolveActualMinutesOnComplete } from "@/lib/blockActualTime";
 import { Check, Timer, Square, X, ShieldAlert } from "lucide-react";
 import { motion } from "framer-motion";
@@ -38,12 +40,12 @@ export default function Focus() {
   const nav = useNavigate();
   const { user } = useAuth();
   const { profile } = useProfile();
-  const tone = getTone(profile as any);
+  const tone = getTone(profile);
   const { active: tracking, start: startTracking, stop: stopTracking, clearActive, categories, addCategory, entries } = useTimeTracker();
   // Read elapsed seconds synchronously each render. `sessionTick` (below)
   // drives the once-per-second re-render that keeps this value fresh.
   const elapsedSec = getElapsedSec();
-  const [block, setBlock] = useState<any | null>(null);
+  const [block, setBlock] = useState<Block | null>(null);
   const [next, setNext] = useState<Block | null>(null);
   // Full ordered plan, kept so complete() can cascade-shift later tasks when a
   // frameless (stopwatch) task overruns into them.
@@ -57,6 +59,7 @@ export default function Focus() {
   const [armed, setArmed] = useState(false);
   // Cancels any in-flight AI calls if the user leaves Focus mid-request.
   const getAbortSignal = useAbortOnUnmount();
+  const queryClient = useQueryClient();
   const startedHereRef = useRef(false);
   const autoStartedRef = useRef(false);
   // Tracks the current block id in a ref so the unmount cleanup (empty-dep effect)
@@ -254,28 +257,14 @@ export default function Focus() {
   /**
    * A frameless task just got a real length (the time the stopwatch ran).
    * Re-pack the plan around it: it keeps its start, later tasks slide forward
-   * only where they now overlap, and gap markers are rebuilt. Tasks/lunch rows
-   * are touched only on their scheduling fields (never clobbering other columns);
-   * break rows are replaced wholesale. Cross-midnight plans are left untouched.
+   * only where they now overlap. Gaps are derived (never persisted), so only the
+   * tasks' scheduling fields are written — never clobbering other columns.
+   * Cross-midnight plans are left untouched.
    */
   const reconcileFramelessOverrun = async (actualMin: number) => {
     if (!block || !user) return;
     const planBlocks = planBlocksRef.current;
     if (!planBlocks.length) return;
-    const makeBreak = (fromMin: number, toMin: number): Block => ({
-      id: crypto.randomUUID(),
-      plan_id: block.plan_id,
-      user_id: block.user_id,
-      start_time: minutesToHHMM(fromMin % 1440),
-      duration_min: toMin - fromMin,
-      estimated_minutes: toMin - fromMin,
-      actual_minutes: null,
-      title: "Break",
-      type: "routine",
-      kind: "break",
-      completed: false,
-      position: 0,
-    });
     const updated = planBlocks.map((b) => (b.id === block.id ? { ...b, duration_min: actualMin } : b));
     // Other resolved tasks are extra anchors — their times must not shift
     // when the frameless task expands and cascades downstream.
@@ -284,35 +273,44 @@ export default function Focus() {
         .filter(b => b.id !== block.id && (!!b.is_calendar_event || (b.kind === "task" && !isOpenUserTask(b))))
         .map(b => b.id),
     );
-    const packed = normalizeSchedule(updated, new Set([block.id, ...lockedIds]), makeBreak);
+    const packed = normalizeSchedule(updated, new Set([block.id, ...lockedIds]));
     if (!packed) return; // cross-midnight / out-of-order → leave the plan as-is
     try {
+      // Drop any legacy gap/break rows — gaps are derived now, never persisted.
       const oldBreakIds = planBlocks.filter((b) => b.kind === "break").map((b) => b.id);
       if (oldBreakIds.length) await supabase.from("blocks").delete().in("id", oldBreakIds);
-      const breakInserts: any[] = [];
       for (let i = 0; i < packed.length; i++) {
         const b = packed[i];
-        if (b.kind === "break") {
-          breakInserts.push({
-            id: b.id, plan_id: b.plan_id, user_id: b.user_id,
-            start_time: b.start_time, duration_min: b.duration_min,
-            estimated_minutes: b.duration_min, title: "Break", type: "routine",
-            kind: "break", completed: false, position: i, slot_end_time: blockSlotEndHHMM(b),
-          });
-        } else {
-          // Scheduling fields only — never overwrite the row's other columns.
-          await supabase.from("blocks").update({
-            start_time: b.start_time,
-            duration_min: b.duration_min,
-            slot_end_time: blockSlotEndHHMM(b),
-            position: i,
-          }).eq("id", b.id);
-        }
+        // Scheduling fields only — never overwrite the row's other columns.
+        await supabase.from("blocks").update({
+          start_time: b.start_time,
+          duration_min: b.duration_min,
+          slot_end_time: blockSlotEndHHMM(b),
+          position: i,
+        }).eq("id", b.id);
       }
-      if (breakInserts.length) await supabase.from("blocks").insert(breakInserts);
     } catch {
       /* best-effort: the task's own completion already saved above */
     }
+  };
+
+  /**
+   * Mirror a just-saved status change into the plan's React Query caches so the
+   * timeline shows it the INSTANT the user returns — instead of a few-second lag
+   * while a background refetch lands. Focus writes to Supabase directly (no
+   * useQuery here), so without this patch DayView/Home keep their stale cached
+   * blocks until staleTime expires. Patches both the DayView (`planDay`) and
+   * Home (`planDashboard`) caches; the eventual refetch reconciles exact values.
+   */
+  const patchPlanCaches = (blockId: string, patch: Partial<Block>) => {
+    if (!user) return;
+    const date = planDate || todayDateStr();
+    queryClient.setQueryData<DayPlanData>(planDayQueryKey(user.id, date), (old) =>
+      old ? { ...old, blocks: old.blocks.map((b) => (b.id === blockId ? { ...b, ...patch } : b)) } : old,
+    );
+    queryClient.setQueryData<PlanDashboardData>(planDashboardQueryKey(user.id, date), (old) =>
+      old ? { ...old, planBlocks: old.planBlocks.map((b) => (b.id === blockId ? { ...b, ...patch } : b)) } : old,
+    );
   };
 
   const complete = async () => {
@@ -397,6 +395,9 @@ export default function Focus() {
       toast.error("Unable to save. Please try again.");
       return;
     }
+    // Reflect "done" in the plan caches immediately so it's already shown when
+    // the user lands back on the timeline (not a few seconds later).
+    patchPlanCaches(block.id, patch as Partial<Block>);
     // After the length is set, cascade-shift any later tasks it now overlaps.
     if (isFramelessTask && framelessActualMin >= 1) {
       await reconcileFramelessOverrun(framelessActualMin);
@@ -442,6 +443,9 @@ export default function Focus() {
       toast.error("Could not save skip");
       return;
     }
+    // Reflect "skipped" in the plan caches immediately so the status is already
+    // shown the moment the user returns to the timeline — not seconds later.
+    patchPlanCaches(block.id, { resolution: "skipped", resolved_at: resolvedIso, completed: false });
     if (next) {
       setShowNextSheetIsSkip(true);
       setShowNextSheet(true);

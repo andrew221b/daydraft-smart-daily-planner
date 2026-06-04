@@ -1,7 +1,7 @@
 export const isIOS = () => {
   if (typeof navigator === "undefined") return false;
   return /iPhone|iPad|iPod/.test(navigator.userAgent) ||
-    (navigator.platform === "MacIntel" && (navigator as any).maxTouchPoints > 1);
+    (navigator.platform === "MacIntel" && (navigator).maxTouchPoints > 1);
 };
 
 export const mapsUrl = (location: string, lat?: number | null, lng?: number | null) => {

@@ -40,12 +40,12 @@ export async function fetchPlanDashboard(userId: string, date: string): Promise<
   if (!p) {
     return { hasPlanForDate: false, planId: null, planBlocks: [], planSummary: null };
   }
-  const list = (((p as any).blocks ?? []) as Block[]);
+  const list = (((p).blocks ?? []) as Block[]);
   return {
     hasPlanForDate: list.length > 0,
     planId: p.id,
     planBlocks: list,
-    planSummary: list.length > 0 ? ((p as any).ai_summary || null) : null,
+    planSummary: list.length > 0 ? ((p).ai_summary || null) : null,
   };
 }
 

@@ -126,9 +126,9 @@ export function attachDeepLinkListener(
     // getLaunchUrl() instead of the appUrlOpen event. Without this
     // the very first tap of the day silently drops on the floor.
     try {
-      if (!(window as any).__daydraft_launch_handled) {
+      if (!(window as Window & { __daydraft_launch_handled?: boolean }).__daydraft_launch_handled) {
         const launch = await App.getLaunchUrl();
-        (window as any).__daydraft_launch_handled = true;
+        (window as Window & { __daydraft_launch_handled?: boolean }).__daydraft_launch_handled = true;
         if (launch?.url) {
           const action = resolveDeepLinkAction(launch.url);
           if (action) onAction?.(action);

@@ -1,8 +1,9 @@
-import { useEffect, useState } from "react";
-import { Sheet, SheetContent, SheetHeader, SheetTitle } from "@/components/ui/sheet";
+import { useEffect, useState, type CSSProperties } from "react";
+import { Sheet, SheetContent, SheetTitle } from "@/components/ui/sheet";
 import type { Block } from "@/lib/daydraft";
 import { haptics } from "@/lib/haptics";
-import { CopyPlus, RotateCcw, Clock, Timer, X } from "lucide-react";
+import { CopyPlus, RotateCcw, Clock, Timer } from "lucide-react";
+import { motion } from "framer-motion";
 import { DurationPicker } from "@/components/app/DurationPicker";
 
 interface Props {
@@ -29,9 +30,22 @@ function fmtTime(hhmm: string) {
   return `${h12}:${m} ${ampm}`;
 }
 
+function fmtDuration(mins: number | null) {
+  if (mins == null) return "Set";
+  if (mins < 60) return `${mins} min`;
+  return `${Math.floor(mins / 60)}h${mins % 60 ? ` ${mins % 60}m` : ""}`;
+}
+
+// Glassy card surface shared by the two picker rows — mirrors DurationPicker's
+// "Custom" row so this sheet reads as part of the same family.
+const cardStyle: CSSProperties = {
+  background: "linear-gradient(180deg, hsl(var(--card)/0.6) 0%, hsl(var(--card)/0.35) 100%)",
+  boxShadow: "inset 0 1px 0 hsl(0 0% 100% / 0.05), 0 0 0 1px hsl(var(--border)/0.4)",
+};
+
 export function UncompleteTaskSheet({ block, onCancel, onConfirm }: Props) {
   const open = !!block;
-  
+
   // Tracked time indicates whether the user logged time for this block.
   // If true, we create a v2 copy. Otherwise, we just revert the block.
   const hasTrackedTime = block ? (block.actual_minutes ?? 0) > 0 : false;
@@ -49,8 +63,7 @@ export function UncompleteTaskSheet({ block, onCancel, onConfirm }: Props) {
     }
   }, [block]);
 
-  const handleSubmit = (e?: React.FormEvent) => {
-    if (e) e.preventDefault();
+  const handleSubmit = () => {
     if (!block || !time || duration == null) {
       haptics.notify("error");
       return;
@@ -59,111 +72,132 @@ export function UncompleteTaskSheet({ block, onCancel, onConfirm }: Props) {
     onConfirm(hasTrackedTime ? "v2" : "revert", time, duration);
   };
 
+  const Icon = hasTrackedTime ? CopyPlus : RotateCcw;
+  const canSubmit = !!time && duration != null;
+
   return (
     <>
       <Sheet open={open} onOpenChange={(val) => !val && onCancel()}>
         <SheetContent
           side="bottom"
-          className="rounded-t-[32px] px-0 pb-0 bg-background sm:max-w-md sm:mx-auto border-x sm:border-t-border sm:border-x-border"
-          style={{
-            boxShadow: "0 -24px 64px -16px rgba(0,0,0,0.4), inset 0 1px 0 rgba(255,255,255,0.06)",
-          }}
+          className="rounded-t-[28px] border-border/45 bg-popover p-0 flex flex-col"
+          hideClose
         >
-          <div className="absolute top-3 left-1/2 -translate-x-1/2 w-12 h-1.5 rounded-full bg-border/40" />
+          <SheetTitle className="sr-only">Return to timeline</SheetTitle>
 
-          <div className="px-6 pt-10 pb-[env(safe-area-inset-bottom,24px)] flex flex-col h-full max-h-[85vh]">
-            <SheetHeader className="mb-6 text-left">
-              <SheetTitle className="text-[22px] font-bold text-foreground flex items-center gap-2">
-                {hasTrackedTime ? <CopyPlus className="h-5 w-5 text-accent" /> : <RotateCcw className="h-5 w-5 text-accent" />}
+          {/* Header — matches DurationPicker: icon chip · title · subtitle · close */}
+          <div className="px-5 pt-6 pb-3 flex items-center gap-3">
+            <div className="h-10 w-10 rounded-[12px] flex items-center justify-center bg-primary/12 border border-primary/22 shrink-0">
+              <Icon className="h-[18px] w-[18px] text-primary" strokeWidth={2} />
+            </div>
+            <div className="min-w-0 flex-1">
+              <div className="font-display text-[19px] font-semibold tracking-tight leading-tight">
                 Return to timeline?
-              </SheetTitle>
-              <p className="text-[14px] text-secondary-fg/80 mt-1 leading-relaxed">
-                {hasTrackedTime 
-                  ? "Time was tracked for this task. To keep your reports accurate, the original will stay completed, and we'll create a new continuation task (Part 2)."
-                  : "This task will be marked as uncompleted. Pick a new time to schedule it."}
-              </p>
-            </SheetHeader>
-
-            <div className="flex-1 overflow-y-auto space-y-6">
-              {block && (
-                <div className="flex flex-col gap-2 rounded-[18px] border border-border/60 bg-foreground/[0.04] dark:bg-foreground/[0.06] px-4 py-4 shadow-sm">
-                  <div className="flex items-center gap-2">
-                    <div className="flex-1 h-8 bg-transparent border-0 text-[15px] font-semibold text-foreground truncate leading-8">
-                      {block.title} {hasTrackedTime ? "(Part 2)" : ""}
-                    </div>
-                  </div>
-                  <div className="flex flex-wrap items-center gap-2 mt-0.5">
-                    <div className="relative inline-flex items-center">
-                      <label
-                        className={`relative flex items-center gap-1.5 h-8 px-3 rounded-full border text-[13px] font-medium pressable transition-colors cursor-pointer select-none ${time ? "pr-8" : ""} ${
-                          !time
-                            ? "border-border/45 bg-muted/40 text-secondary-fg/55 italic"
-                            : "border-border/45 bg-muted/40 text-secondary-fg hover:text-foreground"
-                        }`}
-                      >
-                        <Clock className="h-3.5 w-3.5 opacity-70 pointer-events-none" />
-                        <span className="pointer-events-none">{time ? fmtTime(time) : "Set time"}</span>
-                        <input
-                          type="time"
-                          className="absolute inset-0 opacity-0 w-full h-full cursor-pointer"
-                          value={time}
-                          tabIndex={-1}
-                          onChange={(e) => {
-                            if (!e.target.value) return;
-                            setTime(e.target.value);
-                          }}
-                          style={{ fontSize: 16 }}
-                        />
-                      </label>
-                      {time && (
-                        <button
-                          type="button"
-                          onClick={(e) => {
-                            e.stopPropagation();
-                            setTime("");
-                          }}
-                          className="absolute right-1 top-1/2 -translate-y-1/2 h-6 w-6 rounded-full flex items-center justify-center text-secondary-fg hover:bg-foreground/10"
-                        >
-                          <X className="h-3 w-3" />
-                        </button>
-                      )}
-                    </div>
-                    <button type="button" onClick={() => setPickerOpen(true)}
-                      className={`flex items-center gap-1.5 h-8 px-3 rounded-full border text-[13px] font-medium tabular-nums pressable transition-colors ${
-                        duration == null
-                          ? "border-border/45 bg-muted/40 text-secondary-fg/45 italic"
-                          : "border-border/45 bg-muted/40 text-secondary-fg hover:text-foreground"
-                      }`}
-                    >
-                      <Timer className="h-3.5 w-3.5 opacity-70" />
-                      {duration == null
-                        ? "Set"
-                        : duration < 60
-                          ? `${duration}m`
-                          : `${Math.floor(duration / 60)}h${duration % 60 ? ` ${duration % 60}m` : ""}`}
-                    </button>
-                  </div>
-                </div>
-              )}
+              </div>
+              <div className="text-[12px] text-secondary-fg/70 mt-0.5 leading-snug">
+                {hasTrackedTime
+                  ? "Time was tracked, so we keep the original done and add a Part 2."
+                  : "Pick when to put this task back on your plan."}
+              </div>
             </div>
-
-            <div className="mt-8 flex gap-3 shrink-0">
-              <button
-                type="button"
-                onClick={() => { haptics.selection(); onCancel(); }}
-                className="flex-1 h-14 rounded-[18px] border border-border/40 bg-card/30 text-[15px] font-semibold text-secondary-fg/80 pressable hover:text-foreground transition-colors"
-              >
-                Cancel
-              </button>
-              <button
-                type="button"
-                onClick={() => handleSubmit()}
-                className={`flex-1 h-14 rounded-[18px] text-primary-foreground text-[15px] font-bold pressable transition-all ${(!time || duration == null) ? "bg-primary/50 pointer-events-none" : "bg-primary shadow-[0_8px_24px_-8px_hsl(var(--primary)/0.55)] hover:brightness-110"}`}
-              >
-                {hasTrackedTime ? "Create Part 2" : "Return Task"}
-              </button>
-            </div>
+            <button
+              type="button"
+              onClick={onCancel}
+              className="h-8 w-8 rounded-full flex items-center justify-center text-secondary-fg/60 hover:text-foreground hover:bg-foreground/[0.06] transition-colors pressable shrink-0 text-[18px]"
+              aria-label="Close"
+            >
+              ×
+            </button>
           </div>
+
+          {block && (
+            <>
+              {/* Task title card */}
+              <div className="px-5 pb-1">
+                <motion.div
+                  className="rounded-2xl px-4 py-3.5 flex items-center gap-3"
+                  style={{
+                    background: "linear-gradient(180deg, hsl(var(--primary)/0.12) 0%, hsl(var(--primary)/0.04) 100%)",
+                    boxShadow: "inset 0 1px 0 hsl(0 0% 100% / 0.06), 0 0 0 1px hsl(var(--primary)/0.22), 0 8px 24px -16px hsl(var(--primary)/0.35)",
+                  }}
+                  initial={{ opacity: 0, y: 6 }}
+                  animate={{ opacity: 1, y: 0 }}
+                  transition={{ type: "spring", stiffness: 320, damping: 26, delay: 0.05 }}
+                >
+                  <span className="text-[15px] font-semibold text-foreground/95 leading-snug line-clamp-2">
+                    {block.title}
+                    {hasTrackedTime && <span className="text-primary"> (Part 2)</span>}
+                  </span>
+                </motion.div>
+              </div>
+
+              {/* When / how long */}
+              <div className="px-5 pt-4 space-y-2.5">
+                {/* Start time row */}
+                <label className="rounded-2xl px-4 py-3.5 flex items-center justify-between gap-3 cursor-pointer block relative" style={cardStyle}>
+                  <div className="flex items-center gap-2.5 min-w-0">
+                    <Clock className="h-[18px] w-[18px] text-primary/80 shrink-0" strokeWidth={2} />
+                    <div className="min-w-0">
+                      <div className="text-[13px] font-semibold text-foreground/90">Start time</div>
+                      <div className="text-[11.5px] text-secondary-fg/70 mt-0.5">When it goes back on the plan</div>
+                    </div>
+                  </div>
+                  <span className="text-[16px] font-semibold tabular-nums text-foreground shrink-0">
+                    {time ? fmtTime(time) : "Set"}
+                  </span>
+                  <input
+                    type="time"
+                    className="absolute inset-0 opacity-0 w-full h-full cursor-pointer"
+                    value={time}
+                    tabIndex={-1}
+                    onChange={(e) => { if (e.target.value) setTime(e.target.value); }}
+                    style={{ fontSize: 16 }}
+                    aria-label="Start time"
+                  />
+                </label>
+
+                {/* Duration row */}
+                <button
+                  type="button"
+                  onClick={() => { haptics.selection(); setPickerOpen(true); }}
+                  className="w-full rounded-2xl px-4 py-3.5 flex items-center justify-between gap-3 pressable"
+                  style={cardStyle}
+                >
+                  <div className="flex items-center gap-2.5 min-w-0">
+                    <Timer className="h-[18px] w-[18px] text-primary/80 shrink-0" strokeWidth={2} />
+                    <div className="min-w-0 text-left">
+                      <div className="text-[13px] font-semibold text-foreground/90">Duration</div>
+                      <div className="text-[11.5px] text-secondary-fg/70 mt-0.5">How long to block out</div>
+                    </div>
+                  </div>
+                  <span className="text-[16px] font-semibold tabular-nums text-foreground shrink-0">
+                    {fmtDuration(duration)}
+                  </span>
+                </button>
+              </div>
+            </>
+          )}
+
+          {/* Footer buttons — same shape/heights as DurationPicker */}
+          <div className="px-5 pt-5 pb-3 flex gap-2.5">
+            <button
+              type="button"
+              onClick={() => { haptics.selection(); onCancel(); }}
+              className="flex-1 h-[52px] rounded-[16px] border border-border/40 bg-card/30 text-[14px] font-medium text-secondary-fg/85 hover:text-foreground hover:bg-card/50 pressable transition-colors"
+            >
+              Cancel
+            </button>
+            <button
+              type="button"
+              onClick={handleSubmit}
+              disabled={!canSubmit}
+              className="flex-1 h-[52px] rounded-[16px] bg-primary text-primary-foreground text-[14px] font-semibold pressable shadow-[0_10px_28px_-8px_hsl(var(--primary)/0.55)] disabled:opacity-40 disabled:pointer-events-none transition-opacity"
+            >
+              {hasTrackedTime ? "Create Part 2" : "Return task"}
+            </button>
+          </div>
+
+          <div className="shrink-0" style={{ paddingBottom: "max(env(safe-area-inset-bottom), 12px)" }} />
         </SheetContent>
       </Sheet>
 

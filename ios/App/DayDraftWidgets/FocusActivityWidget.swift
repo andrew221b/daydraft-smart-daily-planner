@@ -33,8 +33,8 @@ struct FocusLiveActivityWidget: Widget {
                         categoryColorHex: ctx.state.categoryColorHex
                     )
                     .padding(.horizontal, 14)
-                    .padding(.top, 2)
-                    .padding(.bottom, 6)
+                    .padding(.top, 0)
+                    .padding(.bottom, 4)
                 }
             } compactLeading: {
                 Image(systemName: "scope")
@@ -89,54 +89,33 @@ private struct FocusCard: View {
             titleTint: DD.blue,
             start: start,
             timerTint: DD.blue,
-            heroFont: 30,
-            spacing: 8
+            heroFont: 28,
+            spacing: 6
         ) {
             if let end = plannedEnd {
+                // Centered hierarchy: category pill (its own line, centered under
+                // the hero timer) → progress track → start↔remaining endpoints.
+                // Kept tight (small fonts, spacing 5) so the whole card + the
+                // action button stay inside the Dynamic Island expanded budget.
                 VStack(spacing: 5) {
-                    // Tracker category chip — only when actively tracking. Centered
-                    // so it sits under the centered hero timer.
                     if let catName = categoryName {
-                        HStack(spacing: 5) {
-                            Circle()
-                                .fill(Color(hex: categoryColorHex ?? "0A84FF"))
-                                .frame(width: 5, height: 5)
-                                .shadow(color: Color(hex: categoryColorHex ?? "0A84FF").opacity(0.7), radius: 2)
-                            Text(catName.uppercased())
-                                .font(.system(size: 9.5, weight: .heavy, design: .rounded))
-                                .tracking(0.9)
-                                .foregroundStyle(DD.dim)
-                        }
-                        .frame(maxWidth: .infinity)
+                        CategoryPill(name: catName, colorHex: categoryColorHex)
                     }
                     JourneyTrack(start: start, end: end, tint: DD.blue)
                     HStack {
-                        // Session start clock (left). The big hero timer above
-                        // already shows live elapsed, so repeating elapsed here
-                        // would just duplicate it — show the start time instead.
-                        Text(start, style: .time)
+                        Text(start, style: .time)            // left: started
                         Spacer()
-                        // Countdown to planned end (right)
-                        Text(timerInterval: start...end, countsDown: true)
+                        Text(timerInterval: start...end, countsDown: true)  // right: remaining
                             .monospacedDigit()
                     }
-                    .font(.system(size: 12, weight: .bold, design: .rounded))
+                    .font(.system(size: 11, weight: .bold, design: .rounded))
                     .foregroundStyle(DD.faint)
                 }
                 .padding(.horizontal, 4)
             } else {
                 VStack(spacing: 5) {
                     if let catName = categoryName {
-                        HStack(spacing: 5) {
-                            Circle()
-                                .fill(Color(hex: categoryColorHex ?? "0A84FF"))
-                                .frame(width: 5, height: 5)
-                                .shadow(color: Color(hex: categoryColorHex ?? "0A84FF").opacity(0.7), radius: 2)
-                            Text(catName.uppercased())
-                                .font(.system(size: 9.5, weight: .heavy, design: .rounded))
-                                .tracking(0.9)
-                                .foregroundStyle(DD.dim)
-                        }
+                        CategoryPill(name: catName, colorHex: categoryColorHex)
                     }
                     Text("STARTED AT \(start, style: .time)")
                         .font(.system(size: 12, weight: .semibold, design: .rounded))

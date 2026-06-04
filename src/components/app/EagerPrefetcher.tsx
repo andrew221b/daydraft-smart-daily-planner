@@ -39,7 +39,6 @@ export function EagerPrefetcher() {
   useEffect(() => {
     void import("@/pages/app/Home");
     void import("@/pages/app/DayView");
-    void import("@/pages/app/Tracker");
     void import("@/pages/app/Reports");
     void import("@/pages/app/Settings");
     void import("@/pages/app/Focus");

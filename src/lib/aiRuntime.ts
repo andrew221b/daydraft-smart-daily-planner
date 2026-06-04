@@ -48,7 +48,7 @@ export function setAiFlagOverride(flag: AiFlagName, enabled: boolean): void {
 export function trackAiEvent(name: string, payload?: Record<string, unknown>): void {
   try {
     const raw = localStorage.getItem(EVENTS_KEY);
-    const events = raw ? (JSON.parse(raw) as any[]) : [];
+    const events = raw ? (JSON.parse(raw) as Array<{ name: string; payload: unknown; ts: string }>) : [];
     events.push({ name, payload: payload || {}, ts: new Date().toISOString() });
     if (events.length > 200) events.splice(0, events.length - 200);
     localStorage.setItem(EVENTS_KEY, JSON.stringify(events));

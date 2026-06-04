@@ -244,7 +244,7 @@ export function DateRangePickerSheet({
             <button
               key={p.id}
               type="button"
-              onClick={() => handleQuick(p.id as any)}
+              onClick={() => handleQuick(p.id as "today" | "yesterday" | "last7" | "last30")}
               className="shrink-0 h-8 px-3 rounded-full border border-border/40 bg-foreground/[0.03] hover:bg-foreground/[0.06] text-[12px] font-medium text-foreground/85 pressable transition-colors whitespace-nowrap"
             >
               {p.label}

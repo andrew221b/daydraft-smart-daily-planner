@@ -6,6 +6,7 @@ import { useEntitlement } from "@/hooks/useEntitlement";
 import { supabase } from "@/integrations/supabase/client";
 import { invokeAiCached } from "@/lib/aiCache";
 import { isUserTask, isOpenUserTask, todayDateStr } from "@/lib/daydraft";
+import type { TablesInsert } from "@/integrations/supabase/types";
 import { useQueryClient } from "@tanstack/react-query";
 import { planDashboardQueryKey, planDayQueryKey } from "@/lib/planQueries";
 import { haptics } from "@/lib/haptics";
@@ -68,7 +69,7 @@ export function TimerRescheduleSheet() {
           .select("date")
           .eq("id", endedBlock.plan_id)
           .maybeSingle();
-        if (!plan || (plan as any).date !== today) return;
+        if (!plan || (plan).date !== today) return;
         const { data: bs } = await supabase
           .from("blocks")
           .select("id,plan_id,position,title,kind,type,completed,duration_min,estimated_minutes,actual_minutes,start_time,is_calendar_event,resolution")
@@ -77,7 +78,7 @@ export function TimerRescheduleSheet() {
         const all = (bs || []) as BlockLite[];
         const rem = all.filter((x) => {
           if (x.position <= endedBlock.position || x.is_calendar_event) return false;
-          return isUserTask(x) ? isOpenUserTask(x as any) : !x.completed;
+          return isUserTask(x) ? isOpenUserTask(x as Parameters<typeof isOpenUserTask>[0]) : !x.completed;
         });
         if (!rem.length) return;
         const payload = {
@@ -118,7 +119,7 @@ export function TimerRescheduleSheet() {
           id: b.id,
           start_time: minToHHMM(hhmmToMin(b.start_time) + delta),
         }));
-        await supabase.from("blocks").upsert(updates as any, { onConflict: "id" });
+        await supabase.from("blocks").upsert(updates as TablesInsert<"blocks">[], { onConflict: "id" });
       } else if (opt.action.type === "shorten_next_break") {
         const target = Math.max(3, Math.min(10, Number(opt.action.target_minutes || 5)));
         const nextBreak = remaining.find((b) => (b.kind === "break" || b.kind === "lunch") && !b.completed);
@@ -138,7 +139,7 @@ export function TimerRescheduleSheet() {
         remaining
           .filter((b) => b.position > nextBreak.position)
           .forEach((b) => updates.push({ id: b.id, start_time: minToHHMM(hhmmToMin(b.start_time) - delta) }));
-        await supabase.from("blocks").upsert(updates as any, { onConflict: "id" });
+        await supabase.from("blocks").upsert(updates as TablesInsert<"blocks">[], { onConflict: "id" });
       }
       await Promise.all([
         queryClient.invalidateQueries({ queryKey: planDashboardQueryKey(user.id, today) }),
@@ -146,7 +147,7 @@ export function TimerRescheduleSheet() {
       ]);
       setOpen(false);
       toast.success("Plan updated.");
-    } catch (e: any) {
+    } catch (e) {
       toast.error(e?.message || "Unable to apply adjustment.");
     }
   };

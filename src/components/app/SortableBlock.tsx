@@ -6,7 +6,7 @@ import { AnimatePresence, motion } from "framer-motion";
 import { Block, fmtTime, inferScheduleBlockType, isOpenUserTask, isUserTaskDone } from "@/lib/daydraft";
 import {
   Check, Calendar, Layers, GripVertical, Sparkles, Play, Square,
-  ChevronDown, Clock, Bell, Bookmark, Trash2, RotateCcw
+  ChevronDown, Clock, Bell, Bookmark, Trash2, RotateCcw, SkipForward
 } from "lucide-react";
 import { haptics } from "@/lib/haptics";
 import {
@@ -39,7 +39,6 @@ type BlockExt = Block & {
 export const SortableBlock = memo(({
   block,
   editing,
-  onTap,
   onTapTime,
   onToggleComplete,
   onStartTrack,
@@ -52,6 +51,7 @@ export const SortableBlock = memo(({
   onEditReminders,
   onAskAi,
   onSaveTemplate,
+  onSkip,
   onDeleteBlock,
   isOverlay,
   isFuturePlan = false,
@@ -60,22 +60,23 @@ export const SortableBlock = memo(({
 }: {
   block: BlockExt;
   editing: boolean;
-  onTap?: (b: any) => void;
-  onTapTime?: (b: any, newTime?: string) => void;
+  onTapTime?: (b: Block, newTime?: string) => void;
   /** Earliest selectable time (HH:MM). Passed to the inline time input's min attribute. */
 
-  onToggleComplete?: (b: any) => void;
-  onStartTrack?: (b: any) => void;
-  onStopTrack?: (b: any) => void;
+  onToggleComplete?: (b: Block) => void;
+  onStartTrack?: (b: Block) => void;
+  onStopTrack?: (b: Block) => void;
   trackingActive?: boolean;
   assignedCategory?: { id: string; name: string; color: string } | null;
   tourSpotlight?: boolean;
-  onCarryForward?: (b: any) => void;
-  onEditDuration?: (b: any) => void;
-  onEditReminders?: (b: any) => void;
-  onAskAi?: (b: any) => void;
-  onSaveTemplate?: (b: any) => void;
-  onDeleteBlock?: (b: any) => void;
+  onCarryForward?: (b: Block) => void;
+  onEditDuration?: (b: Block) => void;
+  onEditReminders?: (b: Block) => void;
+  onAskAi?: (b: Block) => void;
+  onSaveTemplate?: (b: Block) => void;
+  /** Skip an open task (no duration / not yet due). Marks it skipped without deleting. */
+  onSkip?: (b: Block) => void;
+  onDeleteBlock?: (b: Block) => void;
   /** True when the plan date is in the future — completion is locked. */
   isFuturePlan?: boolean;
   /** True when the plan date is in the past — the whole row is a frozen,
@@ -117,7 +118,7 @@ export const SortableBlock = memo(({
 
   const isCal = block.is_calendar_event;
   const rhythmType = inferScheduleBlockType(block);
-  const blockSubtype = (block as any).type as "deep_work" | "communication" | "routine" | undefined;
+  const blockSubtype = block.type as "deep_work" | "communication" | "routine" | undefined;
 
   const stripeColor = isCal
     ? "hsl(var(--border))"
@@ -176,11 +177,12 @@ export const SortableBlock = memo(({
   const rowAlign = "items-start";
 
   const inlineActions = [
-    { id: "duration",  icon: <Clock    className="h-3.5 w-3.5" />, label: "Duration",  cb: onEditDuration,  color: "text-sky-400/75"       },
-    { id: "reminders", icon: <Bell     className="h-3.5 w-3.5" />, label: "Remind",    cb: onEditReminders, color: "text-violet-400/75"     },
-    { id: "ai",        icon: <Sparkles className="h-3.5 w-3.5" />, label: "Ask AI",    cb: onAskAi,         color: "text-primary/75"        },
-    { id: "template",  icon: <Bookmark className="h-3.5 w-3.5" />, label: "Template",  cb: onSaveTemplate,  color: "text-amber-400/75"      },
-    { id: "delete",    icon: <Trash2   className="h-3.5 w-3.5" />, label: "Delete",    cb: onDeleteBlock,   color: "text-destructive/50", destructive: true },
+    { id: "duration",  icon: <Clock       className="h-3.5 w-3.5" />, label: "Duration",  cb: onEditDuration,  color: "text-sky-400/75"       },
+    { id: "skip",      icon: <SkipForward className="h-3.5 w-3.5" />, label: "Skip",      cb: onSkip,          color: "text-amber-400/80"     },
+    { id: "reminders", icon: <Bell        className="h-3.5 w-3.5" />, label: "Remind",    cb: onEditReminders, color: "text-violet-400/75"     },
+    { id: "ai",        icon: <Sparkles    className="h-3.5 w-3.5" />, label: "Ask AI",    cb: onAskAi,         color: "text-primary/75"        },
+    { id: "template",  icon: <Bookmark    className="h-3.5 w-3.5" />, label: "Template",  cb: onSaveTemplate,  color: "text-amber-400/75"      },
+    { id: "delete",    icon: <Trash2      className="h-3.5 w-3.5" />, label: "Delete",    cb: onDeleteBlock,   color: "text-destructive/50", destructive: true },
   ] as const;
 
   if (block.kind === "break") {
@@ -347,10 +349,10 @@ export const SortableBlock = memo(({
                 {block.title}
               </span>
               {!isCal && Boolean(block.overlap_ok) && (
-                <Layers className="h-3 w-3 text-secondary-fg shrink-0" aria-hidden title="Runs alongside other work" />
+                <Layers className="h-3 w-3 text-secondary-fg shrink-0" aria-hidden />
               )}
               {!isCal && block.ai_reasoning && (
-                <Sparkles className="h-3 w-3 text-primary/70 shrink-0" aria-hidden title="Why this slot" />
+                <Sparkles className="h-3 w-3 text-primary/70 shrink-0" aria-hidden />
               )}
             </div>
 
@@ -552,9 +554,9 @@ export const SortableBlock = memo(({
               {/* 5-action toolbar — hidden on read-only (past) rows; only the
                   "Move to another day" affordance below remains. */}
               {!readOnly && (
-              <div className="flex gap-2">
+              <div className="flex gap-1.5">
                 {inlineActions.map(({ id, icon, label, cb, color, ...rest }) => {
-                  const destructive = "destructive" in rest && (rest as any).destructive;
+                  const destructive = "destructive" in rest && (rest as { destructive?: boolean }).destructive;
                   return (
                     <button
                       key={id}
@@ -728,11 +730,10 @@ function CompleteCircleDone({
         haptics.tap();
         onToggle();
       }}
-      className="relative group flex items-center justify-center h-8 w-8 rounded-full bg-success shrink-0 pressable shadow-[0_4px_14px_-2px_hsl(var(--success)/0.55)] ring-1 ring-white/20 transition-transform active:scale-95"
+      className="relative flex items-center justify-center h-8 w-8 rounded-full bg-success shrink-0 pressable shadow-[0_4px_14px_-2px_hsl(var(--success)/0.55)] ring-1 ring-white/20 transition-transform active:scale-95"
       aria-label="Mark as not done"
     >
-      <Check className="absolute h-4 w-4 text-success-foreground row-check-pop transition-all duration-200 group-active:scale-50 group-active:opacity-0" strokeWidth={3} />
-      <RotateCcw className="absolute h-4 w-4 text-success-foreground scale-50 opacity-0 transition-all duration-200 group-active:scale-100 group-active:opacity-100 group-active:-rotate-45" strokeWidth={2.5} />
+      <Check className="h-4 w-4 text-success-foreground row-check-pop" strokeWidth={3} />
     </button>
   );
 }
