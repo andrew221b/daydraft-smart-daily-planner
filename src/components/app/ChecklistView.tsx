@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useEffect, useMemo, useRef, useState, forwardRef, useImperativeHandle } from "react";
 import {
   DndContext,
   DragOverlay,
@@ -44,18 +44,27 @@ function Droppable({
   );
 }
 
-export function ChecklistView({
+export interface ChecklistApi {
+  getUngroupedUnfinishedItems: () => ChecklistItem[];
+  getAllItems: () => ChecklistItem[];
+  moveItemsToDate: (itemIds: string[], targetDate: string) => Promise<void>;
+  deleteItems: (itemIds: string[]) => void;
+  copyPlanAsText: () => void;
+}
+
+export interface ChecklistViewProps {
+  userId: string | undefined;
+  viewDate: string;
+  eveningNudgeTime?: string;
+  onChange?: () => void;
+}
+
+export const ChecklistView = forwardRef<ChecklistApi, ChecklistViewProps>(({
   userId,
   viewDate,
   eveningNudgeTime,
   onChange,
-}: {
-  userId: string | undefined;
-  viewDate: string;
-  eveningNudgeTime?: string;
-  /** Fired after any data change so the parent can refresh the switcher badge. */
-  onChange?: () => void;
-}) {
+}, ref) => {
   const {
     groups,
     items,
@@ -69,6 +78,8 @@ export function ChecklistView({
     deleteItem,
     moveItem,
     reorder,
+    deleteItems,
+    moveItemsToDate,
   } = useChecklist(userId, viewDate, eveningNudgeTime);
 
   const [activeId, setActiveId] = useState<string | null>(null);
@@ -90,6 +101,7 @@ export function ChecklistView({
   }, [collapsed]);
   const [sheetItem, setSheetItem] = useState<ChecklistItem | null>(null);
   const [datePickItem, setDatePickItem] = useState<ChecklistItem | null>(null);
+  const [datePickGroup, setDatePickGroup] = useState<{ id: string; mode: "unfinished" | "all" } | null>(null);
   const [groupMenu, setGroupMenu] = useState<Group | null>(null);
   const [addingGroup, setAddingGroup] = useState(false);
   const [groupDraft, setGroupDraft] = useState("");
@@ -121,6 +133,36 @@ export function ChecklistView({
   const done = items.filter((i) => i.done).length;
   const activeItem = activeId ? items.find((i) => i.id === activeId) ?? null : null;
   const isEmpty = !loading && groups.length === 0 && items.length === 0;
+
+  useImperativeHandle(ref, () => ({
+    getUngroupedUnfinishedItems: () => ungrouped.filter((i) => !i.done),
+    getAllItems: () => items,
+    moveItemsToDate,
+    deleteItems: (ids: string[]) => deleteItems(ids),
+    copyPlanAsText: () => {
+      let text = "";
+      if (ungrouped.length > 0) {
+        text += ungrouped.map((i) => {
+          if (i.done) return `✓ ${i.title.split('').map(c => c + '\u0336').join('')}`;
+          return `• ${i.title}`;
+        }).join("\n") + "\n\n";
+      }
+      groups.forEach((g) => {
+        const gItems = itemsByGroup.get(g.id) || [];
+        if (gItems.length > 0) {
+          text += `**${g.title}**\n`;
+          text += gItems.map((i) => {
+            if (i.done) return `✓ ${i.title.split('').map(c => c + '\u0336').join('')}`;
+            return `• ${i.title}`;
+          }).join("\n") + "\n\n";
+        }
+      });
+      if (navigator.clipboard) {
+        void navigator.clipboard.writeText(text.trim());
+        haptics.notify("success");
+      }
+    },
+  }), [ungrouped, items, groups, itemsByGroup, moveItemsToDate, deleteItems]);
 
   // Let the parent (DayView) refresh its switcher badge from the cache.
   useEffect(() => {
@@ -424,6 +466,29 @@ export function ChecklistView({
         title="Move item to day"
       />
 
+      {/* Move-to-date picker for groups */}
+      <DayPickerSheet
+        open={!!datePickGroup}
+        onOpenChange={(v) => !v && setDatePickGroup(null)}
+        value={viewDate}
+        onPick={async (ymd) => {
+          if (datePickGroup && ymd !== viewDate) {
+            const gItems = itemsByGroup.get(datePickGroup.id) || [];
+            const targets = datePickGroup.mode === "unfinished" ? gItems.filter(i => !i.done) : gItems;
+            if (targets.length > 0) {
+              try {
+                await moveItemsToDate(targets.map(i => i.id), ymd);
+                haptics.notify("success");
+              } catch {
+                /* already handled */
+              }
+            }
+          }
+          setDatePickGroup(null);
+        }}
+        title="Move to…"
+      />
+
       {/* Group (list) menu */}
       <GroupMenuSheet
         group={groupMenu}
@@ -431,10 +496,30 @@ export function ChecklistView({
         onClose={() => setGroupMenu(null)}
         onRename={renameGroup}
         onDelete={deleteGroup}
+        onCarryUnfinished={() => {
+          if (groupMenu) setDatePickGroup({ id: groupMenu.id, mode: "unfinished" });
+        }}
+        onCarryAll={() => {
+          if (groupMenu) setDatePickGroup({ id: groupMenu.id, mode: "all" });
+        }}
+        onCopyAsText={() => {
+          if (!groupMenu) return;
+          const gItems = itemsByGroup.get(groupMenu.id) || [];
+          let text = `**${groupMenu.title}**\n`;
+          text += gItems.map((i) => {
+            if (i.done) return `✓ ${i.title.split('').map(c => c + '\u0336').join('')}`;
+            return `• ${i.title}`;
+          }).join("\n");
+          if (navigator.clipboard) {
+            void navigator.clipboard.writeText(text);
+            haptics.notify("success");
+          }
+          setGroupMenu(null);
+        }}
       />
     </div>
   );
-}
+});
 
 /** Rename / delete a category. Delete shows an inline confirm (it cascades items). */
 function GroupMenuSheet({
@@ -443,12 +528,18 @@ function GroupMenuSheet({
   onClose,
   onRename,
   onDelete,
+  onCarryUnfinished,
+  onCarryAll,
+  onCopyAsText,
 }: {
   group: Group | null;
   itemCount: number;
   onClose: () => void;
   onRename: (id: string, title: string) => void;
   onDelete: (id: string) => void;
+  onCarryUnfinished: () => void;
+  onCarryAll: () => void;
+  onCopyAsText: () => void;
 }) {
   const [mode, setMode] = useState<"menu" | "rename" | "confirm">("menu");
   const [draft, setDraft] = useState("");
@@ -546,10 +637,31 @@ function GroupMenuSheet({
                   <span className="flex-1 text-left">Rename list</span>
                 </button>
                 <button
+                  onClick={() => { onClose(); onCarryUnfinished(); }}
+                  className="w-full flex items-center gap-3 px-3 py-3.5 rounded-xl pressable transition-colors text-[14px] text-foreground hover:bg-muted/40"
+                >
+                  <CalendarDays className="h-4 w-4 text-secondary-fg shrink-0" />
+                  <span className="flex-1 text-left">Carry unfinished to…</span>
+                </button>
+                <button
+                  onClick={() => { onClose(); onCarryAll(); }}
+                  className="w-full flex items-center gap-3 px-3 py-3.5 rounded-xl pressable transition-colors text-[14px] text-foreground hover:bg-muted/40"
+                >
+                  <CalendarDays className="h-4 w-4 text-secondary-fg shrink-0" />
+                  <span className="flex-1 text-left">Carry entire category to…</span>
+                </button>
+                <button
+                  onClick={onCopyAsText}
+                  className="w-full flex items-center gap-3 px-3 py-3.5 rounded-xl pressable transition-colors text-[14px] text-foreground hover:bg-muted/40"
+                >
+                  <Copy className="h-4 w-4 text-secondary-fg shrink-0" />
+                  <span className="flex-1 text-left">Copy as text</span>
+                </button>
+                <button
                   onClick={() => setMode("confirm")}
                   className="w-full flex items-center gap-3 px-3 py-3.5 rounded-xl pressable transition-colors text-[14px] text-destructive hover:bg-destructive/10"
                 >
-                  <Trash2 className="h-4 w-4 text-destructive/80 shrink-0" />
+                  <Trash2 className="h-4 w-4 shrink-0" />
                   <span className="flex-1 text-left">Delete list</span>
                 </button>
               </>

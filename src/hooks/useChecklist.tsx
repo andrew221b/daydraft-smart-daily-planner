@@ -399,6 +399,46 @@ export function useChecklist(
     [commit],
   );
 
+  const deleteItems = useCallback((itemIds: string[]) => {
+    if (!userId || itemIds.length === 0) return;
+    const idsSet = new Set(itemIds);
+    commit(groupsRef.current, itemsRef.current.filter((i) => !idsSet.has(i.id)));
+    (async () => {
+      try {
+        const { error } = await supabase
+          .from("checklist_items")
+          .delete()
+          .in("id", itemIds);
+        if (error) throw error;
+      } catch {
+        for (const id of itemIds) {
+          await enqueueWrite({ table: "checklist_items", op: "delete", filter: { id } });
+        }
+      }
+    })();
+  }, [userId, commit]);
+
+  const moveItemsToDate = useCallback((itemIds: string[], targetDate: string) => {
+    if (!userId || itemIds.length === 0) return;
+    const idsSet = new Set(itemIds);
+    // Optimistically remove them from the current view
+    commit(groupsRef.current, itemsRef.current.filter((i) => !idsSet.has(i.id)));
+    (async () => {
+      try {
+        const { error } = await supabase
+          .from("checklist_items")
+          .update({ plan_date: targetDate })
+          .in("id", itemIds);
+        if (error) throw error;
+      } catch {
+        // Fallback to queue
+        for (const id of itemIds) {
+          await enqueueWrite({ table: "checklist_items", op: "update", filter: { id }, payload: { plan_date: targetDate } });
+        }
+      }
+    })();
+  }, [userId, commit]);
+
   const clearCompleted = useCallback(() => {
     if (!userId) return;
     const doneIds = itemsRef.current.filter((i) => i.done).map((i) => i.id);
@@ -436,5 +476,7 @@ export function useChecklist(
     moveItem,
     reorder,
     clearCompleted,
+    deleteItems,
+    moveItemsToDate,
   };
 }

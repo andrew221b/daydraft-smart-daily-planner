@@ -17,7 +17,7 @@ import {
 import { ChevronLeft, ChevronRight, Play, CalendarDays, Trash2, Bell, BellOff, MoreHorizontal, Clock, Timer, Copy, Sparkles, ListPlus, Wand2, ArrowRightCircle, Loader2, X, ListChecks } from "lucide-react";
 import { DayPickerSheet } from "@/components/app/DayPickerSheet";
 import { UncompleteTaskSheet } from "@/components/app/UncompleteTaskSheet";
-import { ChecklistView } from "@/components/app/ChecklistView";
+import { ChecklistView, type ChecklistApi } from "@/components/app/ChecklistView";
 import { peekChecklistCounts } from "@/hooks/useChecklist";
 import { Button } from "@/components/ui/button";
 import { DndContext, closestCenter, MouseSensor, TouchSensor, useSensor, useSensors, DragEndEvent, DragStartEvent, DragOverlay } from "@dnd-kit/core";
@@ -274,6 +274,7 @@ export default function DayView() {
   // Reading them then makes yesterday flash "Today" + the red unfinished banner.
   // Gate day-derived UI on `loadedBlocksDate === viewDate` so stale rows never show.
   const [loadedBlocksDate, setLoadedBlocksDate] = useState<string | null>(null);
+  const checklistRef = useRef<ChecklistApi>(null);
   const [now, setNow] = useState(new Date());
   const [tourFired, setTourFired] = useState(false);
   // A plan dated yesterday whose last slot still ends in the future is an
@@ -378,6 +379,7 @@ export default function DayView() {
   type DayPickerIntent =
     | { kind: "navigate" }
     | { kind: "carry-missed" }
+    | { kind: "checklist-carry-ungrouped" }
     | { kind: "move-task"; blockId: string };
   const [dayPickerIntent, setDayPickerIntent] = useState<DayPickerIntent | null>(null);
 
@@ -1950,6 +1952,25 @@ export default function DayView() {
       } catch (e) {
         toast.error(e?.message || "Unable to carry tasks forward");
       }
+      return;
+    }
+    if (intent.kind === "checklist-carry-ungrouped") {
+      const candidates = checklistRef.current?.getUngroupedUnfinishedItems() || [];
+      if (!candidates.length) {
+        toast("Nothing left to carry forward");
+        return;
+      }
+      try {
+        await checklistRef.current?.moveItemsToDate(candidates.map(i => i.id), targetDate);
+        setMoreOpen(false);
+        haptics.notify("success");
+        toast.success(
+          `Moved ${candidates.length} item${candidates.length === 1 ? "" : "s"} to ${friendlyDateFor(parseDateStr(targetDate))}`,
+          { action: { label: "Open", onClick: () => navigateToDay(targetDate) } },
+        );
+      } catch (e) {
+        toast.error(e?.message || "Unable to carry items forward");
+      }
     }
   };
 
@@ -2138,6 +2159,7 @@ export default function DayView() {
         {planViewMode === "checklist" ? (
           <div className="checklist-theme">
           <ChecklistView
+            ref={checklistRef}
             userId={user?.id}
             viewDate={viewDate}
             eveningNudgeTime={profile?.evening_nudge_local_time}
@@ -2434,22 +2456,47 @@ export default function DayView() {
             />
           </div>
 
-          {!isFuture && (
-            <ActionRow
-              onClick={() => {
-                setMoreOpen(false);
-                setDayPickerIntent({ kind: "carry-missed" });
-              }}
-              icon={<CalendarDays className="h-4 w-4" />}
-              label="Carry unfinished to…"
-            />
-          )}
-          {blocks.length > 0 && (
-            <ActionRow
-              onClick={() => { setMoreOpen(false); void copyDayOutline(); }}
-              icon={<Copy className="h-4 w-4" />}
-              label="Copy plan as text"
-            />
+          {planViewMode === "timeline" ? (
+            <>
+              {!isFuture && (
+                <ActionRow
+                  onClick={() => {
+                    setMoreOpen(false);
+                    setDayPickerIntent({ kind: "carry-missed" });
+                  }}
+                  icon={<CalendarDays className="h-4 w-4" />}
+                  label="Carry unfinished to…"
+                />
+              )}
+              {blocks.length > 0 && (
+                <ActionRow
+                  onClick={() => { setMoreOpen(false); void copyDayOutline(); }}
+                  icon={<Copy className="h-4 w-4" />}
+                  label="Copy plan as text"
+                />
+              )}
+            </>
+          ) : (
+            <>
+              {!isFuture && (
+                <ActionRow
+                  onClick={() => {
+                    setMoreOpen(false);
+                    setDayPickerIntent({ kind: "checklist-carry-ungrouped" });
+                  }}
+                  icon={<CalendarDays className="h-4 w-4" />}
+                  label="Carry unfinished to…"
+                />
+              )}
+              <ActionRow
+                onClick={() => {
+                  setMoreOpen(false);
+                  checklistRef.current?.copyPlanAsText();
+                }}
+                icon={<Copy className="h-4 w-4" />}
+                label="Copy plan as text"
+              />
+            </>
           )}
           {/* Past days are frozen — deleting a finished day's plan is locked. */}
           {!isPast && (
@@ -2808,6 +2855,14 @@ export default function DayView() {
               disabled={planMutating}
               className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
               onClick={async () => {
+                if (planViewMode === "checklist") {
+                  setConfirmDeletePlan(false);
+                  const allItems = checklistRef.current?.getAllItems() || [];
+                  checklistRef.current?.deleteItems(allItems.map(i => i.id));
+                  toast.success("Checklist deleted");
+                  return;
+                }
+                
                 if (!plan) return;
                 if (planMutating) return;
                 setPlanMutating(true);
