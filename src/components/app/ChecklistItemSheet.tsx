@@ -96,7 +96,7 @@ export function ChecklistItemSheet({
     <Sheet open={open} onOpenChange={(v) => !v && onClose()}>
       <SheetContent side="bottom" className="rounded-t-[28px] border-border/45 bg-popover">
         {item && (
-          <div className="space-y-1">
+          <div className="max-h-[75vh] overflow-y-auto overflow-x-hidden no-scrollbar space-y-1 pb-4">
             <SheetHeader className="text-left mb-2">
               <SheetTitle className="text-[16px] leading-snug">{item.title}</SheetTitle>
             </SheetHeader>
