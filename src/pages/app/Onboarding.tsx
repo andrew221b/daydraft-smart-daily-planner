@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState, useRef } from "react";
+import { useEffect, useMemo, useState, useRef, type CSSProperties } from "react";
 import { useNavigate } from "react-router-dom";
 import { Button } from "@/components/ui/button";
 import { DebouncedTextarea } from "@/components/ui/textarea";
@@ -301,10 +301,11 @@ function AppAuraIcon() {
       {sparks.map((s) => (
         <motion.div
           key={s.id}
-          className="absolute top-1/2 left-1/2 rounded-full bg-white z-20 pointer-events-none"
+          className="absolute top-1/2 left-1/2 rounded-full z-20 pointer-events-none"
           style={{
             width: 3, height: 3,
-            boxShadow: "0 0 12px 3px rgba(255,255,255,0.9)",
+            backgroundColor: "#fffce0",
+            boxShadow: "0 0 12px 3px rgba(255,252,224,0.9)",
             marginLeft: -1.5,
             marginTop: -1.5,
           }}
@@ -316,8 +317,8 @@ function AppAuraIcon() {
 
       {/* Central flash when sparks hit the center */}
       <motion.div
-        className="absolute top-1/2 left-1/2 w-[140px] h-[140px] bg-white rounded-full z-30 pointer-events-none"
-        style={{ marginLeft: -70, marginTop: -70, filter: "blur(24px)" }}
+        className="absolute top-1/2 left-1/2 w-[140px] h-[140px] rounded-full z-30 pointer-events-none"
+        style={{ marginLeft: -70, marginTop: -70, filter: "blur(24px)", backgroundColor: "#fffce0" }}
         initial={{ opacity: 0, scale: 0 }}
         animate={{ opacity: [0, 1, 0], scale: [0.5, 2, 2.5] }}
         transition={{ delay: BURST_TIME, duration: 1.2, ease: "easeOut" }}
@@ -409,10 +410,10 @@ function AppAuraIcon() {
         <motion.div
           className="relative z-10 flex items-center justify-center"
           initial={{ color: "hsl(var(--foreground) / 0.5)", filter: "grayscale(100%)" }}
-          animate={{ color: "hsl(var(--primary))", filter: "grayscale(0%)" }}
+          animate={{ color: "#fffce0", filter: "grayscale(0%)" }}
           transition={{ duration: 2.0, delay: BURST_TIME }}
         >
-          <Sparkles className="h-10 w-10 drop-shadow-[0_0_12px_rgba(255,255,255,0.5)]" strokeWidth={1.5} />
+          <Sparkles className="h-10 w-10 drop-shadow-[0_0_12px_rgba(255,252,224,0.5)]" strokeWidth={1.5} />
         </motion.div>
       </motion.div>
     </div>
@@ -625,7 +626,7 @@ function MockBlock({
           ? "ring-[1.5px] ring-primary/40 bg-primary/[0.04] shadow-[0_0_32px_hsl(var(--primary)/0.12)] border-primary/20"
           : "bg-card shadow-[0_8px_30px_rgba(0,0,0,0.12),inset_0_1px_1px_rgba(255,255,255,0.2)] dark:shadow-[0_8px_30px_rgba(0,0,0,0.5),inset_0_1px_1px_rgba(255,255,255,0.05)]"
       ].join(" ")}
-      style={glow ? {} : { borderColor: `hsl(${typeVar} / .3)` } as any}
+      style={glow ? {} : { borderColor: `hsl(${typeVar} / .3)` }}
     >
       {!glow && <div className="absolute inset-0 bg-gradient-to-br from-white/10 to-transparent pointer-events-none" />}
       <div className="flex items-start gap-2 relative z-10">
@@ -727,7 +728,7 @@ function LiveTrackerCard({ baseElapsed, delay = 0.55 }: { baseElapsed: number, d
       // is held back — both re-paint every frame and would jank the entrance.
       // Once settled, swap to the full glass + sweep (cheap when static).
       className={`relative overflow-hidden rounded-[28px] hero-glass border border-[color-mix(in_srgb,var(--hero-accent)_45%,hsl(var(--border)/0.5))] px-5 pt-6 pb-5 shadow-[0_12px_40px_-12px_rgba(0,0,0,0.5)] ${isSettled ? "tracker-hero-clock" : "bd-none"}`}
-      style={{ "--hero-accent": "hsl(var(--type-deep))" } as any}
+      style={{ "--hero-accent": "hsl(var(--type-deep))" } as CSSProperties}
     >
       <div className="relative">
         <motion.div 
