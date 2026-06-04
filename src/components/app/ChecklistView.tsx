@@ -72,7 +72,22 @@ export function ChecklistView({
   } = useChecklist(userId, viewDate, eveningNudgeTime);
 
   const [activeId, setActiveId] = useState<string | null>(null);
-  const [collapsed, setCollapsed] = useState<Set<string>>(new Set());
+  const [collapsed, setCollapsed] = useState<Set<string>>(() => {
+    try {
+      const stored = localStorage.getItem("dd_checklist_collapsed");
+      return stored ? new Set(JSON.parse(stored)) : new Set();
+    } catch {
+      return new Set();
+    }
+  });
+
+  useEffect(() => {
+    try {
+      localStorage.setItem("dd_checklist_collapsed", JSON.stringify(Array.from(collapsed)));
+    } catch {
+      // Ignore storage errors
+    }
+  }, [collapsed]);
   const [sheetItem, setSheetItem] = useState<ChecklistItem | null>(null);
   const [datePickItem, setDatePickItem] = useState<ChecklistItem | null>(null);
   const [groupMenu, setGroupMenu] = useState<Group | null>(null);
