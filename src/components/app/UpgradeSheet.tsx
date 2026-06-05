@@ -1,7 +1,7 @@
 import { useEffect, useState } from "react";
 import { motion } from "framer-motion";
 import { Sheet, SheetContent, SheetTitle } from "@/components/ui/sheet";
-import { Shield, Check, Lock } from "lucide-react";
+import { Shield, Check, Lock, RotateCcw } from "lucide-react";
 import { startCheckout } from "@/hooks/useEntitlement";
 import { toast } from "sonner";
 import { haptics } from "@/lib/haptics";
@@ -86,7 +86,9 @@ export const UpgradeSheet = ({
     <Sheet open={open} onOpenChange={onOpenChange}>
       <SheetContent
         side="bottom"
-        className="rounded-t-[28px] border-border/20 bg-background max-h-[96vh] flex flex-col p-0 overflow-hidden"
+        // 88vh keeps the rounded top well below the Dynamic Island / status bar
+        // on every modern iPhone (96vh was reaching behind the system UI).
+        className="rounded-t-[28px] border-border/20 bg-background max-h-[88vh] flex flex-col p-0 overflow-hidden"
         onOpenAutoFocus={(e) => e.preventDefault()}
       >
         <SheetTitle className="sr-only">Upgrade to Pro</SheetTitle>
@@ -97,40 +99,43 @@ export const UpgradeSheet = ({
         </div>
 
         <motion.div
-          initial={{ opacity: 0, y: 18 }}
+          initial={{ opacity: 0, y: 14 }}
           animate={{ opacity: 1, y: 0 }}
-          transition={{ duration: 0.32, ease: [0.22, 1, 0.36, 1] }}
-          className="flex-1 overflow-y-auto overscroll-contain scrollbar-none"
+          transition={{ duration: 0.28, ease: [0.22, 1, 0.36, 1] }}
+          className="flex-1 overflow-y-auto overscroll-contain"
         >
           {/* ─── Hero ─────────────────────────────────────────────── */}
-          <div className="relative px-6 pt-5 pb-4 text-center flex flex-col items-center">
+          <div className="relative px-6 pt-3 pb-3 text-center flex flex-col items-center">
+            {/* Reduced gradient height so it doesn't visually bleed toward
+                the top of the sheet (was h-40, looked like it overlapped the
+                status bar on small phones). */}
             <div
               aria-hidden
-              className="pointer-events-none absolute inset-x-0 top-0 h-40"
+              className="pointer-events-none absolute inset-x-0 top-0 h-24"
               style={{
-                background: "radial-gradient(60% 100% at 50% 0%, hsl(var(--primary) / 0.10) 0%, transparent 80%)",
+                background: "radial-gradient(60% 100% at 50% 0%, hsl(var(--primary) / 0.09) 0%, transparent 80%)",
               }}
             />
 
-            <div className="inline-flex items-center gap-1.5 rounded-full border border-primary/25 bg-primary/[0.07] px-3 py-1 mb-4 relative z-10">
+            <div className="inline-flex items-center gap-1.5 rounded-full border border-primary/25 bg-primary/[0.07] px-3 py-1 mb-3 relative z-10">
               <Lock className="h-2.5 w-2.5 text-primary" strokeWidth={2.5} />
               <span className="text-[11px] font-semibold tracking-[0.08em] uppercase text-primary">DayDraft Pro</span>
             </div>
 
-            <h2 className="font-semibold text-[22px] leading-[1.2] tracking-tight text-foreground relative z-10 whitespace-nowrap">
+            <h2 className="font-semibold text-[20px] leading-[1.2] tracking-tight text-foreground relative z-10">
               {h}
             </h2>
           </div>
 
           {/* ─── Feature cards ────────────────────────────────────── */}
-          <div className="px-4 flex flex-col gap-2.5 pb-1">
+          <div className="px-4 flex flex-col gap-1.5">
             {PRO_FEATURES.map((feat, i) => (
               <ProFeatureCard key={feat.id} feat={feat} index={i} />
             ))}
           </div>
 
           {/* ─── Plan selector ────────────────────────────────────── */}
-          <div className="px-4 mt-5 flex flex-col gap-2">
+          <div className="px-4 mt-4 flex flex-col gap-1.5">
             {PRO_PLANS.map((p) => (
               <ProPlanRow
                 key={p.id}
@@ -143,45 +148,39 @@ export const UpgradeSheet = ({
           </div>
 
           {/* ─── CTA ──────────────────────────────────────────────── */}
-          <div className="px-4 mt-5">
+          <div className="px-4 mt-4">
             <button
               type="button"
               onClick={checkout}
               disabled={busy}
-              className="pressable w-full h-[56px] rounded-[18px] bg-primary text-primary-foreground text-[15px] font-semibold tracking-wide disabled:opacity-60"
+              className="pressable w-full h-[52px] rounded-[16px] bg-primary text-primary-foreground text-[15px] font-semibold tracking-wide disabled:opacity-60"
             >
               {ctaLabel}
             </button>
 
-            <div className="flex items-center justify-center gap-6 mt-3.5">
+            {/* Trust badges + restore — flex-wrap so the row wraps on
+                iPhone SE (375px) instead of overflowing. gap-3 is tighter
+                than gap-5 to give each label more room. */}
+            <div className="flex items-center justify-center gap-x-3 gap-y-1.5 flex-wrap mt-2.5">
               {[
                 { Icon: Shield, text: "Cancel anytime" },
                 { Icon: Check, text: "Secure payment" },
-              ].map(({ Icon, text }) => (
-                <span key={text} className="flex items-center gap-1 text-[11px] text-secondary-fg/55">
-                  <Icon className="h-3 w-3" strokeWidth={2} />
-                  {text}
-                </span>
+                { Icon: RotateCcw, text: "Restore", action: restore, loading: restoring },
+              ].map(({ Icon, text, action, loading }) => (
+                <button
+                  key={text}
+                  type="button"
+                  onClick={action}
+                  disabled={loading}
+                  className="flex items-center gap-1 text-[11px] text-secondary-fg/55 pressable disabled:opacity-50 transition-colors hover:text-secondary-fg whitespace-nowrap"
+                >
+                  <Icon className="h-3 w-3 shrink-0" strokeWidth={2} />
+                  {loading ? "Restoring…" : text}
+                </button>
               ))}
             </div>
 
-            <button
-              type="button"
-              onClick={restore}
-              disabled={restoring}
-              className="block w-full text-center mt-3.5 text-[12px] text-secondary-fg/60 hover:text-foreground pressable disabled:opacity-50 transition-colors"
-            >
-              {restoring ? "Restoring…" : "Restore purchases"}
-            </button>
-
-            <button
-              onClick={() => onOpenChange(false)}
-              className="block w-full text-center mt-4 text-[14px] text-secondary-fg/50 pressable"
-            >
-              Maybe later
-            </button>
-
-            <div style={{ height: "max(20px, env(safe-area-inset-bottom, 0px))" }} />
+            <div style={{ height: "max(16px, env(safe-area-inset-bottom, 0px))" }} />
           </div>
         </motion.div>
       </SheetContent>

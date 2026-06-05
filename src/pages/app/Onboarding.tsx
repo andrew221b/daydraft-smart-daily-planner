@@ -220,7 +220,7 @@ export default function Onboarding() {
               key={step}
               initial={{ opacity: 0, y: 12 }}
               animate={{ opacity: 1, y: 0 }}
-              exit={{ opacity: 0, y: -12 }}
+              exit={{ opacity: 0 }}
               transition={{ duration: 0.36, ease: [0.22, 1, 0.36, 1] }}
             >
               {step === 0 && (
@@ -1119,8 +1119,8 @@ function PaywallStep({
         <div className="relative pt-2 pb-4 text-center flex flex-col items-center">
           <div
             aria-hidden
-            className="pointer-events-none absolute inset-x-0 top-0 h-36"
-            style={{ background: "radial-gradient(60% 100% at 50% 0%, hsl(var(--primary) / 0.10) 0%, transparent 80%)" }}
+            className="pointer-events-none absolute inset-x-0 top-0 h-24"
+            style={{ background: "radial-gradient(60% 100% at 50% 0%, hsl(var(--primary) / 0.09) 0%, transparent 80%)" }}
           />
           <div className="inline-flex items-center gap-1.5 rounded-full border border-primary/25 bg-primary/[0.07] px-3 py-1 mb-3.5 relative z-10">
             <Lock className="h-2.5 w-2.5 text-primary" strokeWidth={2.5} />
@@ -1132,14 +1132,14 @@ function PaywallStep({
         </div>
 
         {/* Feature cards */}
-        <div className="flex flex-col gap-2.5 w-full">
+        <div className="flex flex-col gap-1.5 w-full">
           {PRO_FEATURES.map((feat) => (
             <ProFeatureCard key={feat.id} feat={feat} animate={false} />
           ))}
         </div>
 
         {/* Plan rows */}
-        <div className="flex flex-col gap-2 w-full mt-5">
+        <div className="flex flex-col gap-1.5 w-full mt-4">
           {PRO_PLANS.map((p) => (
             <ProPlanRow
               key={p.id}
@@ -1152,7 +1152,7 @@ function PaywallStep({
         </div>
 
         {/* CTAs */}
-        <div className="mt-5 flex flex-col gap-2.5">
+        <div className="mt-4 flex flex-col gap-2.5">
           <Button
             onClick={onCheckout}
             disabled={busy}

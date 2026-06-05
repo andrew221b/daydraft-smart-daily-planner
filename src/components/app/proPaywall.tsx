@@ -1,24 +1,16 @@
 /**
  * Shared Pro-paywall building blocks — used by BOTH the in-app UpgradeSheet
  * and the onboarding paywall step so the two never drift apart visually.
- *
- * The illustrations are hand-drawn-feeling line art: rounded caps/joins,
- * organic curves, a faint "object" layer + a brighter accent detail. Each one
- * carries the literal meaning of its feature so the card reads at a glance:
- *   • unlimited       → an ∞ loop with a couple of AI "sparkles"
- *   • drift nudges    → a compass that's being nudged back on course
- *   • pdf reports     → a page with a little bar chart + folded corner
- *   • billing details → two coins, the front one stamped with a $
  */
 import { motion } from "framer-motion";
-import { Zap, Compass, FileDown, Wallet, type LucideIcon } from "lucide-react";
+import { type LucideIcon } from "lucide-react";
 import { type PlanPrice } from "@/lib/revenueCat";
 
 /* ─── Feature data ─────────────────────────────────────────────── */
 export type ProFeature = {
   id: "unlimited" | "drift" | "pdf_export" | "billing_reports";
   Icon: LucideIcon;
-  accent: string; // raw HSL triplet, e.g. "211 95% 60%"
+  accent: string; // raw HSL triplet
   title: string;
   desc: string;
 };
@@ -26,28 +18,28 @@ export type ProFeature = {
 export const PRO_FEATURES: readonly ProFeature[] = [
   {
     id: "unlimited",
-    Icon: Zap,
+    Icon: (() => null) as unknown as LucideIcon,
     accent: "211 95% 60%",
     title: "Unlimited AI planning",
     desc: "Generate full schedules and chat with the AI assistant any day, no caps.",
   },
   {
     id: "drift",
-    Icon: Compass,
+    Icon: (() => null) as unknown as LucideIcon,
     accent: "38 90% 54%",
-    title: "Smart drift nudges",
-    desc: "When your day slips, get a gentle heads-up and one-tap replan options.",
+    title: "No daily planning cap",
+    desc: "Free plan allows 5 planning days. Go Pro and plan every day — no cap, ever.",
   },
   {
     id: "pdf_export",
-    Icon: FileDown,
+    Icon: (() => null) as unknown as LucideIcon,
     accent: "265 80% 62%",
     title: "Professional PDF reports",
     desc: "Export your tracked time as polished, branded PDF reports — ready for clients.",
   },
   {
     id: "billing_reports",
-    Icon: Wallet,
+    Icon: (() => null) as unknown as LucideIcon,
     accent: "155 70% 44%",
     title: "Billing & payment details",
     desc: "Include hourly rates, earned totals, and your payment instructions on every export.",
@@ -70,135 +62,92 @@ export const PRO_PLANS: readonly ProPlan[] = [
   { id: "weekly", label: "Weekly", price: "$3.99", period: "/week" },
 ] as const;
 
-/* ─── Illustrations (hand-drawn line art) ──────────────────────── */
-// A small twinkle/sparkle — a 4-point concave star drawn with quadratics
-// that pull each edge toward the centre. Conveys "AI magic".
-function Sparkle({ cx, cy, r, accent, opacity = 0.85 }: { cx: number; cy: number; r: number; accent: string; opacity?: number }) {
-  return (
-    <path
-      d={`M ${cx} ${cy - r} Q ${cx} ${cy} ${cx + r} ${cy} Q ${cx} ${cy} ${cx} ${cy + r} Q ${cx} ${cy} ${cx - r} ${cy} Q ${cx} ${cy} ${cx} ${cy - r} Z`}
-      fill={`hsl(${accent})`}
-      opacity={opacity}
-    />
-  );
-}
+/* ─── Custom icons ─────────────────────────────────────────────── */
+// Each icon is drawn on a 32×32 grid with 2.5px consistent stroke weight.
+// Design rule: max 4 paths, one clear metaphor, no decorative noise.
 
-function IllustrationInfinity({ accent }: { accent: string }) {
+function IconUnlimited({ accent }: { accent: string }) {
+  // Confident ∞ loop — one closed path, slightly thicker crossing dot.
   return (
-    <svg width="64" height="56" viewBox="0 0 64 56" fill="none" aria-hidden>
-      {/* Soft halo behind for depth */}
-      <path
-        d="M 32 30 C 28 22, 17 22, 17 30 C 17 38, 28 38, 32 30 C 36 22, 47 22, 47 30 C 47 38, 36 38, 32 30 Z"
-        stroke={`hsl(${accent})`} strokeWidth="5" strokeLinecap="round" opacity="0.1"
-      />
+    <svg width="32" height="32" viewBox="0 0 32 32" fill="none" aria-hidden>
       {/* Main loop */}
       <path
-        d="M 32 30 C 28 22, 17 22, 17 30 C 17 38, 28 38, 32 30 C 36 22, 47 22, 47 30 C 47 38, 36 38, 32 30 Z"
-        stroke={`hsl(${accent})`} strokeWidth="2.5" strokeLinecap="round" opacity="0.78"
+        d="M 16 16 C 13 11 7 11 7 16 C 7 21 13 21 16 16 C 19 11 25 11 25 16 C 25 21 19 21 16 16 Z"
+        stroke={`hsl(${accent})`} strokeWidth="2.8" strokeLinecap="round" fill="none"
       />
-      {/* Bright highlight along the top-left arc — catches the eye first */}
-      <path
-        d="M 32 30 C 29 24.5, 21.5 22.5, 18 27"
-        stroke={`hsl(${accent})`} strokeWidth="2.5" strokeLinecap="round" opacity="1"
-      />
-      {/* Subtle crossing dot at the centre */}
-      <circle cx="32" cy="30" r="1.8" fill={`hsl(${accent})`} opacity="0.38" />
-      {/* AI sparkles — top-right, size-varied so they feel placed not generated */}
-      <Sparkle cx={50} cy={14} r={4} accent={accent} opacity={0.9} />
-      <Sparkle cx={43} cy={10} r={2.2} accent={accent} opacity={0.55} />
-      {/* Micro accent, bottom-left void */}
-      <circle cx="16" cy="43" r="1.5" fill={`hsl(${accent})`} opacity="0.28" />
+      {/* Centre accent dot */}
+      <circle cx="16" cy="16" r="1.6" fill={`hsl(${accent})`} opacity="0.5" />
     </svg>
   );
 }
 
-function IllustrationCompass({ accent }: { accent: string }) {
+function IconNoLimit({ accent }: { accent: string }) {
+  // Calendar grid with an open padlock top-right — "plan any day, no cap".
   return (
-    <svg width="64" height="56" viewBox="0 0 64 56" fill="none" aria-hidden>
-      {/* Faint outer bezel */}
-      <circle cx="32" cy="28" r="16.5" stroke={`hsl(${accent})`} strokeWidth="1" opacity="0.18" />
-      {/* Main dial */}
-      <circle cx="32" cy="28" r="14.5" stroke={`hsl(${accent})`} strokeWidth="2.5" opacity="0.4" />
-      {/* Cardinal ticks — longer at N/S/E/W */}
-      <g stroke={`hsl(${accent})`} strokeLinecap="round" opacity="0.5">
-        <line x1="32" y1="14.5" x2="32" y2="18" strokeWidth="2.2" />
-        <line x1="45.5" y1="28" x2="42" y2="28" strokeWidth="2.2" />
-        <line x1="32" y1="41.5" x2="32" y2="38" strokeWidth="2.2" />
-        <line x1="18.5" y1="28" x2="22" y2="28" strokeWidth="2.2" />
+    <svg width="32" height="32" viewBox="0 0 32 32" fill="none" aria-hidden>
+      {/* Calendar body */}
+      <rect x="4" y="10" width="18" height="16" rx="2.5" stroke={`hsl(${accent})`} strokeWidth="2.2" opacity="0.45" />
+      {/* Calendar top tabs */}
+      <line x1="9" y1="7" x2="9" y2="12" stroke={`hsl(${accent})`} strokeWidth="2.2" strokeLinecap="round" />
+      <line x1="17" y1="7" x2="17" y2="12" stroke={`hsl(${accent})`} strokeWidth="2.2" strokeLinecap="round" />
+      {/* Header divider */}
+      <line x1="4" y1="15" x2="22" y2="15" stroke={`hsl(${accent})`} strokeWidth="1.5" opacity="0.4" />
+      {/* Day dots — a mini grid */}
+      <g fill={`hsl(${accent})`} opacity="0.7">
+        <circle cx="9" cy="19.5" r="1.3" />
+        <circle cx="13" cy="19.5" r="1.3" />
+        <circle cx="17" cy="19.5" r="1.3" />
+        <circle cx="9" cy="23.5" r="1.3" />
+        <circle cx="13" cy="23.5" r="1.3" />
       </g>
-      {/* Intercardinal ticks — short, quiet */}
-      <g stroke={`hsl(${accent})`} strokeWidth="1.5" strokeLinecap="round" opacity="0.22">
-        <line x1="42.2" y1="17.8" x2="40.7" y2="19.3" />
-        <line x1="42.2" y1="38.2" x2="40.7" y2="36.7" />
-        <line x1="21.8" y1="17.8" x2="23.3" y2="19.3" />
-        <line x1="21.8" y1="38.2" x2="23.3" y2="36.7" />
-      </g>
-      {/* Needle pointing NNE — "drifted" off true north, awaiting a nudge back */}
-      {/* North blade: tip (37, 18), pivot (32, 28) — classic filled diamond half */}
-      <path d="M 37 18 L 30 26.5 L 32.5 28.5 Z" fill={`hsl(${accent})`} opacity="0.9" />
-      {/* South blade: opposite end, faded */}
-      <path d="M 27 38 L 34 29.5 L 31.5 27.5 Z" fill={`hsl(${accent})`} opacity="0.28" />
-      {/* Pivot ring */}
-      <circle cx="32" cy="28" r="2.5" fill={`hsl(${accent})`} />
-      <circle cx="32" cy="28" r="1.1" fill="hsl(0 0% 100% / 0.55)" />
+      {/* Open padlock top-right — shackle open (rotated) */}
+      <rect x="22" y="18" width="7" height="6" rx="1.5" stroke={`hsl(${accent})`} strokeWidth="1.8" />
+      <path d="M 23.5 18 L 23.5 15.5 C 23.5 13.8 28.5 13.8 28.5 15.5" stroke={`hsl(${accent})`} strokeWidth="1.8" strokeLinecap="round" fill="none" />
     </svg>
   );
 }
 
-function IllustrationReport({ accent }: { accent: string }) {
+function IconReport({ accent }: { accent: string }) {
+  // Three ascending bars — the simplest "progress over time" glyph.
   return (
-    <svg width="64" height="56" viewBox="0 0 64 56" fill="none" aria-hidden>
-      {/* Page body */}
-      <path
-        d="M 20 9 L 35 9 L 43 17 L 43 47 L 20 47 Z"
-        stroke={`hsl(${accent})`} strokeWidth="2.5" strokeLinejoin="round" opacity="0.4"
-      />
-      {/* Fold corner */}
-      <path d="M 35 9 L 35 17 L 43 17" stroke={`hsl(${accent})`} strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round" opacity="0.4" />
-      {/* "Text" lines — three lines, varied width, feel like real content */}
-      <line x1="25" y1="21" x2="33" y2="21" stroke={`hsl(${accent})`} strokeWidth="2" strokeLinecap="round" opacity="0.55" />
-      <line x1="25" y1="26" x2="38" y2="26" stroke={`hsl(${accent})`} strokeWidth="2" strokeLinecap="round" opacity="0.42" />
-      <line x1="25" y1="31" x2="30" y2="31" stroke={`hsl(${accent})`} strokeWidth="2" strokeLinecap="round" opacity="0.3" />
-      {/* Chart baseline */}
-      <line x1="24" y1="44" x2="40" y2="44" stroke={`hsl(${accent})`} strokeWidth="1.5" strokeLinecap="round" opacity="0.32" />
-      {/* Bars — 4 bars, ascending, heights feel like real data not generated */}
-      <g stroke={`hsl(${accent})`} strokeWidth="3" strokeLinecap="round" opacity="0.88">
-        <line x1="26.5" y1="44" x2="26.5" y2="41" />
-        <line x1="30.5" y1="44" x2="30.5" y2="37" />
-        <line x1="34.5" y1="44" x2="34.5" y2="39.5" />
-        <line x1="38.5" y1="44" x2="38.5" y2="34" />
-      </g>
+    <svg width="32" height="32" viewBox="0 0 32 32" fill="none" aria-hidden>
+      {/* Baseline */}
+      <line x1="7" y1="24.5" x2="25" y2="24.5" stroke={`hsl(${accent})`} strokeWidth="2" strokeLinecap="round" opacity="0.3" />
+      {/* Bar 1 — shortest */}
+      <line x1="11" y1="24.5" x2="11" y2="19" stroke={`hsl(${accent})`} strokeWidth="3.2" strokeLinecap="round" opacity="0.45" />
+      {/* Bar 2 — mid */}
+      <line x1="16" y1="24.5" x2="16" y2="14" stroke={`hsl(${accent})`} strokeWidth="3.2" strokeLinecap="round" opacity="0.7" />
+      {/* Bar 3 — tallest, accent */}
+      <line x1="21" y1="24.5" x2="21" y2="8" stroke={`hsl(${accent})`} strokeWidth="3.2" strokeLinecap="round" />
     </svg>
   );
 }
 
-function IllustrationCoins({ accent }: { accent: string }) {
+function IconBilling({ accent }: { accent: string }) {
+  // Clean banknote shape — two rounded corners cut like a bill, $ centre.
   return (
-    <svg width="64" height="56" viewBox="0 0 64 56" fill="none" aria-hidden>
-      {/* Back coin — outer edge */}
-      <circle cx="40" cy="21" r="11" stroke={`hsl(${accent})`} strokeWidth="2.5" opacity="0.35" />
-      {/* Back coin — inner rim for 3-D depth */}
-      <circle cx="40" cy="21" r="8.5" stroke={`hsl(${accent})`} strokeWidth="1" opacity="0.18" />
-      {/* Front coin — outer edge */}
-      <circle cx="26" cy="33" r="12.5" stroke={`hsl(${accent})`} strokeWidth="2.5" opacity="0.72" />
-      {/* Front coin — inner rim */}
-      <circle cx="26" cy="33" r="9.8" stroke={`hsl(${accent})`} strokeWidth="1" opacity="0.3" />
-      {/* $ vertical stem */}
-      <line x1="26" y1="23.5" x2="26" y2="42.5" stroke={`hsl(${accent})`} strokeWidth="2" strokeLinecap="round" opacity="0.88" />
-      {/* $ S-curve — two half-loops centred on the coin */}
+    <svg width="32" height="32" viewBox="0 0 32 32" fill="none" aria-hidden>
+      {/* Banknote outline */}
+      <rect x="4" y="10" width="24" height="13" rx="3" stroke={`hsl(${accent})`} strokeWidth="2.2" opacity="0.4" />
+      {/* Corner accent circles (classic banknote detail) */}
+      <circle cx="8.5" cy="16.5" r="2.5" stroke={`hsl(${accent})`} strokeWidth="1.5" opacity="0.3" />
+      <circle cx="23.5" cy="16.5" r="2.5" stroke={`hsl(${accent})`} strokeWidth="1.5" opacity="0.3" />
+      {/* $ vertical bar */}
+      <line x1="16" y1="12.5" x2="16" y2="20.5" stroke={`hsl(${accent})`} strokeWidth="1.8" strokeLinecap="round" />
+      {/* $ S-curve — two arcs, clean */}
       <path
-        d="M 30 27 C 30 24.5, 22 24.5, 22 28.5 C 22 32.5, 30 32.5, 30 36.5 C 30 40, 22 40, 22 37.5"
-        stroke={`hsl(${accent})`} strokeWidth="2" strokeLinecap="round" opacity="0.88"
+        d="M 18 14 C 18 12.8 14 12.8 14 15 C 14 17.2 18 17.2 18 19.2 C 18 21 14 21 14 19.5"
+        stroke={`hsl(${accent})`} strokeWidth="1.8" strokeLinecap="round" fill="none"
       />
     </svg>
   );
 }
 
-const ILLUSTRATIONS: Record<ProFeature["id"], (p: { accent: string }) => JSX.Element> = {
-  unlimited: IllustrationInfinity,
-  drift: IllustrationCompass,
-  pdf_export: IllustrationReport,
-  billing_reports: IllustrationCoins,
+const ICONS: Record<ProFeature["id"], (p: { accent: string }) => JSX.Element> = {
+  unlimited: IconUnlimited,
+  drift: IconNoLimit,
+  pdf_export: IconReport,
+  billing_reports: IconBilling,
 };
 
 /* ─── Feature card ─────────────────────────────────────────────── */
@@ -209,44 +158,42 @@ export function ProFeatureCard({
 }: {
   feat: ProFeature;
   index?: number;
-  /** When false the card is static (no mount entrance) — used when a parent
-   *  already plays one cohesive reveal for the whole panel. */
   animate?: boolean;
 }) {
-  const { Icon, accent, title, desc, id } = feat;
-  const Illustration = ILLUSTRATIONS[id];
+  const { accent, title, desc, id } = feat;
+  const IconGlyph = ICONS[id];
 
   const inner = (
-    <>
-      <div className="pl-4 py-3.5 flex items-start gap-3 flex-1 min-w-0">
-        <span
-          className="flex h-8 w-8 shrink-0 items-center justify-center rounded-[9px] mt-0.5"
-          style={{ background: `hsl(${accent} / 0.13)`, color: `hsl(${accent})` }}
-        >
-          <Icon className="h-4 w-4" strokeWidth={2.2} />
-        </span>
-        <div className="min-w-0">
-          <p className="text-[14px] font-semibold text-foreground leading-snug">{title}</p>
-          <p className="text-[12px] text-secondary-fg/75 mt-0.5 leading-snug">{desc}</p>
-        </div>
+    <div className="px-3.5 py-3 flex items-center gap-3">
+      {/* Icon box — tinted background, custom glyph */}
+      <span
+        className="flex h-10 w-10 shrink-0 items-center justify-center rounded-[11px]"
+        style={{ background: `hsl(${accent} / 0.18)` }}
+      >
+        <IconGlyph accent={accent} />
+      </span>
+      <div className="min-w-0 flex-1">
+        <p className="text-[13.5px] font-semibold text-foreground leading-snug">{title}</p>
+        <p className="text-[11.5px] text-secondary-fg/70 mt-0.5 leading-snug">{desc}</p>
       </div>
-      <div className="w-[72px] self-stretch flex items-center justify-center flex-shrink-0 overflow-hidden opacity-80">
-        <Illustration accent={accent} />
-      </div>
-    </>
+    </div>
   );
 
-  const className =
-    "flex items-center rounded-[18px] border border-border/30 bg-card/50 backdrop-blur-sm overflow-hidden";
+  const cardStyle = {
+    background: `linear-gradient(135deg, hsl(${accent} / 0.10) 0%, hsl(var(--card) / 0.72) 55%)`,
+    borderColor: `hsl(${accent} / 0.30)`,
+  };
+  const className = "rounded-[16px] border backdrop-blur-sm overflow-hidden";
 
-  if (!animate) return <div className={className}>{inner}</div>;
+  if (!animate) return <div className={className} style={cardStyle}>{inner}</div>;
 
   return (
     <motion.div
-      initial={{ opacity: 0, y: 10 }}
+      initial={{ opacity: 0, y: 8 }}
       animate={{ opacity: 1, y: 0 }}
-      transition={{ duration: 0.28, ease: "easeOut", delay: index * 0.04 }}
+      transition={{ duration: 0.24, ease: "easeOut", delay: index * 0.04 }}
       className={className}
+      style={cardStyle}
     >
       {inner}
     </motion.div>
@@ -254,7 +201,6 @@ export function ProFeatureCard({
 }
 
 /* ─── Plan row ─────────────────────────────────────────────────── */
-/** Format an amount in the store's currency (e.g. "€5.00", "₴199"). */
 function fmtPlanMoney(amount: number, currency: string): string {
   try {
     return new Intl.NumberFormat(undefined, {
@@ -277,8 +223,6 @@ export function ProPlanRow({
   plan: ProPlan;
   active: boolean;
   onClick: () => void;
-  /** Localized store price for this plan (from RevenueCat). When present it
-   *  overrides the hardcoded label so non-US users see their own currency. */
   priceInfo?: PlanPrice;
 }) {
   const isAnnual = plan.id === "annual";
@@ -287,7 +231,7 @@ export function ProPlanRow({
     <button
       type="button"
       onClick={onClick}
-      className={`relative w-full text-left rounded-[16px] px-4 py-3.5 pressable transition-all duration-200 border ${
+      className={`relative w-full text-left rounded-[14px] px-4 py-3 pressable transition-all duration-200 border ${
         active ? "ring-2 ring-primary/60 bg-primary/[0.08] border-primary/20" : "bg-card/40 border-border/30"
       }`}
     >
@@ -297,33 +241,33 @@ export function ProPlanRow({
             active ? "border-primary" : "border-border/60"
           }`}
         >
-          <span 
+          <span
             className={`h-2.5 w-2.5 rounded-full bg-primary transition-all duration-300 ease-out origin-center ${
               active ? "scale-100 opacity-100" : "scale-0 opacity-0"
-            }`} 
+            }`}
           />
         </span>
 
         <div className="flex items-center gap-2 flex-1 min-w-0">
-          <span className="text-[14px] font-semibold text-foreground">{plan.label}</span>
+          <span className="text-[13.5px] font-semibold text-foreground">{plan.label}</span>
           {isAnnual && <span className="text-[11px] font-semibold text-amber-500">Save 50%</span>}
         </div>
 
         <div className="text-right shrink-0">
           {isAnnual ? (
             <>
-              <p className="text-[14px] font-semibold text-foreground tabular-nums">
+              <p className="text-[13.5px] font-semibold text-foreground tabular-nums">
                 {priceInfo ? fmtPlanMoney(priceInfo.price / 12, priceInfo.currencyCode) : "$4.99"}
-                <span className="text-[12px] font-normal text-secondary-fg">/mo</span>
+                <span className="text-[11.5px] font-normal text-secondary-fg">/mo</span>
               </p>
               <p className="text-[11px] text-secondary-fg/60 tabular-nums">
                 billed {priceInfo ? priceInfo.priceString : "$59.99"}/yr
               </p>
             </>
           ) : (
-            <p className="text-[14px] font-semibold text-foreground tabular-nums">
+            <p className="text-[13.5px] font-semibold text-foreground tabular-nums">
               {priceInfo ? priceInfo.priceString : plan.price}
-              <span className="text-[12px] font-normal text-secondary-fg">{plan.period}</span>
+              <span className="text-[11.5px] font-normal text-secondary-fg">{plan.period}</span>
             </p>
           )}
         </div>

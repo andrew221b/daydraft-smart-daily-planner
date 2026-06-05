@@ -74,14 +74,27 @@ private struct TrackerCard: View {
     let currency: String
 
     var body: some View {
-        LiveActivityCard(
-            title: categoryName,
-            titleTint: accent,
-            start: start,
-            timerTint: accent,
-            heroFont: 30,
-            spacing: 6
-        ) {
+        // Side-by-side layout: category NAME LEFT, live TIMER RIGHT — one row
+        // instead of two stacked rows — frees ~20pt so the Stop button never clips.
+        VStack(alignment: .leading, spacing: 5) {
+            // ── Row 1: category (left) · live timer (right, large) ──
+            HStack(alignment: .firstTextBaseline, spacing: 8) {
+                Text(categoryName.uppercased())
+                    .font(.system(size: 13, weight: .heavy, design: .rounded))
+                    .tracking(0.7)
+                    .foregroundStyle(accent)
+                    .lineLimit(1)
+                    .minimumScaleFactor(0.6)
+                Spacer(minLength: 4)
+                Text(start, style: .timer)
+                    .font(.system(size: 30, weight: .heavy, design: .rounded))
+                    .monospacedDigit()
+                    .foregroundStyle(accent)
+                    .shadow(color: accent.opacity(0.4), radius: 6, y: 1)
+                    .lineLimit(1)
+            }
+
+            // ── Row 2: billable rate or "STARTED AT" ──
             if hasRate {
                 Text("BILLABLE: \(ddRate(rate, currency))")
                     .font(.system(size: 12, weight: .bold, design: .rounded))
@@ -94,11 +107,13 @@ private struct TrackerCard: View {
                     .foregroundStyle(DD.faint)
                     .lineLimit(1)
             }
-        } action: {
+
+            // ── Row 3: full-width Stop button ──
             Link(destination: stopURL) {
                 LiveActionLabel(title: "Stop & Save", icon: "stop.fill", fill: DD.red)
             }
         }
+        .frame(maxWidth: .infinity)
     }
 }
 

@@ -38,7 +38,7 @@ export default function Privacy() {
       <p>We will notify you via email and an in-app banner before any material change.</p>
 
       <h2>8. Contact</h2>
-      <p>Questions or requests: <a href="mailto:privacy@daydraft.app">privacy@daydraft.app</a></p>
+      <p>Questions or requests: <a href="mailto:shapeinc25@gmail.com">shapeinc25@gmail.com</a></p>
     </LegalLayout>
   );
 }

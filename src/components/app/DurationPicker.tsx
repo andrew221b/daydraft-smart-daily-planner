@@ -42,7 +42,9 @@ export function DurationPicker({ open, onClose, value, onChange, title = "Durati
   };
 
   const commit = (mins: number) => {
-    const clamped = Math.max(5, Math.min(480, mins));
+    // Floor at 1 minute (was 5) — short tasks like a 1-min reminder are valid.
+    // 0 stays reserved for frameless/untimed tasks, handled by the caller.
+    const clamped = Math.max(1, Math.min(480, mins));
     onChange(clamped);
     haptics.notify("success");
     onClose();

@@ -14,7 +14,7 @@ import {
   Block, type BlockType, type BlockKind, fmtTime, todayDateStr, parseDateStr, friendlyDateFor, isFutureDateStr, isUserTask, isOpenUserTask, isUserTaskDone, inferScheduleBlockType, packLinearSchedule,
   blockSlotEndHHMM, timeToMinutes, minutesToHHMM, planBlockInstants, wallMsOnPlanDay, shiftDate, normalizeSchedule,
 } from "@/lib/daydraft";
-import { ChevronLeft, ChevronRight, Play, CalendarDays, Trash2, Bell, BellOff, MoreHorizontal, Clock, Timer, Copy, Sparkles, ListPlus, Wand2, ArrowRightCircle, Loader2, X, ListChecks } from "lucide-react";
+import { ChevronLeft, ChevronRight, Play, CalendarDays, Trash2, Bell, BellOff, MoreHorizontal, Clock, Timer, Copy, Sparkles, ListPlus, Wand2, ArrowRightCircle, Loader2, X, ListChecks, CheckSquare } from "lucide-react";
 import { DayPickerSheet } from "@/components/app/DayPickerSheet";
 import { UncompleteTaskSheet } from "@/components/app/UncompleteTaskSheet";
 import { ChecklistView, type ChecklistApi } from "@/components/app/ChecklistView";
@@ -303,15 +303,24 @@ export default function DayView() {
   // fully isolated). Always defaults to Timeline on mount so the app never
   // opens into the checklist and leaves the user wondering where their plan is.
   const [planViewMode, setPlanViewMode] = useState<"timeline" | "checklist">("timeline");
-  // Bumped by ChecklistView after any change so the switcher badge re-peeks.
+  // Entrance stagger should play ONCE (first time the plan paints with blocks),
+  // not on every date switch. Re-keyed rows on a day change would otherwise
+  // replay the fade-up — read as a "jerk" where the previous day's rows visibly
+  // re-animate. After the first paint we drop the class so day switches are
+  // instant/smooth. Reset only when the tab is left and re-entered cold.
+  const [introPlayed, setIntroPlayed] = useState(false);
+  // Bumped by ChecklistView after any change so dependent reads re-fire.
   // Stable identity (useCallback) is essential — an inline arrow would change
   // every render and, sitting in ChecklistView's effect deps, spin a loop.
   const [checklistTick, setChecklistTick] = useState(0);
   const handleChecklistChange = useCallback(() => setChecklistTick((t) => t + 1), []);
-  const checklistOpenCount = useMemo(
-    () => peekChecklistCounts(user?.id, viewDate).open,
-    [user?.id, viewDate, checklistTick, planViewMode],
-  );
+  // Read directly on every render — peekChecklistCounts is a cheap synchronous
+  // localStorage read; useMemo was stale-caching it and missing updates.
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  const checklistCounts = peekChecklistCounts(user?.id, viewDate);
+  // Force re-read when checklistTick or planViewMode change (React re-renders,
+  // the line above re-executes).
+  void checklistTick; void planViewMode;
   const [replanning, setReplanning] = useState(false);
   const [activeDragId, setActiveDragId] = useState<string | null>(null);
   const [composerOpen, setComposerOpen] = useState(false);
@@ -400,6 +409,7 @@ export default function DayView() {
 
   useEffect(() => {
     if (searchParams.get("composer") === "1") setComposerOpen(true);
+    if (searchParams.get("mode") === "checklist") setPlanViewMode("checklist");
   }, [searchParams]);
 
   const tomorrowDate = shiftDate(viewDate, 1);
@@ -449,6 +459,14 @@ export default function DayView() {
     // is fire-and-forget + idempotent, so re-running only on these is correct.
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [viewDate, isPlaceholderData, dayData?.plan?.id, dayData?.blocks]);
+
+  // Play the entrance stagger only on the FIRST paint that has rows, then turn
+  // it off so day switches don't replay it (the source of the date-change jerk).
+  useEffect(() => {
+    if (introPlayed || blocks.length === 0) return;
+    const t = setTimeout(() => setIntroPlayed(true), 520); // after the stagger finishes
+    return () => clearTimeout(t);
+  }, [introPlayed, blocks.length]);
 
   const openReminders = (id: string) => {
     setReminderCfg(getReminderConfig(id));
@@ -1148,7 +1166,7 @@ export default function DayView() {
       );
       const lastExistingBlock = packableBlocks.length > 0 ? packableBlocks[packableBlocks.length - 1] : null;
       const lastExistingEndMin = lastExistingBlock
-        ? timeToMinutes(lastExistingBlock.start_time) + Math.max(5, Number(lastExistingBlock.duration_min || 30))
+        ? timeToMinutes(lastExistingBlock.start_time) + Math.max(1, Number(lastExistingBlock.duration_min || 30))
         : null;
       let wallCursorMin = lastExistingEndMin ?? timeToMinutes(startHHMM);
       // For today's plan, never place new tasks before the current moment.
@@ -1162,8 +1180,8 @@ export default function DayView() {
 
       for (const task of clean) {
         // No 30-min placeholder: a task the user left frameless stays at 0
-        // (a point in the day, no timer span). Real durations floor to 5.
-        const duration = task.duration && task.duration > 0 ? Math.max(5, task.duration) : 0;
+        // (a point in the day, no timer span). Real durations floor to 1.
+        const duration = task.duration && task.duration > 0 ? Math.max(1, task.duration) : 0;
         const finalKind = (task.kind || "task") as BlockKind;
 
         if (task.start_time) {
@@ -2142,7 +2160,7 @@ export default function DayView() {
           >
             <ChevronRight className="h-5 w-5" />
           </button>
-          {!planMissing && (
+          {((planViewMode === "timeline" && !planMissing) || (planViewMode === "checklist" && (checklistCounts.total > 0 || checklistCounts.groups > 0))) && (
             <button
               onClick={() => setMoreOpen(true)}
               className="h-10 w-10 shrink-0 rounded-full flex items-center justify-center text-secondary-fg/90 pressable"
@@ -2154,7 +2172,7 @@ export default function DayView() {
         </div>
 
         {/* Plan mode switcher — Timeline | Checklist (always visible in both) */}
-        <PlanModePill mode={planViewMode} onChange={setPlanViewMode} openCount={checklistOpenCount} />
+        <PlanModePill mode={planViewMode} onChange={setPlanViewMode} openCount={checklistCounts.open} />
 
         {planViewMode === "checklist" ? (
           <div className="checklist-theme">
@@ -2183,9 +2201,20 @@ export default function DayView() {
                       {Math.round((doneTasks / totalTasks) * 100)}%
                     </span>
                   )}
-                  <span className="text-[11px] text-secondary-fg/55 tabular-nums">
-                    {Math.round(userTasks.reduce((s, b) => s + b.duration_min, 0) / 6) / 10}h
-                  </span>
+                  {(() => {
+                    // Sum actual_minutes for completed tasks, planned duration_min for
+                    // the rest (so the total reflects real time spent, not planned).
+                    const totalMin = userTasks.reduce((s, b) => {
+                      const min = (b.completed || b.resolution === "done") && typeof b.actual_minutes === "number" && b.actual_minutes > 0
+                        ? b.actual_minutes
+                        : b.duration_min;
+                      return s + min;
+                    }, 0);
+                    const h = Math.floor(totalMin / 60);
+                    const m = totalMin % 60;
+                    const label = h > 0 ? (m > 0 ? `${h}h ${m}m` : `${h}h`) : `${m}m`;
+                    return <span className="text-[11px] text-secondary-fg/55 tabular-nums">{label}</span>;
+                  })()}
                 </div>
               </div>
               <div className="h-2 rounded-full bg-muted/45 overflow-hidden">
@@ -2298,7 +2327,7 @@ export default function DayView() {
                 onDragEnd={onDragEnd}
               >
                 <SortableContext items={blockIds} strategy={verticalListSortingStrategy}>
-                  <div className="touch-pan-y space-y-2.5 mt-4 enter-stagger">
+                  <div className={`touch-pan-y space-y-2.5 mt-4 ${introPlayed ? "" : "enter-stagger"}`}>
                     {blocks.map((b) => {
                       // Working set is break-free (filtered on load), so every row
                       // is a real card. Lunch renders as a normal rest card.
@@ -2312,7 +2341,13 @@ export default function DayView() {
                       // replaces this hint with the Missed badge.
                       const nowMin = now.getHours() * 60 + now.getMinutes();
                       const isTrackingThis = !!tracker.active && tracker.active.block_id === b.id;
-                      const lateMin = isToday && isUserTask(b) && isOpenUserTask(b) && !b.is_calendar_event && !isTrackingThis && timeToMinutes(b.start_time) < nowMin
+                      // For timed tasks: only "late" while still inside the window.
+                      // Once nowMin >= blockEndMin the task should be (or soon will
+                      // be) auto-missed — don't keep labelling it "late" forever.
+                      // Frameless tasks (durMin = 0) use Infinity so they always show.
+                      const bDurMin = Number(b.duration_min) || 0;
+                      const blockEndMin = bDurMin > 0 ? timeToMinutes(b.start_time) + bDurMin : Infinity;
+                      const lateMin = isToday && isUserTask(b) && isOpenUserTask(b) && !b.is_calendar_event && !isTrackingThis && timeToMinutes(b.start_time) < nowMin && nowMin < blockEndMin
                         ? nowMin - timeToMinutes(b.start_time)
                         : undefined;
 
@@ -2366,9 +2401,9 @@ export default function DayView() {
                 <button
                   onClick={() => setComposerOpen(true)}
                   disabled={planMutating}
-                  className="inline-flex items-center justify-center gap-1.5 text-[12.5px] font-semibold text-foreground/85 border border-soft bg-card rounded-2xl h-11 hover:bg-muted/40 pressable transition-colors shadow-card"
+                  className="btn-volumetric pressable inline-flex items-center justify-center gap-1.5 text-[12.5px] font-semibold text-primary-foreground rounded-2xl h-11"
                 >
-                  <ListPlus className="h-3.5 w-3.5 opacity-80" /> Add tasks
+                  <ListPlus className="h-3.5 w-3.5" /> Add tasks
                 </button>
                 <button
                   onClick={() => {
@@ -2478,6 +2513,16 @@ export default function DayView() {
             </>
           ) : (
             <>
+              {checklistCounts.total > 0 && (
+                <ActionRow
+                  onClick={() => {
+                    setMoreOpen(false);
+                    checklistRef.current?.enterSelectMode();
+                  }}
+                  icon={<CheckSquare className="h-4 w-4" />}
+                  label="Select items"
+                />
+              )}
               {!isFuture && (
                 <ActionRow
                   onClick={() => {
@@ -2503,7 +2548,7 @@ export default function DayView() {
             <ActionRow
               onClick={() => { setMoreOpen(false); setConfirmDeletePlan(true); }}
               icon={<Trash2 className="h-4 w-4" />}
-              label="Delete plan"
+              label={planViewMode === "checklist" ? "Delete checklist" : "Delete plan"}
               destructive
             />
           )}
@@ -2699,7 +2744,7 @@ export default function DayView() {
                             }
                           }}
                           onDebouncedChange={(val) => { setBulkRows((rs) => rs.map((r, idx) => idx === i ? { ...r, title: val } : r)); setPreFetchedQuestions(null); }}
-                          className="flex-1 h-8 px-0 bg-transparent border-0 text-[15px] font-semibold text-foreground focus-visible:ring-0 shadow-none placeholder:text-secondary-fg/50"
+                          className="flex-1 h-9 px-3 rounded-xl border border-border/45 bg-foreground/[0.04] text-[15px] font-semibold text-foreground focus-visible:ring-0 focus-visible:border-primary/55 focus-visible:bg-primary/[0.05] shadow-none placeholder:text-secondary-fg/45 transition-colors duration-150"
                         />
                         <button type="button" onClick={() => { setBulkRows((rs) => rs.filter((_, idx) => idx !== i)); setPreFetchedQuestions(null); }}
                           className="h-8 w-8 grid place-items-center rounded-full text-secondary-fg/50 hover:text-destructive hover:bg-destructive/10 pressable transition-colors shrink-0" aria-label="Remove"
@@ -2844,9 +2889,13 @@ export default function DayView() {
       <AlertDialog open={confirmDeletePlan} onOpenChange={setConfirmDeletePlan}>
         <AlertDialogContent>
           <AlertDialogHeader>
-            <AlertDialogTitle>Delete entire plan?</AlertDialogTitle>
+            <AlertDialogTitle>
+              {planViewMode === "checklist" ? "Delete checklist?" : "Delete entire plan?"}
+            </AlertDialogTitle>
             <AlertDialogDescription>
-              The plan for {friendlyDateFor(parseDateStr(viewDate))} and all its blocks will be removed.
+              {planViewMode === "checklist"
+                ? `Every checklist item for ${friendlyDateFor(parseDateStr(viewDate))} will be removed.`
+                : `The plan for ${friendlyDateFor(parseDateStr(viewDate))} and all its blocks will be removed.`}
             </AlertDialogDescription>
           </AlertDialogHeader>
           <AlertDialogFooter>
@@ -2857,8 +2906,10 @@ export default function DayView() {
               onClick={async () => {
                 if (planViewMode === "checklist") {
                   setConfirmDeletePlan(false);
-                  const allItems = checklistRef.current?.getAllItems() || [];
-                  checklistRef.current?.deleteItems(allItems.map(i => i.id));
+                  // Wipe EVERYTHING for the day — items + categories — not just
+                  // items (empty categories used to linger). Checklist-only;
+                  // never touches the timeline.
+                  checklistRef.current?.deleteAllForDay();
                   toast.success("Checklist deleted");
                   return;
                 }
@@ -3207,15 +3258,29 @@ export default function DayView() {
       <Sheet open={!!trackPickerBlock} onOpenChange={(v) => { if (!v) { setTrackPickerBlock(null); setNewCatName(""); } }}>
         <SheetContent
           side="bottom"
-          className="rounded-t-[28px] border-border/45 bg-popover max-h-[85vh] flex flex-col"
+          // p-0 overrides the SheetContent default p-6 — without it the sheet
+          // has 24px padding AND the sticky header adds its own px-6 pt-5,
+          // producing ~44px of double top-padding.
+          className="rounded-t-[28px] border-border/45 bg-popover max-h-[85vh] flex flex-col p-0"
           style={{ paddingBottom: "var(--keyboard-inset, 0px)" }}
+          hideClose
         >
-          <div className="flex-1 overflow-y-auto p-6">
-          <SheetHeader className="text-left">
+          {/* Sticky header keeps the title + close always visible even when
+              there are many categories and the user has scrolled down. */}
+          <div className="shrink-0 sticky top-0 z-10 bg-popover px-5 pt-4 pb-3 flex items-center justify-between gap-2 border-b border-border/30">
             <SheetTitle className="flex items-center gap-2 text-[16px]">
               <Play className="h-4 w-4 text-primary" fill="currentColor" /> Tracker category
             </SheetTitle>
-          </SheetHeader>
+            <button
+              type="button"
+              onClick={() => { setTrackPickerBlock(null); setNewCatName(""); }}
+              className="shrink-0 h-8 w-8 rounded-full flex items-center justify-center text-secondary-fg/60 hover:text-foreground hover:bg-foreground/[0.06] pressable transition-colors"
+              aria-label="Close"
+            >
+              <X className="h-4 w-4" />
+            </button>
+          </div>
+          <div className="flex-1 overflow-y-auto px-6 py-4">
           {trackPickerBlock && (
             <div className="mt-4 space-y-4">
               <div>

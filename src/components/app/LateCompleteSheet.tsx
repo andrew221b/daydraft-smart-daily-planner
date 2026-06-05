@@ -153,7 +153,7 @@ export function LateCompleteSheet({
             initial={{ opacity: 0, y: 6 }}
             animate={{ opacity: 1, y: 0 }}
             transition={{ delay: 0.18, type: "spring", bounce: 0.12, duration: 0.5 }}
-            className="w-full mb-6 rounded-2xl border px-4 py-3 flex items-center gap-3 text-left"
+            className="w-full mb-6 rounded-2xl border px-4 py-4 flex items-center gap-3 text-left"
             style={{
               borderColor: "hsl(var(--border) / 0.45)",
               background:

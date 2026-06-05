@@ -21,6 +21,10 @@ struct FocusActivityAttributes: ActivityAttributes {
         var categoryName: String?
         /// Hex colour of the tracked category, e.g. "#6366f1".
         var categoryColorHex: String?
+        /// True once the planned duration has been exceeded. The widget flips
+        /// its tint from blue → red when this is set. Defaults to false so
+        /// older encoded states decode correctly without migration.
+        var isOverrun: Bool = false
     }
 
     /// Title of the task being focused (fixed for the life of the activity).

@@ -1,4 +1,5 @@
 import { Suspense, useEffect, useRef, type ReactNode } from "react";
+import { createPortal } from "react-dom";
 import { Capacitor } from "@capacitor/core";
 import { keepPreviousData, QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { BrowserRouter, Navigate, Route, Routes, useLocation, useNavigate } from "react-router-dom";
@@ -181,25 +182,30 @@ const NavigationBridge = () => {
 
 const ThemedToaster = () => {
   const { resolved } = useTheme();
-  return (
+  // CRITICAL: portal to <body>. `#root` is `position: fixed` (index.css), which
+  // makes it a stacking context — so a toaster rendered INSIDE #root can never
+  // paint above Radix Dialog/Sheet portals, which mount as SIBLINGS of #root on
+  // <body> and therefore paint on top no matter how high the toaster's z-index
+  // is. Mounting the toaster on <body> too puts it in the same stacking level,
+  // where its z-index actually wins → toasts show over a dimmed sheet backdrop.
+  const toaster = (
     <Sonner
       theme={resolved}
       // Top-center, comfortably below the Dynamic Island / status bar. Uses the
       // safe-area-inset-top so toasts clear the notch on every device.
       position="top-center"
       offset="calc(env(safe-area-inset-top, 44px) + 75px)"
-      // CRITICAL: sonner applies `offset` ONLY above 600px wide. On every phone
-      // (≤600px) it falls back to its DEFAULT `mobileOffset` (16px), which pins
-      // toasts right under the notch — ignoring the offset above. We must set
-      // `mobileOffset` to the SAME value, or the toast lands in the wrong place
-      // on the actual device even though `offset` looks correct. Side margins
-      // keep the full-width mobile toast off the screen edges.
+      // sonner applies `offset` ONLY above 600px wide. On every phone (≤600px) it
+      // falls back to its DEFAULT `mobileOffset` (16px) — so we mirror the value
+      // here or the toast lands under the notch on device. Side margins keep the
+      // full-width mobile toast off the screen edges.
       mobileOffset={{ top: "calc(env(safe-area-inset-top, 44px) + 75px)", left: "16px", right: "16px" }}
       // Above sheets/overlays (z-50) and the tab bar (z-40) so a toast is ALWAYS
       // on top — never dimmed behind a sheet's backdrop.
       style={{ zIndex: 2147483647 }}
     />
   );
+  return typeof document !== "undefined" ? createPortal(toaster, document.body) : toaster;
 };
 
 function SuspenseRoute({ children }: { children: ReactNode }) {

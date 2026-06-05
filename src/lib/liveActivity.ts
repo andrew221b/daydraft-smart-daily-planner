@@ -36,6 +36,7 @@ interface LiveActivityPlugin {
   }): Promise<{ started: boolean; existed?: boolean; id?: string; reason?: string }>;
   stopFocus(): Promise<void>;
   updateFocusCategory(opts: { categoryName?: string | null; colorHex?: string | null }): Promise<void>;
+  updateFocusOverrun(opts: { isOverrun: boolean }): Promise<void>;
   startTracker(opts: {
     categoryName: string;
     colorHex: string;
@@ -165,6 +166,18 @@ export const liveActivity = {
       });
     } catch (e) {
       console.warn(`${tag} updateFocusCategory failed`, e);
+    }
+  },
+
+  /** Signal the Focus Live Activity that planned time has been exceeded.
+   *  The widget flips its tint from blue → red without any other layout change. */
+  async updateFocusOverrun(isOverrun: boolean) {
+    if (!isIOS()) return;
+    if (!Capacitor.isPluginAvailable("LiveActivity")) return;
+    try {
+      await plugin.updateFocusOverrun({ isOverrun });
+    } catch (e) {
+      console.warn(`${tag} updateFocusOverrun failed`, e);
     }
   },
 

@@ -99,12 +99,13 @@ export const TabBar = () => {
       // and the home indicator zone — exactly like native iOS tab bars.
       // Blur lives on the nav itself (a plain rectangle, no radius clip) so
       // WKWebView can't produce hard rounded-corner artefacts.
-      // `--keyboard-inset` keeps the bar above the soft keyboard.
+      // The bar stays pinned to the bottom and is simply covered by the soft
+      // keyboard (the native pattern). It must NOT ride up on `--keyboard-inset`
+      // — doing that made it float above the keyboard while typing in the
+      // checklist, which the user explicitly didn't want.
       className="fixed bottom-0 inset-x-0 z-40 bg-transparent"
       style={{
         paddingBottom: "max(env(safe-area-inset-bottom), 10px)",
-        transform: "translateY(calc(-1 * var(--keyboard-inset, 0px)))",
-        transition: "transform 220ms cubic-bezier(0.32, 0.72, 0, 1)",
         touchAction: "manipulation",
       }}
     >

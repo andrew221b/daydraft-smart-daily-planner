@@ -538,7 +538,10 @@ function TrackerInner({ embedded = false, onClose }: { embedded?: boolean; onClo
   const focusAddCategory = () => {
     setTab("today");
     window.requestAnimationFrame(() => {
-      addCategoryFormRef.current?.scrollIntoView({ behavior: "smooth", block: "center" });
+      // `auto`, not `smooth`: we focus the input on the next line, which opens
+      // the keyboard — a smooth scroll running into the keyboard slide-in janks
+      // on iOS WKWebView.
+      addCategoryFormRef.current?.scrollIntoView({ behavior: "auto", block: "center" });
       addCategoryInputRef.current?.focus();
     });
   };

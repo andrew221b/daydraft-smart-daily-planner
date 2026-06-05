@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useRef, useState, forwardRef, useImperativeHandle } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState, forwardRef, useImperativeHandle } from "react";
 import {
   DndContext,
   DragOverlay,
@@ -12,7 +12,7 @@ import {
   type DragStartEvent,
 } from "@dnd-kit/core";
 import { SortableContext, verticalListSortingStrategy, arrayMove } from "@dnd-kit/sortable";
-import { GripVertical, FolderPlus, ListChecks, Trash2, Pencil, X } from "lucide-react";
+import { GripVertical, FolderPlus, ListChecks, Trash2, Pencil, X, CalendarDays, Copy } from "lucide-react";
 import { Sheet, SheetContent, SheetHeader, SheetTitle } from "@/components/ui/sheet";
 import { DayPickerSheet } from "@/components/app/DayPickerSheet";
 import { ChecklistGroup, ChecklistItemRow, AddItemRow, CheckCircleAccent } from "@/components/app/ChecklistGroup";
@@ -50,6 +50,10 @@ export interface ChecklistApi {
   moveItemsToDate: (itemIds: string[], targetDate: string) => Promise<void>;
   deleteItems: (itemIds: string[]) => void;
   copyPlanAsText: () => void;
+  /** Enter multi-select mode (triggered from the day's "…" menu). */
+  enterSelectMode: () => void;
+  /** Wipe every item AND category for the day (the "…" → Delete action). */
+  deleteAllForDay: () => void;
 }
 
 export interface ChecklistViewProps {
@@ -80,7 +84,28 @@ export const ChecklistView = forwardRef<ChecklistApi, ChecklistViewProps>(({
     reorder,
     deleteItems,
     moveItemsToDate,
+    moveGroupToDate,
+    deleteAllForDay,
   } = useChecklist(userId, viewDate, eveningNudgeTime);
+
+  // ── Multi-select ────────────────────────────────────────────────────────
+  const [selectMode, setSelectMode] = useState(false);
+  const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
+  const [selectMoveOpen, setSelectMoveOpen] = useState(false);
+
+  const exitSelect = useCallback(() => {
+    setSelectMode(false);
+    setSelectedIds(new Set());
+  }, []);
+
+  const toggleSelect = useCallback((id: string) => {
+    setSelectedIds((prev) => {
+      const next = new Set(prev);
+      if (next.has(id)) next.delete(id);
+      else next.add(id);
+      return next;
+    });
+  }, []);
 
   const [activeId, setActiveId] = useState<string | null>(null);
   const [collapsed, setCollapsed] = useState<Set<string>>(() => {
@@ -137,7 +162,7 @@ export const ChecklistView = forwardRef<ChecklistApi, ChecklistViewProps>(({
   useImperativeHandle(ref, () => ({
     getUngroupedUnfinishedItems: () => ungrouped.filter((i) => !i.done),
     getAllItems: () => items,
-    moveItemsToDate,
+    moveItemsToDate: async (ids: string[], date: string) => { moveItemsToDate(ids, date); },
     deleteItems: (ids: string[]) => deleteItems(ids),
     copyPlanAsText: () => {
       let text = "";
@@ -162,7 +187,49 @@ export const ChecklistView = forwardRef<ChecklistApi, ChecklistViewProps>(({
         haptics.notify("success");
       }
     },
-  }), [ungrouped, items, groups, itemsByGroup, moveItemsToDate, deleteItems]);
+    enterSelectMode: () => {
+      setSelectedIds(new Set());
+      setSelectMode(true);
+    },
+    deleteAllForDay: () => deleteAllForDay(),
+  }), [ungrouped, items, groups, itemsByGroup, moveItemsToDate, deleteItems, deleteAllForDay]);
+
+  const selectedCount = selectedIds.size;
+  // Drop any selected ids whose item is gone (deleted/moved) so the count stays
+  // truthful. Leaving select mode when the day empties keeps the UI honest.
+  useEffect(() => {
+    if (!selectMode) return;
+    if (items.length === 0) { exitSelect(); return; }
+    setSelectedIds((prev) => {
+      if (prev.size === 0) return prev;
+      const existing = new Set(items.map((i) => i.id));
+      let changed = false;
+      const next = new Set<string>();
+      for (const id of prev) { if (existing.has(id)) next.add(id); else changed = true; }
+      return changed ? next : prev;
+    });
+  }, [items, selectMode, exitSelect]);
+
+  const deleteSelected = () => {
+    if (selectedCount === 0) return;
+    deleteItems(Array.from(selectedIds));
+    haptics.notify("success");
+    exitSelect();
+  };
+
+  const moveSelectedToDate = (ymd: string) => {
+    if (selectedCount === 0 || ymd === viewDate) { setSelectMoveOpen(false); return; }
+    // Mixed selection (across categories) → land them ungrouped on the target.
+    moveItemsToDate(Array.from(selectedIds), ymd);
+    haptics.notify("success");
+    setSelectMoveOpen(false);
+    exitSelect();
+  };
+
+  const selectAll = () => {
+    haptics.tap();
+    setSelectedIds(new Set(items.map((i) => i.id)));
+  };
 
   // Let the parent (DayView) refresh its switcher badge from the cache.
   useEffect(() => {
@@ -246,7 +313,9 @@ export const ChecklistView = forwardRef<ChecklistApi, ChecklistViewProps>(({
   const revealGroupInput = (delay = 0) => {
     window.setTimeout(() => {
       try {
-        groupInputRef.current?.scrollIntoView({ block: "center", behavior: "smooth" });
+        // `auto` (instant), not `smooth` — smooth fights the keyboard animation
+        // on iOS WKWebView and causes the input to freeze/jank.
+        groupInputRef.current?.scrollIntoView({ block: "center", behavior: "auto" });
       } catch {
         /* WKWebView can throw on an early scroll root — safe to ignore */
       }
@@ -268,33 +337,56 @@ export const ChecklistView = forwardRef<ChecklistApi, ChecklistViewProps>(({
   };
 
   return (
-    <div className="mt-4 space-y-3">
-      {/* Progress header — lifted 3D card with the vivid accent progress fill */}
-      {total > 0 && (
-        <div className="relative app-card checklist-surface no-chrome-border rounded-[18px] px-4 py-3.5">
-          <div className="relative z-10">
-            <div className="flex items-center justify-between gap-2 mb-2.5">
-              <div className="text-[13.5px] text-foreground/95 tabular-nums">
-                <span className="font-bold text-[15px]">{done}</span>
-                <span className="text-secondary-fg/60 font-normal"> / {total} done</span>
-              </div>
-              {done > 0 && (
-                <span className="text-[12px] font-semibold" style={{ color: "hsl(var(--accent))" }}>
-                  {done === total ? "All done! Nice work." : "Nice, keep going!"}
-                </span>
-              )}
-            </div>
-            <div className="h-2 rounded-full bg-muted/50 overflow-hidden shadow-[inset_0_1px_2px_rgba(0,0,0,0.25)]">
-              <div
-                className="accent-grad-h h-full rounded-full transition-[width] duration-500 ease-out"
-                style={{
-                  width: total ? `${(done / total) * 100}%` : "0%",
-                  boxShadow: done > 0 ? "0 0 10px hsl(var(--accent) / 0.6)" : "none",
-                }}
-              />
-            </div>
+    <div className={`mt-4 space-y-3 ${selectMode ? "pb-24" : ""}`}>
+      {/* Selection header (replaces the progress card while picking items) */}
+      {selectMode ? (
+        <div className="relative app-card checklist-surface no-chrome-border rounded-[18px] px-4 py-3 flex items-center justify-between gap-2">
+          <div className="text-[14px] font-semibold text-foreground/95 tabular-nums">
+            {selectedCount > 0 ? `${selectedCount} selected` : "Select items"}
+          </div>
+          <div className="flex items-center gap-1.5">
+            <button
+              onClick={selectAll}
+              className="h-8 px-3 rounded-full text-[12.5px] font-semibold pressable transition-colors"
+              style={{ color: "hsl(var(--accent))", background: "hsl(var(--accent) / 0.12)" }}
+            >
+              Select all
+            </button>
+            <button
+              onClick={exitSelect}
+              className="h-8 px-3 rounded-full text-[12.5px] font-semibold text-secondary-fg/85 hover:text-foreground pressable transition-colors"
+            >
+              Cancel
+            </button>
           </div>
         </div>
+      ) : (
+        total > 0 && (
+          <div className="relative app-card checklist-surface no-chrome-border rounded-[18px] px-4 py-3.5">
+            <div className="relative z-10">
+              <div className="flex items-center justify-between gap-2 mb-2.5">
+                <div className="text-[13.5px] text-foreground/95 tabular-nums">
+                  <span className="font-bold text-[15px]">{done}</span>
+                  <span className="text-secondary-fg/60 font-normal"> / {total} done</span>
+                </div>
+                {done > 0 && (
+                  <span className="text-[12px] font-semibold" style={{ color: "hsl(var(--accent))" }}>
+                    {done === total ? "All done! Nice work." : "Nice, keep going!"}
+                  </span>
+                )}
+              </div>
+              <div className="h-2 rounded-full bg-muted/50 overflow-hidden shadow-[inset_0_1px_2px_rgba(0,0,0,0.25)]">
+                <div
+                  className="accent-grad-h h-full rounded-full transition-[width] duration-500 ease-out"
+                  style={{
+                    width: total ? `${(done / total) * 100}%` : "0%",
+                    boxShadow: done > 0 ? "0 0 10px hsl(var(--accent) / 0.6)" : "none",
+                  }}
+                />
+              </div>
+            </div>
+          </div>
+        )
       )}
 
       <DndContext
@@ -307,10 +399,28 @@ export const ChecklistView = forwardRef<ChecklistApi, ChecklistViewProps>(({
         {/* Flat / ungrouped section — quick to-dos with no category. One lifted
             3D card, flat divided rows, ending in the quiet add row. */}
         <div className="relative app-card checklist-surface rounded-[20px] overflow-hidden">
+          {/* "No category" label — only visible when categories exist so the user
+              can distinguish the uncategorized section from the named lists below. */}
+          {groups.length > 0 && (
+            <div className="relative z-10 flex items-center gap-2 px-3 pt-2.5 pb-0.5">
+              <div className="h-[22px] w-[22px] flex items-center justify-center rounded-[7px] bg-foreground/[0.08] border border-border/50 shrink-0">
+                <ListChecks className="h-3 w-3 text-secondary-fg/55" strokeWidth={2.75} />
+              </div>
+              <span className="text-[13px] font-semibold text-secondary-fg/60">No category</span>
+            </div>
+          )}
           <Droppable id={UNGROUPED} isActive={!!activeId}>
             <SortableContext items={ungrouped.map((i) => i.id)} strategy={verticalListSortingStrategy}>
               {ungrouped.map((i) => (
-                <ChecklistItemRow key={i.id} item={i} onToggle={handleToggle} onOpenSheet={setSheetItem} />
+                <ChecklistItemRow
+                  key={i.id}
+                  item={i}
+                  onToggle={handleToggle}
+                  onOpenSheet={setSheetItem}
+                  selectMode={selectMode}
+                  selected={selectedIds.has(i.id)}
+                  onToggleSelect={toggleSelect}
+                />
               ))}
             </SortableContext>
             {ungrouped.length === 0 && activeId && (
@@ -318,7 +428,7 @@ export const ChecklistView = forwardRef<ChecklistApi, ChecklistViewProps>(({
                 Drop here for no category
               </div>
             )}
-            <AddItemRow onAdd={(t) => addItem(t, null)} />
+            {!selectMode && <AddItemRow onAdd={(t) => addItem(t, null)} />}
           </Droppable>
         </div>
 
@@ -342,6 +452,9 @@ export const ChecklistView = forwardRef<ChecklistApi, ChecklistViewProps>(({
             onToggleItem={handleToggle}
             onOpenItemSheet={setSheetItem}
             onAddItem={(t, gid) => addItem(t, gid)}
+            selectMode={selectMode}
+            selectedIds={selectedIds}
+            onToggleSelect={toggleSelect}
           />
         ))}
 
@@ -369,8 +482,8 @@ export const ChecklistView = forwardRef<ChecklistApi, ChecklistViewProps>(({
         </DragOverlay>
       </DndContext>
 
-      {/* Add category */}
-      {addingGroup ? (
+      {/* Add category — hidden while picking items */}
+      {selectMode ? null : addingGroup ? (
         <div className="flex items-center gap-2 rounded-2xl border border-soft bg-card px-3 py-2">
           <FolderPlus className="h-4 w-4 text-accent shrink-0" />
           <input
@@ -471,17 +584,14 @@ export const ChecklistView = forwardRef<ChecklistApi, ChecklistViewProps>(({
         open={!!datePickGroup}
         onOpenChange={(v) => !v && setDatePickGroup(null)}
         value={viewDate}
-        onPick={async (ymd) => {
+        onPick={(ymd) => {
           if (datePickGroup && ymd !== viewDate) {
-            const gItems = itemsByGroup.get(datePickGroup.id) || [];
-            const targets = datePickGroup.mode === "unfinished" ? gItems.filter(i => !i.done) : gItems;
-            if (targets.length > 0) {
-              try {
-                await moveItemsToDate(targets.map(i => i.id), ymd);
-                haptics.notify("success");
-              } catch {
-                /* already handled */
-              }
+            const group = groups.find((g) => g.id === datePickGroup.id);
+            if (group) {
+              // Preserve the category on the target day (recreates/reuses the
+              // list there) so carried items are never orphaned.
+              moveGroupToDate(group, ymd, datePickGroup.mode);
+              haptics.notify("success");
             }
           }
           setDatePickGroup(null);
@@ -517,6 +627,45 @@ export const ChecklistView = forwardRef<ChecklistApi, ChecklistViewProps>(({
           setGroupMenu(null);
         }}
       />
+
+      {/* Move-to-date picker for the multi-selection */}
+      <DayPickerSheet
+        open={selectMoveOpen}
+        onOpenChange={(v) => !v && setSelectMoveOpen(false)}
+        value={viewDate}
+        onPick={(ymd) => moveSelectedToDate(ymd)}
+        pastDays={3}
+        futureDays={120}
+        title={`Move ${selectedCount} item${selectedCount === 1 ? "" : "s"} to…`}
+      />
+
+      {/* Floating selection toolbar — sits above the tab bar while picking. */}
+      {selectMode && (
+        <div
+          className="fixed bottom-0 inset-x-0 z-[45] pointer-events-none"
+          style={{ paddingBottom: "max(env(safe-area-inset-bottom), 10px)" }}
+        >
+          <div className="mx-auto w-[min(calc(100vw-24px),424px)] px-px pointer-events-auto">
+            <div className="rounded-[24px] backdrop-blur-xl bg-background/95 border border-white/20 dark:border-white/10 shadow-[0_8px_32px_rgba(0,0,0,0.28),inset_0_1px_1px_rgba(255,255,255,0.3)] px-3 py-2 flex items-center gap-2">
+              <button
+                onClick={() => { if (selectedCount) { haptics.tap(); setSelectMoveOpen(true); } }}
+                disabled={selectedCount === 0}
+                className="flex-1 h-11 rounded-2xl inline-flex items-center justify-center gap-2 text-[14px] font-semibold pressable transition-all disabled:opacity-40 disabled:pointer-events-none"
+                style={{ color: "hsl(var(--accent))", background: "hsl(var(--accent) / 0.12)" }}
+              >
+                <CalendarDays className="h-4 w-4" strokeWidth={2.25} /> Move
+              </button>
+              <button
+                onClick={deleteSelected}
+                disabled={selectedCount === 0}
+                className="flex-1 h-11 rounded-2xl inline-flex items-center justify-center gap-2 text-[14px] font-semibold text-destructive bg-destructive/[0.12] pressable transition-all disabled:opacity-40 disabled:pointer-events-none active:scale-[0.98]"
+              >
+                <Trash2 className="h-4 w-4" strokeWidth={2.25} /> Delete
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 });

@@ -334,10 +334,14 @@ export function DateRangePickerSheet({
                           aria-hidden
                         />
                       )}
+                      {/* Note: we do NOT use the HTML `disabled` attribute here.
+                          On iOS, disabled buttons silently eat touch events
+                          including the `onClick` — even the early-return path
+                          in tapDay never fires. Instead we let every button
+                          receive the tap and guard inside tapDay. */}
                       <motion.button
                         type="button"
                         onClick={() => tapDay(day)}
-                        disabled={isDisabled}
                         whileTap={!isDisabled ? { scale: 0.88 } : undefined}
                         transition={{ type: "spring", stiffness: 500, damping: 24 }}
                         className={`relative z-[1] h-9 w-9 rounded-full text-[14px] font-semibold tabular-nums transition-colors duration-150 ${
@@ -347,9 +351,9 @@ export function DateRangePickerSheet({
                               ? "ring-1 ring-primary/55 text-primary"
                               : inMonth
                                 ? isDisabled
-                                  ? "text-secondary-fg/30"
+                                  ? "text-secondary-fg/30 pointer-events-none"
                                   : "text-foreground/90 hover:bg-foreground/[0.06]"
-                                : "text-secondary-fg/35"
+                                : "text-secondary-fg/35 pointer-events-none"
                         }`}
                         aria-label={DATE_LONG_FMT.format(day)}
                         aria-pressed={isEndpoint}

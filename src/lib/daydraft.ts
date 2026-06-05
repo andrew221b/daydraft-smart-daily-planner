@@ -108,9 +108,9 @@ export function packLinearSchedule<T extends Pick<Block, "start_time" | "duratio
     // Wrap the stored time by 24h so a plan that runs past midnight keeps valid
     // HH:MM (the internal cursor stays unbounded to preserve sequence/order).
     // A frameless task (duration_min = 0) stays at 0 and does NOT advance the
-    // cursor — the next block starts at the same time. Real durations floor to 5.
+    // cursor — the next block starts at the same time. Real durations floor to 1.
     const rawDur = Number(b.duration_min || 0);
-    const safeDur = rawDur <= 0 ? 0 : Math.max(5, Math.round(rawDur));
+    const safeDur = rawDur <= 0 ? 0 : Math.max(1, Math.round(rawDur));
     const nb = { ...b, start_time: minutesToHHMM(cursorMin % 1440), duration_min: safeDur };
     cursorMin = cursorMin + safeDur;
     out.push(nb);

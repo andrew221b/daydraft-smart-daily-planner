@@ -78,41 +78,90 @@ function ProgressRing({ done, total }: { done: number; total: number }) {
   );
 }
 
+/** Round selection indicator for multi-select mode: a hollow ring that fills
+ *  with the accent + a white tick when picked. Distinct from the done checkbox
+ *  (which is hidden while selecting), so there's only ever one circle per row. */
+function SelectionDot({ selected }: { selected: boolean }) {
+  return (
+    <span className="relative inline-flex h-[22px] w-[22px] items-center justify-center">
+      <span
+        className={`absolute inset-0 rounded-full border-[1.5px] transition-all duration-150 ${
+          selected ? "border-transparent" : "border-secondary-fg/45"
+        }`}
+      />
+      <span
+        className="accent-grad accent-glow absolute inset-0 rounded-full flex items-center justify-center transition-[transform,opacity] duration-150 ease-out"
+        style={{ transform: selected ? "scale(1)" : "scale(0.4)", opacity: selected ? 1 : 0 }}
+      >
+        <Check className="text-white" strokeWidth={3} style={{ width: 13, height: 13 }} />
+      </span>
+    </span>
+  );
+}
+
 /** One flat row: grip · title (tap → sheet) · checkbox (tap → toggle).
+ *  In multi-select mode the grip + done-checkbox are replaced by a selection
+ *  dot, dragging is disabled, and tapping anywhere toggles selection.
  *  Sits inside a list card, divided from neighbours by hairlines. */
 export function ChecklistItemRow({
   item,
   onToggle,
   onOpenSheet,
+  selectMode = false,
+  selected = false,
+  onToggleSelect,
 }: {
   item: ChecklistItem;
   onToggle: (id: string) => void;
   onOpenSheet: (item: ChecklistItem) => void;
+  selectMode?: boolean;
+  selected?: boolean;
+  onToggleSelect?: (id: string) => void;
 }) {
   const { attributes, listeners, setNodeRef, transform, transition, isDragging } = useSortable({
     id: item.id,
+    disabled: selectMode, // no reordering while selecting
   });
   const style: React.CSSProperties = {
     transform: CSS.Transform.toString(transform),
     transition,
   };
+
+  const pickRow = () => {
+    haptics.impact("light");
+    onToggleSelect?.(item.id);
+  };
+
   return (
     <div
       ref={setNodeRef}
       style={style}
-      className={`group relative z-10 flex items-center gap-1.5 py-2.5 ${isDragging ? "opacity-40" : ""}`}
+      className={`group relative z-10 flex items-center gap-1.5 py-2.5 rounded-xl transition-colors ${
+        isDragging ? "opacity-40" : ""
+      } ${selectMode && selected ? "bg-accent/[0.1]" : ""}`}
     >
-      <button
-        {...attributes}
-        {...listeners}
-        aria-label="Reorder"
-        className="shrink-0 flex h-7 w-6 items-center justify-center rounded-md touch-none cursor-grab active:cursor-grabbing text-secondary-fg/30 hover:text-secondary-fg/55 transition-colors"
-      >
-        <GripVertical className="h-3.5 w-3.5" />
-      </button>
+      {selectMode ? (
+        <button
+          onClick={pickRow}
+          aria-label={selected ? "Deselect" : "Select"}
+          aria-pressed={selected}
+          className="shrink-0 flex h-7 w-7 items-center justify-center pressable active:scale-90 transition-transform"
+        >
+          <SelectionDot selected={selected} />
+        </button>
+      ) : (
+        <button
+          {...attributes}
+          {...listeners}
+          aria-label="Reorder"
+          className="shrink-0 flex h-7 w-6 items-center justify-center rounded-md touch-none cursor-grab active:cursor-grabbing text-secondary-fg/30 hover:text-secondary-fg/55 transition-colors"
+        >
+          <GripVertical className="h-3.5 w-3.5" />
+        </button>
+      )}
 
       <button
-        onClick={() => onOpenSheet(item)}
+        onClick={() => (selectMode ? pickRow() : onOpenSheet(item))}
         className="flex-1 min-w-0 text-left py-0.5 pressable"
       >
         <span
@@ -124,16 +173,18 @@ export function ChecklistItemRow({
         </span>
       </button>
 
-      <button
-        onClick={() => {
-          haptics.impact("light");
-          onToggle(item.id);
-        }}
-        aria-label={item.done ? "Mark not done" : "Mark done"}
-        className="shrink-0 h-9 w-9 -mr-1 flex items-center justify-center pressable active:scale-90 transition-transform"
-      >
-        <CheckCircleAccent done={item.done} />
-      </button>
+      {!selectMode && (
+        <button
+          onClick={() => {
+            haptics.impact("light");
+            onToggle(item.id);
+          }}
+          aria-label={item.done ? "Mark not done" : "Mark done"}
+          className="shrink-0 h-9 w-9 -mr-1 flex items-center justify-center pressable active:scale-90 transition-transform"
+        >
+          <CheckCircleAccent done={item.done} />
+        </button>
+      )}
     </div>
   );
 }
@@ -158,7 +209,9 @@ export function AddItemRow({
   const reveal = (delay = 0) => {
     window.setTimeout(() => {
       try {
-        inputRef.current?.scrollIntoView({ block: "center", behavior: "smooth" });
+        // `auto` (instant), NOT `smooth`: a smooth scroll fights the keyboard
+        // slide-in animation on iOS WKWebView and visibly freezes/janks input.
+        inputRef.current?.scrollIntoView({ block: "center", behavior: "auto" });
       } catch {
         /* WKWebView can throw on an early scroll root — safe to ignore */
       }
@@ -218,6 +271,9 @@ export function ChecklistGroup({
   onToggleItem,
   onOpenItemSheet,
   onAddItem,
+  selectMode = false,
+  selectedIds,
+  onToggleSelect,
 }: {
   group: Group;
   items: ChecklistItem[];
@@ -228,6 +284,9 @@ export function ChecklistGroup({
   onToggleItem: (id: string) => void;
   onOpenItemSheet: (item: ChecklistItem) => void;
   onAddItem: (title: string, groupId: string) => void;
+  selectMode?: boolean;
+  selectedIds?: Set<string>;
+  onToggleSelect?: (id: string) => void;
 }) {
   const { setNodeRef, isOver } = useDroppable({ id: group.id });
   const done = items.filter((i) => i.done).length;
@@ -282,7 +341,15 @@ export function ChecklistGroup({
             <div className="border-t border-border/40 divide-y divide-border/25">
               <SortableContext items={items.map((i) => i.id)} strategy={verticalListSortingStrategy}>
                 {items.map((i) => (
-                  <ChecklistItemRow key={i.id} item={i} onToggle={onToggleItem} onOpenSheet={onOpenItemSheet} />
+                  <ChecklistItemRow
+                    key={i.id}
+                    item={i}
+                    onToggle={onToggleItem}
+                    onOpenSheet={onOpenItemSheet}
+                    selectMode={selectMode}
+                    selected={!!selectedIds?.has(i.id)}
+                    onToggleSelect={onToggleSelect}
+                  />
                 ))}
               </SortableContext>
               {items.length === 0 && (
@@ -296,7 +363,8 @@ export function ChecklistGroup({
                   {dragging ? "Drop here" : "No items yet"}
                 </div>
               )}
-              <AddItemRow onAdd={(t) => onAddItem(t, group.id)} placeholder="Add to list…" />
+              {/* No adding while picking items. */}
+              {!selectMode && <AddItemRow onAdd={(t) => onAddItem(t, group.id)} placeholder="Add to list…" />}
             </div>
           </div>
         </div>

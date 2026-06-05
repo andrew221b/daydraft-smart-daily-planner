@@ -1,12 +1,17 @@
 import type { SupabaseClient } from "@supabase/supabase-js";
 import type { Block } from "@/lib/daydraft";
-import { isOpenUserTask, todayDateStr, planBlockInstants, shiftDate } from "@/lib/daydraft";
+import { isOpenUserTask, planBlockInstants } from "@/lib/daydraft";
 
 /**
  * User tasks whose planned window has ended but are still "open" → mark missed (idempotent).
  * Returns the blocks it flipped (id + the resolved_at it stamped) so the caller can
  * update its local/cached state INSTANTLY instead of waiting on a refetch round-trip.
  * Empty array = nothing changed.
+ *
+ * Runs for ANY date (today, yesterday, older past days). Past-day tasks that were
+ * never resolved correctly show as "open" dashed circles otherwise — this is wrong,
+ * they should all be "missed". The existing `endMs >= now` filter is the only guard
+ * needed: only tasks whose window has genuinely passed get marked.
  */
 export async function applyAutoMissedBlocks(
   supabase: SupabaseClient,
@@ -18,16 +23,6 @@ export async function applyAutoMissedBlocks(
   // resolve to the real next-day instant, not this morning — otherwise it would
   // be marked missed the moment it's created.
   const instants = planBlockInstants(planDateYmd, blocks);
-
-  // Policy: write missed for today's plan, OR a yesterday plan that's still an
-  // in-progress overnight session (its last slot end is still in the future).
-  // A fully-past historical day stays read-only to avoid mutating history.
-  if (planDateYmd !== todayDateStr()) {
-    let lastEnd = 0;
-    for (const v of instants.values()) lastEnd = Math.max(lastEnd, v.endMs);
-    const isActiveNightPlan = planDateYmd === shiftDate(todayDateStr(), -1) && lastEnd > now;
-    if (!isActiveNightPlan) return [];
-  }
   // Grace: only auto-mark missed when the block existed before its slot end.
   // Without this, creating a plan retroactively (e.g. typing tasks at 21:00
   // with default 09:00 starts) instantly marks every block "missed".
@@ -37,7 +32,7 @@ export async function applyAutoMissedBlocks(
   // This covers AI-generated plans where generation took until after the task's
   // scheduled end time, leaving those tasks permanently "active" under the
   // strict created_at < endMs check.
-  const LONG_PAST_MS = 10 * 60_000;
+  const LONG_PAST_MS = 2 * 60_000;
   const autoMissBlocks = blocks
     .filter((b) => {
       if (!isOpenUserTask(b)) return false;

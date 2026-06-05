@@ -115,7 +115,7 @@ export function UncompleteTaskSheet({ block, onCancel, onConfirm }: Props) {
               {/* Task title card */}
               <div className="px-5 pb-1">
                 <motion.div
-                  className="rounded-2xl px-4 py-3.5 flex items-center gap-3"
+                  className="rounded-2xl px-4 py-4 flex items-center gap-3"
                   style={{
                     background: "linear-gradient(180deg, hsl(var(--primary)/0.12) 0%, hsl(var(--primary)/0.04) 100%)",
                     boxShadow: "inset 0 1px 0 hsl(0 0% 100% / 0.06), 0 0 0 1px hsl(var(--primary)/0.22), 0 8px 24px -16px hsl(var(--primary)/0.35)",

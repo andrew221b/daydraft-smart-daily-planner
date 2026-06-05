@@ -650,9 +650,13 @@ export function HomeTrackerHero({ onOpenDetails }: { onOpenDetails: () => void }
           if (!open) setFocusNewCategory(false);
         }}
       >
-        <SheetContent side="bottom" className="rounded-t-[28px] p-0 max-h-[84vh] overflow-hidden bg-background border-border/45">
-          <div className="flex max-h-[84vh] flex-col">
-            <div className="px-5 pt-7 pb-4 border-b border-border/35">
+        <SheetContent side="bottom" className="rounded-t-[28px] p-0 max-h-[84vh] flex flex-col bg-popover backdrop-blur-xl border-border/45">
+          {/* Drag handle */}
+          <div className="shrink-0 flex justify-center pt-3 pb-1">
+            <div className="h-1 w-10 rounded-full bg-foreground/20" />
+          </div>
+          <div className="flex flex-col flex-1 min-h-0">
+            <div className="px-5 pt-3 pb-4 border-b border-border/35 shrink-0">
               <SheetTitle className="font-display text-[20px] font-semibold tracking-tight">
                 {active ? "Switch category" : "Choose category"}
               </SheetTitle>
@@ -672,7 +676,7 @@ export function HomeTrackerHero({ onOpenDetails }: { onOpenDetails: () => void }
               )}
             </div>
 
-            <div className="flex-1 overflow-y-auto px-5 py-4">
+            <div className="flex-1 overflow-y-auto overscroll-contain px-5 py-4">
               {filteredCategories.length > 0 ? (
                 <div className="grid grid-cols-1 gap-2.5">
                   {filteredCategories.map((c) => {
@@ -783,7 +787,7 @@ export function HomeTrackerHero({ onOpenDetails }: { onOpenDetails: () => void }
               )}
             </div>
 
-            <form onSubmit={handleAddCategory} className="border-t border-border/35 px-5 py-4">
+            <form onSubmit={handleAddCategory} className="border-t border-border/35 px-5 py-4 shrink-0" style={{ paddingBottom: "max(16px, calc(env(safe-area-inset-bottom) + 16px))" }}>
               <div className="flex items-center gap-2 rounded-2xl border border-dashed border-border/45 bg-card/35 px-3 py-2.5">
                 <Plus className="h-4 w-4 text-secondary-fg shrink-0" />
                 <input
@@ -793,6 +797,7 @@ export function HomeTrackerHero({ onOpenDetails }: { onOpenDetails: () => void }
                   placeholder="New category name"
                   className="min-w-0 flex-1 bg-transparent text-[14px] text-foreground outline-none placeholder:text-secondary-fg/65"
                   autoFocus={categories.length === 0 || focusNewCategory}
+                  style={{ fontSize: 16 }}
                 />
                 {newCategoryName.trim() && (
                   <button

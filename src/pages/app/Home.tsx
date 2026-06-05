@@ -1,4 +1,4 @@
-import { useEffect, useMemo } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { keepPreviousData, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useLocation, useNavigate, useSearchParams } from "react-router-dom";
 import { HomeTrackerHero } from "@/components/app/HomeTrackerHero";
@@ -19,6 +19,7 @@ import {
   rollingEntriesQueryKey,
 } from "@/lib/timeEntriesQuery";
 import { useTabVisible } from "@/components/app/PersistentTabs";
+import { peekChecklistCounts, prefetchChecklistCounts } from "@/hooks/useChecklist";
 import { motion } from "framer-motion";
 
 function fmtMoney(amount: number, currency: string): string | null {
@@ -69,6 +70,26 @@ export default function Home() {
     placeholderData: keepPreviousData,
   });
   const blocks = planData?.planBlocks ?? [];
+
+  // Checklist counts from localStorage cache — synchronous read, no fetch.
+  // `seed` bumps after a background prefetch so the card appears on first
+  // login without the user having to visit the checklist screen first.
+  const [checklistSeed, setChecklistSeed] = useState(0);
+  // Direct read — peekChecklistCounts is a cheap synchronous localStorage
+  // read; useMemo was stale-caching it and missing updates when the user
+  // toggled checklist items on the Plan tab and came back.
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  const checklistCounts = peekChecklistCounts(user?.id, viewDate);
+  void checklistSeed; void tabVisible; // keep the deps that force re-render
+
+  // On first tab-visible with an empty cache, prefetch from Supabase so the
+  // progress card shows immediately after sign-in (before visiting the checklist tab).
+  useEffect(() => {
+    if (!user?.id || !tabVisible || checklistCounts.total > 0) return;
+    void prefetchChecklistCounts(user.id, viewDate).then((fetched) => {
+      if (fetched) setChecklistSeed((n) => n + 1);
+    });
+  }, [user?.id, viewDate, tabVisible, checklistCounts.total]);
 
   useEffect(() => {
     if (!user?.id || !tabVisible) return;
@@ -194,7 +215,7 @@ export default function Home() {
               aria-label="Open today's plan"
             >
               <div className="flex items-center justify-between mb-3">
-                <span className="eyebrow">Today's plan</span>
+                <span className="eyebrow">Today's timeline</span>
                 <div className="flex items-center gap-2">
                   {doneTasks > 0 && doneTasks < userTasks.length && (
                     <span className="text-[12px] font-semibold text-primary tabular-nums">
@@ -220,6 +241,49 @@ export default function Home() {
               )}
               {doneTasks === userTasks.length && (
                 <div className="mt-2 text-[13px] font-semibold text-success">All done ✓</div>
+              )}
+            </motion.div>
+          )}
+
+          {/* Checklist plan progress — only when items exist */}
+          {checklistCounts.total > 0 && (
+            <motion.div
+              layout
+              transition={{ type: "spring", bounce: 0.2, duration: 0.6 }}
+              className="mt-3 hero-glass border border-border/35 rounded-[28px] px-4 py-4 cursor-pointer tappable"
+              onClick={() => nav("/today?mode=checklist")}
+              role="button"
+              tabIndex={0}
+              onKeyDown={(e) => e.key === "Enter" && nav("/today?mode=checklist")}
+              aria-label="Open today's checklist"
+            >
+              <div className="flex items-center justify-between mb-3">
+                <span className="eyebrow">Today's checklist</span>
+                <div className="flex items-center gap-2">
+                  {checklistCounts.open > 0 && checklistCounts.open < checklistCounts.total && (
+                    <span className="text-[12px] font-semibold tabular-nums" style={{ color: "hsl(var(--checklist-accent))" }}>
+                      {Math.round(((checklistCounts.total - checklistCounts.open) / checklistCounts.total) * 100)}%
+                    </span>
+                  )}
+                  <span className="text-[12px] tabular-nums text-secondary-fg/70">
+                    {checklistCounts.total - checklistCounts.open}/{checklistCounts.total}
+                  </span>
+                </div>
+              </div>
+              <div className="h-2 rounded-full bg-muted/45 overflow-hidden">
+                <div
+                  className="h-full rounded-full transition-[width] duration-500 ease-out"
+                  style={{
+                    width: `${((checklistCounts.total - checklistCounts.open) / checklistCounts.total) * 100}%`,
+                    background: "hsl(var(--checklist-accent))",
+                    boxShadow: checklistCounts.open === 0 ? "0 0 8px hsl(var(--checklist-accent) / 0.5)" : "none",
+                  }}
+                />
+              </div>
+              {checklistCounts.open === 0 && (
+                <div className="mt-2 text-[13px] font-semibold" style={{ color: "hsl(var(--checklist-accent))" }}>
+                  All checked off ✓
+                </div>
               )}
             </motion.div>
           )}

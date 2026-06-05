@@ -30,7 +30,7 @@ export default function Terms() {
       <p>These terms are governed by the laws of your country of residence where required, otherwise by the jurisdiction in which DayDraft is operated.</p>
 
       <h2>9. Contact</h2>
-      <p>Questions: <a href="mailto:legal@daydraft.app">legal@daydraft.app</a></p>
+      <p>Questions: <a href="mailto:shapeinc25@gmail.com">shapeinc25@gmail.com</a></p>
     </LegalLayout>
   );
 }

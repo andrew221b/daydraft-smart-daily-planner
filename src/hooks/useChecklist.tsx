@@ -71,13 +71,50 @@ const maxPos = (rows: { position: number }[]) =>
 export function peekChecklistCounts(
   userId: string | undefined,
   planDate: string,
-): { total: number; open: number } {
-  if (!userId) return { total: 0, open: 0 };
+): { total: number; open: number; groups: number } {
+  if (!userId) return { total: 0, open: 0, groups: 0 };
   const bucket = readCache(userId)[planDate];
-  if (!bucket) return { total: 0, open: 0 };
+  if (!bucket) return { total: 0, open: 0, groups: 0 };
   const total = bucket.items.length;
   const open = bucket.items.filter((i) => !i.done).length;
-  return { total, open };
+  // Include category count so the day's "…" menu (and its Delete) stays
+  // reachable even when every item is gone but empty categories remain.
+  return { total, open, groups: bucket.groups.length };
+}
+
+/**
+ * Lightweight background fetch — populates the localStorage cache for a day
+ * without mounting useChecklist. Called by Home so the checklist progress card
+ * appears immediately after login, before the user ever visits the checklist tab.
+ * Returns true if new data was written (so the caller can trigger a re-render).
+ */
+export async function prefetchChecklistCounts(
+  userId: string,
+  planDate: string,
+): Promise<boolean> {
+  if (readCache(userId)[planDate]) return false; // already cached
+  const [gRes, iRes] = await Promise.all([
+    supabase
+      .from("checklist_groups")
+      .select("*")
+      .eq("user_id", userId)
+      .eq("plan_date", planDate)
+      .order("position", { ascending: true }),
+    supabase
+      .from("checklist_items")
+      .select("*")
+      .eq("user_id", userId)
+      .eq("plan_date", planDate)
+      .order("position", { ascending: true }),
+  ]);
+  if (gRes.error || iRes.error) return false;
+  const cache = readCache(userId);
+  cache[planDate] = {
+    groups: (gRes.data ?? []) as ChecklistGroup[],
+    items: (iRes.data ?? []) as ChecklistItem[],
+  };
+  writeCache(userId, cache);
+  return true;
 }
 
 export interface MoveTarget {
@@ -99,6 +136,12 @@ export function useChecklist(
   const itemsRef = useRef(items);
   groupsRef.current = groups;
   itemsRef.current = items;
+  // Monotonic id so only the LATEST reload may commit. On app resume both the
+  // window "focus" and document "visibilitychange" events fire a reload, and an
+  // in-flight reload from before the device locked can resolve AFTER a fresh
+  // one — committing stale rows last. That was the "a task appeared then
+  // vanished" glitch. The guard makes any superseded reload a no-op.
+  const reloadGenRef = useRef(0);
 
   // ── local commit: state + cache together ───────────────────────────────
   const commit = useCallback(
@@ -137,6 +180,7 @@ export function useChecklist(
   // ── authoritative fetch from Supabase ──────────────────────────────────
   const reload = useCallback(async () => {
     if (!userId) return;
+    const gen = ++reloadGenRef.current;
     const [gRes, iRes] = await Promise.all([
       supabase
         .from("checklist_groups")
@@ -153,6 +197,9 @@ export function useChecklist(
         .order("position", { ascending: true })
         .order("created_at", { ascending: true }),
     ]);
+    // A newer reload started while we were awaiting — drop this (possibly stale)
+    // result so it can't clobber the fresher one.
+    if (gen !== reloadGenRef.current) return;
     if (gRes.error || iRes.error) {
       // Offline / transient — keep whatever the cache painted.
       setLoading(false);
@@ -427,17 +474,117 @@ export function useChecklist(
       try {
         const { error } = await supabase
           .from("checklist_items")
-          .update({ plan_date: targetDate })
+          // MUST null group_id: the source group doesn't exist on the target
+          // day, so a carried item that kept its group_id would render in
+          // neither the group nor the ungrouped list (orphaned/invisible). This
+          // path is for ungrouped carries; grouped carries use moveGroupToDate.
+          .update({ plan_date: targetDate, group_id: null })
           .in("id", itemIds);
         if (error) throw error;
       } catch {
         // Fallback to queue
         for (const id of itemIds) {
-          await enqueueWrite({ table: "checklist_items", op: "update", filter: { id }, payload: { plan_date: targetDate } });
+          await enqueueWrite({ table: "checklist_items", op: "update", filter: { id }, payload: { plan_date: targetDate, group_id: null } });
         }
       }
     })();
   }, [userId, commit]);
+
+  /**
+   * Carry a whole category to another day, PRESERVING the grouping: find (or
+   * create) a same-named list on the target day and move the items into it.
+   * `mode` "unfinished" carries only open items (the source list keeps its done
+   * ones); "all" carries everything. Items are never orphaned — they always land
+   * inside a real group on the target day.
+   */
+  const moveGroupToDate = useCallback(
+    (group: ChecklistGroup, targetDate: string, mode: "unfinished" | "all") => {
+      if (!userId) return;
+      const groupItems = itemsRef.current.filter((i) => i.group_id === group.id);
+      const targets = mode === "unfinished" ? groupItems.filter((i) => !i.done) : groupItems;
+      if (targets.length === 0) return;
+      const ids = targets.map((i) => i.id);
+      const idsSet = new Set(ids);
+      // Optimistically remove the carried items from this day.
+      commit(groupsRef.current, itemsRef.current.filter((i) => !idsSet.has(i.id)));
+
+      // Generate the fallback group id up-front so both the online and offline
+      // paths use THE SAME id — fixes a race where the offline fallback could
+      // enqueue items pointing at freshGroupId while the online path had already
+      // written them to a *different* (found) group id, leaving items orphaned.
+      const freshGroupId = newId();
+      const groupRow: ChecklistGroup = {
+        id: freshGroupId,
+        user_id: userId,
+        plan_date: targetDate,
+        title: group.title,
+        position: 0,
+        created_at: nowIso(),
+        updated_at: nowIso(),
+      };
+      (async () => {
+        // Resolve the target group id FIRST — we need it before we can write
+        // items, so the online and offline paths both finish with the same id.
+        let targetGroupId: string;
+        let groupResolved = false;
+        try {
+          // Reuse a same-named list on the target day if present, so repeated
+          // carries don't pile up duplicate categories.
+          const { data: existing } = await supabase
+            .from("checklist_groups")
+            .select("id")
+            .eq("user_id", userId)
+            .eq("plan_date", targetDate)
+            .eq("title", group.title)
+            .limit(1)
+            .maybeSingle();
+          if (existing?.id) {
+            targetGroupId = existing.id;
+          } else {
+            const { error: gErr } = await supabase.from("checklist_groups").insert(groupRow);
+            if (gErr) throw gErr;
+            targetGroupId = freshGroupId;
+          }
+          groupResolved = true;
+        } catch {
+          // Offline — fall through with freshGroupId; queue the insert below.
+          targetGroupId = freshGroupId;
+        }
+
+        // Now update the items to the resolved group.
+        let itemsWritten = false;
+        if (groupResolved) {
+          try {
+            const { error: iErr } = await supabase
+              .from("checklist_items")
+              .update({ plan_date: targetDate, group_id: targetGroupId })
+              .in("id", ids);
+            if (iErr) throw iErr;
+            itemsWritten = true;
+          } catch {
+            // Partial failure — fall through to queue.
+          }
+        }
+
+        // Queue anything that didn't make it online. FIFO order: group first,
+        // then items, so the list exists before the items reference it.
+        if (!groupResolved) {
+          await enqueueWrite({ table: "checklist_groups", op: "insert", payload: groupRow });
+        }
+        if (!itemsWritten) {
+          for (const id of ids) {
+            await enqueueWrite({
+              table: "checklist_items",
+              op: "update",
+              filter: { id },
+              payload: { plan_date: targetDate, group_id: targetGroupId },
+            });
+          }
+        }
+      })();
+    },
+    [userId, commit],
+  );
 
   const clearCompleted = useCallback(() => {
     if (!userId) return;
@@ -461,6 +608,40 @@ export function useChecklist(
     })();
   }, [userId, planDate, commit]);
 
+  /** Wipe the ENTIRE checklist for this day — every item AND every category.
+   *  Scoped by plan_date so it only ever touches checklist tables (never the
+   *  timeline `blocks`/`plans`). Items are deleted before groups. */
+  const deleteAllForDay = useCallback(() => {
+    if (!userId) return;
+    const itemIds = itemsRef.current.map((i) => i.id);
+    const groupIds = groupsRef.current.map((g) => g.id);
+    if (itemIds.length === 0 && groupIds.length === 0) return;
+    commit([], []); // optimistic: clear the whole day
+    (async () => {
+      try {
+        const delItems = await supabase
+          .from("checklist_items")
+          .delete()
+          .eq("user_id", userId)
+          .eq("plan_date", planDate);
+        if (delItems.error) throw delItems.error;
+        const delGroups = await supabase
+          .from("checklist_groups")
+          .delete()
+          .eq("user_id", userId)
+          .eq("plan_date", planDate);
+        if (delGroups.error) throw delGroups.error;
+      } catch {
+        for (const id of itemIds) {
+          await enqueueWrite({ table: "checklist_items", op: "delete", filter: { id } });
+        }
+        for (const id of groupIds) {
+          await enqueueWrite({ table: "checklist_groups", op: "delete", filter: { id } });
+        }
+      }
+    })();
+  }, [userId, planDate, commit]);
+
   return {
     groups,
     items,
@@ -478,5 +659,7 @@ export function useChecklist(
     clearCompleted,
     deleteItems,
     moveItemsToDate,
+    moveGroupToDate,
+    deleteAllForDay,
   };
 }

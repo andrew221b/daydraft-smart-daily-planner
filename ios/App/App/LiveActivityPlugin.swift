@@ -41,6 +41,7 @@ public class LiveActivityPlugin: CAPPlugin, CAPBridgedPlugin {
         CAPPluginMethod(name: "ensureFocus", returnType: CAPPluginReturnPromise),
         CAPPluginMethod(name: "stopFocus", returnType: CAPPluginReturnPromise),
         CAPPluginMethod(name: "updateFocusCategory", returnType: CAPPluginReturnPromise),
+        CAPPluginMethod(name: "updateFocusOverrun", returnType: CAPPluginReturnPromise),
         CAPPluginMethod(name: "startTracker", returnType: CAPPluginReturnPromise),
         CAPPluginMethod(name: "stopTracker", returnType: CAPPluginReturnPromise),
         CAPPluginMethod(name: "stopAll", returnType: CAPPluginReturnPromise),
@@ -257,6 +258,32 @@ public class LiveActivityPlugin: CAPPlugin, CAPBridgedPlugin {
                 )
                 await activity.update(ActivityContent(state: newState, staleDate: nil))
                 LALog("updateFocusCategory ✅ activity id=\(activity.id)")
+            }
+        }
+        call.resolve()
+    }
+
+    /// Signal the Focus Live Activity that the planned duration has been exceeded.
+    /// The widget flips all tints from blue → red (no layout change, fast update).
+    @objc public func updateFocusOverrun(_ call: CAPPluginCall) {
+        LALog("updateFocusOverrun called")
+        guard #available(iOS 16.1, *) else {
+            call.resolve()
+            return
+        }
+        let isOverrun = call.getBool("isOverrun") ?? false
+        LALog("updateFocusOverrun — isOverrun=\(isOverrun)")
+        Task {
+            for activity in Activity<FocusActivityAttributes>.activities {
+                let current = activity.content.state
+                let newState = FocusActivityAttributes.ContentState(
+                    startedAt: current.startedAt,
+                    categoryName: current.categoryName,
+                    categoryColorHex: current.categoryColorHex,
+                    isOverrun: isOverrun
+                )
+                await activity.update(ActivityContent(state: newState, staleDate: nil))
+                LALog("updateFocusOverrun ✅ activity id=\(activity.id)")
             }
         }
         call.resolve()

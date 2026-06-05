@@ -3,8 +3,8 @@ import { Link } from "react-router-dom";
 import { ChevronLeft } from "lucide-react";
 
 export const LegalLayout = ({ title, children }: { title: string; children: ReactNode }) => (
-  <div className="min-h-screen w-full bg-background flex justify-center">
-    <div className="w-full max-w-[520px] px-6 pt-10 pb-20">
+  <div className="h-full w-full bg-background overflow-y-auto touch-pan-y flex justify-center">
+    <div className="w-full max-w-[520px] px-6 pt-[var(--content-inset-top)]" style={{ paddingBottom: "calc(max(env(safe-area-inset-bottom), 20px) + 3rem + var(--keyboard-inset, 0px))" }}>
       <Link to="/settings" className="inline-flex items-center gap-1 text-[13px] text-secondary-fg hover:text-foreground pressable mb-8">
         <ChevronLeft className="h-4 w-4" /> Back
       </Link>

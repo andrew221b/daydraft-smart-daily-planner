@@ -170,7 +170,7 @@ export const SortableBlock = memo(({
   // On a read-only (past) row, only missed/skipped tasks expand — to reveal the
   // single allowed action, "Move to another day". Done/open rows stay static.
   const isFinished = !!block.completed || block.resolution === "missed" || block.resolution === "skipped";
-  const canExpand = isTask && !isOverlay && !isFinished;
+  const canExpand = isTask && !isOverlay && !isFinished && !readOnly;
 
   // Always top-align so grip/circle pin to the first text line regardless
   // of whether the title wraps to 2 lines (collapsed) or is fully expanded.
@@ -453,7 +453,7 @@ export const SortableBlock = memo(({
                 </button>
               )
             )}
-            {onCarryForward && (block.resolution === "missed" || block.resolution === "skipped") && (
+            {!readOnly && onCarryForward && (block.resolution === "missed" || block.resolution === "skipped") && (
               <button
                 type="button"
                 onPointerDown={(e) => e.stopPropagation()}

@@ -30,42 +30,46 @@ struct FocusLiveActivityWidget: Widget {
                         plannedEnd: plannedEnd,
                         blockId: ctx.attributes.blockId,
                         categoryName: ctx.state.categoryName,
-                        categoryColorHex: ctx.state.categoryColorHex
+                        categoryColorHex: ctx.state.categoryColorHex,
+                        isOverrun: ctx.state.isOverrun
                     )
                     .padding(.horizontal, 14)
                     .padding(.top, 0)
                     .padding(.bottom, 4)
                 }
             } compactLeading: {
-                Image(systemName: "scope")
+                let tint = ctx.state.isOverrun ? DD.red : DD.blue
+                Image(systemName: ctx.state.isOverrun ? "exclamationmark.circle.fill" : "scope")
                     .font(.system(size: 11, weight: .bold))
-                    .foregroundStyle(DD.blue)
+                    .foregroundStyle(tint)
                     .symbolEffect(.pulse, options: .repeating)
                     .padding(.leading, 6)
             } compactTrailing: {
-                if let end = plannedEnd {
+                let tint = ctx.state.isOverrun ? DD.red : DD.blue
+                if let end = plannedEnd, !ctx.state.isOverrun {
                     Text(timerInterval: ctx.state.startedAt...end, countsDown: true)
                         .font(.system(size: 11, weight: .semibold, design: .rounded))
                         .monospacedDigit()
-                        .foregroundStyle(DD.blue)
+                        .foregroundStyle(tint)
                         .frame(maxWidth: 40, alignment: .trailing)
                         .padding(.trailing, 6)
                 } else {
                     Text(ctx.state.startedAt, style: .timer)
                         .font(.system(size: 11, weight: .semibold, design: .rounded))
                         .monospacedDigit()
-                        .foregroundStyle(DD.blue)
+                        .foregroundStyle(tint)
                         .frame(maxWidth: 40, alignment: .trailing)
                         .padding(.trailing, 6)
                 }
             } minimal: {
-                Image(systemName: "scope")
+                let tint = ctx.state.isOverrun ? DD.red : DD.blue
+                Image(systemName: ctx.state.isOverrun ? "exclamationmark.circle.fill" : "scope")
                     .font(.system(size: 12, weight: .bold))
-                    .foregroundStyle(DD.blue)
+                    .foregroundStyle(tint)
                     .symbolEffect(.pulse, options: .repeating)
             }
             .widgetURL(ddFocusURL(ctx.attributes.blockId))
-            .keylineTint(DD.blue)
+            .keylineTint(ctx.state.isOverrun ? DD.red : DD.blue)
         }
     }
 }
@@ -79,16 +83,19 @@ private struct FocusCard: View {
     let blockId: String
     var categoryName: String? = nil
     var categoryColorHex: String? = nil
+    var isOverrun: Bool = false
 
     var body: some View {
+        // Tint flips blue → red the moment the planned duration is exceeded.
+        let tint = isOverrun ? DD.red : DD.blue
         // Slightly smaller hero than Tracker: the journey track + endpoints row
         // add height, so trim the timer to keep the whole card within the
         // Dynamic Island expanded budget.
         LiveActivityCard(
             title: taskTitle,
-            titleTint: DD.blue,
+            titleTint: tint,
             start: start,
-            timerTint: DD.blue,
+            timerTint: tint,
             heroFont: 28,
             spacing: 6
         ) {
@@ -101,7 +108,7 @@ private struct FocusCard: View {
                     if let catName = categoryName {
                         CategoryPill(name: catName, colorHex: categoryColorHex)
                     }
-                    JourneyTrack(start: start, end: end, tint: DD.blue)
+                    JourneyTrack(start: start, end: end, tint: tint)
                     HStack {
                         Text(start, style: .time)            // left: started
                         Spacer()
@@ -143,17 +150,19 @@ private struct FocusLockScreen: View {
     }
 
     var body: some View {
+        let isOverrun = ctx.state.isOverrun
         FocusCard(
             taskTitle: ctx.attributes.taskTitle,
             start: ctx.state.startedAt,
             plannedEnd: plannedEnd,
             blockId: ctx.attributes.blockId,
             categoryName: ctx.state.categoryName,
-            categoryColorHex: ctx.state.categoryColorHex
+            categoryColorHex: ctx.state.categoryColorHex,
+            isOverrun: isOverrun
         )
         .padding(.horizontal, 16)
         .padding(.vertical, 12)
         .frame(maxWidth: .infinity)
-        .background(GlowField(tint: DD.blue))
+        .background(GlowField(tint: isOverrun ? DD.red : DD.blue))
     }
 }
