@@ -212,6 +212,23 @@ export default function Settings() {
             onOpenDetails={!isPro ? () => setProSheetOpen(true) : undefined}
           />
 
+          <Section title="Developer">
+            <div className="rounded-[18px] border border-dashed border-primary/40 bg-primary/[0.03] px-4 py-3 space-y-2">
+              <div className="flex items-center justify-between gap-3">
+                <div>
+                  <div className="text-[14px] text-foreground font-medium">Developer Pro Override</div>
+                  <p className="text-[11px] text-secondary-fg mt-1 leading-relaxed">
+                    Unlocks all client-side Pro features and bypasses server-side AI quotas.
+                  </p>
+                </div>
+                <Switch
+                  checked={!!profile?.is_developer}
+                  onCheckedChange={(v) => update({ is_developer: v })}
+                />
+              </div>
+            </div>
+          </Section>
+
           {/* 2. Profile — name + appearance grouped */}
           <Section title="You">
             <div className="rounded-[18px] border border-border/35 hero-glass divide-y divide-border/35 overflow-hidden">

@@ -70,18 +70,7 @@ export function PerfDebugPanel({
             </Row>
           </Section>
 
-          <Section title="Entitlements">
-            <div className="flex items-center justify-between gap-3">
-              <span className="text-foreground">Developer Pro Override</span>
-              <Switch 
-                checked={!!profile?.is_developer} 
-                onCheckedChange={(v) => update({ is_developer: v })} 
-              />
-            </div>
-            <p className="text-[11px] text-secondary-fg mt-1">
-              Unlocks all client-side Pro features. Does NOT bypass edge function gating (requires header).
-            </p>
-          </Section>
+
 
           <Section title="AI calls">
             <Row label="Cache hit ratio">
