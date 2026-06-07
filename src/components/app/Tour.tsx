@@ -1,4 +1,4 @@
-import { createContext, useContext, useEffect, useState, useCallback, useMemo, ReactNode, useLayoutEffect, lazy, Suspense } from "react";
+import { createContext, useContext, useEffect, useState, useCallback, useMemo, ReactNode, useLayoutEffect, useRef, lazy, Suspense } from "react";
 import { createPortal } from "react-dom";
 import { useProfile } from "@/hooks/useProfile";
 
