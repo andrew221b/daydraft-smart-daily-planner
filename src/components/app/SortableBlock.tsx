@@ -569,6 +569,7 @@ export const SortableBlock = memo(({
                         cb?.(block);
                       }}
                       className={[
+                        `block-action-${id}-btn`,
                         "flex-1 rounded-xl py-2.5 inline-flex flex-col items-center gap-1 pressable transition-[border-color,background-color] duration-200",
                         "border shadow-sm",
                         destructive

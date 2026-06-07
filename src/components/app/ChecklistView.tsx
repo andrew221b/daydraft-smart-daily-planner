@@ -522,7 +522,7 @@ export const ChecklistView = forwardRef<ChecklistApi, ChecklistViewProps>(({
             haptics.tap();
             setAddingGroup(true);
           }}
-          className="w-full flex items-center justify-center gap-2 h-12 rounded-2xl border border-dashed text-[13px] font-semibold pressable transition-colors"
+          className="checklist-add-list-btn w-full flex items-center justify-center gap-2 h-12 rounded-2xl border border-dashed text-[13px] font-semibold pressable transition-colors"
           style={{
             color: "hsl(var(--accent))",
             borderColor: "hsl(var(--accent) / 0.45)",

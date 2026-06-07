@@ -3,6 +3,8 @@ import { Sheet, SheetContent, SheetHeader, SheetTitle, SheetDescription } from "
 import { Button } from "@/components/ui/button";
 import { getPerfSnapshot, resetPerfSnapshot, type PerfBucket } from "@/lib/perfMonitor";
 import { invalidateAiCache } from "@/lib/aiCache";
+import { useProfile } from "@/hooks/useProfile";
+import { Switch } from "@/components/ui/switch";
 
 /**
  * Hidden developer panel — opened by tapping the app version label 10 times
@@ -27,6 +29,7 @@ export function PerfDebugPanel({
 }) {
   const [snapshot, setSnapshot] = useState(() => getPerfSnapshot());
   const [tick, setTick] = useState(0);
+  const { profile, update } = useProfile();
 
   // Refresh once a second while the panel is open. We deliberately avoid
   // mounting an interval when closed so the panel has zero cost in normal
@@ -65,6 +68,19 @@ export function PerfDebugPanel({
                 {snapshot.tti != null ? `${Math.round(snapshot.tti)} ms` : "—"}
               </Value>
             </Row>
+          </Section>
+
+          <Section title="Entitlements">
+            <div className="flex items-center justify-between gap-3">
+              <span className="text-foreground">Developer Pro Override</span>
+              <Switch 
+                checked={!!profile?.is_developer} 
+                onCheckedChange={(v) => update({ is_developer: v })} 
+              />
+            </div>
+            <p className="text-[11px] text-secondary-fg mt-1">
+              Unlocks all client-side Pro features. Does NOT bypass edge function gating (requires header).
+            </p>
           </Section>
 
           <Section title="AI calls">

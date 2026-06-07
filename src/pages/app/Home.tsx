@@ -1,12 +1,13 @@
 import { useEffect, useMemo, useState } from "react";
 import { keepPreviousData, useQuery, useQueryClient } from "@tanstack/react-query";
+import { toast } from "sonner";
 import { useLocation, useNavigate, useSearchParams } from "react-router-dom";
 import { HomeTrackerHero } from "@/components/app/HomeTrackerHero";
 import { PullToRefresh } from "@/components/app/PullToRefresh";
 import { YesterdayDebriefCard } from "@/components/app/YesterdayDebriefCard";
 import { useAuth } from "@/hooks/useAuth";
 import { useProfile } from "@/hooks/useProfile";
-import { useTour, TOUR_TODAY } from "@/components/app/Tour";
+import { useTour, TOUR_SANDBOX } from "@/components/app/Tour";
 import { todayDateStr, isUserTask, isOpenUserTask, isUserTaskDone, type Block } from "@/lib/daydraft";
 import { fetchPlanDashboard, planDashboardQueryKey } from "@/lib/planQueries";
 import { supabase } from "@/integrations/supabase/client";
@@ -51,10 +52,43 @@ export default function Home() {
 
   useEffect(() => {
     if (!profile?.onboarded) return;
-    if (profile.tour_seen && (profile.tour_seen as Record<string, unknown>).today) return;
-    const t = setTimeout(() => tour.start(TOUR_TODAY), 800);
+    if (tour.hasSeen("sandbox")) return;
+    const t = setTimeout(() => tour.start(TOUR_SANDBOX), 800);
     return () => clearTimeout(t);
-  }, [profile?.onboarded, profile?.tour_seen, tour]);
+  }, [profile?.onboarded, tour]);
+
+  useEffect(() => {
+    const handleClear = async () => {
+      if (!user) return;
+      const today = todayDateStr();
+      try {
+        const { data: plans } = await supabase.from("plans").select("id").eq("user_id", user.id).eq("date", today);
+        if (plans && plans.length > 0) {
+          const planIds = plans.map((p: any) => p.id);
+          await supabase.from("blocks").delete().in("plan_id", planIds);
+          await supabase.from("plans").delete().in("id", planIds);
+        }
+        await supabase.from("checklist_items").delete().eq("user_id", user.id).eq("plan_date", today);
+        await supabase.from("checklist_groups").delete().eq("user_id", user.id).eq("plan_date", today);
+        
+        const d = new Date();
+        const startOfToday = new Date(d.getFullYear(), d.getMonth(), d.getDate(), 0, 0, 0, 0).toISOString();
+        const endOfToday = new Date(d.getFullYear(), d.getMonth(), d.getDate(), 23, 59, 59, 999).toISOString();
+        await supabase.from("time_entries")
+          .delete()
+          .eq("user_id", user.id)
+          .gte("started_at", startOfToday)
+          .lte("started_at", endOfToday);
+        
+        queryClient.invalidateQueries();
+        toast.success("Sandbox data cleared");
+      } catch (e) {
+        console.error("Failed to clear sandbox data", e);
+      }
+    };
+    window.addEventListener("tour-sandbox-clear", handleClear);
+    return () => window.removeEventListener("tour-sandbox-clear", handleClear);
+  }, [user, queryClient]);
 
   // Pause the missed-block poll while this tab isn't on screen. Background
   // tabs in a native app don't keep hitting the network — this matches that
@@ -208,10 +242,10 @@ export default function Home() {
               layout
               transition={{ type: "spring", bounce: 0.2, duration: 0.6 }}
               className="mt-4 hero-glass border border-border/35 rounded-[28px] px-4 py-4 cursor-pointer tappable"
-              onClick={() => nav("/today")}
+              onClick={() => nav("/today?mode=timeline")}
               role="button"
               tabIndex={0}
-              onKeyDown={(e) => e.key === "Enter" && nav("/today")}
+              onKeyDown={(e) => e.key === "Enter" && nav("/today?mode=timeline")}
               aria-label="Open today's plan"
             >
               <div className="flex items-center justify-between mb-3">

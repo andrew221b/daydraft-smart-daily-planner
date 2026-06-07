@@ -19,7 +19,7 @@ import { getGatePref, verifyBiometric } from "@/lib/biometricGate";
 import { Sheet, SheetContent, SheetTitle } from "@/components/ui/sheet";
 import { PaymentMethodFields, type PaymentFieldsValue } from "@/components/app/PaymentMethodFields";
 import { categoryBillingToDraft } from "@/lib/categoryBilling";
-import { useTour, TOUR_REPORTS } from "@/components/app/Tour";
+import { useTour } from "@/components/app/Tour";
 
 // Recharts is its own ~100kB chunk. Lazy-load it so the Reports first paint
 // shows headline numbers + the per-day list while the chart streams in.
@@ -170,16 +170,7 @@ export default function Reports() {
   useTimeTrackerElapsed();
   const reportsTabVisible = useTabVisible();
 
-  // Per-page tutorial — only when Reports is the *active* tab (PersistentTabs
-  // keeps every tab mounted, so without this gate the timer would fire while the
-  // user is on another tab). Mirror Home's guards: onboarded + not already seen,
-  // with profile in deps so a slow cold-start profile load doesn't re-show it.
-  useEffect(() => {
-    if (!reportsTabVisible || !profile?.onboarded) return;
-    if ((profile.tour_seen as Record<string, unknown> | null)?.reports) return;
-    const t = setTimeout(() => tour.start(TOUR_REPORTS), 800);
-    return () => clearTimeout(t);
-  }, [reportsTabVisible, profile?.onboarded, profile?.tour_seen, tour]);
+  // removed TOUR_REPORTS auto-start
 
   const [period, setPeriod] = useState<Period>("week");
   const minDateStrVal = useMemo(() => {
@@ -663,7 +654,7 @@ export default function Reports() {
           grid so the slide hits each pill exactly.
         */}
         <div
-          className="shrink-0 mb-5 relative isolate grid grid-cols-4 p-1 rounded-2xl surface-soft border border-soft self-start w-full max-w-[280px]"
+          className="reports-period-tabs shrink-0 mb-5 relative isolate grid grid-cols-4 p-1 rounded-2xl surface-soft border border-soft self-start w-full max-w-[280px]"
           role="tablist"
         >
           {(["day", "week", "month", "custom"] as Period[]).map((p) => (

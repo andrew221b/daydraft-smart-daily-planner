@@ -25,7 +25,7 @@ import { enablePush, disablePush, pushAvailability, pushAvailabilityCopy } from 
 import { getNotificationsEnabled, setNotificationsEnabled } from "@/lib/localNotifications";
 import { supabase } from "@/integrations/supabase/client";
 import { triggerDownload } from "@/lib/reportExport";
-import { useTour, TOUR_TODAY } from "@/components/app/Tour";
+import { useTour, TOUR_SANDBOX } from "@/components/app/Tour";
 import { VisualMode, useVisualMode } from "@/lib/visualMode";
 import { PerfDebugPanel } from "@/components/app/PerfDebugPanel";
 
@@ -221,7 +221,7 @@ export default function Settings() {
                   <DebouncedInput maxLength={50} value={name} onDebouncedChange={setName} onBlur={() => update({ display_name: name })} className="bg-card/45 h-9 rounded-lg border-border/45 text-[14px]" />
                 </div>
               </div>
-              <div className="px-4 py-3">
+              <div className="settings-appearance px-4 py-3">
                 <div className="text-[11px] text-secondary-fg mb-2">Appearance</div>
                 <ThemeToggle />
                 <div className="mt-3">
@@ -421,9 +421,9 @@ export default function Settings() {
                 onClick={async () => {
                   await tour.resetAll();
                   nav("/home");
-                  setTimeout(() => tour.start(TOUR_TODAY, { force: true }), 400);
+                  setTimeout(() => tour.start(TOUR_SANDBOX, { force: true }), 400);
                 }}
-                className="w-full flex items-center gap-3 px-4 py-3 ios-row"
+                className="settings-replay-btn w-full flex items-center gap-3 px-4 py-3 ios-row"
               >
                 <HelpCircle className="h-4 w-4 text-secondary-fg" />
                 <span className="text-[14px] flex-1 text-left">Replay tutorial</span>

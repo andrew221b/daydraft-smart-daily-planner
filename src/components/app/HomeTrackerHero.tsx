@@ -111,6 +111,64 @@ const emptyPaymentDetails: PaymentDetailsDraft = {
   notes: "",
 };
 
+function NewCategoryForm({
+  focusNewCategory,
+  categoriesLength,
+  addingCategory,
+  onAdd
+}: {
+  focusNewCategory: boolean;
+  categoriesLength: number;
+  addingCategory: boolean;
+  onAdd: (name: string) => void;
+}) {
+  const [name, setName] = useState("");
+  const inputRef = useRef<HTMLInputElement>(null);
+
+  // Auto-focus when the user clicks "New category" elsewhere.
+  // Delay by 120ms to allow the sheet/drawer to animate open before focusing.
+  useEffect(() => {
+    if (categoriesLength === 0 || focusNewCategory) {
+      const id = window.setTimeout(() => inputRef.current?.focus(), 120);
+      return () => window.clearTimeout(id);
+    }
+  }, [categoriesLength, focusNewCategory]);
+
+  const handleSubmit = (e: React.FormEvent) => {
+    e.preventDefault();
+    const trimmed = name.trim();
+    if (!trimmed || addingCategory) return;
+    onAdd(trimmed);
+    setName("");
+  };
+
+  return (
+    <form onSubmit={handleSubmit} className="border-t border-border/35 px-5 py-4 shrink-0">
+      <div className="flex items-center gap-2 rounded-2xl border border-dashed border-border/45 bg-card/35 px-3 py-2.5">
+        <Plus className="h-4 w-4 text-secondary-fg shrink-0" />
+        <input
+          ref={inputRef}
+          value={name}
+          onChange={(event) => setName(event.target.value)}
+          placeholder="New category name"
+          className="min-w-0 flex-1 bg-transparent text-[14px] text-foreground outline-none placeholder:text-secondary-fg/65"
+          style={{ fontSize: 16 }}
+        />
+        {name.trim() && (
+          <button
+            type="submit"
+            disabled={addingCategory}
+            className="inline-flex items-center gap-1 rounded-xl bg-primary px-3 py-1.5 text-[12px] font-semibold text-primary-foreground pressable disabled:opacity-60"
+          >
+            <Check className="h-3 w-3" />
+            Add
+          </button>
+        )}
+      </div>
+    </form>
+  );
+}
+
 export function HomeTrackerHero({ onOpenDetails }: { onOpenDetails: () => void }) {
   const { isPro } = useEntitlement();
   const {
@@ -130,10 +188,8 @@ export function HomeTrackerHero({ onOpenDetails }: { onOpenDetails: () => void }
   const [pickerOpen, setPickerOpen] = useState(false);
   const [selectedCategoryId, setSelectedCategoryId] = useState<string | null>(null);
   const [categoryQuery, setCategoryQuery] = useState("");
-  const [newCategoryName, setNewCategoryName] = useState("");
   const [addingCategory, setAddingCategory] = useState(false);
   const [focusNewCategory, setFocusNewCategory] = useState(false);
-  const newCategoryInputRef = useRef<HTMLInputElement | null>(null);
   const [draftRate, setDraftRate] = useState("");
   const [billingOpen, setBillingOpen] = useState(false);
   const [billingExpanded, setBillingExpanded] = useState(false);
@@ -170,11 +226,7 @@ export function HomeTrackerHero({ onOpenDetails }: { onOpenDetails: () => void }
     return categories.filter((c) => c.name.toLowerCase().includes(q));
   }, [categories, categoryQuery]);
 
-  useEffect(() => {
-    if (!pickerOpen || !focusNewCategory) return;
-    const id = window.setTimeout(() => newCategoryInputRef.current?.focus(), 120);
-    return () => window.clearTimeout(id);
-  }, [pickerOpen, focusNewCategory]);
+
 
   useEffect(() => {
     if (active?.category_id) {
@@ -307,7 +359,6 @@ export function HomeTrackerHero({ onOpenDetails }: { onOpenDetails: () => void }
     setFocusNewCategory(!!opts?.focusAdd);
     if (opts?.focusAdd) {
       setCategoryQuery("");
-      setNewCategoryName("");
     }
   };
 
@@ -320,16 +371,12 @@ export function HomeTrackerHero({ onOpenDetails }: { onOpenDetails: () => void }
     setSelectedCategoryId(id);
   };
 
-  const handleAddCategory = async (event: FormEvent<HTMLFormElement>) => {
-    event.preventDefault();
-    const name = newCategoryName.trim();
-    if (!name || addingCategory) return;
+  const handleAddCategory = async (name: string) => {
     setAddingCategory(true);
     try {
       const cat = await addCategory(name);
       if (cat) {
         setSelectedCategoryId(cat.id);
-        setNewCategoryName("");
         setCategoryQuery("");
       }
     } finally {
@@ -396,7 +443,7 @@ export function HomeTrackerHero({ onOpenDetails }: { onOpenDetails: () => void }
               <button
                 type="button"
                 onClick={() => { haptics.impact("medium"); void stop(); }}
-                className="mt-4 inline-flex items-center gap-2 rounded-full bg-foreground text-background px-7 py-3 text-[14px] font-semibold pressable shadow-[0_8px_22px_-12px_rgba(0,0,0,0.45)]"
+                className="tracker-stop-btn mt-4 inline-flex items-center gap-2 rounded-full text-white px-7 py-3 text-[14px] font-semibold pressable btn-volumetric-danger"
               >
                 <Square className="h-3.5 w-3.5" fill="currentColor" />
                 Stop
@@ -434,7 +481,7 @@ export function HomeTrackerHero({ onOpenDetails }: { onOpenDetails: () => void }
                   haptics.tap();
                   openCategoryPicker();
                 }}
-                className="gleam mt-4 inline-flex items-center gap-2 rounded-full text-primary-foreground px-8 py-3.5 text-[14px] font-semibold pressable btn-volumetric"
+                className="tracker-start-btn gleam mt-4 inline-flex items-center gap-2 rounded-full text-primary-foreground px-8 py-3.5 text-[14px] font-semibold pressable btn-volumetric"
               >
                 <Play className="h-3.5 w-3.5" fill="currentColor" />
                 Start tracking
@@ -651,10 +698,6 @@ export function HomeTrackerHero({ onOpenDetails }: { onOpenDetails: () => void }
         }}
       >
         <SheetContent side="bottom" className="rounded-t-[28px] p-0 max-h-[84vh] flex flex-col bg-popover backdrop-blur-xl border-border/45">
-          {/* Drag handle */}
-          <div className="shrink-0 flex justify-center pt-3 pb-1">
-            <div className="h-1 w-10 rounded-full bg-foreground/20" />
-          </div>
           <div className="flex flex-col flex-1 min-h-0">
             <div className="px-5 pt-3 pb-4 border-b border-border/35 shrink-0">
               <SheetTitle className="font-display text-[20px] font-semibold tracking-tight">
@@ -787,30 +830,12 @@ export function HomeTrackerHero({ onOpenDetails }: { onOpenDetails: () => void }
               )}
             </div>
 
-            <form onSubmit={handleAddCategory} className="border-t border-border/35 px-5 py-4 shrink-0" style={{ paddingBottom: "max(16px, calc(env(safe-area-inset-bottom) + 16px))" }}>
-              <div className="flex items-center gap-2 rounded-2xl border border-dashed border-border/45 bg-card/35 px-3 py-2.5">
-                <Plus className="h-4 w-4 text-secondary-fg shrink-0" />
-                <input
-                  ref={newCategoryInputRef}
-                  value={newCategoryName}
-                  onChange={(event) => setNewCategoryName(event.target.value)}
-                  placeholder="New category name"
-                  className="min-w-0 flex-1 bg-transparent text-[14px] text-foreground outline-none placeholder:text-secondary-fg/65"
-                  autoFocus={categories.length === 0 || focusNewCategory}
-                  style={{ fontSize: 16 }}
-                />
-                {newCategoryName.trim() && (
-                  <button
-                    type="submit"
-                    disabled={addingCategory}
-                    className="inline-flex items-center gap-1 rounded-xl bg-primary px-3 py-1.5 text-[12px] font-semibold text-primary-foreground pressable disabled:opacity-60"
-                  >
-                    <Check className="h-3 w-3" />
-                    Add
-                  </button>
-                )}
-              </div>
-            </form>
+            <NewCategoryForm 
+              focusNewCategory={focusNewCategory}
+              categoriesLength={categories.length}
+              addingCategory={addingCategory}
+              onAdd={handleAddCategory}
+            />
           </div>
         </SheetContent>
       </Sheet>

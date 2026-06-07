@@ -86,7 +86,7 @@ const SheetContent = React.forwardRef<React.ElementRef<typeof SheetPrimitive.Con
     const kbStyle: React.CSSProperties =
       side === "bottom"
         ? {
-            paddingBottom: "calc(24px + max(env(safe-area-inset-bottom), 0px) + var(--keyboard-inset, 0px))",
+            paddingBottom: "max(calc(24px + env(safe-area-inset-bottom)), calc(var(--keyboard-inset, 0px) + 12px))",
             transition: "padding-bottom 220ms cubic-bezier(0.32, 0.72, 0, 1)",
           }
         : {};

@@ -18,7 +18,7 @@ import {
   GripVertical,
   Loader2,
 } from "lucide-react";
-import { AnimatePresence, motion } from "framer-motion";
+import { AnimatePresence, motion, PresenceContext } from "framer-motion";
 import { enablePush, pushSupported } from "@/lib/push";
 import { supabase } from "@/integrations/supabase/client";
 import { haptics } from "@/lib/haptics";
@@ -221,33 +221,35 @@ export default function Onboarding() {
               initial={{ opacity: 0, y: 12 }}
               animate={{ opacity: 1, y: 0 }}
               exit={{ opacity: 0 }}
-              transition={{ duration: 0.36, ease: [0.22, 1, 0.36, 1] }}
+              transition={{ duration: 0.1, ease: "easeOut" }}
             >
-              {step === 0 && (
-                <WelcomeSetupStep
-                  aiAbout={aiAbout}
-                  onAiAbout={setAiAbout}
-                  onContinue={() => goTo(1)}
-                  disabled={finishing}
-                />
-              )}
-            {step === 1 && (
-              <FeaturesShowcaseStep
-                onContinue={() => goTo(2)}
-                disabled={finishing}
-              />
-            )}
-            {step === 2 && (
-              <PaywallStep
-                plan={plan}
-                onPlan={setPlan}
-                onCheckout={tryCheckout}
-                onSkip={() => finish(false)}
-                onBack={() => goTo(1)}
-                busyCheckout={busyCheckout}
-                finishing={finishing}
-              />
-            )}
+              <PresenceContext.Provider value={null}>
+                {step === 0 && (
+                  <WelcomeSetupStep
+                    aiAbout={aiAbout}
+                    onAiAbout={setAiAbout}
+                    onContinue={() => goTo(1)}
+                    disabled={finishing}
+                  />
+                )}
+                {step === 1 && (
+                  <FeaturesShowcaseStep
+                    onContinue={() => goTo(2)}
+                    disabled={finishing}
+                  />
+                )}
+                {step === 2 && (
+                  <PaywallStep
+                    plan={plan}
+                    onPlan={setPlan}
+                    onCheckout={tryCheckout}
+                    onSkip={() => finish(false)}
+                    onBack={() => goTo(1)}
+                    busyCheckout={busyCheckout}
+                    finishing={finishing}
+                  />
+                )}
+              </PresenceContext.Provider>
             </motion.div>
           </AnimatePresence>
         </div>
@@ -944,7 +946,7 @@ function PlanShowcase({ switchAt = 4.0 }: { switchAt?: number }) {
       </motion.div>
 
       {/* Fixed-height stage so the tracker below never jumps as layers swap. */}
-      <div className="relative mt-3.5 h-[188px]">
+      <div className="relative mt-3.5 h-[164px]">
         <AnimatePresence>
           {mode === "timeline" ? (
             <motion.div
@@ -995,12 +997,11 @@ function FeaturesShowcaseStep({
 }) {
   const BASE_ELAPSED = 5432;
 
-  // Top-to-bottom choreography: the pill + timeline cards land first (handled
-  // inside PlanShowcase), the tracker rises just after, then — once everything
-  // is static — the switcher flips to Checklist as the closing delight beat.
+  // Top-to-bottom choreography: the pill + timeline cards land first,
+  // the tracker rises just after, then the switcher flips to Checklist.
   const T_TIMER  = 0.95;
   const T_BUTTON = 1.25;
-  const T_SWITCH = 4.0; // seconds (after first paint) before the pill morphs Timeline → Checklist
+  const T_SWITCH = 4.0; // seconds before morph
 
   return (
     <div className="flex-1 flex flex-col">

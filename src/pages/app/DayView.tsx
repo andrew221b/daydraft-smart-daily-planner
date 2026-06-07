@@ -39,7 +39,7 @@ import {
 import { useProfile } from "@/hooks/useProfile";
 import { getTone, t as toneCopy } from "@/lib/tone";
 import { toast } from "sonner";
-import { useTour, TOUR_DAYVIEW } from "@/components/app/Tour";
+import { useTour } from "@/components/app/Tour";
 import { haptics } from "@/lib/haptics";
 import { SkeletonBlock } from "@/components/app/SkeletonBlock";
 import { scheduleBlockReminders, ensureNotificationPermission, clearScheduledReminders, getReminderConfig, setReminderConfig, ReminderConfig } from "@/lib/blockReminders";
@@ -156,6 +156,8 @@ type BulkRow = {
   overlap_ok?: boolean;
   parallel_group_id?: string | null;
 };
+
+const EMPTY_BLOCKS: ExBlock[] = [];
 
 // Resolved/locked tasks (done, skipped, missed, calendar) always stay at the
 // top of the list — regardless of their start_time vs active tasks. Within
@@ -299,6 +301,9 @@ export default function DayView() {
   const isPast = !isToday && !isFuture;
   // True once `blocks` state matches the day on screen (see loadedBlocksDate).
   const blocksMatchView = loadedBlocksDate === viewDate;
+  // If we're transitioning between days and the new data hasn't synced into state yet,
+  // we must NOT render the old day's blocks. This prevents visual tearing/jumping.
+  const displayBlocks = blocksMatchView ? blocks : EMPTY_BLOCKS;
   // Plan view mode — Timeline (the timed plan) vs Checklist (untimed, parallel,
   // fully isolated). Always defaults to Timeline on mount so the app never
   // opens into the checklist and leaves the user wondering where their plan is.
@@ -409,7 +414,9 @@ export default function DayView() {
 
   useEffect(() => {
     if (searchParams.get("composer") === "1") setComposerOpen(true);
-    if (searchParams.get("mode") === "checklist") setPlanViewMode("checklist");
+    const mode = searchParams.get("mode");
+    if (mode === "checklist") setPlanViewMode("checklist");
+    else if (mode === "timeline") setPlanViewMode("timeline");
   }, [searchParams]);
 
   const tomorrowDate = shiftDate(viewDate, 1);
@@ -597,19 +604,7 @@ export default function DayView() {
   );
 
   // Per-page tutorial — fires only when Plan is the *active* tab (PersistentTabs
-  // keeps tabs mounted, so without the visibility gate the timer would pop on a
-  // tab the user has navigated away from). Also requires a spotlight target to
-  // exist (`spotlightId`) — otherwise the tour would start and silently auto-skip
-  // because `[data-tour='dayview-block']` never renders. Mirrors Home's guards.
-  useEffect(() => {
-    if (tourFired || !dayTabVisible || blocks.length === 0 || !spotlightId) return;
-    if (!profile?.onboarded) return;
-    if ((profile.tour_seen as Record<string, unknown> | null)?.dayview) return;
-    setTourFired(true);
-    const t = setTimeout(() => tour.start(TOUR_DAYVIEW), 800);
-    return () => clearTimeout(t);
-  // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [tourFired, blocks.length, dayTabVisible, profile?.onboarded, profile?.tour_seen]);
+  // removed TOUR_DAYVIEW auto-start
 
   // `now` only drives the "is this block currently running?" highlight on
   // the timeline — there's no point ticking it while DayView's tab isn't
@@ -617,10 +612,39 @@ export default function DayView() {
   // sleep until the user comes back.
   useEffect(() => {
     if (!dayTabVisible) return;
-    setNow(new Date()); // re-sync on return so the highlight is fresh
-    setAnchorDate(todayDateStr()); // pick up a real day change only on tab return
+    
+    const syncTime = () => {
+      setNow(new Date()); // re-sync so the highlight is fresh
+      setAnchorDate(todayDateStr()); // pick up a real day change on resume
+    };
+    
+    syncTime();
     const t = setInterval(() => setNow(new Date()), 60000);
-    return () => clearInterval(t);
+    
+    // Catch when user returns from the background or unlocks their phone.
+    // If the date rolled over during sleep, anchorDate updates immediately
+    // so the new day renders instantly instead of lingering on stale data.
+    const handleVis = () => {
+      if (document.visibilityState === "visible") syncTime();
+    };
+    document.addEventListener("visibilitychange", handleVis);
+    
+    let nativeListener: Promise<{ remove: () => void }> | null = null;
+    if (Capacitor.isNativePlatform()) {
+      import("@capacitor/app").then(({ App }) => {
+        nativeListener = App.addListener("appStateChange", ({ isActive }) => {
+          if (isActive) syncTime();
+        });
+      });
+    }
+
+    return () => {
+      clearInterval(t);
+      document.removeEventListener("visibilitychange", handleVis);
+      if (nativeListener) {
+        void nativeListener.then((l) => l.remove());
+      }
+    };
   }, [dayTabVisible]);
 
   const [showAllDone, setShowAllDone] = useState(false);
@@ -628,12 +652,16 @@ export default function DayView() {
   const prevIsAllDoneRef = useRef<boolean | null>(null);
   
   useEffect(() => {
-    const totalTasks = blocks.filter(isUserTask).length;
-    const firstUnfinishedTask = blocks.find((b) => isUserTask(b) && isOpenUserTask(b));
-    const isAllDone = !planMissing && !isFuture && !firstUnfinishedTask && totalTasks > 0;
+    const userTasks = displayBlocks.filter((b) => isUserTask(b) && !b.is_calendar_event);
+    const totalTasks = userTasks.length;
+    const doneTasksCount = userTasks.filter((b) => isUserTaskDone(b)).length;
+    
+    // Only "All done" if every timeline task is explicitly completed (green status).
+    // Missed or skipped tasks do not trigger the success banner.
+    const isAllDone = !planMissing && !isFuture && totalTasks > 0 && doneTasksCount === totalTasks;
     
     // Only trigger the animation if we transition from NOT all done to ALL done.
-    if (prevIsAllDoneRef.current === false && isAllDone && dayTabVisible) {
+    if (prevIsAllDoneRef.current === false && isAllDone && dayTabVisible && planViewMode === "timeline") {
       setShowAllDone(true);
       setTimeout(() => {
         setShowAllDone(false);
@@ -646,7 +674,7 @@ export default function DayView() {
     }
 
     prevIsAllDoneRef.current = isAllDone;
-  }, [dayTabVisible, blocks, planMissing, isFuture, showAllDone]);
+  }, [dayTabVisible, displayBlocks, planMissing, isFuture, showAllDone, planViewMode]);
 
   // Drop localStorage tracker-category records for blocks that no longer
   // exist (deleted from a different device, plan reset, etc).
@@ -1993,15 +2021,15 @@ export default function DayView() {
   };
 
 
-  const firstUnfinishedTask = blocks.find((b) => isUserTask(b) && isOpenUserTask(b));
-  const userTasks = blocks.filter(isUserTask);
+  const firstUnfinishedTask = displayBlocks.find((b) => isUserTask(b) && isOpenUserTask(b));
+  const userTasks = displayBlocks.filter(isUserTask);
   const totalTasks = userTasks.length;
   const doneTasks = userTasks.filter((b) => isUserTaskDone(b)).length;
   // Missed = never started (resolution "missed").
   // Skipped = user explicitly skipped. Both can be moved to another day.
   const movableTasks = useMemo(
     () =>
-      blocks.filter(
+      displayBlocks.filter(
         (b) =>
           isUserTask(b) &&
           !b.is_calendar_event &&
@@ -2010,14 +2038,14 @@ export default function DayView() {
           !(b as ExBlock).moved_to_date &&
           ((b as ExBlock).resolution === "missed" || (b as ExBlock).resolution === "skipped"),
       ),
-    [blocks],
+    [displayBlocks],
   );
   // Keep alias for any existing references below.
   const missedTasks = movableTasks;
 
   const spotlightId = useMemo(
-    () => blocks.find((b) => isUserTask(b) && isOpenUserTask(b) && !b.is_calendar_event)?.id,
-    [blocks],
+    () => displayBlocks.find((b) => isUserTask(b) && isOpenUserTask(b) && !b.is_calendar_event)?.id,
+    [displayBlocks],
   );
 
   // ── Render-perf memoization for the block list ──────────────────────────
@@ -2163,7 +2191,7 @@ export default function DayView() {
           {((planViewMode === "timeline" && !planMissing) || (planViewMode === "checklist" && (checklistCounts.total > 0 || checklistCounts.groups > 0))) && (
             <button
               onClick={() => setMoreOpen(true)}
-              className="h-10 w-10 shrink-0 rounded-full flex items-center justify-center text-secondary-fg/90 pressable"
+              className="more-menu-btn h-10 w-10 shrink-0 rounded-full flex items-center justify-center text-secondary-fg/90 pressable"
               aria-label="More"
             >
               <MoreHorizontal className="h-5 w-5" />
@@ -2231,7 +2259,7 @@ export default function DayView() {
             `blocksMatchView` keeps it from flashing the previous day's count
             during a day-switch transition (one stale paint of `blocks`). */}
         <AnimatePresence>
-          {!planMissing && !isFuture && blocksMatchView && movableTasks.length > 0 && (
+          {!planMissing && !isFuture && movableTasks.length > 0 && (
             <motion.button
               key="carry-banner"
               type="button"
@@ -2294,7 +2322,7 @@ export default function DayView() {
                 <button
                   type="button"
                   onClick={() => setComposerOpen(true)}
-                  className="btn-volumetric pressable inline-flex items-center justify-center gap-2 w-full h-12 rounded-[18px] text-primary-foreground text-[14px] font-semibold"
+                  className="add-tasks-btn btn-volumetric pressable inline-flex items-center justify-center gap-2 w-full h-12 rounded-[18px] text-primary-foreground text-[14px] font-semibold"
                 >
                   <ListPlus className="h-4 w-4" /> Add tasks
                 </button>
@@ -2317,8 +2345,8 @@ export default function DayView() {
 
         {!planMissing && (
           <>
-            {loading && blocks.length === 0 && <SkeletonBlock count={4} />}
-            {(!loading || blocks.length > 0) && (
+            {((loading && displayBlocks.length === 0) || !blocksMatchView) && <SkeletonBlock count={4} />}
+            {(blocksMatchView && displayBlocks.length > 0) && (
               <DndContext
                 sensors={sensors}
                 collisionDetection={closestCenter}
@@ -2328,7 +2356,7 @@ export default function DayView() {
               >
                 <SortableContext items={blockIds} strategy={verticalListSortingStrategy}>
                   <div className={`touch-pan-y space-y-2.5 mt-4 ${introPlayed ? "" : "enter-stagger"}`}>
-                    {blocks.map((b) => {
+                    {displayBlocks.map((b) => {
                       // Working set is break-free (filtered on load), so every row
                       // is a real card. Lunch renders as a normal rest card.
                       const assignedId = getAssignedCategoryId(b.id);
@@ -2401,7 +2429,7 @@ export default function DayView() {
                 <button
                   onClick={() => setComposerOpen(true)}
                   disabled={planMutating}
-                  className="btn-volumetric pressable inline-flex items-center justify-center gap-1.5 text-[12.5px] font-semibold text-primary-foreground rounded-2xl h-11"
+                  className="add-tasks-btn btn-volumetric pressable inline-flex items-center justify-center gap-1.5 text-[12.5px] font-semibold text-primary-foreground rounded-2xl h-11"
                 >
                   <ListPlus className="h-3.5 w-3.5" /> Add tasks
                 </button>
@@ -2451,7 +2479,7 @@ export default function DayView() {
 
       {/* Header "more" sheet — Re-plan, Delete plan */}
       <Sheet open={moreOpen} onOpenChange={setMoreOpen}>
-        <SheetContent side="bottom" className="rounded-t-[28px] border-border/45 bg-popover" hideClose>
+        <SheetContent side="bottom" className="more-menu-content rounded-t-[28px] border-border/45 bg-popover" hideClose>
           <SheetHeader className="text-left mb-3">
             <SheetTitle className="text-[16px]">Plan options</SheetTitle>
           </SheetHeader>
@@ -3497,6 +3525,7 @@ const PlanModePill = ({ mode, onChange, openCount }: { mode: "timeline" | "check
       </button>
       <button
         type="button"
+        data-tour="checklist-pill"
         onClick={() => { haptics.selection(); onChange("checklist"); }}
         className={`relative z-10 flex items-center justify-center gap-1.5 text-[13px] font-semibold rounded-xl transition-colors ${mode === "checklist" ? "text-white" : "text-secondary-fg/70"}`}
       >

@@ -366,13 +366,13 @@ export async function downloadReportPdf(report: ReportPayload) {
   // Editorial light theme. Single accent (indigo) + emerald for money.
   // Everything else lives on a tight neutral ramp so totals + numbers do
   // the visual heavy lifting.
-  const ink: RGB         = [17, 20, 32];     // headlines, primary values
+  const ink: RGB         = [12, 14, 20];     // darker, richer charcoal
   const body: RGB        = [50, 55, 70];     // body copy
   const sub: RGB         = [115, 120, 138];  // labels, captions
   const faint: RGB       = [180, 184, 200];  // page-number, hairlines
-  const hairline: RGB    = [228, 231, 240];  // row separators, dividers
-  const soft: RGB        = [248, 249, 252];  // alternating rows
-  const cardBorder: RGB  = [225, 228, 240];  // stat-card outline
+  const hairline: RGB    = [235, 238, 245];  // softer row separators
+  const soft: RGB        = [248, 250, 254];  // premium alternating rows tint
+  const cardFill: RGB    = [246, 248, 253];  // soft filled cards
   const accent: RGB      = [99, 102, 241];   // indigo-500
   const accentSoft: RGB  = [139, 92, 246];   // violet-500 (second card)
   const success: RGB     = [16, 185, 129];   // emerald-500 (earnings)
@@ -462,18 +462,15 @@ export async function downloadReportPdf(report: ReportPayload) {
   const cardW = (usableW - gap * (cardCount - 1)) / cardCount;
 
   const drawCard = (x: number, label: string, value: string, dot: RGB) => {
-    // Card body — white fill + soft hairline border. Looks like a printed
-    // card stock rather than the heavier filled-grey blocks.
-    doc.setFillColor(...white);
-    doc.setDrawColor(...cardBorder);
-    doc.setLineWidth(0.8);
-    doc.roundedRect(x, cardsY, cardW, cardH, 14, 14, "FD");
+    // Card body — soft fill without border for premium clean look
+    doc.setFillColor(...cardFill);
+    doc.roundedRect(x, cardsY, cardW, cardH, 14, 14, "F");
     // Accent strip on the left edge — 3pt wide, full height.
     doc.setFillColor(...dot);
     doc.roundedRect(x, cardsY, 3, cardH, 1.5, 1.5, "F");
     // Label
     doc.setFont(FONT, "bold");
-    doc.setFontSize(7.5);
+    doc.setFontSize(8);
     doc.setTextColor(...sub);
     doc.text(label.toUpperCase(), x + 22, cardsY + 30, { charSpace: 1.8 });
     // Value — autoscale a touch for long monetary strings (CA$1,234.56).
@@ -514,8 +511,7 @@ export async function downloadReportPdf(report: ReportPayload) {
     // Bar background — slightly inset rounded rect.
     doc.setFillColor(...soft);
     doc.roundedRect(margin, cursorY, usableW, barH, 6, 6, "F");
-    // Segments left → right. Skip near-zero slices so a 0% category
-    // doesn't leave a smear of off-colour pixels at the join.
+    // Segments left → right.
     let segX = margin;
     for (const c of report.categories) {
       const segW = c.pct * usableW;
@@ -523,8 +519,21 @@ export async function downloadReportPdf(report: ReportPayload) {
       const [r, g, b] = hexToRgb(c.color || "#6366f1");
       doc.setFillColor(r, g, b);
       doc.rect(segX, cursorY, segW, barH, "F");
+      
+      // Draw white gap (1.5pt) to the left of the segment, unless it's the very first pixel
+      if (segX > margin + 1) {
+        doc.setFillColor(255, 255, 255);
+        doc.rect(segX - 0.75, cursorY, 1.5, barH, "F");
+      }
       segX += segW;
     }
+    
+    // White overlay frame to "clip" the overflowing segment corners back to the pill shape.
+    // We draw a thick white rounded rectangle stroke OVER the outer edge.
+    doc.setDrawColor(255, 255, 255);
+    doc.setLineWidth(3);
+    doc.roundedRect(margin - 1.5, cursorY - 1.5, usableW + 3, barH + 3, 7.5, 7.5, "S");
+    
     cursorY += barH + 20;
 
     // Legend grid — 3 columns on A4, wraps to additional rows. Each cell
@@ -609,7 +618,7 @@ export async function downloadReportPdf(report: ReportPayload) {
       styles: {
         font: FONT,
         fontSize: 9.5,
-        cellPadding: { top: 9, bottom: 9, left: 14, right: 14 },
+        cellPadding: { top: 11, bottom: 11, left: 14, right: 14 },
         textColor: body,
         lineColor: hairline,
         lineWidth: 0,
@@ -640,8 +649,8 @@ export async function downloadReportPdf(report: ReportPayload) {
     cursorY += 14;
 
     // Shared padding for both head and body so every row has the same rhythm.
-    const CP = { top: 10, bottom: 10, left: 10, right: 10 };
-    const HEAD_CP = { top: 7, bottom: 8, left: 10, right: 10 };
+    const CP = { top: 11, bottom: 11, left: 14, right: 14 };
+    const HEAD_CP = { top: 9, bottom: 10, left: 14, right: 14 };
     const headFill: RGB = [242, 244, 250];
 
     autoTable(doc, {
@@ -678,12 +687,12 @@ export async function downloadReportPdf(report: ReportPayload) {
       alternateRowStyles: { fillColor: soft },
       columnStyles: {
         // dot: tight, zero horizontal padding — circle drawn in didDrawCell
-        0: { cellWidth: 20, cellPadding: { top: 10, bottom: 10, left: 0, right: 4 } },
+        0: { cellWidth: 20, cellPadding: { top: 11, bottom: 11, left: 0, right: 4 } },
         1: { fontStyle: "bold", textColor: ink },
-        2: { halign: "right", cellWidth: 72, fontStyle: "bold" },
-        3: { halign: "right", cellWidth: 54, textColor: sub },
-        4: { halign: "right", cellWidth: 96, textColor: sub },
-        5: { halign: "right", cellWidth: 96, fontStyle: "bold" },
+        2: { halign: "right", cellWidth: 78, fontStyle: "bold" },
+        3: { halign: "right", cellWidth: 58, textColor: sub },
+        4: { halign: "right", cellWidth: 100, textColor: sub },
+        5: { halign: "right", cellWidth: 100, fontStyle: "bold" },
       },
       theme: "plain",
       didParseCell: (data) => {
@@ -753,7 +762,7 @@ export async function downloadReportPdf(report: ReportPayload) {
       styles: {
         font: FONT,
         fontSize: 9,
-        cellPadding: { top: 8, bottom: 8, left: 8, right: 8 },
+        cellPadding: { top: 11, bottom: 11, left: 14, right: 14 },
         textColor: body,
         lineColor: hairline,
         lineWidth: 0,
@@ -765,19 +774,19 @@ export async function downloadReportPdf(report: ReportPayload) {
         textColor: sub,
         fontStyle: "bold",
         fontSize: 9,        // ← matches body; right-aligned headers now share
-        cellPadding: { top: 6, bottom: 7, left: 8, right: 8 }, // same L/R as body
+        cellPadding: { top: 9, bottom: 10, left: 14, right: 14 }, // same L/R as body
         lineColor: hairline,
         lineWidth: 0,
       },
       alternateRowStyles: { fillColor: soft },
       columnStyles: {
-        0: { textColor: ink, fontStyle: "bold", cellWidth: 58 },
-        1: { textColor: sub, cellWidth: 46, halign: "right" },  // fits "10:30 AM"
-        2: { textColor: sub, cellWidth: 46, halign: "right" },
-        3: { textColor: ink, cellWidth: 72, overflow: "ellipsize" },
-        4: { textColor: ink, cellWidth: 96, overflow: "ellipsize" }, // Task title
-        5: { halign: "right", textColor: ink, fontStyle: "bold", cellWidth: 48 },
-        6: { halign: "right", textColor: ink, fontStyle: "bold", cellWidth: 74 },
+        0: { textColor: ink, fontStyle: "bold", cellWidth: 62 },
+        1: { textColor: sub, cellWidth: 54, halign: "right" },  // fits "10:30 AM"
+        2: { textColor: sub, cellWidth: 54, halign: "right" },
+        3: { textColor: ink, cellWidth: 78, overflow: "ellipsize" },
+        4: { textColor: ink, cellWidth: 100, overflow: "ellipsize" }, // Task title
+        5: { halign: "right", textColor: ink, fontStyle: "bold", cellWidth: 56 },
+        6: { halign: "right", textColor: ink, fontStyle: "bold", cellWidth: 80 },
         7: { textColor: sub, fontSize: 8.5 },
       },
       theme: "plain",

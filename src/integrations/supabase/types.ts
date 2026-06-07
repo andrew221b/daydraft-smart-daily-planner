@@ -353,6 +353,7 @@ export type Database = {
           notifications_enabled: boolean
           onboarded: boolean
           passkey_enabled: boolean
+          is_developer: boolean | null
           theme: string
           timezone: string
           tour_seen: Json
@@ -377,6 +378,7 @@ export type Database = {
           notifications_enabled?: boolean
           onboarded?: boolean
           passkey_enabled?: boolean
+          is_developer?: boolean | null
           theme?: string
           timezone?: string
           tour_seen?: Json
@@ -401,6 +403,7 @@ export type Database = {
           notifications_enabled?: boolean
           onboarded?: boolean
           passkey_enabled?: boolean
+          is_developer?: boolean | null
           theme?: string
           timezone?: string
           tour_seen?: Json

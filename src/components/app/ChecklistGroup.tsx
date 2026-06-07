@@ -242,7 +242,7 @@ export function AddItemRow({
         }}
         placeholder={placeholder}
         enterKeyHint="done"
-        className="flex-1 min-w-0 bg-transparent text-[14px] outline-none placeholder:text-secondary-fg/40"
+        className="checklist-add-item-input flex-1 min-w-0 bg-transparent text-[14px] outline-none placeholder:text-secondary-fg/40"
       />
       {draft.trim() && (
         <button

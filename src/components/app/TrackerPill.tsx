@@ -835,7 +835,7 @@ function TrackerInner({ embedded = false, onClose }: { embedded?: boolean; onClo
                     </div>
                     <button
                       onClick={handleStop}
-                      className="mt-1 btn-volumetric inline-flex items-center justify-center gap-2 h-11 px-6 rounded-full bg-primary text-primary-foreground text-[14px] font-semibold pressable shadow-card"
+                      className="tracker-stop-btn mt-1 btn-volumetric-danger inline-flex items-center justify-center gap-2 h-11 px-6 rounded-full text-white text-[14px] font-semibold pressable shadow-card"
                       aria-label="Stop"
                     >
                       <Pause className="h-3.5 w-3.5" fill="currentColor" /> Stop
@@ -1243,14 +1243,14 @@ function TrackerInner({ embedded = false, onClose }: { embedded?: boolean; onClo
                             if (isPro) openCategoryEditor(c);
                             else setUpgradeOpen(true);
                           }}
-                          className="p-1.5 text-secondary-fg hover:text-foreground pressable"
+                          className="category-edit-btn p-1.5 text-secondary-fg hover:text-foreground pressable"
                           aria-label={`Edit ${c.name}`}
                           title={isPro ? "Edit category" : "Rate & billing — Pro feature"}
                         >
                           {isPro ? <Pencil className="h-3.5 w-3.5" /> : <Lock className="h-3.5 w-3.5" />}
                         </button>
                         {isActive ? (
-                          <button disabled={stopBusy} onClick={handleStop} className="inline-flex items-center gap-1 h-9 px-3 rounded-lg bg-primary text-primary-foreground text-xs font-medium pressable disabled:opacity-50 disabled:pointer-events-none">
+                          <button disabled={stopBusy} onClick={handleStop} className="tracker-stop-btn inline-flex items-center gap-1 h-9 px-3 rounded-lg bg-destructive text-destructive-foreground text-xs font-medium pressable disabled:opacity-50 disabled:pointer-events-none">
                             <Pause className="h-3 w-3" fill="currentColor" /> Stop
                           </button>
                         ) : (
@@ -1288,7 +1288,7 @@ function TrackerInner({ embedded = false, onClose }: { embedded?: boolean; onClo
                                     setCategoryBusyId(null);
                                   }
                                 }}
-                                className="gleam btn-volumetric inline-flex items-center gap-1 h-9 px-3 rounded-lg text-primary-foreground text-xs font-medium pressable disabled:opacity-50 disabled:pointer-events-none"
+                                className="tracker-start-btn gleam btn-volumetric inline-flex items-center gap-1 h-9 px-3 rounded-lg text-primary-foreground text-xs font-medium pressable disabled:opacity-50 disabled:pointer-events-none"
                               >
                                 <Play className="h-3 w-3" fill="currentColor" /> Start
                               </button>

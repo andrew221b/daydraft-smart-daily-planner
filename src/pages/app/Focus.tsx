@@ -668,7 +668,7 @@ export default function Focus() {
           </div>
           <button
             onClick={complete}
-            className="mt-10 h-14 px-10 rounded-2xl bg-cyan-400 text-slate-950 font-semibold text-[17px] pressable shadow-[0_10px_40px_-12px_rgba(34,211,238,0.7)]"
+            className="focus-done-btn mt-10 h-14 px-10 rounded-2xl bg-cyan-400 text-slate-950 font-semibold text-[17px] pressable shadow-[0_10px_40px_-12px_rgba(34,211,238,0.7)]"
           >
             Done
           </button>
@@ -717,7 +717,7 @@ export default function Focus() {
         )}
 
         {/* Circular ring timer */}
-        <div className="relative mt-6 flex flex-col items-center">
+        <div className="focus-timer-ring relative mt-6 flex flex-col items-center">
           <div className="relative h-[240px] w-[240px] flex items-center justify-center" style={{ transformStyle: "preserve-3d" }}>
             {showCheck ? (
               <div className="absolute inset-0 flex items-center justify-center z-20">
@@ -819,7 +819,7 @@ export default function Focus() {
           <button
             type="button"
             onClick={() => void complete()}
-            className="w-full flex h-14 items-center justify-center gap-2 rounded-[18px] bg-primary text-[17px] font-semibold text-primary-foreground pressable shadow-[0_0_28px_-4px_hsl(var(--primary)/0.5)]"
+            className="focus-done-btn w-full flex h-14 items-center justify-center gap-2 rounded-[18px] bg-primary text-[17px] font-semibold text-primary-foreground pressable shadow-[0_0_28px_-4px_hsl(var(--primary)/0.5)]"
           >
             <Check className="h-5 w-5 shrink-0" strokeWidth={2.75} />
             Done

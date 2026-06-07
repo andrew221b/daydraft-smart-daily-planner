@@ -168,7 +168,7 @@ serve(async (req) => {
           authedUserId = u.user.id;
           const { data: profRow } = await supabase
             .from("profiles")
-            .select("ai_planning_rules, ai_context_custom")
+            .select("ai_planning_rules, ai_context_custom, is_developer")
             .eq("id", u.user.id)
             .maybeSingle();
           if (profRow?.ai_planning_rules) profilePlanningRules = String(profRow.ai_planning_rules).trim();
@@ -179,8 +179,8 @@ serve(async (req) => {
           pattern = p;
           // Pro: pull today's calendar events if connected
           const { data: sub } = await supabase.from("subscriptions").select("status").eq("user_id", u.user.id).maybeSingle();
-          const isPro = sub?.status === "active" || sub?.status === "trialing";
-          tier = sub?.status === "active"
+          const isPro = sub?.status === "active" || sub?.status === "trialing" || profRow?.is_developer === true;
+          tier = (sub?.status === "active" || profRow?.is_developer === true)
             ? "pro"
             : sub?.status === "trialing"
               ? "trial"
