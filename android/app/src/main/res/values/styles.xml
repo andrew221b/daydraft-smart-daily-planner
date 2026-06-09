@@ -13,6 +13,13 @@
         <item name="windowActionBar">false</item>
         <item name="windowNoTitle">true</item>
         <item name="android:background">@null</item>
+        <!-- Edge-to-edge: transparent system bars so WebView content draws behind them.
+             Capacitor's setOverlaysWebView() calls setDecorFitsSystemWindows(false) at
+             runtime, but the theme must also declare transparent colors so the OS
+             doesn't paint solid bars over the WebView on cold start / theme reload. -->
+        <item name="android:statusBarColor">@android:color/transparent</item>
+        <item name="android:navigationBarColor">@android:color/transparent</item>
+        <item name="android:windowDrawsSystemBarBackgrounds">true</item>
     </style>
 
 

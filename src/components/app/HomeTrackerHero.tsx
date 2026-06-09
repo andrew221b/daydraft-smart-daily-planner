@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useRef, useState, type CSSProperties, type FormEvent } from "react";
 import { motion } from "framer-motion";
 import { Check, Play, Square, Plus, Search, ChevronDown, Wallet, Pencil, Trash2, Lock } from "lucide-react";
+import { Callout } from "@/components/ui/callout";
 import { useTimeTracker, subscribeElapsed, getElapsedSec, fmtHMS, fmtHM } from "@/hooks/useTimeTracker";
 import { LiveElapsed } from "@/components/app/LiveElapsed";
 import { Sheet, SheetContent, SheetHeader, SheetTitle } from "@/components/ui/sheet";
@@ -143,7 +144,7 @@ function NewCategoryForm({
   };
 
   return (
-    <form onSubmit={handleSubmit} className="border-t border-border/35 px-5 py-4 shrink-0">
+    <form onSubmit={handleSubmit} className="border-t border-border/35 px-5 pt-4 shrink-0" style={{ paddingBottom: "max(env(safe-area-inset-bottom), 16px)" }}>
       <div className="flex items-center gap-2 rounded-2xl border border-dashed border-border/45 bg-card/35 px-3 py-2.5">
         <Plus className="h-4 w-4 text-secondary-fg shrink-0" />
         <input
@@ -205,9 +206,16 @@ export function HomeTrackerHero({ onOpenDetails }: { onOpenDetails: () => void }
   const [manageName, setManageName] = useState("");
   const [manageBusy, setManageBusy] = useState(false);
   const [confirmDeleteId, setConfirmDeleteId] = useState<string | null>(null);
+  const chipsScrollRef = useRef<HTMLDivElement>(null);
 
   const selectedCat = categories.find((c) => c.id === selectedCategoryId) || null;
   const savedRateStr = selectedCat?.hourly_rate == null ? "" : String(selectedCat.hourly_rate);
+
+  // Scroll chip row back to the start whenever selected category changes so
+  // the highlighted chip (always at position 0 in orderedCats) is immediately visible.
+  useEffect(() => {
+    chipsScrollRef.current?.scrollTo({ left: 0, behavior: "smooth" });
+  }, [selectedCategoryId]);
   const rateDirty = draftRate.replace(",", ".").trim() !== savedRateStr;
   const accent = activeCat?.color || selectedCat?.color || "hsl(var(--primary))";
   // Always put the selected category first so it stays visible even when
@@ -492,7 +500,7 @@ export function HomeTrackerHero({ onOpenDetails }: { onOpenDetails: () => void }
 
         {/* Quick category chips when idle */}
         {!active && topCats.length > 0 && (
-          <div className="mt-4 -mx-1 flex gap-1.5 overflow-x-auto pb-1 px-1 no-scrollbar">
+          <div ref={chipsScrollRef} className="mt-4 -mx-1 flex gap-1.5 overflow-x-auto pb-1 px-1 no-scrollbar">
             {topCats.map((c) => (
               <button
                 key={c.id}
@@ -651,7 +659,7 @@ export function HomeTrackerHero({ onOpenDetails }: { onOpenDetails: () => void }
                           <>
                             <span
                               className="flex h-7 w-7 shrink-0 items-center justify-center rounded-lg"
-                              style={{ background: `hsl(${m.accent} / 0.18)`, color: `hsl(${m.accent})` }}
+                              style={{ background: `hsl(${m.accent} / 0.28)`, color: `hsl(${m.accent})` }}
                             >
                               <Icon className="h-3.5 w-3.5" strokeWidth={2.4} />
                             </span>
@@ -660,7 +668,7 @@ export function HomeTrackerHero({ onOpenDetails }: { onOpenDetails: () => void }
                             </span>
                             <span
                               className="shrink-0 inline-flex items-center rounded-md px-1.5 py-0.5 text-[10.5px] font-semibold tabular-nums tracking-[0.04em]"
-                              style={{ background: `hsl(${m.accent} / 0.12)`, color: `hsl(${m.accent} / 0.9)` }}
+                              style={{ background: `hsl(${m.accent} / 0.18)`, color: `hsl(${m.accent} / 0.9)` }}
                             >
                               {cur}
                             </span>
@@ -697,7 +705,7 @@ export function HomeTrackerHero({ onOpenDetails }: { onOpenDetails: () => void }
           if (!open) setFocusNewCategory(false);
         }}
       >
-        <SheetContent side="bottom" className="rounded-t-[28px] p-0 max-h-[84vh] flex flex-col bg-popover backdrop-blur-xl border-border/45">
+        <SheetContent side="bottom" className="rounded-t-[28px] p-0 flex flex-col bg-popover border-border/45" style={{ maxHeight: "calc(84vh - var(--keyboard-inset, 0px))", transition: "max-height 220ms cubic-bezier(0.32,0.72,0,1)" }} onOpenAutoFocus={(e) => e.preventDefault()}>
           <div className="flex flex-col flex-1 min-h-0">
             <div className="px-5 pt-3 pb-4 border-b border-border/35 shrink-0">
               <SheetTitle className="font-display text-[20px] font-semibold tracking-tight">
@@ -856,9 +864,11 @@ export function HomeTrackerHero({ onOpenDetails }: { onOpenDetails: () => void }
                   {selectedCat?.name ?? "Category"}
                 </SheetTitle>
               </SheetHeader>
-              <p className="text-[12px] text-secondary-fg/85 mt-2 leading-relaxed">
-                Pick how this client pays you — only the relevant fields will appear. Use a payment link for cards, never raw card numbers.
-              </p>
+              <Callout variant="info" className="mt-3 py-2">
+                <p className="text-[12px] leading-relaxed">
+                  Select a payment method. Use a payment link for cards, never raw card numbers.
+                </p>
+              </Callout>
             </div>
 
             <div className="px-5 pb-6 space-y-4">

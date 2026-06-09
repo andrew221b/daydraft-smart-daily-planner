@@ -239,7 +239,7 @@ export const PAYMENT_METHODS: PaymentMethod[] = [
       {
         key: "notes",
         label: "Security Q & A",
-        placeholder: "Q: …\nA: …\n\nLeave blank if your account auto-deposits.",
+        placeholder: "e.g. Q: Your city?\nA: Ottawa\n\nLeave blank if your account auto-deposits.",
         multiline: true,
       },
     ],

@@ -1,6 +1,6 @@
 import type { SupabaseClient } from "@supabase/supabase-js";
 import type { Block } from "@/lib/daydraft";
-import { isOpenUserTask, planBlockInstants } from "@/lib/daydraft";
+import { isOpenUserTask, planBlockInstants, wallMsOnPlanDay, blockSlotEndHHMM, timeToMinutes } from "@/lib/daydraft";
 
 /**
  * User tasks whose planned window has ended but are still "open" → mark missed (idempotent).
@@ -19,10 +19,30 @@ export async function applyAutoMissedBlocks(
   blocks: Block[],
 ): Promise<Array<{ id: string; resolved_at: string }>> {
   const now = Date.now();
-  // Cross-midnight aware slot ends: a task packed past midnight ("00:30") must
-  // resolve to the real next-day instant, not this morning — otherwise it would
-  // be marked missed the moment it's created.
-  const instants = planBlockInstants(planDateYmd, blocks);
+  // End instant per block. CRITICAL: this must be independent of the array order
+  // we're handed — `blocks` arrives in *display* order (active-first, resolved at
+  // the bottom), so a late-time resolved task sitting before an earlier active
+  // task would make planBlockInstants' cursor walk see a "midnight wrap" and push
+  // the active task's end to *tomorrow* — leaving a long-overdue task forever
+  // "active" instead of missed (the exact bug this fixes).
+  //
+  // For the common, non-cross-midnight plan we derive each end directly from its
+  // own start + duration on the plan day — purely per-block, order-proof. We only
+  // fall back to the order-sensitive cursor walk when the plan genuinely spans
+  // midnight (some slot's end clock time precedes its start), where positional
+  // ordering is the only way to know which day a "00:30" slot belongs to.
+  const crossesMidnight = blocks.some(
+    (b) => timeToMinutes(blockSlotEndHHMM(b)) < timeToMinutes(b.start_time),
+  );
+  const instants = crossesMidnight
+    ? planBlockInstants(planDateYmd, blocks)
+    : new Map(
+        blocks.map((b) => {
+          const startMs = wallMsOnPlanDay(planDateYmd, b.start_time);
+          const endMs = startMs + Math.max(0, Number(b.duration_min || 0)) * 60_000;
+          return [b.id, { startMs, endMs }];
+        }),
+      );
   // Grace: only auto-mark missed when the block existed before its slot end.
   // Without this, creating a plan retroactively (e.g. typing tasks at 21:00
   // with default 09:00 starts) instantly marks every block "missed".

@@ -167,7 +167,7 @@ export function PersistentTabs() {
             // visual smoothness; snapping the padding is invisible because
             // it happens before the keyboard physically arrives.
             style={{
-              paddingBottom: "calc(env(safe-area-inset-bottom) + 5rem + var(--keyboard-inset, 0px))",
+              paddingBottom: "calc(var(--safe-area-inset-bottom, env(safe-area-inset-bottom, 0px)) + 5rem + var(--keyboard-inset, 0px))",
             }}
           >
             <TabVisibilityCtx.Provider value={isActive}>

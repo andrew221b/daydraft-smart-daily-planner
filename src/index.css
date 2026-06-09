@@ -76,9 +76,10 @@ body.dd-dnd-scroll-lock {
     --glass-saturate: 1.6;
     --hero-glass-blur: 40px;
     --hero-glass-saturate: 1.6;
-    /* Bridges CSS env() into a custom property; JS probe overwrites with
+    /* Bridges CSS env() into custom properties; JS probe overwrites with
        the measured pixel value per-platform (see capacitor.ts). */
     --safe-area-inset-top: env(safe-area-inset-top, 0px);
+    --safe-area-inset-bottom: env(safe-area-inset-bottom, 0px);
     /* Platform-specific breathing room above page content.
        iOS: 64px — must clear the frosted shell-edge-top blur zone
             (~52% × (safe-area + 58px) ≈ 61px on Dynamic Island).

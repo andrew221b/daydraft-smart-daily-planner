@@ -20,8 +20,8 @@ export function applyNativeDocumentHints(): void {
   if (isAndroid) document.documentElement.setAttribute("data-capacitor-android", "true");
 
   if (isIOS || isAndroid) {
-    // Measure the actual pixel value of env(safe-area-inset-top) by reading
-    // getComputedStyle on a probe element. rAF ensures the WKWebView /
+    // Measure the actual pixel value of env(safe-area-inset-top/bottom) by
+    // reading getComputedStyle on probe elements. rAF ensures the WKWebView /
     // Android WebView has finished its first geometry + inset pass.
     requestAnimationFrame(() => {
       const probe = document.createElement("div");
@@ -36,8 +36,24 @@ export function applyNativeDocumentHints(): void {
       // Android: 24px is the standard Material status bar height in dp-as-px.
       const fallback = isIOS ? 44 : 24;
       const val = measured > 0 ? measured : fallback;
-
       document.documentElement.style.setProperty("--safe-area-inset-top", `${val}px`);
+
+      // Bottom: probe env(safe-area-inset-bottom) so CSS var(--safe-area-inset-bottom)
+      // is always up-to-date for TabBar and page content padding. On Android, the
+      // theme fix (transparent navigationBarColor) makes env() return the nav bar
+      // height; this probe captures that value and writes the CSS var so components
+      // using var(--safe-area-inset-bottom) don't rely on env() resolving later.
+      const bProbe = document.createElement("div");
+      bProbe.style.cssText =
+        "position:fixed;bottom:env(safe-area-inset-bottom,0px);pointer-events:none;visibility:hidden;width:0;height:0;";
+      document.documentElement.appendChild(bProbe);
+      const bottomMeasured = parseInt(getComputedStyle(bProbe).bottom, 10);
+      bProbe.remove();
+      // iOS home indicator minimum is 21px; Android gesture strip ~20px.
+      // If env() resolved to 0 after the first frame, leave at 0 — the nav
+      // bar is likely not overlapping (non-edge-to-edge or no nav bar).
+      const bottomVal = bottomMeasured > 0 ? bottomMeasured : (isIOS ? 21 : 0);
+      document.documentElement.style.setProperty("--safe-area-inset-bottom", `${bottomVal}px`);
     });
   }
 }

@@ -2,6 +2,7 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import { motion, AnimatePresence } from "framer-motion";
 import { keepPreviousData, useQuery } from "@tanstack/react-query";
 import { Play, Pause, Plus, Check, Trash2, ChevronLeft, ChevronRight, Download, ChevronDown, Lock, Pencil, X, Clock, ListTodo, Wallet } from "lucide-react";
+import { Callout } from "@/components/ui/callout";
 import { categoryBillingToDraft } from "@/lib/categoryBilling";
 import { useTimeTracker, getElapsedSec, fmtHMS, fmtHM, TimeCategory } from "@/hooks/useTimeTracker";
 import { LiveElapsed } from "@/components/app/LiveElapsed";
@@ -1066,22 +1067,24 @@ function TrackerInner({ embedded = false, onClose }: { embedded?: boolean; onClo
                               transition={{ type: "spring", stiffness: 380, damping: 30 }}
                               className="overflow-hidden mb-2"
                             >
-                              <div className="flex items-center gap-2 rounded-xl border border-amber-500/20 bg-amber-500/10 px-2.5 py-2">
-                                <span className="text-[11px] text-amber-700 dark:text-amber-400/90 flex-1 leading-snug">
-                                  Earnings count from{" "}
-                                  <span className="font-semibold text-amber-800 dark:text-amber-400">
-                                    {new Date(c.rate_set_at).toLocaleDateString(undefined, { month: "short", day: "numeric" })}
+                              <Callout variant="warning" className="py-2 px-2.5">
+                                <div className="flex items-center gap-2">
+                                  <span className="text-[11px] flex-1 leading-snug">
+                                    Earnings count from{" "}
+                                    <span className="font-semibold">
+                                      {new Date(c.rate_set_at).toLocaleDateString(undefined, { month: "short", day: "numeric" })}
+                                    </span>
+                                    {" "}— time before that isn't billed.
                                   </span>
-                                  {" "}— time before that isn't billed.
-                                </span>
-                                <button
-                                  type="button"
-                                  onClick={() => void resetRateSetAt(c.id)}
-                                  className="shrink-0 text-[10px] font-semibold text-amber-700 dark:text-amber-400 underline underline-offset-2 pressable hover:text-amber-800 dark:hover:text-amber-300"
-                                >
-                                  Include all
-                                </button>
-                              </div>
+                                  <button
+                                    type="button"
+                                    onClick={() => void resetRateSetAt(c.id)}
+                                    className="shrink-0 text-[10px] font-semibold underline underline-offset-2 pressable"
+                                  >
+                                    Include all
+                                  </button>
+                                </div>
+                              </Callout>
                             </motion.div>
                           )}
                         </AnimatePresence>

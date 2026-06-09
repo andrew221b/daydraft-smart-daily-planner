@@ -105,7 +105,7 @@ export const TabBar = () => {
       // checklist, which the user explicitly didn't want.
       className="fixed bottom-0 inset-x-0 z-40 bg-transparent"
       style={{
-        paddingBottom: "max(env(safe-area-inset-bottom), 10px)",
+        paddingBottom: "max(var(--safe-area-inset-bottom, env(safe-area-inset-bottom, 0px)), 10px)",
         touchAction: "manipulation",
       }}
     >
@@ -113,7 +113,7 @@ export const TabBar = () => {
       <div 
         className="pointer-events-none absolute inset-x-0 bottom-0 z-[-1]"
         style={{
-          height: "max(env(safe-area-inset-bottom), 10px)",
+          height: "max(var(--safe-area-inset-bottom, env(safe-area-inset-bottom, 0px)), 10px)",
           backdropFilter: "blur(6px)",
           WebkitBackdropFilter: "blur(6px)",
           maskImage: "linear-gradient(to bottom, transparent, black 80%)",

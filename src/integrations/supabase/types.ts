@@ -102,6 +102,7 @@ export type Database = {
           resolution: string | null
           resolved_at: string | null
           slot_end_time: string | null
+          source_block_id: string | null
           start_time: string
           title: string
           type: string
@@ -131,6 +132,7 @@ export type Database = {
           resolution?: string | null
           resolved_at?: string | null
           slot_end_time?: string | null
+          source_block_id?: string | null
           start_time: string
           title: string
           type: string
@@ -160,6 +162,7 @@ export type Database = {
           resolution?: string | null
           resolved_at?: string | null
           slot_end_time?: string | null
+          source_block_id?: string | null
           start_time?: string
           title?: string
           type?: string

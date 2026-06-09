@@ -6,7 +6,7 @@ import { AnimatePresence, motion } from "framer-motion";
 import { Block, fmtTime, inferScheduleBlockType, isOpenUserTask, isUserTaskDone } from "@/lib/daydraft";
 import {
   Check, Calendar, Layers, GripVertical, Sparkles, Play, Square,
-  ChevronDown, Clock, Bell, Bookmark, Trash2, RotateCcw, SkipForward
+  ChevronDown, Clock, Bell, Bookmark, Trash2, RotateCcw, SkipForward, Pencil, X as XIcon,
 } from "lucide-react";
 import { haptics } from "@/lib/haptics";
 import {
@@ -38,7 +38,7 @@ type BlockExt = Block & {
 
 export const SortableBlock = memo(({
   block,
-  editing,
+  editing: _editing,
   onTapTime,
   onToggleComplete,
   onStartTrack,
@@ -53,6 +53,7 @@ export const SortableBlock = memo(({
   onSaveTemplate,
   onSkip,
   onDeleteBlock,
+  onRename,
   isOverlay,
   isFuturePlan = false,
   readOnly = false,
@@ -77,6 +78,7 @@ export const SortableBlock = memo(({
   /** Skip an open task (no duration / not yet due). Marks it skipped without deleting. */
   onSkip?: (b: Block) => void;
   onDeleteBlock?: (b: Block) => void;
+  onRename?: (b: Block, newTitle: string) => void;
   /** True when the plan date is in the future — completion is locked. */
   isFuturePlan?: boolean;
   /** True when the plan date is in the past — the whole row is a frozen,
@@ -90,6 +92,8 @@ export const SortableBlock = memo(({
 }) => {
   const [expanded, setExpanded] = useState(false);
   const [confirmDelete, setConfirmDelete] = useState(false);
+  const [renaming, setRenaming] = useState(false);
+  const [renameDraft, setRenameDraft] = useState("");
 
   const sortableDisabled =
     readOnly || !!block.is_calendar_event || (block.kind === "task" && !isOpenUserTask(block));
@@ -111,7 +115,8 @@ export const SortableBlock = memo(({
     zIndex: isDragging ? 30 : undefined,
     opacity: isDragging ? 0.98 : 1,
     touchAction: sortableDisabled ? undefined : "manipulation",
-    ...(isOver && !isDragging
+    // No "is-over" highlight on resolved or locked blocks — they're not valid drop targets.
+    ...(isOver && !isDragging && !sortableDisabled
       ? { boxShadow: "0 0 0 2px hsl(var(--primary) / 0.8)", transform: "scale(1.01)", transition: "all 150ms ease" }
       : {}),
   };
@@ -161,16 +166,11 @@ export const SortableBlock = memo(({
             ? "text-emerald-400"
             : "text-secondary-fg";
 
-  const movedDateLabel = block.moved_to_date
-    ? MOVED_DATE_FMT.format(new Date(block.moved_to_date + "T12:00:00"))
-    : null;
-
   const isTask = block.kind === "task" && !isCal;
   const isDone = isUserTaskDone(block);
-  // On a read-only (past) row, only missed/skipped tasks expand — to reveal the
-  // single allowed action, "Move to another day". Done/open rows stay static.
   const isFinished = !!block.completed || block.resolution === "missed" || block.resolution === "skipped";
-  const canExpand = isTask && !isOverlay && !isFinished && !readOnly;
+  // Resolved tasks (done/skipped/missed) can now expand too — to show the Rename button.
+  const canExpand = isTask && !isOverlay && !readOnly;
 
   // Always top-align so grip/circle pin to the first text line regardless
   // of whether the title wraps to 2 lines (collapsed) or is fully expanded.
@@ -249,6 +249,7 @@ export const SortableBlock = memo(({
                   : "bg-[linear-gradient(165deg,hsl(200_89%_68%/.06)_0%,hsl(var(--surface)/.72)_58%,hsl(var(--surface-elevated)/.65)_100%)] !border-[hsl(200_89%_68%/.22)] hover:!border-[hsl(200_89%_68%/.38)]",
       ].filter(Boolean).join(" ")}
       onClick={() => {
+        if (renaming) return;
         if (canExpand) { haptics.selection(); setExpanded((v) => !v); }
       }}
     >
@@ -278,11 +279,47 @@ export const SortableBlock = memo(({
         {/* Inner flex: time · stripe · content · right-side */}
         <div className={`flex min-w-0 flex-1 ${rowAlign} gap-2.5`}>
 
-          {/* Time pill / invisible placeholder when terminal */}
+          {/* Time pill / status badge when terminal / invisible placeholder */}
           {(() => {
             const isTerminal = isTask && (isDone || block.resolution === "skipped" || block.resolution === "missed");
             if (isTerminal) {
-              return <div className="shrink-0 h-6 w-[38px]" aria-hidden />;
+              const fmtResTime = (iso: string | null | undefined) =>
+                iso ? new Date(iso).toLocaleTimeString(undefined, { hour: "numeric", minute: "2-digit" }).replace(/\s/g, "") : null;
+
+              let label = "";
+              let timeStr: string | null = null;
+              let colorClass = "";
+
+              if (isDone) {
+                label = "Done";
+                timeStr = fmtResTime(block.completed_at);
+                colorClass = "text-emerald-500 dark:text-emerald-400";
+              } else if (block.resolution === "skipped" && block.moved_to_date) {
+                label = "Moved";
+                timeStr = MOVED_DATE_FMT.format(new Date(block.moved_to_date + "T12:00:00"));
+                colorClass = "text-sky-500 dark:text-sky-400";
+              } else if (block.resolution === "skipped") {
+                label = "Skip";
+                timeStr = fmtResTime(block.resolved_at);
+                colorClass = "text-amber-500 dark:text-amber-400";
+              } else if (block.resolution === "missed") {
+                label = "Miss";
+                timeStr = fmtResTime(block.resolved_at);
+                colorClass = "text-destructive/80";
+              }
+
+              return (
+                <div className="shrink-0 self-start mt-[3px] flex flex-col items-center w-[42px] gap-[3px]">
+                  <span className={`text-[9px] font-bold leading-none tracking-wide uppercase whitespace-nowrap ${colorClass}`}>
+                    {label}
+                  </span>
+                  {timeStr && (
+                    <span className="text-[9px] font-mono-sf tabular-nums text-secondary-fg/55 leading-none text-center whitespace-nowrap overflow-hidden">
+                      {timeStr}
+                    </span>
+                  )}
+                </div>
+              );
             }
             const lateIndicator = (lateMin ?? 0) >= 2 ? (
               <div className="text-[9px] font-semibold text-amber-500 dark:text-amber-400 tabular-nums leading-none mt-0.5 text-center whitespace-nowrap">
@@ -358,27 +395,6 @@ export const SortableBlock = memo(({
 
             {/* Subtitle */}
             <div className={`${rhythmType === "rest" ? "text-[10px]" : "text-[11px]"} text-secondary-fg mt-[3px] tabular-nums leading-none`}>
-              {isTask && movedDateLabel && block.resolution === "skipped" ? (
-                <span className="text-sky-500/90 dark:text-sky-400/85">
-                  Moved · {movedDateLabel}<span className="text-faint mx-1">·</span>
-                </span>
-              ) : isTask && block.resolution === "skipped" && block.resolved_at ? (
-                <span className="text-amber-700/90 dark:text-amber-400/85">
-                  Skipped · {new Date(block.resolved_at).toLocaleTimeString(undefined, { hour: "numeric", minute: "2-digit" }).replace(/\s/g, "")}
-                  <span className="text-faint mx-1">·</span>
-                </span>
-              ) : isTask && block.resolution === "missed" && block.resolved_at ? (
-                <span className="text-destructive/85">
-                  Missed · {new Date(block.resolved_at).toLocaleTimeString(undefined, { hour: "numeric", minute: "2-digit" }).replace(/\s/g, "")}
-                  <span className="text-faint mx-1">·</span>
-                </span>
-              ) : null}
-              {isDone && block.completed_at && (
-                <span className="text-faint">
-                  Done {new Date(block.completed_at).toLocaleTimeString(undefined, { hour: "numeric", minute: "2-digit" }).replace(/\s/g, "")}
-                  <span className="text-faint mx-1">·</span>
-                </span>
-              )}
               {isDone && actualMin != null ? (
                 <>
                   <span className="font-medium text-foreground">{fmtMin(actualMin)}</span>
@@ -549,40 +565,107 @@ export const SortableBlock = memo(({
             transition={{ type: "spring", stiffness: 340, damping: 28, mass: 0.85 }}
             style={{ overflow: "hidden" }}
           >
-            <div className="mt-3 pt-3 border-t border-border/[0.15]">
+            <div className="mt-3 pt-3 border-t border-border/[0.15] space-y-2.5">
 
-              {/* 5-action toolbar — hidden on read-only (past) rows; only the
-                  "Move to another day" affordance below remains. */}
-              {!readOnly && (
-              <div className="flex gap-1.5">
-                {inlineActions.map(({ id, icon, label, cb, color, ...rest }) => {
-                  const destructive = "destructive" in rest && (rest as { destructive?: boolean }).destructive;
-                  return (
-                    <button
-                      key={id}
-                      type="button"
-                      onPointerDown={(e) => e.stopPropagation()}
-                      onClick={(e) => {
-                        e.stopPropagation();
-                        haptics.tap();
-                        if (destructive) { setConfirmDelete(true); return; }
-                        cb?.(block);
+              {/* ── Rename row — always visible in expanded state ── */}
+              <div
+                onPointerDown={(e) => e.stopPropagation()}
+                onClick={(e) => e.stopPropagation()}
+              >
+                {renaming ? (
+                  <div className="flex items-center gap-1.5">
+                    <input
+                      autoFocus
+                      value={renameDraft}
+                      onChange={(e) => setRenameDraft(e.target.value)}
+                      onKeyDown={(e) => {
+                        if (e.key === "Enter") {
+                          const t = renameDraft.trim();
+                          if (t && t !== block.title) onRename?.(block, t);
+                          setRenaming(false);
+                          setExpanded(false);
+                        }
+                        if (e.key === "Escape") {
+                          setRenaming(false);
+                        }
                       }}
-                      className={[
-                        `block-action-${id}-btn`,
-                        "flex-1 rounded-xl py-2.5 inline-flex flex-col items-center gap-1 pressable transition-[border-color,background-color] duration-200",
-                        "border shadow-sm",
-                        destructive
-                          ? "border-destructive/15 bg-destructive/[0.06] hover:bg-destructive/[0.11] hover:border-destructive/25"
-                          : "border-black/[0.08] bg-black/[0.05] dark:border-white/[0.09] dark:bg-white/[0.04] hover:bg-black/[0.08] hover:border-black/[0.14] dark:hover:bg-white/[0.08] dark:hover:border-white/[0.14]",
-                      ].join(" ")}
+                      onBlur={() => {
+                        const t = renameDraft.trim();
+                        if (t && t !== block.title) onRename?.(block, t);
+                        setRenaming(false);
+                      }}
+                      className="flex-1 min-w-0 h-9 rounded-xl border border-primary/40 bg-card/60 px-3 text-[13.5px] font-medium outline-none focus:border-primary/70 transition-colors"
+                      style={{ fontSize: 16 }}
+                    />
+                    <button
+                      type="button"
+                      onClick={() => {
+                        const t = renameDraft.trim();
+                        if (t && t !== block.title) onRename?.(block, t);
+                        setRenaming(false);
+                        setExpanded(false);
+                      }}
+                      className="h-9 w-9 rounded-xl bg-primary/90 flex items-center justify-center text-primary-foreground pressable shrink-0"
+                      aria-label="Save rename"
                     >
-                      <span className={color}>{icon}</span>
-                      <span className="text-[9px] font-medium text-secondary-fg/55 leading-none tracking-wide">{label}</span>
+                      <Check className="h-4 w-4" strokeWidth={2.5} />
                     </button>
-                  );
-                })}
+                    <button
+                      type="button"
+                      onClick={() => setRenaming(false)}
+                      className="h-9 w-9 rounded-xl border border-border/40 bg-card/40 flex items-center justify-center text-secondary-fg pressable shrink-0"
+                      aria-label="Cancel rename"
+                    >
+                      <XIcon className="h-3.5 w-3.5" />
+                    </button>
+                  </div>
+                ) : (
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setRenameDraft(block.title);
+                      setRenaming(true);
+                    }}
+                    className="w-full flex items-center gap-2.5 px-3 py-2 rounded-xl border border-border/40 bg-black/[0.04] dark:bg-white/[0.04] hover:bg-black/[0.07] dark:hover:bg-white/[0.07] pressable transition-colors"
+                  >
+                    <Pencil className="h-3.5 w-3.5 text-secondary-fg/65 shrink-0" />
+                    <span className="flex-1 min-w-0 text-left text-[13px] font-medium text-foreground/80 truncate">{block.title}</span>
+                    <span className="text-[10px] text-secondary-fg/45 shrink-0">Rename</span>
+                  </button>
+                )}
               </div>
+
+              {/* ── Action toolbar — only for active (non-resolved) tasks ── */}
+              {!isFinished && (
+                <div className="flex gap-1.5">
+                  {inlineActions.map(({ id, icon, label, cb, color, ...rest }) => {
+                    const destructive = "destructive" in rest && (rest as { destructive?: boolean }).destructive;
+                    return (
+                      <button
+                        key={id}
+                        type="button"
+                        onPointerDown={(e) => e.stopPropagation()}
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          haptics.tap();
+                          if (destructive) { setConfirmDelete(true); return; }
+                          cb?.(block);
+                        }}
+                        className={[
+                          `block-action-${id}-btn`,
+                          "flex-1 rounded-xl py-2.5 inline-flex flex-col items-center gap-1 pressable transition-[border-color,background-color] duration-200",
+                          "border shadow-sm",
+                          destructive
+                            ? "border-destructive/15 bg-destructive/[0.06] hover:bg-destructive/[0.11] hover:border-destructive/25"
+                            : "border-black/[0.08] bg-black/[0.05] dark:border-white/[0.09] dark:bg-white/[0.04] hover:bg-black/[0.08] hover:border-black/[0.14] dark:hover:bg-white/[0.08] dark:hover:border-white/[0.14]",
+                        ].join(" ")}
+                      >
+                        <span className={color}>{icon}</span>
+                        <span className="text-[9px] font-medium text-secondary-fg/55 leading-none tracking-wide">{label}</span>
+                      </button>
+                    );
+                  })}
+                </div>
               )}
 
             </div>

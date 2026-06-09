@@ -117,8 +117,8 @@ export function UncompleteTaskSheet({ block, onCancel, onConfirm }: Props) {
                 <motion.div
                   className="rounded-2xl px-4 py-4 flex items-center gap-3"
                   style={{
-                    background: "linear-gradient(180deg, hsl(var(--primary)/0.12) 0%, hsl(var(--primary)/0.04) 100%)",
-                    boxShadow: "inset 0 1px 0 hsl(0 0% 100% / 0.06), 0 0 0 1px hsl(var(--primary)/0.22), 0 8px 24px -16px hsl(var(--primary)/0.35)",
+                    background: "linear-gradient(180deg, hsl(var(--primary)/0.18) 0%, hsl(var(--primary)/0.08) 100%)",
+                    boxShadow: "inset 0 1px 0 hsl(0 0% 100% / 0.06), 0 0 0 1px hsl(var(--primary)/0.40), 0 8px 24px -16px hsl(var(--primary)/0.35)",
                   }}
                   initial={{ opacity: 0, y: 6 }}
                   animate={{ opacity: 1, y: 0 }}

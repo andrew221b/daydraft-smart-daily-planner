@@ -566,7 +566,7 @@ const ProCard = ({ entitlement, isPro, subscriptionPro, planQuotaUsed, planQuota
       </div>
       <div className="text-[13px] mt-1 text-secondary-fg leading-relaxed">
         {isPro
-          ? "Calendar sync, pattern-aware AI, and every premium feature stay on."
+          ? "Pattern-aware AI and every premium feature stay on."
           : isOverQuota
             ? `You've used all ${planQuotaLimit} free planning days. New plans are paused — upgrade to keep going.`
             : `${displayUsed} of ${planQuotaLimit} free planning days used — then new plans are paused until you upgrade.`}

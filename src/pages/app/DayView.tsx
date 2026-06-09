@@ -1,4 +1,4 @@
-import { memo, useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { Fragment, memo, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { createPortal } from "react-dom";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { useNavigate, useSearchParams } from "react-router-dom";
@@ -14,7 +14,7 @@ import {
   Block, type BlockType, type BlockKind, fmtTime, todayDateStr, parseDateStr, friendlyDateFor, isFutureDateStr, isUserTask, isOpenUserTask, isUserTaskDone, inferScheduleBlockType, packLinearSchedule,
   blockSlotEndHHMM, timeToMinutes, minutesToHHMM, planBlockInstants, wallMsOnPlanDay, shiftDate, normalizeSchedule,
 } from "@/lib/daydraft";
-import { ChevronLeft, ChevronRight, Play, CalendarDays, Trash2, Bell, BellOff, MoreHorizontal, Clock, Timer, Copy, Sparkles, ListPlus, Wand2, ArrowRightCircle, Loader2, X, ListChecks, CheckSquare } from "lucide-react";
+import { ChevronLeft, ChevronRight, Play, CalendarDays, Trash2, Bell, BellOff, MoreHorizontal, Clock, Timer, Copy, Sparkles, ListPlus, Wand2, ArrowRightCircle, AlertCircle, Loader2, X, ListChecks, CheckSquare } from "lucide-react";
 import { DayPickerSheet } from "@/components/app/DayPickerSheet";
 import { UncompleteTaskSheet } from "@/components/app/UncompleteTaskSheet";
 import { ChecklistView, type ChecklistApi } from "@/components/app/ChecklistView";
@@ -113,6 +113,10 @@ type ExBlock = Block & {
   resolution?: string | null;
   resolved_at?: string | null;
   moved_to_date?: string | null;
+  // Set when the block was created as a "move copy" from another block.
+  // Presence means "this is a carry copy — delete it on next move instead of
+  // leaving a moved stub".
+  source_block_id?: string | null;
 };
 
 type BulkTemplate = { id: string; name: string; raw_input: string };
@@ -159,19 +163,21 @@ type BulkRow = {
 
 const EMPTY_BLOCKS: ExBlock[] = [];
 
-// Resolved/locked tasks (done, skipped, missed, calendar) always stay at the
-// top of the list — regardless of their start_time vs active tasks. Within
-// each tier the blocks are sorted chronologically. Returns tasks only: gaps are
-// a derived render-time concept now, never stored as "break" rows.
-function resolvedFirstOrder(packed: ExBlock[]): ExBlock[] {
-  const isLockedB = (b: ExBlock) =>
-    !!b.is_calendar_event || (b.kind === "task" && !isOpenUserTask(b as Block));
+// Active tasks (still open) — plus fixed calendar events — stay at the TOP of the
+// list, sorted chronologically. Resolved tasks (done, skipped, missed) drop to the
+// BOTTOM, also chronological. This way the live part of the day is always on top and
+// the settled tasks pile up beneath it, regardless of when their times were edited.
+// Calendar events are anchors, not "resolved", so they stay in the active tier.
+// Returns tasks only: gaps are a derived render-time concept, never stored as "break".
+function activeFirstOrder(packed: ExBlock[]): ExBlock[] {
+  const isResolvedB = (b: ExBlock) =>
+    b.kind === "task" && !b.is_calendar_event && !isOpenUserTask(b as Block);
   const nonBreak = packed.filter(b => b.kind !== "break");
   const byTime = (a: ExBlock, b: ExBlock) =>
     timeToMinutes(a.start_time) - timeToMinutes(b.start_time);
   return [
-    ...nonBreak.filter(isLockedB).sort(byTime),
-    ...nonBreak.filter(b => !isLockedB(b)).sort(byTime),
+    ...nonBreak.filter(b => !isResolvedB(b)).sort(byTime),
+    ...nonBreak.filter(isResolvedB).sort(byTime),
   ];
 }
 
@@ -396,6 +402,14 @@ export default function DayView() {
     | { kind: "checklist-carry-ungrouped" }
     | { kind: "move-task"; blockId: string };
   const [dayPickerIntent, setDayPickerIntent] = useState<DayPickerIntent | null>(null);
+
+  // After the user picks a target date for move/carry, we don't execute
+  // immediately — we open the composer in "review" mode so they can adjust
+  // times and durations. pendingMoveState bridges the day-picker → composer.
+  const [pendingMoveState, setPendingMoveState] = useState<{
+    sourceBlocks: ExBlock[];
+    targetDate: string;
+  } | null>(null);
 
   // The date the composer was opened on — frozen at open so async task creation
   // always lands on the day the user was actually looking at, even if `viewDate`
@@ -769,7 +783,7 @@ export default function DayView() {
       // waiting on the refetch round-trip. The invalidate below reconciles.
       const byId = new Map(missed.map((m) => [m.id, m.resolved_at]));
       setBlocks((prev) =>
-        resolvedFirstOrder(
+        activeFirstOrder(
           prev.map((b) =>
             byId.has(b.id)
               ? { ...b, resolution: "missed", resolved_at: byId.get(b.id) ?? b.resolved_at, completed: false }
@@ -800,7 +814,7 @@ export default function DayView() {
     await stopTrackingForBlock(removed);
     // Just drop the row and re-sort. Every remaining block keeps its exact
     // start_time — the hole simply becomes (invisible) free time. No gap rows.
-    const next = resolvedFirstOrder(blocks.filter(x => x.id !== id));
+    const next = activeFirstOrder(blocks.filter(x => x.id !== id));
     setBlocks(next);
     haptics.impact("light");
     try {
@@ -864,6 +878,13 @@ export default function DayView() {
     } finally {
       blockOpLocksRef.current.delete(`remove:${id}`);
     }
+  };
+
+  const renameBlock = async (id: string, newTitle: string) => {
+    const trimmed = newTitle.trim();
+    if (!trimmed) return;
+    setBlocks(prev => prev.map(b => b.id === id ? { ...b, title: trimmed } : b));
+    await supabase.from("blocks").update({ title: trimmed }).eq("id", id);
   };
 
   const completeBlock = async (id: string) => {
@@ -1145,6 +1166,110 @@ export default function DayView() {
 
   const addBulkRows = async (rows: BulkRow[]) => {
     if (planMutating || !user) return;
+
+    // ── MOVE MODE ────────────────────────────────────────────────────────────
+    // When the composer was opened from a carry/move-task flow, pendingMoveState
+    // holds the source blocks + target date. We insert the user-edited tasks on
+    // the target day and mark (or delete) the source blocks — never touching the
+    // current day's schedule directly.
+    if (pendingMoveState) {
+      const moveState = pendingMoveState;
+      setPendingMoveState(null);
+      setComposerOpen(false);
+      setBulkRows([]);
+      setBulkStep("input");
+      const clean = rows.filter((r) => r.title.trim());
+      if (!clean.length) return;
+      setPlanMutating(true);
+      try {
+        const { targetDate, sourceBlocks } = moveState;
+        const targetPlanId = await ensurePlanIdForDate(targetDate);
+        if (!targetPlanId) return;
+        const { data: existing } = await supabase
+          .from("blocks")
+          .select("id, position")
+          .eq("plan_id", targetPlanId);
+        const startPos = existing?.length ?? 0;
+        const toInsert = clean.map((r, i) => {
+          const st = r.start_time || "09:00";
+          const dur = r.duration && r.duration > 0 ? Math.max(1, r.duration) : 30;
+          // Propagate origin: a copy of a copy keeps the ultimate source so
+          // subsequent moves keep seeing it as a copy and clean up properly.
+          const originId = sourceBlocks[i]?.source_block_id ?? sourceBlocks[i]?.id ?? null;
+          return {
+            plan_id: targetPlanId,
+            user_id: user!.id,
+            start_time: st,
+            duration_min: dur,
+            title: r.title.trim(),
+            type: (r.type || "deep_work") as BlockType,
+            kind: "task" as const,
+            block_type: inferScheduleBlockType({ kind: "task" as BlockKind, title: r.title }),
+            completed: false,
+            position: startPos + i,
+            estimated_minutes: dur,
+            actual_minutes: null,
+            slot_end_time: blockSlotEndHHMM({ start_time: st, duration_min: dur } as Block),
+            source_block_id: originId,
+          };
+        });
+        const { error: insertErr } = await supabase.from("blocks").insert(toInsert);
+        if (insertErr) {
+          if (insertErr.message?.includes("PLAN_QUOTA_REACHED")) {
+            void refreshEntitlement();
+            toast(`Free trial limit reached — ${planQuotaLimit} planning days used`, {
+              description: "Upgrade to keep moving tasks to new days.",
+              action: { label: "Upgrade", onClick: () => setUpgradeOpen(true) },
+            });
+            setUpgradeOpen(true);
+            return;
+          }
+          throw insertErr;
+        }
+        const movedAt = new Date().toISOString();
+        const sourceIds = sourceBlocks.map((b) => b.id);
+        // Copies (source_block_id set) get DELETED — they're intermediary clones
+        // the user already moved on; leave no "moved to…" stub behind them.
+        // Originals (no source_block_id) get marked "moved" so the original day
+        // keeps the visual indicator.
+        const copyIds = sourceBlocks.filter((b) => b.source_block_id).map((b) => b.id);
+        const originalIds = sourceBlocks.filter((b) => !b.source_block_id).map((b) => b.id);
+        if (copyIds.length) {
+          await supabase.from("blocks").delete().in("id", copyIds);
+        }
+        if (originalIds.length) {
+          await supabase.from("blocks")
+            .update({ resolution: "skipped", resolved_at: movedAt, moved_to_date: targetDate })
+            .in("id", originalIds);
+        }
+        // Update current-day local state: remove deleted copies, mark moved originals.
+        setBlocks(
+          activeFirstOrder(
+            blocks
+              .filter((b) => !copyIds.includes(b.id))
+              .map((b) =>
+                originalIds.includes(b.id)
+                  ? { ...b, resolution: "skipped", resolved_at: movedAt, moved_to_date: targetDate }
+                  : b,
+              ) as ExBlock[],
+          ),
+        );
+        void invalidatePlanCaches();
+        await refetch();
+        haptics.notify("success");
+        toast.success(
+          `Moved ${clean.length} task${clean.length === 1 ? "" : "s"} to ${friendlyDateFor(parseDateStr(targetDate))}`,
+          { action: { label: "Open", onClick: () => navigateToDay(targetDate) } },
+        );
+      } catch (e) {
+        toast.error(e?.message || "Couldn't move tasks");
+      } finally {
+        setPlanMutating(false);
+      }
+      return;
+    }
+    // ── END MOVE MODE ────────────────────────────────────────────────────────
+
     const clean = rows.filter((t) => t.title.trim());
     if (!clean.length) {
       toast.error("No tasks to add");
@@ -1301,7 +1426,7 @@ export default function DayView() {
         : null;
 
       const packed: ExBlock[] = normalized
-        ? resolvedFirstOrder(normalized)
+        ? activeFirstOrder(normalized)
         : [...blocks, ...draftBlocks];
 
       setBlocks(packed);
@@ -1474,7 +1599,7 @@ export default function DayView() {
     // Editing a time behaves like inserting one: the edited block is the anchor
     // (keeps its exact time, repositions chronologically), earlier tasks stay,
     // later tasks cascade forward. Returns null for cross-midnight plans → fall
-    // back to the legacy sequential retiming. resolvedFirstOrder returns tasks
+    // back to the legacy sequential retiming. activeFirstOrder returns tasks
     // only (no gap rows).
     const updated = blocks.map((b) => (b.id === id ? { ...b, start_time: value } : b));
     // Completed/skipped/missed tasks and calendar events are treated as extra
@@ -1488,11 +1613,11 @@ export default function DayView() {
 
     let packed: ExBlock[];
     if (normalized) {
-      packed = resolvedFirstOrder(normalized);
+      packed = activeFirstOrder(normalized);
     } else {
       // Legacy fallback (cross-midnight / non-monotonic): sequential retiming.
       // makeBreak only computes intermediate spacing for packLinearSchedule;
-      // resolvedFirstOrder strips those gap rows back out before we persist.
+      // activeFirstOrder strips those gap rows back out before we persist.
       const legacy = [...blocks];
       if (idx > 0) {
         const previousPacked = packLinearSchedule(legacy.slice(0, idx));
@@ -1519,7 +1644,7 @@ export default function DayView() {
       }
       const targetIdx = legacy.findIndex((b) => b.id === id);
       if (targetIdx >= 0) legacy[targetIdx] = { ...legacy[targetIdx], start_time: value };
-      packed = resolvedFirstOrder(packLinearSchedule(legacy));
+      packed = activeFirstOrder(packLinearSchedule(legacy));
     }
 
     setBlocks(packed);
@@ -1578,7 +1703,7 @@ export default function DayView() {
     });
     const lockedDragIds = new Set(withSwapped.filter(isLocked).map(b => b.id));
     const cascaded = normalizeSchedule(withSwapped, new Set([String(active.id), ...lockedDragIds]));
-    const reordered = resolvedFirstOrder(cascaded ?? withSwapped);
+    const reordered = activeFirstOrder(cascaded ?? withSwapped);
 
     const snapshot = blocks;
     setBlocks(reordered);
@@ -1922,6 +2047,8 @@ export default function DayView() {
         start_time: "09:00",
         duration_min: b.duration_min,
       } as Block),
+      // Track origin so a subsequent move can delete this copy cleanly.
+      source_block_id: b.source_block_id ?? b.id,
     }));
     const { error: insertErr } = await supabase.from("blocks").insert(toInsert);
     if (insertErr) {
@@ -1962,18 +2089,19 @@ export default function DayView() {
     if (intent.kind === "move-task") {
       const blk = blocks.find((b) => b.id === intent.blockId);
       if (!blk) return;
-      try {
-        const result = await moveBlocksToDate([blk], targetDate);
-        if (!result) return;
-        void invalidatePlanCaches();
-        await refetch();
-        haptics.notify("success");
-        toast.success(`Moved to ${friendlyDateFor(parseDateStr(targetDate))}`, {
-          action: { label: "Open", onClick: () => navigateToDay(targetDate) },
-        });
-      } catch (e) {
-        toast.error(e?.message || "Couldn't move that task");
-      }
+      // Open the Review tasks sheet so the user can tweak time/duration
+      // before committing the move. pendingMoveState carries the source
+      // blocks + target date into addBulkRows.
+      setPendingMoveState({ sourceBlocks: [blk], targetDate });
+      setBulkRows([{
+        title: blk.title,
+        duration: Number(blk.duration_min) || 30,
+        start_time: blk.start_time || undefined,
+        type: blk.type || "deep_work",
+      }]);
+      setBulkStep("review");
+      composerTargetDateRef.current = targetDate;
+      setComposerOpen(true);
       return;
     }
     if (intent.kind === "carry-missed") {
@@ -1984,20 +2112,18 @@ export default function DayView() {
         toast("Nothing left to carry forward");
         return;
       }
-      try {
-        const result = await moveBlocksToDate(candidates, targetDate);
-        if (!result) return;
-        void invalidatePlanCaches();
-        await refetch();
-        setMoreOpen(false);
-        haptics.notify("success");
-        toast.success(
-          `Moved ${result.moved} task${result.moved === 1 ? "" : "s"} to ${friendlyDateFor(parseDateStr(targetDate))}`,
-          { action: { label: "Open", onClick: () => navigateToDay(targetDate) } },
-        );
-      } catch (e) {
-        toast.error(e?.message || "Unable to carry tasks forward");
-      }
+      // Open Review tasks so user can set time/duration for ALL carried tasks.
+      setPendingMoveState({ sourceBlocks: candidates, targetDate });
+      setBulkRows(candidates.map((b) => ({
+        title: b.title,
+        duration: Number(b.duration_min) || 30,
+        start_time: b.start_time || undefined,
+        type: b.type || "deep_work",
+      })));
+      setBulkStep("review");
+      composerTargetDateRef.current = targetDate;
+      setMoreOpen(false);
+      setComposerOpen(true);
       return;
     }
     if (intent.kind === "checklist-carry-ungrouped") {
@@ -2054,15 +2180,18 @@ export default function DayView() {
     () => new Map(tracker.categories.map((c) => [c.id, c])),
     [tracker.categories],
   );
-  // Stable id array for dnd-kit's SortableContext (was a fresh array each render).
-  // Break blocks render as empty divs (no ref) — exclude them so dnd-kit doesn't
-  // try to measure them. Locked tasks (calendar events, completed/skipped/missed)
-  // ARE included: verticalListSortingStrategy needs their real rects to compute
-  // correct transforms for draggable items below them. Their useSortable is
-  // disabled, and the isLocked guard in onDragEnd prevents actual reorders.
+  // Stable id array for dnd-kit's SortableContext.
+  // Exclude break rows (empty divs) and resolved user tasks (done/skipped/missed)
+  // so dnd-kit never animates them when an active task is dragged nearby.
+  // Calendar events and rest/lunch blocks stay in — they're in the active tier
+  // and dnd-kit needs their rects for correct ghost positioning.
   const blockIds = useMemo(() =>
     blocks
-      .filter(b => b.kind !== "break")
+      .filter(b => {
+        if (b.kind === "break") return false;
+        if (b.kind !== "task" || b.is_calendar_event) return true;
+        return isOpenUserTask(b as Block);
+      })
       .map(b => b.id),
   [blocks]);
   // Earliest selectable time today — recomputed only on the minute tick, not
@@ -2103,6 +2232,7 @@ export default function DayView() {
     onSaveTemplate: (blk: Block) => void saveAsTemplate(blk),
     onSkip: (blk: Block) => void skipBlock(blk.id),
     onDeleteBlock: (blk: Block) => removeBlock(blk.id),
+    onRename: (blk: Block, title: string) => void renameBlock(blk.id, title),
   };
   const blockHandlersRef = useRef(liveBlockHandlers);
   blockHandlersRef.current = liveBlockHandlers;
@@ -2117,6 +2247,7 @@ export default function DayView() {
     onSaveTemplate: (b: Block) => blockHandlersRef.current.onSaveTemplate(b),
     onSkip: (b: Block) => blockHandlersRef.current.onSkip(b),
     onDeleteBlock: (b: Block) => blockHandlersRef.current.onDeleteBlock(b),
+    onRename: (b: Block, title: string) => blockHandlersRef.current.onRename(b, title),
   }), []);
   // Carry-forward is hidden on future plans — preserve the undefined semantics
   // (SortableBlock keys its UI off the prop's presence). Identity only flips
@@ -2256,9 +2387,11 @@ export default function DayView() {
         )}
 
         {/* Movable tasks banner — fades out smoothly when all tasks are moved.
-            `blocksMatchView` keeps it from flashing the previous day's count
-            during a day-switch transition (one stale paint of `blocks`). */}
-        <AnimatePresence>
+            Gated on blocksMatchView so the AnimatePresence exit animation never
+            plays during a day-switch: without the gate the spring exit runs
+            300–500ms after viewDate changes, keeping the banner in the layout
+            and shoving the new day's skeleton below visible area. */}
+        {blocksMatchView && <AnimatePresence>
           {!planMissing && !isFuture && movableTasks.length > 0 && (
             <motion.button
               key="carry-banner"
@@ -2270,7 +2403,7 @@ export default function DayView() {
               onClick={() => setDayPickerIntent({ kind: "carry-missed" })}
               className="mt-4 shrink-0 w-full flex items-center gap-3 rounded-2xl border border-destructive/30 bg-destructive/[0.08] px-4 py-3 pressable hover:bg-destructive/[0.13] transition-colors text-left"
             >
-              <span className="h-2 w-2 rounded-full bg-destructive shrink-0 mt-px" aria-hidden />
+              <AlertCircle className="h-4 w-4 text-destructive shrink-0" aria-hidden />
               <span className="flex-1 min-w-0">
                 <span className="text-[13px] font-semibold text-destructive leading-snug">
                   {movableTasks.length === 1
@@ -2284,7 +2417,7 @@ export default function DayView() {
               <ArrowRightCircle className="h-4 w-4 text-destructive/60 shrink-0" />
             </motion.button>
           )}
-        </AnimatePresence>
+        </AnimatePresence>}
 
         {/* Inline "Start" CTA — only on today; past days are read-only and
             future days aren't actionable yet. */}
@@ -2356,11 +2489,17 @@ export default function DayView() {
               >
                 <SortableContext items={blockIds} strategy={verticalListSortingStrategy}>
                   <div className={`touch-pan-y space-y-2.5 mt-4 ${introPlayed ? "" : "enter-stagger"}`}>
-                    {displayBlocks.map((b) => {
+                    {displayBlocks.map((b, idx) => {
                       // Working set is break-free (filtered on load), so every row
                       // is a real card. Lunch renders as a normal rest card.
                       const assignedId = getAssignedCategoryId(b.id);
                       const assignedCat = assignedId ? categoryMap.get(assignedId) || null : null;
+
+                      // Visual separator between active tasks and resolved (done/skipped/missed).
+                      const bIsResolved = b.kind === "task" && !b.is_calendar_event && !isOpenUserTask(b as Block);
+                      const prev = displayBlocks[idx - 1];
+                      const prevIsActive = prev && !(prev.kind === "task" && !prev.is_calendar_event && !isOpenUserTask(prev as Block));
+                      const showSeparator = bIsResolved && !!prev && prevIsActive;
                       // "Running late" amber hint — shown for ANY open user task
                       // (timed OR frameless) whose start time has passed and which
                       // you haven't acted on or aren't actively tracking. A frameless
@@ -2380,29 +2519,40 @@ export default function DayView() {
                         : undefined;
 
                       return (
-                      <SortableBlock
-                        key={b.id}
-                        block={b}
-                        editing={false}
-                        tourSpotlight={spotlightId === b.id}
-                        trackingActive={!!tracker.active && tracker.active.block_id === b.id}
-                        assignedCategory={assignedCat}
-                        isFuturePlan={isFuture}
-                        readOnly={isPast}
-                        lateMin={lateMin}
+                      <Fragment key={b.id}>
+                        {showSeparator && (
+                          <div className="flex items-center gap-3 py-1 px-1">
+                            <div className="flex-1 h-px bg-border/30" />
+                            <span className="text-[10px] font-semibold uppercase tracking-[0.12em] text-secondary-fg/40 shrink-0 select-none">
+                              Past
+                            </span>
+                            <div className="flex-1 h-px bg-border/30" />
+                          </div>
+                        )}
+                        <SortableBlock
+                          block={b}
+                          editing={false}
+                          tourSpotlight={spotlightId === b.id}
+                          trackingActive={!!tracker.active && tracker.active.block_id === b.id}
+                          assignedCategory={assignedCat}
+                          isFuturePlan={isFuture}
+                          readOnly={isPast}
+                          lateMin={lateMin}
 
-                        onTapTime={blockHandlers.onTapTime}
-                        onToggleComplete={blockHandlers.onToggleComplete}
-                        onStartTrack={blockHandlers.onStartTrack}
-                        onStopTrack={blockHandlers.onStopTrack}
-                        onCarryForward={onCarryForwardStable}
-                        onEditDuration={blockHandlers.onEditDuration}
-                        onEditReminders={blockHandlers.onEditReminders}
-                        onAskAi={blockHandlers.onAskAi}
-                        onSaveTemplate={blockHandlers.onSaveTemplate}
-                        onSkip={isPast ? undefined : blockHandlers.onSkip}
-                        onDeleteBlock={blockHandlers.onDeleteBlock}
-                      />
+                          onTapTime={blockHandlers.onTapTime}
+                          onToggleComplete={blockHandlers.onToggleComplete}
+                          onStartTrack={blockHandlers.onStartTrack}
+                          onStopTrack={blockHandlers.onStopTrack}
+                          onCarryForward={onCarryForwardStable}
+                          onEditDuration={blockHandlers.onEditDuration}
+                          onEditReminders={blockHandlers.onEditReminders}
+                          onAskAi={blockHandlers.onAskAi}
+                          onSaveTemplate={blockHandlers.onSaveTemplate}
+                          onSkip={isPast ? undefined : blockHandlers.onSkip}
+                          onDeleteBlock={blockHandlers.onDeleteBlock}
+                          onRename={isPast ? undefined : blockHandlers.onRename}
+                        />
+                      </Fragment>
                       );
                     })}
                     {blocks.length === 0 && (
@@ -2587,7 +2737,7 @@ export default function DayView() {
       <Sheet
         open={composerOpen}
         onOpenChange={(v) => {
-          if (!v) { setBulkStep("input"); setBulkInput(""); setBulkRows([]); }
+          if (!v) { setBulkStep("input"); setBulkInput(""); setBulkRows([]); setPendingMoveState(null); }
           setComposerOpen(v);
         }}
       >
@@ -2598,9 +2748,11 @@ export default function DayView() {
         >
           <SheetHeader className="text-left shrink-0">
             <SheetTitle className="flex items-center gap-2 text-[16px]">
-              {bulkStep === "review"
-                ? <><ListPlus className="h-4 w-4 text-primary" /> Review tasks</>
-                : <><ListPlus className="h-4 w-4 text-primary" /> Add tasks</>
+              {bulkStep === "review" && pendingMoveState
+                ? <><ListPlus className="h-4 w-4 text-primary" /> Move to {friendlyDateFor(parseDateStr(pendingMoveState.targetDate))}</>
+                : bulkStep === "review"
+                  ? <><ListPlus className="h-4 w-4 text-primary" /> Review tasks</>
+                  : <><ListPlus className="h-4 w-4 text-primary" /> Add tasks</>
               }
             </SheetTitle>
           </SheetHeader>
@@ -2733,7 +2885,10 @@ export default function DayView() {
                 <div className="flex items-start justify-between px-1">
                   <div>
                     <p className="text-[12px] text-secondary-fg leading-relaxed">
-                      Review your tasks. Tap time or duration to adjust.
+                      {pendingMoveState
+                        ? "Set time and duration for each task on the new day."
+                        : "Review your tasks. Tap time or duration to adjust."
+                      }
                     </p>
                     {highlightMissingStartTime && (
                       <p className="text-[11.5px] text-amber-400 font-medium mt-1">
@@ -2741,16 +2896,18 @@ export default function DayView() {
                       </p>
                     )}
                   </div>
-                  <Button
-                    onClick={() => void startClarification()}
-                    disabled={bulkAiLoading || planMutating}
-                    size="sm"
-                    className="h-8 rounded-full bg-primary/10 text-primary border border-primary/25 text-[12px] font-medium pressable shrink-0"
-                  >
-                    <Loader2 className={`h-3.5 w-3.5 mr-1.5 ${bulkAiLoading ? "animate-spin" : "hidden"}`} />
-                    <Sparkles className={`h-3.5 w-3.5 mr-1.5 ${bulkAiLoading ? "hidden" : ""}`} />
-                    {bulkAiStep === "clarifying" ? "Thinking…" : bulkAiStep === "planning" ? "Scheduling…" : "Auto-schedule"}
-                  </Button>
+                  {!pendingMoveState && (
+                    <Button
+                      onClick={() => void startClarification()}
+                      disabled={bulkAiLoading || planMutating}
+                      size="sm"
+                      className="h-8 rounded-full bg-primary/10 text-primary border border-primary/25 text-[12px] font-medium pressable shrink-0"
+                    >
+                      <Loader2 className={`h-3.5 w-3.5 mr-1.5 ${bulkAiLoading ? "animate-spin" : "hidden"}`} />
+                      <Sparkles className={`h-3.5 w-3.5 mr-1.5 ${bulkAiLoading ? "hidden" : ""}`} />
+                      {bulkAiStep === "clarifying" ? "Thinking…" : bulkAiStep === "planning" ? "Scheduling…" : "Auto-schedule"}
+                    </Button>
+                  )}
                 </div>
                 <div className="space-y-2.5 max-h-[48vh] overflow-y-auto pr-1 pb-2 pt-1">
                   {bulkRows.map((row, i) => (
@@ -2850,8 +3007,20 @@ export default function DayView() {
                   )}
                 </div>
                 <div className="flex items-center gap-2 pt-3 border-t border-border/30 px-1">
-                  <Button variant="outline" onClick={() => { setBulkStep("input"); setHighlightMissingStartTime(false); setHighlightMissingDuration(false); }} disabled={planMutating} className="h-12 rounded-2xl border-soft text-[14px]">
-                    Back
+                  <Button variant="outline" onClick={() => {
+                    if (pendingMoveState) {
+                      // In move mode "Back" cancels the whole flow
+                      setPendingMoveState(null);
+                      setComposerOpen(false);
+                      setBulkRows([]);
+                      setBulkStep("input");
+                    } else {
+                      setBulkStep("input");
+                    }
+                    setHighlightMissingStartTime(false);
+                    setHighlightMissingDuration(false);
+                  }} disabled={planMutating} className="h-12 rounded-2xl border-soft text-[14px]">
+                    {pendingMoveState ? "Cancel" : "Back"}
                   </Button>
                   <Button
                     onClick={() => {
@@ -2874,7 +3043,10 @@ export default function DayView() {
                     disabled={planMutating || bulkRows.length === 0}
                     className="flex-1 h-12 rounded-2xl bg-primary hover:bg-primary/92 text-primary-foreground font-semibold pressable"
                   >
-                    Add {bulkRows.length} {bulkRows.length === 1 ? "task" : "tasks"}
+                    {pendingMoveState
+                      ? `Move ${bulkRows.length} ${bulkRows.length === 1 ? "task" : "tasks"}`
+                      : `Add ${bulkRows.length} ${bulkRows.length === 1 ? "task" : "tasks"}`
+                    }
                   </Button>
                 </div>
               </div>
@@ -3258,8 +3430,10 @@ export default function DayView() {
         value={
           dayPickerIntent?.kind === "navigate"
             ? viewDate
-            : // For move/carry default the suggestion to tomorrow.
-              tomorrowDate
+            : // Move/carry: no day is pre-selected so any tap (including tomorrow)
+              // actually fires onPick. Previously tomorrowDate here caused the sheet
+              // to silently close when the user tapped tomorrow (ymd===value bail).
+              ""
         }
         onPick={(d) => void handleDayPickerPick(d)}
         title={
@@ -3308,7 +3482,7 @@ export default function DayView() {
               <X className="h-4 w-4" />
             </button>
           </div>
-          <div className="flex-1 overflow-y-auto px-6 py-4">
+          <div className="flex-1 overflow-y-auto px-6 pt-4" style={{ paddingBottom: "max(env(safe-area-inset-bottom), 24px)" }}>
           {trackPickerBlock && (
             <div className="mt-4 space-y-4">
               <div>
@@ -3431,7 +3605,7 @@ export default function DayView() {
           );
           const normalized = normalizeSchedule(updated, new Set([id, ...lockedIds]));
           // Fallback (cross-midnight / non-monotonic): keep every start_time as-is.
-          const next = resolvedFirstOrder(normalized ?? updated);
+          const next = activeFirstOrder(normalized ?? updated);
 
           setBlocks(next);
           setPlanMutating(true);

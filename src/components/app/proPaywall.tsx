@@ -168,7 +168,7 @@ export function ProFeatureCard({
       {/* Icon box — tinted background, custom glyph */}
       <span
         className="flex h-10 w-10 shrink-0 items-center justify-center rounded-[11px]"
-        style={{ background: `hsl(${accent} / 0.18)` }}
+        style={{ background: `hsl(${accent} / 0.28)` }}
       >
         <IconGlyph accent={accent} />
       </span>

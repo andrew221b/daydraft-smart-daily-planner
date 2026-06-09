@@ -47,7 +47,29 @@ export default function Home() {
   const location = useLocation();
   const [searchParams] = useSearchParams();
   const queryClient = useQueryClient();
-  const viewDate = todayDateStr();
+  // Reactive "today" — re-evaluated on resume so opening the app the next morning
+  // shows the new day immediately, not yesterday's plan. A plain todayDateStr()
+  // const only updates when something else happens to re-render.
+  const [viewDate, setViewDate] = useState(() => todayDateStr());
+  useEffect(() => {
+    const sync = () => setViewDate(todayDateStr());
+    const onVis = () => { if (document.visibilityState === "visible") sync(); };
+    document.addEventListener("visibilitychange", onVis);
+    const t = setInterval(sync, 60_000);
+    let nativeListener: Promise<{ remove: () => void }> | null = null;
+    import("@capacitor/app")
+      .then(({ App }) => {
+        nativeListener = App.addListener("appStateChange", ({ isActive }) => {
+          if (isActive) sync();
+        });
+      })
+      .catch(() => {});
+    return () => {
+      document.removeEventListener("visibilitychange", onVis);
+      clearInterval(t);
+      if (nativeListener) void nativeListener.then((l) => l.remove());
+    };
+  }, []);
   const { allCatMap } = useTimeTracker();
 
   useEffect(() => {
@@ -101,7 +123,10 @@ export default function Home() {
     queryFn: () => fetchPlanDashboard(user!.id, viewDate),
     enabled: !!user?.id && !!viewDate && tabVisible,
     staleTime: 30_000,
-    placeholderData: keepPreviousData,
+    // No keepPreviousData: the query key only changes when the day rolls over (or
+    // the user changes). Carrying yesterday's plan across that boundary is exactly
+    // the "stale previous day flashes for a second" bug — show empty/loading until
+    // today's data lands instead. Within a day the cache already serves instantly.
   });
   const blocks = planData?.planBlocks ?? [];
 

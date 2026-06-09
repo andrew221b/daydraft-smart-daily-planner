@@ -138,7 +138,7 @@ export function CategoryFilterSheet({
                   <span className="h-6 w-6 rounded-full border-[1.5px] flex items-center justify-center shrink-0"
                     style={{
                       borderColor: isSelected ? "hsl(var(--primary))" : "hsl(var(--border) / 0.65)",
-                      background: isSelected ? "hsl(var(--primary) / 0.18)" : "transparent",
+                      background: isSelected ? "hsl(var(--primary) / 0.28)" : "transparent",
                     }}
                   >
                     {isSelected && (

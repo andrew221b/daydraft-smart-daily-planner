@@ -1,5 +1,5 @@
 import { AnimatePresence, motion } from "framer-motion";
-import { Banknote, Check, ChevronDown, Coins, Search } from "lucide-react";
+import { Banknote, Check, ChevronDown, Coins, Search, Trash2 } from "lucide-react";
 import { useEffect, useMemo, useRef, useState, type CSSProperties } from "react";
 import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
@@ -156,13 +156,17 @@ export function PaymentMethodFields({
     haptics.selection();
     setKind(next);
 
-    // Clear the method when its kind doesn't match the new tab — keeps
-    // the picker honest. Currency does the same: if it's a stablecoin and
-    // the user flips to Fiat, snap to USD; flipping to Crypto with a fiat
-    // code in place snaps to USDT (the most common payout coin).
+    // If the new kind has exactly one method (e.g. Crypto only has "Crypto
+    // wallet"), auto-select it NOW — synchronously — so the detail card is
+    // already chosen on the first render after the kind switch. Without this,
+    // the auto-select useEffect fires one render too late and the empty
+    // placeholder flashes briefly before the card appears.
+    const nextMethods = PAYMENT_METHODS.filter((m) => m.kind === next);
     const currentMethod = getPaymentMethod(value.payment_method);
     if (currentMethod && currentMethod.kind !== next) {
-      onChange("payment_method", "");
+      onChange("payment_method", nextMethods.length === 1 ? nextMethods[0].id : "");
+    } else if (!value.payment_method && nextMethods.length === 1) {
+      onChange("payment_method", nextMethods[0].id);
     }
 
     const curKind = currencyKind(value.currency);
@@ -305,11 +309,12 @@ function KindToggle({
             taps perfectly responsive. */}
         <span
           aria-hidden
-          className="pointer-events-none absolute top-1 bottom-1 left-1 w-[calc(50%-4px)] rounded-xl border border-border/20 shadow-sm transition-transform duration-200 ease-[cubic-bezier(0.32,0.72,0,1)]"
+          className="pointer-events-none absolute top-1 bottom-1 left-1 w-[calc(50%-4px)] rounded-xl border border-border/20 shadow-sm"
           style={{
             transform: kind === "crypto" ? "translateX(calc(100% + 4px))" : "translateX(0)",
-            background: `linear-gradient(180deg, hsl(${tintHsl} / 0.18) 0%, hsl(${tintHsl} / 0.05) 100%)`,
-            boxShadow: `inset 0 1px 0 hsl(0 0% 100% / 0.18), 0 0 0 1px hsl(${tintHsl} / 0.22), 0 2px 8px -2px hsl(${tintHsl} / 0.14)`,
+            transition: "transform 200ms cubic-bezier(0.32,0.72,0,1), background-color 180ms ease, box-shadow 180ms ease",
+            backgroundColor: `hsl(${tintHsl} / 0.28)`,
+            boxShadow: `inset 0 1px 0 hsl(0 0% 100% / 0.22), 0 0 0 1px hsl(${tintHsl} / 0.40), 0 2px 8px -2px hsl(${tintHsl} / 0.22)`,
           }}
         />
         <KindTab active={kind === "fiat"} onClick={() => onChange("fiat")} icon={Banknote} label="Fiat" tintHsl={fiatHsl} />
@@ -348,8 +353,8 @@ function KindTab({
         className="inline-flex items-center justify-center rounded-md transition-[background-color,box-shadow] duration-150"
         style={active ? {
           width: 22, height: 22,
-          background: `hsl(${tintHsl} / 0.20)`,
-          boxShadow: `0 0 0 1px hsl(${tintHsl} / 0.30)`,
+          background: `hsl(${tintHsl} / 0.30)`,
+          boxShadow: `0 0 0 1.5px hsl(${tintHsl} / 0.50)`,
           color: `hsl(${tintHsl})`,
         } : { width: 22, height: 22 }}
       >
@@ -506,8 +511,9 @@ function MethodGrid({
           <button
             type="button"
             onClick={() => { haptics.selection(); onPick(""); }}
-            className="text-[10px] font-medium text-secondary-fg/60 hover:text-foreground transition-colors"
+            className="flex items-center gap-1 text-[10px] font-medium text-destructive/70 hover:text-destructive transition-colors pressable"
           >
+            <Trash2 className="h-3 w-3" />
             Clear
           </button>
         )}
@@ -675,7 +681,7 @@ function FieldRow({
           value={value}
           onChange={(e) => onChange(e.target.value)}
           placeholder={field.placeholder}
-          className="min-h-[68px] rounded-xl border border-border/40 bg-background shadow-sm text-[13px] leading-snug placeholder:text-secondary-fg/55 focus-visible:ring-1 focus-visible:ring-primary/30"
+          className="min-h-[96px] rounded-xl border border-border/40 bg-background shadow-sm text-[13px] text-foreground leading-snug placeholder:text-secondary-fg/45 focus-visible:ring-1 focus-visible:ring-primary/30"
         />
       </label>
     );
@@ -688,7 +694,7 @@ function FieldRow({
         value={value}
         onChange={(e) => onChange(e.target.value)}
         placeholder={field.placeholder}
-        className="h-10 rounded-xl border border-border/40 bg-background shadow-sm text-[13px] placeholder:text-secondary-fg/55 focus-visible:ring-1 focus-visible:ring-primary/30"
+        className="h-10 rounded-xl border border-border/40 bg-background shadow-sm text-[13px] text-foreground placeholder:text-secondary-fg/45 focus-visible:ring-1 focus-visible:ring-primary/30"
       />
     </label>
   );
