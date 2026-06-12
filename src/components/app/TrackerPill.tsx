@@ -22,6 +22,7 @@ import { parseHourlyRate } from "@/lib/rateInput";
 import { triggerDownload } from "@/lib/reportExport";
 import { useTabVisible } from "@/components/app/PersistentTabs";
 import { UpgradeSheet } from "@/components/app/UpgradeSheet";
+import { EntryStartSheet, EntryDeleteDialog, type EditableEntry } from "@/components/app/EntryEditSheet";
 import { PaymentMethodFields, type PaymentFieldsValue } from "@/components/app/PaymentMethodFields";
 import { verifyBiometric, getGatePref } from "@/lib/biometricGate";
 import { BiometricGateSheet } from "@/components/app/BiometricGateSheet";
@@ -153,7 +154,7 @@ function clipParsed(p: ParsedEntry, dayStart: number, dayEnd: number, now: numbe
  */
 function TrackerInner({ embedded = false, onClose }: { embedded?: boolean; onClose?: () => void }) {
   const { user } = useAuth();
-  const { active, categories, start, stop, switchCategory, deleteCategory, renameCategory, updateCategoryRate, resetRateSetAt, updateCategoryBilling, addCategory, addManualEntry, todayTotalSec } = useTimeTracker();
+  const { active, categories, start, stop, switchCategory, deleteCategory, renameCategory, updateCategoryRate, resetRateSetAt, updateCategoryBilling, addCategory, addManualEntry, deleteEntry, updateEntryStart, todayTotalSec } = useTimeTracker();
   // todayTotalSec re-derives once a minute via the provider; no need to
   // subscribe to the elapsed heartbeat here. The big HH:MM:SS digits below
   // are rendered via <LiveElapsed>, which writes to the DOM directly and
@@ -180,6 +181,9 @@ function TrackerInner({ embedded = false, onClose }: { embedded?: boolean; onClo
   const [nowSec, setNowSec] = useState<number>(() => Date.now());
   const simpleMode = false;
   const [showAllCategories, setShowAllCategories] = useState(false);
+  // Per-session edit (adjust start) + delete, opened from any session list.
+  const [editEntry, setEditEntry] = useState<EditableEntry | null>(null);
+  const [deleteEntryTarget, setDeleteEntryTarget] = useState<EditableEntry | null>(null);
 
   // Rename-only mode for non-Pro: same visual as editingCat but no rate/billing.
   const [renamingCat, setRenamingCat] = useState<string | null>(null);
@@ -224,6 +228,23 @@ function TrackerInner({ embedded = false, onClose }: { embedded?: boolean; onClo
       })),
     [entries],
   );
+
+  // Resolve a session id back to its raw (un-clipped) start/end + category so the
+  // editor works on the true recorded times, not the period-clipped display values.
+  const buildEditableEntry = (id: string): EditableEntry | null => {
+    const raw = entries.find((e) => e.id === id);
+    if (!raw) return null;
+    const cat = raw.category_id ? catMap.get(raw.category_id) : undefined;
+    return {
+      id: raw.id,
+      startedAtMs: new Date(raw.started_at).getTime(),
+      endedAtMs: raw.ended_at ? new Date(raw.ended_at).getTime() : null,
+      categoryName: cat?.name ?? null,
+      categoryColor: cat?.color ?? null,
+    };
+  };
+  const openEditEntry = (id: string) => { const e = buildEditableEntry(id); if (e) { haptics.tap(); setEditEntry(e); } };
+  const openDeleteEntry = (id: string) => { const e = buildEditableEntry(id); if (e) { haptics.tap(); setDeleteEntryTarget(e); } };
 
   useEffect(() => {
     if (!editingCat) {
@@ -538,13 +559,28 @@ function TrackerInner({ embedded = false, onClose }: { embedded?: boolean; onClo
 
   const focusAddCategory = () => {
     setTab("today");
-    window.requestAnimationFrame(() => {
-      // `auto`, not `smooth`: we focus the input on the next line, which opens
-      // the keyboard — a smooth scroll running into the keyboard slide-in janks
-      // on iOS WKWebView.
-      addCategoryFormRef.current?.scrollIntoView({ behavior: "auto", block: "center" });
-      addCategoryInputRef.current?.focus();
-    });
+    // The keyboard only opens for a `.focus()` that runs SYNCHRONOUSLY inside the
+    // user-gesture (tap) call stack. Deferring it to rAF — as we used to —
+    // severs that chain, so on iOS/Android the field focuses but the keyboard
+    // never appears. When the input is already mounted (the common case: the
+    // Add-category form lives on the same "today" tab as the trigger), focus it
+    // right now within the gesture; only the scroll-into-view is deferred a
+    // frame. If the tab is still switching and the input isn't mounted yet, fall
+    // back to the rAF path (keyboard may not pop, but focus still lands).
+    const input = addCategoryInputRef.current;
+    if (input) {
+      input.focus();
+      // `auto`, not `smooth`: a smooth scroll running into the keyboard slide-in
+      // janks on iOS WKWebView.
+      window.requestAnimationFrame(() => {
+        addCategoryFormRef.current?.scrollIntoView({ behavior: "auto", block: "center" });
+      });
+    } else {
+      window.requestAnimationFrame(() => {
+        addCategoryFormRef.current?.scrollIntoView({ behavior: "auto", block: "center" });
+        addCategoryInputRef.current?.focus();
+      });
+    }
   };
 
   const updatePaymentField = (field: keyof PaymentDetailsDraft, value: string) =>
@@ -942,7 +978,7 @@ function TrackerInner({ embedded = false, onClose }: { embedded?: boolean; onClo
                         initial={{ height: 0, opacity: 0 }}
                         animate={{ height: "auto", opacity: 1 }}
                         exit={{ height: 0, opacity: 0 }}
-                        transition={{ type: "spring", stiffness: 340, damping: 28, mass: 0.85 }}
+                        transition={{ height: { type: "tween", duration: 0.34, ease: [0.4, 0, 0.2, 1] }, opacity: { duration: 0.22, ease: "easeOut" } }}
                         style={{ overflow: "hidden" }}
                       >
                         <div className="flex items-center gap-2 mb-2">
@@ -952,6 +988,7 @@ function TrackerInner({ embedded = false, onClose }: { embedded?: boolean; onClo
                             onChange={(e) => setEditingName(e.target.value)}
                             onKeyDown={(e) => { if (e.key === "Escape") setRenamingCat(null); }}
                             className="flex-1 h-8 bg-transparent border-0 px-0 text-[15px] font-medium focus-visible:ring-0 shadow-none"
+                            style={{ fontSize: 16 }}
                             autoFocus
                           />
                         </div>
@@ -996,32 +1033,26 @@ function TrackerInner({ embedded = false, onClose }: { embedded?: boolean; onClo
                         initial={{ height: 0, opacity: 0 }}
                         animate={{ height: "auto", opacity: 1 }}
                         exit={{ height: 0, opacity: 0 }}
-                        transition={{ type: "spring", stiffness: 340, damping: 28, mass: 0.85 }}
+                        transition={{ height: { type: "tween", duration: 0.34, ease: [0.4, 0, 0.2, 1] }, opacity: { duration: 0.22, ease: "easeOut" } }}
                         style={{ overflow: "hidden" }}
                       >
-                        {/* ① Name row */}
-                        <motion.div
-                          className="flex items-center gap-2 mb-2"
-                          initial={{ opacity: 0, y: 8 }}
-                          animate={{ opacity: 1, y: 0 }}
-                          transition={{ delay: 0.04, type: "spring", stiffness: 400, damping: 32 }}
-                        >
+                        {/* ① Name row — static content; the form's own height+opacity
+                            tween is the single entrance (matches the timeline task cards).
+                            Per-section spring staggers used to fire WHILE the height grew,
+                            and their overshoot read as a janky "pressed-in" bounce. */}
+                        <div className="flex items-center gap-2 mb-2">
                           <span className="h-3 w-3 rounded-full shrink-0" style={{ background: c.color }} />
                           <Input
                             value={editingName}
                             onChange={(e) => setEditingName(e.target.value)}
                             onKeyDown={(e) => { if (e.key === "Escape") setEditingCat(null); }}
                             className="flex-1 h-8 bg-transparent border-0 px-0 text-[15px] font-medium focus-visible:ring-0 shadow-none"
+                            style={{ fontSize: 16 }}
                           />
-                        </motion.div>
+                        </div>
 
                         {/* ② Rate row */}
-                        <motion.div
-                          className="flex items-center gap-2 rounded-xl border border-border/40 bg-background/50 shadow-sm px-2.5 py-2 mb-2"
-                          initial={{ opacity: 0, y: 8 }}
-                          animate={{ opacity: 1, y: 0 }}
-                          transition={{ delay: 0.09, type: "spring", stiffness: 400, damping: 32 }}
-                        >
+                        <div className="flex items-center gap-2 rounded-xl border border-border/40 bg-background/50 shadow-sm px-2.5 py-2 mb-2">
                           {isPro ? (
                             <>
                               <span className="text-[11px] font-semibold text-primary/80 shrink-0">Rate / h</span>
@@ -1031,12 +1062,14 @@ function TrackerInner({ embedded = false, onClose }: { embedded?: boolean; onClo
                                 onChange={(e) => setEditingRate(e.target.value)}
                                 placeholder="0"
                                 className="h-7 flex-1 bg-transparent border-0 px-0 text-right text-[13px] font-mono tabular-nums focus-visible:ring-0 shadow-none"
+                                style={{ fontSize: 16 }}
                               />
                               <Input
                                 value={paymentDetails.currency}
                                 onChange={(e) => updatePaymentField("currency", e.target.value.toUpperCase().slice(0, 3))}
                                 placeholder="USD"
                                 className="h-7 w-14 bg-transparent border-l border-soft rounded-none px-2 text-center text-[11px] font-semibold font-mono focus-visible:ring-0 shadow-none"
+                                style={{ fontSize: 16 }}
                                 maxLength={3}
                               />
                             </>
@@ -1054,7 +1087,7 @@ function TrackerInner({ embedded = false, onClose }: { embedded?: boolean; onClo
                               <span className="text-[10px] font-semibold text-primary">Pro</span>
                             </button>
                           )}
-                        </motion.div>
+                        </div>
 
                         {/* ②½ Rate scope — only when a rate is set AND rate_set_at is non-null */}
                         <AnimatePresence initial={false}>
@@ -1090,12 +1123,7 @@ function TrackerInner({ embedded = false, onClose }: { embedded?: boolean; onClo
                         </AnimatePresence>
 
                         {/* ③ Billing section */}
-                        <motion.div
-                          className="rounded-xl border border-border/40 bg-muted/20 px-2.5 py-2.5 mb-2"
-                          initial={{ opacity: 0, y: 10 }}
-                          animate={{ opacity: 1, y: 0 }}
-                          transition={{ delay: 0.14, type: "spring", stiffness: 400, damping: 34 }}
-                        >
+                        <div className="rounded-xl border border-border/40 bg-muted/20 px-2.5 py-2.5 mb-2">
                           <div className="mb-2 flex items-center gap-2">
                             <span
                               className="flex h-5 w-5 shrink-0 items-center justify-center rounded-md text-primary bg-primary/10 border border-primary/20"
@@ -1118,10 +1146,10 @@ function TrackerInner({ embedded = false, onClose }: { embedded?: boolean; onClo
                               {billingRevealed ? (
                                 <motion.div
                                   key="fields"
-                                  initial={{ opacity: 0, y: 8, scale: 0.98 }}
-                                  animate={{ opacity: 1, y: 0, scale: 1 }}
-                                  exit={{ opacity: 0, y: -4, scale: 0.98 }}
-                                  transition={{ type: "spring", stiffness: 320, damping: 26 }}
+                                  initial={{ opacity: 0, y: 6 }}
+                                  animate={{ opacity: 1, y: 0 }}
+                                  exit={{ opacity: 0, y: -3 }}
+                                  transition={{ duration: 0.24, ease: [0.4, 0, 0.2, 1] }}
                                 >
                                   <PaymentMethodFields
                                     compact
@@ -1136,11 +1164,10 @@ function TrackerInner({ embedded = false, onClose }: { embedded?: boolean; onClo
                                   onClick={unlockBilling}
                                   disabled={billingUnlocking}
                                   className="pebble-idle flex w-full items-center gap-3 rounded-xl px-3 py-3 text-left pressable disabled:opacity-60"
-                                  initial={{ opacity: 0, scale: 0.97 }}
-                                  animate={{ opacity: 1, scale: 1 }}
-                                  exit={{ opacity: 0, scale: 0.95 }}
-                                  transition={{ type: "spring", stiffness: 340, damping: 28 }}
-                                  whileTap={{ scale: 0.97 }}
+                                  initial={{ opacity: 0, y: 6 }}
+                                  animate={{ opacity: 1, y: 0 }}
+                                  exit={{ opacity: 0, y: -3 }}
+                                  transition={{ duration: 0.24, ease: [0.4, 0, 0.2, 1] }}
                                 >
                                   <motion.span
                                     className="shrink-0 h-8 w-8 rounded-xl flex items-center justify-center text-primary bg-primary/10 border border-primary/20"
@@ -1161,15 +1188,10 @@ function TrackerInner({ embedded = false, onClose }: { embedded?: boolean; onClo
                               )}
                             </AnimatePresence>
                           )}
-                        </motion.div>
+                        </div>
 
                         {/* ④ Save / Cancel buttons */}
-                        <motion.div
-                          className="flex items-center gap-2"
-                          initial={{ opacity: 0, y: 8 }}
-                          animate={{ opacity: 1, y: 0 }}
-                          transition={{ delay: 0.20, type: "spring", stiffness: 400, damping: 34 }}
-                        >
+                        <div className="flex items-center gap-2">
                           <button
                             type="submit"
                             disabled={paymentDetailsSaving}
@@ -1181,7 +1203,7 @@ function TrackerInner({ embedded = false, onClose }: { embedded?: boolean; onClo
                           <button type="button" onClick={() => setEditingCat(null)} className="h-9 w-9 rounded-xl border border-border/40 text-secondary-fg pressable" aria-label="Cancel">
                             <X className="mx-auto h-4 w-4" />
                           </button>
-                        </motion.div>
+                        </div>
                       </motion.form>
                     ) : (
                       <motion.div
@@ -1312,7 +1334,7 @@ function TrackerInner({ embedded = false, onClose }: { embedded?: boolean; onClo
                       />
                     )}
                     {!simpleMode && isOpen && (
-                      <CategoryDetail cat={c} stat={stat} period={period} />
+                      <CategoryDetail cat={c} stat={stat} period={period} onEditEntry={openEditEntry} onDeleteEntry={openDeleteEntry} />
                     )}
                   </div>
                   </SwipeRow>
@@ -1347,6 +1369,7 @@ function TrackerInner({ embedded = false, onClose }: { embedded?: boolean; onClo
                   onChange={e => setNewName(e.target.value)}
                   placeholder="Add category (e.g. Client A)"
                   className="flex-1 h-8 bg-transparent border-0 px-0 text-sm focus-visible:ring-0 shadow-none"
+                  style={{ fontSize: 16 }}
                 />
                 {newName.trim() && (
                   <button type="submit" className="inline-flex items-center gap-1 px-2.5 py-1.5 rounded-lg bg-primary text-primary-foreground text-xs font-medium pressable">
@@ -1455,7 +1478,7 @@ function TrackerInner({ embedded = false, onClose }: { embedded?: boolean; onClo
               </p>
             </div>
 
-            {dayDetail && <DayDetail detail={dayDetail} catMap={catMap} />}
+            {dayDetail && <DayDetail detail={dayDetail} catMap={catMap} onEditEntry={openEditEntry} onDeleteEntry={openDeleteEntry} />}
           </div>
         )}
 
@@ -1586,7 +1609,7 @@ function TrackerInner({ embedded = false, onClose }: { embedded?: boolean; onClo
               </div>
             </div>
 
-            {dayDetail && <DayDetail detail={dayDetail} catMap={catMap} />}
+            {dayDetail && <DayDetail detail={dayDetail} catMap={catMap} onEditEntry={openEditEntry} onDeleteEntry={openDeleteEntry} />}
           </div>
         )}
 
@@ -1647,6 +1670,20 @@ function TrackerInner({ embedded = false, onClose }: { embedded?: boolean; onClo
         </AlertDialogFooter>
       </AlertDialogContent>
     </AlertDialog>
+
+    {/* Per-session edit (adjust start) + delete — shared by every session list. */}
+    <EntryStartSheet
+      open={!!editEntry}
+      entry={editEntry}
+      onClose={() => setEditEntry(null)}
+      onCommit={(d) => { if (editEntry) void updateEntryStart(editEntry.id, d); }}
+    />
+    <EntryDeleteDialog
+      open={!!deleteEntryTarget}
+      onOpenChange={(o) => { if (!o) setDeleteEntryTarget(null); }}
+      entry={deleteEntryTarget}
+      onConfirm={() => { if (deleteEntryTarget) void deleteEntry(deleteEntryTarget.id); setDeleteEntryTarget(null); }}
+    />
     </>
   );
 }
@@ -1688,7 +1725,33 @@ function StackedBar({ segments, totalSec }: { segments: Array<{ value: number; c
 }
 
 type DayDetailData = { date: Date; total: number; byCat: Map<string, number>; items: Array<{ id: string; cat: TimeCategory | undefined; start: number; end: number; dur: number; fromPlanner: boolean }> };
-function DayDetail({ detail, catMap }: { detail: DayDetailData; catMap: Map<string, TimeCategory> }) {
+/** Compact edit-start + delete actions for a single tracked-session row. */
+function SessionActions({ onEdit, onDelete }: { onEdit: () => void; onDelete: () => void }) {
+  return (
+    <div className="flex items-center gap-0.5 shrink-0 -mr-1">
+      <button
+        type="button"
+        onClick={(e) => { e.stopPropagation(); onEdit(); }}
+        className="h-7 w-7 inline-flex items-center justify-center rounded-lg text-secondary-fg/55 hover:text-foreground hover:bg-foreground/[0.06] pressable transition-colors"
+        aria-label="Adjust start time"
+        title="Adjust start time"
+      >
+        <Pencil className="h-3.5 w-3.5" />
+      </button>
+      <button
+        type="button"
+        onClick={(e) => { e.stopPropagation(); onDelete(); }}
+        className="h-7 w-7 inline-flex items-center justify-center rounded-lg text-secondary-fg/55 hover:text-destructive hover:bg-destructive/10 pressable transition-colors"
+        aria-label="Delete session"
+        title="Delete session"
+      >
+        <Trash2 className="h-3.5 w-3.5" />
+      </button>
+    </div>
+  );
+}
+
+function DayDetail({ detail, catMap, onEditEntry, onDeleteEntry }: { detail: DayDetailData; catMap: Map<string, TimeCategory>; onEditEntry: (id: string) => void; onDeleteEntry: (id: string) => void }) {
   const byCat = Array.from(detail.byCat.entries() as IterableIterator<[string, number]>)
     .map(([id, sec]) => ({ cat: catMap.get(id), sec }))
     .filter(x => x.cat)
@@ -1741,7 +1804,7 @@ function DayDetail({ detail, catMap }: { detail: DayDetailData; catMap: Map<stri
                   return (
                     <div key={it.id} className="flex items-center gap-2 text-[12px]">
                       <span className="h-2 w-2 shrink-0 rounded-full" style={{ background: it.cat?.color || "hsl(var(--muted-foreground))" }} />
-                      <span className="w-[88px] shrink-0 font-mono tabular-nums text-secondary-fg">{startStr}–{endStr}</span>
+                      <span className="w-[82px] shrink-0 font-mono tabular-nums text-secondary-fg">{startStr}–{endStr}</span>
                       <span className="flex min-w-0 flex-1 items-center gap-1.5 truncate">
                         {it.fromPlanner ? (
                           <span
@@ -1755,6 +1818,7 @@ function DayDetail({ detail, catMap }: { detail: DayDetailData; catMap: Map<stri
                         <span className="truncate">{it.cat?.name || "Uncategorized"}</span>
                       </span>
                       <span className="shrink-0 font-mono tabular-nums text-secondary-fg">{fmtHM(it.dur)}</span>
+                      <SessionActions onEdit={() => onEditEntry(it.id)} onDelete={() => onDeleteEntry(it.id)} />
                     </div>
                   );
                 })}
@@ -1807,10 +1871,14 @@ function CategoryDetail({
   cat,
   stat,
   period,
+  onEditEntry,
+  onDeleteEntry,
 }: {
   cat: TimeCategory;
   stat: { sec: number; sessions: Array<{ id: string; start: number; end: number; note: string | null; fromPlanner?: boolean }>; perDay: Map<string, number> } | undefined;
   period: { start: number; end: number; label: string; days: number };
+  onEditEntry: (id: string) => void;
+  onDeleteEntry: (id: string) => void;
 }) {
   const sec = stat?.sec || 0;
   const sessions = stat?.sessions || [];
@@ -1888,8 +1956,8 @@ function CategoryDetail({
             const endStr = new Date(s.end).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" });
             return (
               <div key={s.id} className="flex items-center gap-2 text-[12px]">
-                <span className="font-mono tabular-nums text-secondary-fg w-[54px] shrink-0">{dateStr}</span>
-                <span className="font-mono tabular-nums text-secondary-fg w-[88px] shrink-0">{startStr}–{endStr}</span>
+                <span className="font-mono tabular-nums text-secondary-fg w-[50px] shrink-0">{dateStr}</span>
+                <span className="font-mono tabular-nums text-secondary-fg w-[82px] shrink-0">{startStr}–{endStr}</span>
                 <span className="truncate flex-1 text-secondary-fg inline-flex items-center gap-1.5 min-w-0">
                   {s.fromPlanner ? (
                     <span className="inline-flex shrink-0 items-center gap-0.5 rounded-md border border-primary/25 bg-primary/[0.08] px-1 py-0.5 text-[9px] font-semibold uppercase tracking-wide text-primary" title="From day plan">
@@ -1899,7 +1967,8 @@ function CategoryDetail({
                   ) : null}
                   <span className="truncate">{s.note || "—"}</span>
                 </span>
-                <span className="font-mono tabular-nums text-foreground">{fmtHM((s.end - s.start) / 1000)}</span>
+                <span className="font-mono tabular-nums text-foreground shrink-0">{fmtHM((s.end - s.start) / 1000)}</span>
+                <SessionActions onEdit={() => onEditEntry(s.id)} onDelete={() => onDeleteEntry(s.id)} />
               </div>
             );
           })}
@@ -2076,12 +2145,14 @@ function ManualEntryRow({
           value={custom}
           onChange={(e) => setCustom(e.target.value.replace(/\D/g, ""))}
           className="h-8 w-16 text-[12px] tabular-nums"
+          style={{ fontSize: 16 }}
         />
         <Input
           placeholder="Note (optional)"
           value={note}
           onChange={(e) => setNote(e.target.value)}
           className="h-8 flex-1 text-[12px]"
+          style={{ fontSize: 16 }}
         />
         <button onClick={onCancel} className="p-1.5 text-secondary-fg pressable" aria-label="Cancel">
           <X className="h-3.5 w-3.5" />

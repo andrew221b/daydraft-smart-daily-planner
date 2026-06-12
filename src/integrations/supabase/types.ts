@@ -99,6 +99,7 @@ export type Database = {
           parallel_with: string | null
           plan_id: string
           position: number
+          priority: boolean
           resolution: string | null
           resolved_at: string | null
           slot_end_time: string | null
@@ -129,6 +130,7 @@ export type Database = {
           parallel_with?: string | null
           plan_id: string
           position?: number
+          priority?: boolean
           resolution?: string | null
           resolved_at?: string | null
           slot_end_time?: string | null
@@ -159,6 +161,7 @@ export type Database = {
           parallel_with?: string | null
           plan_id?: string
           position?: number
+          priority?: boolean
           resolution?: string | null
           resolved_at?: string | null
           slot_end_time?: string | null
@@ -212,6 +215,7 @@ export type Database = {
         Row: {
           created_at: string
           id: string
+          pinned: boolean
           plan_date: string
           position: number
           title: string
@@ -221,6 +225,7 @@ export type Database = {
         Insert: {
           created_at?: string
           id?: string
+          pinned?: boolean
           plan_date: string
           position?: number
           title: string
@@ -230,6 +235,7 @@ export type Database = {
         Update: {
           created_at?: string
           id?: string
+          pinned?: boolean
           plan_date?: string
           position?: number
           title?: string
@@ -244,8 +250,10 @@ export type Database = {
           done: boolean
           group_id: string | null
           id: string
+          pinned: boolean
           plan_date: string
           position: number
+          priority: boolean
           title: string
           updated_at: string
           user_id: string
@@ -255,8 +263,10 @@ export type Database = {
           done?: boolean
           group_id?: string | null
           id?: string
+          pinned?: boolean
           plan_date: string
           position?: number
+          priority?: boolean
           title: string
           updated_at?: string
           user_id: string
@@ -266,8 +276,10 @@ export type Database = {
           done?: boolean
           group_id?: string | null
           id?: string
+          pinned?: boolean
           plan_date?: string
           position?: number
+          priority?: boolean
           title?: string
           updated_at?: string
           user_id?: string

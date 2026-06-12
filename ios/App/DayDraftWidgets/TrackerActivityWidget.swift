@@ -3,8 +3,13 @@
 //  DayDraftWidgets
 //
 //  Live Activity for a running time-tracker session.
-//  Lock Screen and Dynamic Island expanded share ONE card (TrackerCard) so the
-//  two presentations are visually identical and both fit their height budgets.
+//  Lock Screen and Dynamic Island expanded share ONE card (TrackerCard).
+//
+//  Layout (mirrors FocusCard — same visual language):
+//    Row 1 — category name LEFT  ·  elapsed count-up RIGHT (large, accent)
+//    Row 2 — two stat columns: STARTED  ·  RATE (when rate set)
+//             or single "STARTED AT hh:mm" when no rate
+//    Row 3 — Stop & Save button (full width)
 //
 
 import ActivityKit
@@ -23,8 +28,6 @@ struct TrackerLiveActivityWidget: Widget {
             let accent = Color(hex: ctx.attributes.colorHex)
 
             return DynamicIsland {
-                // Whole card lives in the bottom region (below the notch) so it
-                // reads as one cohesive vertical card — same as the Lock Screen.
                 DynamicIslandExpandedRegion(.bottom) {
                     TrackerCard(
                         categoryName: ctx.attributes.categoryName,
@@ -35,7 +38,7 @@ struct TrackerLiveActivityWidget: Widget {
                         currency: ctx.attributes.currencyCode
                     )
                     .padding(.horizontal, 14)
-                    .padding(.top, 0)
+                    .padding(.top, 2)
                     .padding(.bottom, 4)
                 }
             } compactLeading: {
@@ -74,18 +77,19 @@ private struct TrackerCard: View {
     let currency: String
 
     var body: some View {
-        // Side-by-side layout: category NAME LEFT, live TIMER RIGHT — one row
-        // instead of two stacked rows — frees ~20pt so the Stop button never clips.
         VStack(alignment: .leading, spacing: 5) {
-            // ── Row 1: category (left) · live timer (right, large) ──
+
+            // ── Row 1: category LEFT · live count-up RIGHT ───────────────────
             HStack(alignment: .firstTextBaseline, spacing: 8) {
                 Text(categoryName.uppercased())
                     .font(.system(size: 13, weight: .heavy, design: .rounded))
                     .tracking(0.7)
                     .foregroundStyle(accent)
                     .lineLimit(1)
-                    .minimumScaleFactor(0.6)
+                    .minimumScaleFactor(0.55)
+
                 Spacer(minLength: 4)
+
                 Text(start, style: .timer)
                     .font(.system(size: 30, weight: .heavy, design: .rounded))
                     .monospacedDigit()
@@ -94,21 +98,39 @@ private struct TrackerCard: View {
                     .lineLimit(1)
             }
 
-            // ── Row 2: billable rate or "STARTED AT" ──
+            // ── Row 2: stat columns ──────────────────────────────────────────
             if hasRate {
-                Text("BILLABLE: \(ddRate(rate, currency))")
-                    .font(.system(size: 12, weight: .bold, design: .rounded))
-                    .foregroundStyle(DD.green)
-                    .lineLimit(1)
-                    .minimumScaleFactor(0.7)
+                // Two stats side by side: start time (left) + billable rate (right)
+                HStack(spacing: 0) {
+                    StatColumn(label: "STARTED", hAlign: .leading) {
+                        Text(start, style: .time)
+                            .font(.system(size: 13, weight: .bold, design: .rounded))
+                            .monospacedDigit()
+                            .foregroundStyle(DD.dim)
+                    }
+                    StatColumn(label: "RATE", hAlign: .trailing) {
+                        Text(ddRate(rate, currency))
+                            .font(.system(size: 13, weight: .bold, design: .rounded))
+                            .foregroundStyle(DD.green)
+                            .lineLimit(1)
+                            .minimumScaleFactor(0.7)
+                    }
+                }
             } else {
-                Text("STARTED AT \(start, style: .time)")
-                    .font(.system(size: 12, weight: .semibold, design: .rounded))
-                    .foregroundStyle(DD.faint)
-                    .lineLimit(1)
+                // No rate — show start time only
+                HStack {
+                    Text("STARTED AT")
+                        .font(.system(size: 11, weight: .heavy, design: .rounded))
+                        .tracking(0.8)
+                        .foregroundStyle(DD.faint)
+                    Spacer()
+                    Text(start, style: .time)
+                        .font(.system(size: 11, weight: .bold, design: .rounded))
+                        .foregroundStyle(DD.dim)
+                }
             }
 
-            // ── Row 3: full-width Stop button ──
+            // ── Row 3: Stop & Save button ────────────────────────────────────
             Link(destination: stopURL) {
                 LiveActionLabel(title: "Stop & Save", icon: "stop.fill", fill: DD.red)
             }

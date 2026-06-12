@@ -288,10 +288,19 @@ const sparks = Array.from({ length: SPARK_COUNT }).map((_, i) => {
 
 function AppAuraIcon() {
   const containerSize = 176;
-
-  // The first sparks hit the center around 2.2s - 2.5s.
-  // This is when the color burst and aura expansion should trigger.
-  const BURST_TIME = 2.4; 
+  const BURST_TIME = 2.4;
+  // On light theme sparks and flash use the primary accent colour (blue);
+  // on dark they keep the warm white glow.
+  const isLight = typeof document !== "undefined" && document.documentElement.classList.contains("light");
+  const sparkColor = isLight ? "hsl(var(--primary))" : "#fffce0";
+  const sparkGlow = isLight
+    ? "0 0 12px 3px hsl(var(--primary) / 0.65)"
+    : "0 0 12px 3px rgba(255,252,224,0.9)";
+  const flashColor = isLight ? "hsl(var(--primary) / 0.35)" : "#fffce0";
+  const iconEndColor = isLight ? "hsl(var(--primary))" : "#fffce0";
+  const iconGlow = isLight
+    ? "drop-shadow-[0_0_12px_hsl(var(--primary)/0.5)]"
+    : "drop-shadow-[0_0_12px_rgba(255,252,224,0.5)]";
 
   return (
     <div
@@ -306,8 +315,8 @@ function AppAuraIcon() {
           className="absolute top-1/2 left-1/2 rounded-full z-20 pointer-events-none"
           style={{
             width: 3, height: 3,
-            backgroundColor: "#fffce0",
-            boxShadow: "0 0 12px 3px rgba(255,252,224,0.9)",
+            backgroundColor: sparkColor,
+            boxShadow: sparkGlow,
             marginLeft: -1.5,
             marginTop: -1.5,
           }}
@@ -320,7 +329,7 @@ function AppAuraIcon() {
       {/* Central flash when sparks hit the center */}
       <motion.div
         className="absolute top-1/2 left-1/2 w-[140px] h-[140px] rounded-full z-30 pointer-events-none"
-        style={{ marginLeft: -70, marginTop: -70, filter: "blur(24px)", backgroundColor: "#fffce0" }}
+        style={{ marginLeft: -70, marginTop: -70, filter: "blur(24px)", backgroundColor: flashColor }}
         initial={{ opacity: 0, scale: 0 }}
         animate={{ opacity: [0, 1, 0], scale: [0.5, 2, 2.5] }}
         transition={{ delay: BURST_TIME, duration: 1.2, ease: "easeOut" }}
@@ -412,10 +421,10 @@ function AppAuraIcon() {
         <motion.div
           className="relative z-10 flex items-center justify-center"
           initial={{ color: "hsl(var(--foreground) / 0.5)", filter: "grayscale(100%)" }}
-          animate={{ color: "#fffce0", filter: "grayscale(0%)" }}
+          animate={{ color: iconEndColor, filter: "grayscale(0%)" }}
           transition={{ duration: 2.0, delay: BURST_TIME }}
         >
-          <Sparkles className="h-10 w-10 drop-shadow-[0_0_12px_rgba(255,252,224,0.5)]" strokeWidth={1.5} />
+          <Sparkles className={`h-10 w-10 ${iconGlow}`} strokeWidth={1.5} />
         </motion.div>
       </motion.div>
     </div>
@@ -1025,7 +1034,7 @@ function FeaturesShowcaseStep({
         </motion.h1>
 
         {/* ── Showcase area ────────────────────────────── */}
-        <div className="mt-6 flex-1 relative overflow-hidden">
+        <div className="mt-6 flex-1 relative overflow-x-hidden px-0.5 pb-2">
           {/* Plan demo — timeline cards that morph into a live checklist via
               the real PlanModePill switcher. */}
           <div className="relative z-10">

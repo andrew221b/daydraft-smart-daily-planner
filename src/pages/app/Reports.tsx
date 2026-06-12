@@ -1,10 +1,9 @@
-import { lazy, Suspense, useEffect, useMemo, useState } from "react";
+import { lazy, Suspense, useMemo, useState } from "react";
 import { keepPreviousData, useQuery } from "@tanstack/react-query";
 import { useAuth } from "@/hooks/useAuth";
-import { useProfile } from "@/hooks/useProfile";
 import { supabase } from "@/integrations/supabase/client";
 
-import { BarChart3, ChevronDown, Download, FileText, ListFilter, ChevronRight, Timer } from "lucide-react";
+import { BarChart3, ChevronDown, Download, FileText, ListFilter, ChevronRight, Timer, Pencil, Trash2, Check, X, TrendingUp } from "lucide-react";
 import { useNavigate } from "react-router-dom";
 import { EmptyState } from "@/components/app/EmptyState";
 import { useExchangeRates, convertCurrency } from "@/hooks/useExchangeRates";
@@ -19,7 +18,6 @@ import { getGatePref, verifyBiometric } from "@/lib/biometricGate";
 import { Sheet, SheetContent, SheetTitle } from "@/components/ui/sheet";
 import { PaymentMethodFields, type PaymentFieldsValue } from "@/components/app/PaymentMethodFields";
 import { categoryBillingToDraft } from "@/lib/categoryBilling";
-import { useTour } from "@/components/app/Tour";
 
 // Recharts is its own ~100kB chunk. Lazy-load it so the Reports first paint
 // shows headline numbers + the per-day list while the chart streams in.
@@ -39,7 +37,9 @@ import {
 import { toast } from "sonner";
 import { useEntitlement } from "@/hooks/useEntitlement";
 import { UpgradeSheet } from "@/components/app/UpgradeSheet";
+import { EntryStartSheet, EntryDeleteDialog, type EditableEntry } from "@/components/app/EntryEditSheet";
 import { TickingNumber } from "@/components/app/TickingNumber";
+import { FitText } from "@/components/app/FitText";
 import { useTimeTracker, useTimeTrackerElapsed } from "@/hooks/useTimeTracker";
 import { useTabVisible } from "@/components/app/PersistentTabs";
 import {
@@ -158,13 +158,11 @@ type CategoryGroup = {
 
 export default function Reports() {
   const { user } = useAuth();
-  const { profile } = useProfile();
   const nav = useNavigate();
-  const tour = useTour();
   const { isPro } = useEntitlement();
   // Categories already live in the TimeTrackerProvider — reading them from the
   // shared context avoids a Reports-only fetch on every tab switch.
-  const { categories, allCatMap: contextAllCatMap, updateCategoryBilling } = useTimeTracker();
+  const { categories, allCatMap: contextAllCatMap, updateCategoryBilling, deleteEntry, updateEntryStart, renameCategory } = useTimeTracker();
   // Subscribing to elapsedSec keeps live totals (running timer in the active
   // category) ticking inside Reports without a per-tab Supabase query.
   useTimeTrackerElapsed();
@@ -191,6 +189,31 @@ export default function Reports() {
   const [dateSheetOpen, setDateSheetOpen] = useState(false);
   const [catSheetOpen, setCatSheetOpen] = useState(false);
   const [expandedCategoryIds, setExpandedCategoryIds] = useState<Set<string>>(() => new Set());
+  // Per-rate-tier collapse state (only relevant for multi-rate categories).
+  // Key = `${categoryId}:${rate}`. A tier sits collapsed by default so an
+  // expanded category reads as a clean stack of rate summaries — tap a rate
+  // to reveal the sessions billed at it.
+  const [expandedTierKeys, setExpandedTierKeys] = useState<Set<string>>(() => new Set());
+  const toggleTierExpanded = (key: string) => {
+    setExpandedTierKeys((prev) => {
+      const next = new Set(prev);
+      if (next.has(key)) next.delete(key);
+      else next.add(key);
+      return next;
+    });
+  };
+  // Per-session edit (adjust start) + delete, and inline category rename.
+  const [editEntry, setEditEntry] = useState<EditableEntry | null>(null);
+  const [deleteEntryTarget, setDeleteEntryTarget] = useState<EditableEntry | null>(null);
+  const [renamingCatId, setRenamingCatId] = useState<string | null>(null);
+  const [renameDraft, setRenameDraft] = useState("");
+  const toEditable = (e: RollingEntry, name?: string | null, color?: string | null): EditableEntry => ({
+    id: e.id,
+    startedAtMs: new Date(e.started_at).getTime(),
+    endedAtMs: e.ended_at ? new Date(e.ended_at).getTime() : null,
+    categoryName: name ?? null,
+    categoryColor: color ?? null,
+  });
   const [upgradeOpen, setUpgradeOpen] = useState(false);
   const [displayCurrency, setDisplayCurrency] = useState<string>(
     () => localStorage.getItem("reports-display-currency") || "USD",
@@ -274,10 +297,9 @@ export default function Reports() {
   // aggregations (`byCategory` and `categoryGroups`) which doubled the work on
   // every period change. One walk computes totals, per-category sums, per-day
   // sums, and per-category entry lists at once.
-  const { totalSec, totalEarnings, categoryGroups, perDay, earningsByCurrency } = useMemo(() => {
+  const { totalSec, categoryGroups, perDay, earningsByCurrency } = useMemo(() => {
     const now = Date.now();
     let total = 0;
-    let earnedTotal = 0;
     const groups = new Map<string, CategoryGroup>();
     const dMap = new Map<string, number>();
     // Accumulate earnings per snapshot currency (not per current category currency)
@@ -299,7 +321,6 @@ export default function Reports() {
       // category's current rate must never retroactively alter report totals.
       const rate = e.snapshot_hourly_rate;
       const earned = ((rate || 0) * sec) / 3600;
-      earnedTotal += earned;
 
       // Bucket earnings under the snapshot currency (not the current category
       // currency) so the "Total Tracked → Estimated pay" total stays correct
@@ -360,12 +381,51 @@ export default function Reports() {
       }));
     return {
       totalSec: total,
-      totalEarnings: earnedTotal,
       categoryGroups: groupList,
       perDay,
       earningsByCurrency: byCurrency,
     };
   }, [periodEntries, catMap, getReportCurrency]);
+
+  // ── Earnings forecast (week + month, Pro only) ───────────────────────────
+  // Projects forward from the ALREADY-COMPUTED earningsByCurrency pipeline so
+  // rate_set_at / snapshot_hourly_rate semantics are respected automatically.
+  // Elapsed days are derived from range.from (not now.getDate()) so the math
+  // works for both week and month periods.
+  // Guard: require ≥ 3 elapsed days to avoid divide-by-small-N noise.
+  const forecast = useMemo(() => {
+    if (period !== "month" && period !== "week") return null;
+    if (!isPro) return null;
+    if (earningsByCurrency.size === 0) return null;
+    const hasRates = Object.keys(rates).length > 1;
+    const earnedSoFar = Array.from(earningsByCurrency.entries()).reduce(
+      (sum, [from, amount]) =>
+        sum + (hasRates ? convertCurrency(amount, from, displayCurrency, rates) : amount),
+      0,
+    );
+    if (earnedSoFar <= 0) return null;
+    const now = new Date();
+    const today = new Date(now.getFullYear(), now.getMonth(), now.getDate());
+    const fromDay = new Date(range.from.getFullYear(), range.from.getMonth(), range.from.getDate());
+    const elapsedDays = Math.max(1, Math.floor((today.getTime() - fromDay.getTime()) / 86_400_000) + 1);
+    const periodDays = period === "week"
+      ? 7
+      : new Date(now.getFullYear(), now.getMonth() + 1, 0).getDate();
+    const remainingDays = Math.max(0, periodDays - elapsedDays);
+    if (elapsedDays < 3) return { tooEarly: true as const, elapsedDays, periodDays, isWeek: period === "week" };
+    const dailyAvg = earnedSoFar / elapsedDays;
+    const projectedTotal = dailyAvg * periodDays;
+    return {
+      tooEarly: false as const,
+      earnedSoFar,
+      projectedTotal,
+      dailyAvg,
+      elapsedDays,
+      periodDays,
+      remainingDays,
+      isWeek: period === "week",
+    };
+  }, [period, isPro, earningsByCurrency, displayCurrency, rates, range.from]);
 
   const toggleCategoryExpanded = (id: string) => {
     setExpandedCategoryIds((prev) => {
@@ -385,7 +445,6 @@ export default function Reports() {
       ? periodEntries.filter((e) => idSet.has(e.category_id || "uncategorized"))
       : periodEntries;
     const filteredTotal = filteredCategories.reduce((sum, c) => sum + c.sec, 0);
-    const filteredEarnings = filteredCategories.reduce((sum, c) => sum + c.earnings, 0);
 
     const globalPayment = isPro ? paymentDetails : null;
     const paymentBuckets = new Map<string, { details: ReportPaymentDetails; names: string[] }>();
@@ -745,44 +804,120 @@ export default function Reports() {
             the other tabs even though the Shell background is identical.
           */}
           <section data-tour="reports-summary" className="rounded-[28px] hero-glass border px-5 pt-5 pb-4 deep-float" style={{ animationDelay: '0.4s' }}>
-            <p className="text-[11px] font-semibold uppercase tracking-[0.16em] text-secondary-fg/70">
-              Total tracked
-            </p>
-            <div className="mt-1.5 flex items-end justify-between gap-3">
-              <p className="font-display text-[40px] font-semibold tabular-nums leading-none whitespace-nowrap">
-                <TickingNumber value={fmtHM(totalSec)} />
-              </p>
-              {earningsByCurrency.size > 0 && (() => {
-                const hasRates = Object.keys(rates).length > 1;
-                const converted = Array.from(earningsByCurrency.entries()).reduce(
-                  (sum, [from, amount]) =>
-                    sum + (hasRates ? convertCurrency(amount, from, displayCurrency, rates) : amount),
-                  0,
-                );
-                return (
-                  <button
-                    type="button"
-                    onClick={() => setCurrencyPickerOpen(true)}
-                    className="text-right pressable rounded-xl p-1 -m-1"
-                    aria-label="Change display currency"
-                  >
-                    <span className="flex items-center justify-end gap-1.5">
-                      <span className="text-[10px] font-semibold uppercase tracking-[0.16em] text-secondary-fg/70">
-                        Estimated pay
-                      </span>
-                      <span className="inline-flex items-center gap-0.5 rounded-full bg-success/15 px-2 py-0.5 text-[10px] font-bold text-success border border-success/30">
+            {(() => {
+              const hasPay = earningsByCurrency.size > 0;
+              const hasRates = Object.keys(rates).length > 1;
+              const converted = hasPay
+                ? Array.from(earningsByCurrency.entries()).reduce(
+                    (sum, [from, amount]) =>
+                      sum + (hasRates ? convertCurrency(amount, from, displayCurrency, rates) : amount),
+                    0,
+                  )
+                : 0;
+              const totalStr = fmtHM(totalSec);
+              const payStr = fmtMoney(converted, displayCurrency);
+              return (
+                <>
+                  {/* Time (content-sized) | Money (remainder). Labels carry NO chip
+                      now — the display-currency selector moved to the footer — so
+                      "Estimated pay" can never clip, and FitText keeps any amount
+                      on one line regardless of magnitude. */}
+                  <div className={hasPay ? "grid grid-cols-[auto_1fr] gap-x-4" : ""}>
+                    <div className="min-w-0">
+                      <p className="text-[11px] font-semibold uppercase tracking-[0.14em] text-secondary-fg/70 truncate">
+                        Total tracked
+                      </p>
+                      <FitText
+                        max={36}
+                        min={22}
+                        className="mt-1.5 font-display font-semibold tabular-nums text-foreground"
+                        watch={totalStr}
+                      >
+                        <TickingNumber value={totalStr} />
+                      </FitText>
+                    </div>
+
+                    {hasPay && (
+                      <div className="min-w-0 border-l border-border/30 pl-4">
+                        <p className="text-[11px] font-semibold uppercase tracking-[0.14em] text-secondary-fg/70 truncate">
+                          Estimated pay
+                        </p>
+                        <FitText
+                          max={30}
+                          min={16}
+                          className={`mt-1.5 font-display font-semibold tabular-nums text-success transition-opacity ${ratesLoading && !hasRates ? "opacity-40" : ""}`}
+                          watch={payStr}
+                        >
+                          <TickingNumber value={payStr} />
+                        </FitText>
+                      </div>
+                    )}
+                  </div>
+
+                  {/* Footer: period range (left) + display-currency selector (right) */}
+                  <div className="mt-3 flex items-center justify-between gap-2">
+                    <p className="text-[12px] text-secondary-fg/80 truncate">{range.label}</p>
+                    {hasPay && (
+                      <button
+                        type="button"
+                        onClick={() => setCurrencyPickerOpen(true)}
+                        aria-label="Change display currency"
+                        className="inline-flex items-center gap-0.5 rounded-full bg-success/15 px-2.5 py-1 text-[11px] font-bold text-success border border-success/30 pressable shrink-0"
+                      >
                         {displayCurrency}
-                        <ChevronRight className="h-2.5 w-2.5 opacity-80" />
-                      </span>
-                    </span>
-                    <span className={`block font-display text-[22px] font-semibold tabular-nums text-success leading-none mt-1 transition-opacity ${ratesLoading && !hasRates ? "opacity-40" : ""}`}>
-                      <TickingNumber value={fmtMoney(converted, displayCurrency)} />
-                    </span>
-                  </button>
-                );
-              })()}
-            </div>
-            <p className="mt-2 text-[12px] text-secondary-fg/80">{range.label}</p>
+                        <ChevronRight className="h-3 w-3 opacity-80" />
+                      </button>
+                    )}
+                  </div>
+
+                  {/* ── Compact earnings forecast ── small, in the SAME card, below
+                       the numbers. Amber = projected, clearly distinct from the
+                       green actual earnings. Projects from the already-computed
+                       earnings pipeline (rate_set_at / snapshot respected). */}
+                  {forecast && (
+                    <div className="mt-3.5 pt-3.5" style={{ borderTop: "1px solid hsl(38 92% 52% / 0.18)" }}>
+                      {forecast.tooEarly ? (
+                        <div className="flex items-center gap-2.5">
+                          <div className="h-8 w-8 rounded-[9px] flex items-center justify-center shrink-0" style={{ background: "hsl(38 92% 52% / 0.13)", border: "1px solid hsl(38 92% 52% / 0.26)" }}>
+                            <TrendingUp style={{ width: 14, height: 14, color: "hsl(38 92% 52%)" }} strokeWidth={2.5} />
+                          </div>
+                          <div className="min-w-0">
+                            <p className="text-[10px] font-semibold uppercase tracking-[0.12em] text-secondary-fg/55">Earnings forecast</p>
+                            <p className="text-[12.5px] text-foreground/75 mt-0.5">
+                              {Math.max(1, 3 - forecast.elapsedDays)} more {Math.max(1, 3 - forecast.elapsedDays) === 1 ? "day" : "days"} of data needed
+                            </p>
+                          </div>
+                        </div>
+                      ) : (
+                        <div className="flex items-center gap-2.5">
+                          <div className="h-8 w-8 rounded-[9px] flex items-center justify-center shrink-0" style={{ background: "hsl(38 92% 52% / 0.13)", border: "1px solid hsl(38 92% 52% / 0.26)" }}>
+                            <TrendingUp style={{ width: 14, height: 14, color: "hsl(38 92% 52%)" }} strokeWidth={2.5} />
+                          </div>
+                          <div className="min-w-0 flex-1">
+                            <p className="text-[10px] font-semibold uppercase tracking-[0.12em] text-secondary-fg/55">
+                              Forecast · by {forecast.isWeek ? "week" : "month"} end
+                            </p>
+                            <FitText
+                              max={19}
+                              min={13}
+                              className="mt-0.5 font-display font-semibold tabular-nums"
+                              style={{ color: "hsl(38 92% 52%)" }}
+                              watch={fmtMoney(forecast.projectedTotal, displayCurrency)}
+                            >
+                              ≈ {fmtMoney(forecast.projectedTotal, displayCurrency)}
+                            </FitText>
+                          </div>
+                          <div className="text-right shrink-0 pl-1">
+                            <p className="text-[10px] font-semibold uppercase tracking-[0.1em] text-secondary-fg/50">left</p>
+                            <p className="text-[13px] font-semibold tabular-nums text-foreground/80 mt-0.5">{forecast.remainingDays}d</p>
+                          </div>
+                        </div>
+                      )}
+                    </div>
+                  )}
+                </>
+              );
+            })()}
           </section>
 
           {categoryGroups.length > 0 ? (
@@ -842,107 +977,91 @@ export default function Reports() {
                         type="button"
                         onClick={() => toggleCategoryExpanded(group.id)}
                         className="flex w-full items-start gap-3 px-4 py-3.5 text-left"
+                        style={{ WebkitTapHighlightColor: "transparent" }}
                         aria-expanded={isOpen}
                       >
-                        {/* Category colour dot — aligned with the name baseline */}
+                        {/* Category colour dot — the soft halo uses an 8-digit
+                            hex alpha, which only parses for hex colours; the
+                            uncategorized fallback is an hsl() string, so guard it. */}
                         <span
-                          className="mt-[5px] h-2 w-2 rounded-full shrink-0"
-                          style={{ background: group.color }}
+                          className="reports-cat-dot mt-[6px] h-2.5 w-2.5 rounded-full shrink-0"
+                          style={{
+                            background: group.color,
+                            boxShadow: group.color.startsWith("#") ? `0 0 0 3px ${group.color}1f` : undefined,
+                          }}
                         />
 
                         <div className="min-w-0 flex-1">
-                          {/* ── Layer 1: identity ────────────────────────── */}
-                          <div className="flex items-baseline justify-between gap-3">
-                            <span className="text-[14px] font-semibold text-foreground truncate">
+                          {/* ── Row 1: name (left) · headline value (right) ──
+                              Billable category → the earned amount is the
+                              headline (green, right). No rate → the duration
+                              takes that slot. FitText keeps KZT-sized values on
+                              one line; the name truncates first so money is
+                              never squeezed. */}
+                          <div className="flex items-center gap-2.5">
+                            <span className="flex-1 min-w-0 truncate text-[14.5px] font-semibold text-foreground">
                               {group.name}
                               {group.isDeleted && (
                                 <span className="text-[11px] font-medium text-destructive/70"> (Deleted)</span>
                               )}
                             </span>
-                            <span className="text-[13px] font-semibold tabular-nums text-foreground/90 shrink-0">
-                              {fmtHM(group.sec)}
-                            </span>
+                            {group.earnings > 0 ? (() => {
+                              const shouldConvert = group.reportCurrency !== group.currency;
+                              const displayedAmount = shouldConvert
+                                ? convertCurrency(group.earnings, group.currency, group.reportCurrency, rates)
+                                : group.earnings;
+                              const moneyStr = fmtMoney(displayedAmount, group.reportCurrency);
+                              return (
+                                <div className="shrink-0" style={{ maxWidth: "58%" }}>
+                                  <FitText
+                                    max={15.5}
+                                    min={11}
+                                    align="right"
+                                    className="font-semibold tabular-nums text-success"
+                                    watch={moneyStr}
+                                  >
+                                    {moneyStr}
+                                  </FitText>
+                                </div>
+                              );
+                            })() : (
+                              <span className="reports-cat-total shrink-0 text-[14px] font-semibold tabular-nums text-foreground/90">
+                                {fmtHM(group.sec)}
+                              </span>
+                            )}
                           </div>
 
-                          {/* ── Layer 2: context (muted, smaller) ─────────── */}
-                          <div className="mt-1 flex items-center gap-2 text-[11.5px] text-secondary-fg/60">
-                            <span className="tabular-nums">{(group.pct * 100).toFixed(0)}%</span>
-                            <span className="text-secondary-fg/30">·</span>
-                            <span>{group.entries.length} session{group.entries.length === 1 ? "" : "s"}</span>
-                          </div>
-
-                          {/* ── Layer 3: financial (only when there's a rate or earnings) */}
-                          {(headerRate != null || group.earnings > 0) && (
-                            <div className="mt-2.5 pt-2.5 border-t border-soft/50 flex items-center gap-3">
-                              {/* LEFT: rate pill OR mixed badge — flex-1 so it never overflows into RIGHT */}
-                              <div className="flex flex-1 min-w-0 items-center gap-1.5 overflow-hidden">
-                                {showTiers ? (
-                                  <span className="inline-flex shrink-0 items-center rounded-full bg-foreground/[0.06] border border-border/35 px-1.5 py-0.5 text-[9.5px] font-bold uppercase tracking-wider text-secondary-fg/55">
-                                    Mixed rate
-                                  </span>
-                                ) : headerRate != null && headerRate > 0 ? (
-                                  <span className="inline-flex items-center rounded-full bg-foreground/[0.06] border border-border/40 px-2 py-0.5 text-[11px] font-medium tabular-nums text-secondary-fg/80 max-w-full truncate">
-                                    {fmtMoney(headerRate, currentCurrency)}/h
-                                  </span>
-                                ) : (
-                                  <span className="text-[11px] text-secondary-fg/45">No rate</span>
-                                )}
-                              </div>
-
-                              {/* RIGHT: earned + currency chip */}
-                              <div className="flex items-center gap-1.5 shrink-0">
-                                {group.earnings > 0 && (() => {
-                                  const shouldConvert = group.reportCurrency !== group.currency;
-                                  const displayedAmount = shouldConvert
-                                    ? convertCurrency(group.earnings, group.currency, group.reportCurrency, rates)
-                                    : group.earnings;
-                                  return (
-                                    <span className="text-[13px] font-semibold tabular-nums text-success">
-                                      {fmtMoney(displayedAmount, group.reportCurrency)}
-                                    </span>
-                                  );
-                                })()}
-                                {/* Currency chip */}
-                                <button
-                                  type="button"
-                                  onClick={(e) => {
-                                    e.stopPropagation();
-                                    if (group.id === "uncategorized") return;
-                                    setReportCurrencyTarget({ catId: group.id, trackerCurrency: group.currency });
-                                  }}
-                                  disabled={group.id === "uncategorized"}
-                                  aria-label={`Change report currency for ${group.name}`}
-                                  className={[
-                                    "inline-flex items-center gap-0.5 rounded-md px-1.5 py-0.5 text-[10px] font-semibold tabular-nums tracking-[0.04em]",
-                                    "transition-[transform,box-shadow,background-color] duration-150 active:scale-[0.96]",
-                                    group.id === "uncategorized" ? "cursor-default" : "pressable",
-                                  ].join(" ")}
-                                  style={
-                                    group.reportCurrency !== group.currency
-                                      ? {
-                                          background: "linear-gradient(180deg, hsl(var(--primary) / 0.18) 0%, hsl(var(--primary) / 0.08) 100%)",
-                                          boxShadow: "inset 0 1px 0 hsl(0 0% 100% / 0.12), 0 0 0 1px hsl(var(--primary) / 0.40)",
-                                          color: "hsl(var(--primary))",
-                                        }
-                                      : {
-                                          background: "hsl(var(--foreground) / 0.05)",
-                                          boxShadow: "inset 0 0 0 1px hsl(var(--border) / 0.40)",
-                                          color: "hsl(var(--foreground) / 0.55)",
-                                        }
-                                  }
-                                >
-                                  {group.reportCurrency}
-                                  {group.id !== "uncategorized" && (
-                                    <ChevronDown className="h-2 w-2 opacity-60" />
-                                  )}
-                                </button>
-                              </div>
+                          {/* ── Row 2: metadata (left) · Mixed / rate badge (right) ──
+                              The % share is already shown by the colour bar above
+                              the list, so it's dropped here to give "N sessions"
+                              the room it needs (no more "4…"). The per-category
+                              currency selector moved into the expanded detail. */}
+                          <div className="mt-1.5 flex items-center gap-2">
+                            <div className="reports-cat-meta flex min-w-0 flex-1 items-center gap-1.5 overflow-hidden text-[11.5px] text-secondary-fg/60">
+                              {group.earnings > 0 && (
+                                <>
+                                  <span className="shrink-0 tabular-nums font-medium text-foreground/70">{fmtHM(group.sec)}</span>
+                                  <span className="shrink-0 text-secondary-fg/25">·</span>
+                                </>
+                              )}
+                              <span className="whitespace-nowrap">{group.entries.length} session{group.entries.length === 1 ? "" : "s"}</span>
                             </div>
-                          )}
+
+                            {showTiers ? (
+                              <span className="shrink-0 inline-flex items-center rounded-full bg-primary/[0.1] border border-primary/25 px-2 py-0.5 text-[9.5px] font-bold uppercase tracking-[0.08em] text-primary">
+                                Mixed rate
+                              </span>
+                            ) : headerRate != null && headerRate > 0 ? (
+                              <span className="shrink-0 inline-flex max-w-[120px] items-center rounded-full bg-foreground/[0.06] border border-border/40 px-2 py-0.5 text-[10.5px] font-medium tabular-nums text-secondary-fg/80">
+                                <span className="truncate">{fmtMoney(headerRate, currentCurrency)}</span>
+                                <span className="shrink-0">/h</span>
+                              </span>
+                            ) : null}
+                          </div>
                         </div>
 
                         <ChevronDown
-                          className={`mt-1 h-4 w-4 shrink-0 text-secondary-fg/50 transition-transform duration-300 ease-[cubic-bezier(0.34,1.2,0.64,1)] ${
+                          className={`mt-1.5 h-4 w-4 shrink-0 text-secondary-fg/50 transition-transform duration-[420ms] ease-[cubic-bezier(0.34,1.2,0.64,1)] ${
                             isOpen ? "rotate-180" : ""
                           }`}
                         />
@@ -954,10 +1073,99 @@ export default function Reports() {
                             initial={{ height: 0, opacity: 0 }}
                             animate={{ height: "auto", opacity: 1 }}
                             exit={{ height: 0, opacity: 0 }}
-                            transition={{ type: "spring", stiffness: 340, damping: 28, mass: 0.85 }}
+                            transition={{
+                              height: { type: "tween", duration: 0.34, ease: [0.4, 0, 0.2, 1] },
+                              opacity: { duration: 0.22, ease: "easeOut" },
+                            }}
                             style={{ overflow: "hidden" }}
                           >
                             <div className="border-t border-soft">
+                              {/* ── Actions: rename + report-currency selector ── */}
+                              {group.id !== "uncategorized" && (
+                                <div className="flex items-center gap-2 px-4 py-2.5 border-b border-soft/60">
+                                  {renamingCatId === group.id ? (
+                                    <>
+                                      <input
+                                        autoFocus
+                                        value={renameDraft}
+                                        onChange={(ev) => setRenameDraft(ev.target.value)}
+                                        onKeyDown={(ev) => {
+                                          if (ev.key === "Enter") {
+                                            const t = renameDraft.trim();
+                                            if (t && t !== group.name) void renameCategory(group.id, t);
+                                            setRenamingCatId(null);
+                                          }
+                                          if (ev.key === "Escape") setRenamingCatId(null);
+                                        }}
+                                        className="flex-1 min-w-0 h-9 rounded-xl border border-primary/40 bg-card/60 px-3 text-[13px] font-medium outline-none focus:border-primary/70 transition-colors"
+                                        style={{ fontSize: 16 }}
+                                        aria-label="Category name"
+                                      />
+                                      <button
+                                        type="button"
+                                        onClick={() => {
+                                          const t = renameDraft.trim();
+                                          if (t && t !== group.name) void renameCategory(group.id, t);
+                                          setRenamingCatId(null);
+                                        }}
+                                        className="h-9 w-9 rounded-xl bg-primary/90 flex items-center justify-center text-primary-foreground pressable shrink-0"
+                                        aria-label="Save name"
+                                      >
+                                        <Check className="h-4 w-4" strokeWidth={2.5} />
+                                      </button>
+                                      <button
+                                        type="button"
+                                        onClick={() => setRenamingCatId(null)}
+                                        className="h-9 w-9 rounded-xl border border-border/40 bg-card/40 flex items-center justify-center text-secondary-fg pressable shrink-0"
+                                        aria-label="Cancel rename"
+                                      >
+                                        <X className="h-3.5 w-3.5" />
+                                      </button>
+                                    </>
+                                  ) : (
+                                    <>
+                                      {!group.isDeleted ? (
+                                        <button
+                                          type="button"
+                                          onClick={() => { setRenameDraft(group.name); setRenamingCatId(group.id); }}
+                                          className="flex-1 min-w-0 flex items-center gap-2.5 text-left text-secondary-fg/75 hover:text-foreground pressable transition-colors"
+                                        >
+                                          <Pencil className="h-3.5 w-3.5 shrink-0" />
+                                          <span className="text-[12px] font-medium truncate">Rename category</span>
+                                        </button>
+                                      ) : (
+                                        <span className="flex-1 min-w-0 text-[12px] font-medium text-secondary-fg/45 truncate">Deleted category</span>
+                                      )}
+                                      <span className="shrink-0 text-[10px] font-semibold uppercase tracking-[0.1em] text-secondary-fg/45">Currency</span>
+                                      <button
+                                        type="button"
+                                        onClick={(e) => {
+                                          e.stopPropagation();
+                                          setReportCurrencyTarget({ catId: group.id, trackerCurrency: group.currency });
+                                        }}
+                                        aria-label={`Change report currency for ${group.name}`}
+                                        className="shrink-0 inline-flex items-center gap-0.5 rounded-lg px-2 py-1 text-[11px] font-semibold tabular-nums tracking-[0.04em] pressable transition-[transform,box-shadow,background-color] duration-150 active:scale-[0.96]"
+                                        style={
+                                          group.reportCurrency !== group.currency
+                                            ? {
+                                                background: "linear-gradient(180deg, hsl(var(--primary) / 0.18) 0%, hsl(var(--primary) / 0.08) 100%)",
+                                                boxShadow: "inset 0 1px 0 hsl(0 0% 100% / 0.12), 0 0 0 1px hsl(var(--primary) / 0.40)",
+                                                color: "hsl(var(--primary))",
+                                              }
+                                            : {
+                                                background: "hsl(var(--foreground) / 0.05)",
+                                                boxShadow: "inset 0 0 0 1px hsl(var(--border) / 0.40)",
+                                                color: "hsl(var(--foreground) / 0.7)",
+                                              }
+                                        }
+                                      >
+                                        {group.reportCurrency}
+                                        <ChevronDown className="h-2.5 w-2.5 opacity-60" />
+                                      </button>
+                                    </>
+                                  )}
+                                </div>
+                              )}
                               {(() => {
                                 // Convert a tracker-currency amount to the report currency for display.
                                 const toDisplay = (amt: number) =>
@@ -979,10 +1187,10 @@ export default function Reports() {
                                   return (
                                     <li
                                       key={e.id}
-                                      className={`flex items-start justify-between gap-4 py-3 ${inTier ? "px-4 pl-5" : "px-4"}`}
+                                      className={`flex items-start gap-3 py-3 ${inTier ? "px-4 pl-5" : "px-4"}`}
                                     >
                                       {/* Left: tracked task (when known) primary, else date; time range secondary */}
-                                      <div className="min-w-0">
+                                      <div className="min-w-0 flex-1">
                                         {taskTitle ? (
                                           <>
                                             <p className="truncate text-[12px] font-medium text-foreground/85">{taskTitle}</p>
@@ -1000,67 +1208,174 @@ export default function Reports() {
                                           <p className="mt-0.5 truncate text-[11px] text-secondary-fg/65 italic">{e.note}</p>
                                         )}
                                       </div>
-                                      {/* Right: duration (neutral) then earned (green, same size) */}
-                                      <div className="text-right shrink-0">
+                                      {/* Right: duration (neutral) then earned (green) —
+                                          earned uses FitText so KZT-sized amounts
+                                          never clip the icons that follow. */}
+                                      <div className="text-right shrink-0" style={{ minWidth: 56, maxWidth: 124 }}>
                                         <p className="text-[12.5px] font-semibold tabular-nums text-foreground/75">
                                           {fmtHM(sec)}
                                         </p>
                                         {earned > 0 && (
-                                          <p className="mt-0.5 text-[12px] font-semibold tabular-nums text-success">
+                                          <FitText
+                                            max={12}
+                                            min={10}
+                                            align="right"
+                                            className="mt-0.5 font-semibold tabular-nums text-success"
+                                            watch={fmtMoney(toDisplay(earned), group.reportCurrency)}
+                                          >
                                             {fmtMoney(toDisplay(earned), group.reportCurrency)}
-                                          </p>
+                                          </FitText>
                                         )}
+                                      </div>
+                                      {/* Edit start / delete this session */}
+                                      <div className="flex items-center gap-0.5 shrink-0 -mr-1 mt-0.5">
+                                        <button
+                                          type="button"
+                                          onClick={() => setEditEntry(toEditable(e, group.name, group.color))}
+                                          className="h-7 w-7 inline-flex items-center justify-center rounded-lg text-secondary-fg/55 hover:text-foreground hover:bg-foreground/[0.06] pressable transition-colors"
+                                          aria-label="Adjust start time"
+                                          title="Adjust start time"
+                                        >
+                                          <Pencil className="h-3.5 w-3.5" />
+                                        </button>
+                                        <button
+                                          type="button"
+                                          onClick={() => setDeleteEntryTarget(toEditable(e, group.name, group.color))}
+                                          className="h-7 w-7 inline-flex items-center justify-center rounded-lg text-secondary-fg/55 hover:text-destructive hover:bg-destructive/10 pressable transition-colors"
+                                          aria-label="Delete session"
+                                          title="Delete session"
+                                        >
+                                          <Trash2 className="h-3.5 w-3.5" />
+                                        </button>
                                       </div>
                                     </li>
                                   );
                                 };
 
-                                // Single rate — clean flat list.
+                                // Single rate — sessions in one category-accented card
+                                // (matches the multi-rate tiers; no flat grey wash).
                                 if (!showTiers) {
+                                  const accentBorder = `color-mix(in srgb, ${group.color} 34%, transparent)`;
                                   return (
-                                    <ul className="divide-y divide-border/25">
-                                      {group.entries.map((e) => renderSession(e, false))}
-                                    </ul>
+                                    <div className="px-3 py-2.5">
+                                      <div className="rounded-xl overflow-hidden" style={{ border: `1px solid ${accentBorder}` }}>
+                                        <ul className="divide-y divide-border/15">
+                                          {group.entries.map((e) => renderSession(e, false))}
+                                        </ul>
+                                      </div>
+                                    </div>
                                   );
                                 }
 
-                                // Multiple rates — grouped with section headers.
+                                // Multiple rates — each rate is its own collapsible
+                                // accordion. Header (rate + subtotal + duration)
+                                // stays visible; tapping reveals that rate's
+                                // sessions. Collapsed by default so the category
+                                // reads as a tidy stack of rate summaries.
                                 const tiers = [...group.rateTiers.entries()].sort(
                                   (a, b) => b[1].lastStart - a[1].lastStart,
                                 );
+                                // Accent the tier cards with the category's OWN colour
+                                // (color-mix → an alpha of the hex/hsl, valid in both
+                                // themes) instead of a flat grey fill. Tinted header +
+                                // coloured hairline border = a distinct, on-brand group.
+                                const accentBorder = `color-mix(in srgb, ${group.color} 34%, transparent)`;
+                                const accentHeader = `color-mix(in srgb, ${group.color} 13%, transparent)`;
+                                const accentDivider = `color-mix(in srgb, ${group.color} 22%, transparent)`;
                                 return (
-                                  <div className="divide-y divide-border/25">
-                                    {tiers.map(([tierRate, tier]) => (
-                                      <div key={tierRate}>
-                                        {/* Tier header: stripe + rate LEFT, subtotals RIGHT */}
-                                        <div className="flex items-center justify-between gap-3 px-4 py-2.5 bg-foreground/[0.035]">
-                                          <div className="flex items-center gap-2 min-w-0">
-                                            <div
-                                              className="w-[3px] h-[18px] rounded-full shrink-0"
-                                              style={{ background: group.color, opacity: 0.75 }}
+                                  <div className="px-3 py-2.5 space-y-2.5">
+                                    {tiers.map(([tierRate, tier]) => {
+                                      const tierKey = `${group.id}:${tierRate}`;
+                                      const tierOpen = expandedTierKeys.has(tierKey);
+                                      const rateStr =
+                                        tierRate > 0
+                                          ? `${fmtMoney(toDisplay(tierRate), group.reportCurrency)}/h`
+                                          : "No rate";
+                                      const subtotalStr =
+                                        tier.earned > 0
+                                          ? fmtMoney(toDisplay(tier.earned), group.reportCurrency)
+                                          : null;
+                                      return (
+                                        <div
+                                          key={tierRate}
+                                          className="rounded-xl overflow-hidden"
+                                          style={{ border: `1px solid ${accentBorder}` }}
+                                        >
+                                          {/* Tier accordion header — category-tinted */}
+                                          <button
+                                            type="button"
+                                            onClick={() => toggleTierExpanded(tierKey)}
+                                            className="w-full flex items-center gap-2.5 px-3 py-2.5 text-left"
+                                            style={{ WebkitTapHighlightColor: "transparent", background: accentHeader }}
+                                            aria-expanded={tierOpen}
+                                          >
+                                            <span
+                                              className="w-[3px] self-stretch rounded-full shrink-0"
+                                              style={{ background: group.color, minHeight: 30 }}
                                             />
-                                            <span className="text-[12px] font-semibold tabular-nums text-foreground/85">
-                                              {tierRate > 0
-                                                ? `${fmtMoney(toDisplay(tierRate), group.reportCurrency)}/h`
-                                                : "No rate"}
-                                            </span>
-                                          </div>
-                                          <div className="flex items-center gap-3 shrink-0">
-                                            <span className="text-[11.5px] tabular-nums text-secondary-fg/55 font-medium">
-                                              {fmtHM(tier.sec)}
-                                            </span>
-                                            {tier.earned > 0 && (
-                                              <span className="text-[12px] tabular-nums text-success font-semibold">
-                                                {fmtMoney(toDisplay(tier.earned), group.reportCurrency)}
-                                              </span>
+                                            <div className="min-w-0 flex-1">
+                                              {/* rate (left) · subtotal (right) */}
+                                              <div className="flex items-center gap-2.5">
+                                                <div className="min-w-0 flex-1">
+                                                  <FitText
+                                                    max={13}
+                                                    min={10}
+                                                    className="font-semibold tabular-nums text-foreground/90"
+                                                    watch={rateStr}
+                                                  >
+                                                    {rateStr}
+                                                  </FitText>
+                                                </div>
+                                                {subtotalStr && (
+                                                  <div className="shrink-0" style={{ maxWidth: "48%" }}>
+                                                    <FitText
+                                                      max={13}
+                                                      min={10}
+                                                      align="right"
+                                                      className="font-semibold tabular-nums text-success"
+                                                      watch={subtotalStr}
+                                                    >
+                                                      {subtotalStr}
+                                                    </FitText>
+                                                  </div>
+                                                )}
+                                              </div>
+                                              {/* duration · session count */}
+                                              <div className="mt-1 flex items-center gap-1.5 text-[11px] text-secondary-fg/55">
+                                                <span className="tabular-nums font-medium text-foreground/65">{fmtHM(tier.sec)}</span>
+                                                <span className="text-secondary-fg/25">·</span>
+                                                <span>{tier.entries.length} session{tier.entries.length === 1 ? "" : "s"}</span>
+                                              </div>
+                                            </div>
+                                            <ChevronDown
+                                              className={`h-3.5 w-3.5 shrink-0 text-secondary-fg/45 transition-transform duration-300 ${tierOpen ? "rotate-180" : ""}`}
+                                            />
+                                          </button>
+                                          <AnimatePresence initial={false}>
+                                            {tierOpen && (
+                                              <motion.div
+                                                key="tier-detail"
+                                                initial={{ height: 0, opacity: 0 }}
+                                                animate={{ height: "auto", opacity: 1 }}
+                                                exit={{ height: 0, opacity: 0 }}
+                                                transition={{
+                                                  height: { type: "tween", duration: 0.28, ease: [0.4, 0, 0.2, 1] },
+                                                  opacity: { duration: 0.18, ease: "easeOut" },
+                                                }}
+                                                style={{ overflow: "hidden" }}
+                                              >
+                                                <ul
+                                                  className="divide-y divide-border/15"
+                                                  style={{ borderTop: `1px solid ${accentDivider}` }}
+                                                >
+                                                  {tier.entries.map((e) => renderSession(e, true))}
+                                                </ul>
+                                              </motion.div>
                                             )}
-                                          </div>
+                                          </AnimatePresence>
                                         </div>
-                                        <ul className="divide-y divide-border/20">
-                                          {tier.entries.map((e) => renderSession(e, true))}
-                                        </ul>
-                                      </div>
-                                    ))}
+                                      );
+                                    })}
                                   </div>
                                 );
                               })()}
@@ -1294,6 +1609,21 @@ export default function Reports() {
           </div>
         </SheetContent>
       </Sheet>
+
+      {/* Per-session edit (adjust start) + delete — shared with the Track screen
+          via the same time-entries cache, so changes here reflect there too. */}
+      <EntryStartSheet
+        open={!!editEntry}
+        entry={editEntry}
+        onClose={() => setEditEntry(null)}
+        onCommit={(d) => { if (editEntry) void updateEntryStart(editEntry.id, d); }}
+      />
+      <EntryDeleteDialog
+        open={!!deleteEntryTarget}
+        onOpenChange={(o) => { if (!o) setDeleteEntryTarget(null); }}
+        entry={deleteEntryTarget}
+        onConfirm={() => { if (deleteEntryTarget) void deleteEntry(deleteEntryTarget.id); setDeleteEntryTarget(null); }}
+      />
     </>
   );
 }

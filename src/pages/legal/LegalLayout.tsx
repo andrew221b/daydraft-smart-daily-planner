@@ -20,7 +20,7 @@ export const LegalLayout = ({ title, children }: { title: string; children: Reac
       style={{ paddingTop: "calc(var(--safe-area-inset-top, env(safe-area-inset-top, 0px)) + 52px)" }}
     >
       <div
-        className="w-full max-w-[520px] px-6 pt-8"
+        className="w-full max-w-[520px] px-6 pt-5"
         style={{ paddingBottom: "calc(max(var(--safe-area-inset-bottom, env(safe-area-inset-bottom, 0px)), 20px) + 3rem + var(--keyboard-inset, 0px))" }}
       >
         <h1 className="font-display text-[26px] font-semibold mb-2 text-balance leading-tight">{title}</h1>

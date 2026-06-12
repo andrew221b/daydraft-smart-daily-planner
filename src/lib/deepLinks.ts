@@ -130,12 +130,14 @@ export function attachDeepLinkListener(
         const launch = await App.getLaunchUrl();
         (window as Window & { __daydraft_launch_handled?: boolean }).__daydraft_launch_handled = true;
         if (launch?.url) {
-          const action = resolveDeepLinkAction(launch.url);
-          if (action) onAction?.(action);
-          else {
-            const route = resolveDeepLink(launch.url);
-            if (route) onRoute(route);
-          }
+          // Intentionally skip resolveDeepLinkAction here.
+          // getLaunchUrl() can return a stale URL from a PREVIOUS app process on
+          // some iOS/Capacitor versions. Navigation is safe (idempotent); firing an
+          // action command (e.g. tracker_stop) against an active session in a new
+          // process would silently kill it. Action commands only come from the live
+          // appUrlOpen event below, which is always fresh.
+          const route = resolveDeepLink(launch.url);
+          if (route) onRoute(route);
         }
       }
     } catch { /* getLaunchUrl rejects on platforms that don't support it */ }

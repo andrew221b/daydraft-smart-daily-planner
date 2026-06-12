@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState } from "react";
 import { Sheet, SheetContent, SheetHeader, SheetTitle } from "@/components/ui/sheet";
-import { Pencil, Trash2, FolderInput, CalendarArrowUp, CalendarClock, Check, Inbox } from "lucide-react";
+import { Pencil, Trash2, FolderInput, CalendarArrowUp, CalendarClock, Check, Inbox, Pin, PinOff, Flag } from "lucide-react";
 import { haptics } from "@/lib/haptics";
 import { shiftDate, todayDateStr } from "@/lib/daydraft";
 import type { ChecklistGroup, ChecklistItem, MoveTarget } from "@/hooks/useChecklist";
@@ -52,6 +52,8 @@ export function ChecklistItemSheet({
   onMove,
   onRequestPickDate,
   onDelete,
+  onTogglePin,
+  onTogglePriority,
 }: {
   item: ChecklistItem | null;
   groups: ChecklistGroup[];
@@ -61,6 +63,10 @@ export function ChecklistItemSheet({
   onMove: (id: string, target: MoveTarget) => void;
   onRequestPickDate: (item: ChecklistItem) => void;
   onDelete: (id: string) => void;
+  /** Pin/unpin a loose (ungrouped) item to every day. Omitted ⇒ no pin row. */
+  onTogglePin?: (id: string) => void;
+  /** Toggle the "important" priority flag (amber highlight + calendar marker). */
+  onTogglePriority?: (id: string) => void;
 }) {
   const [mode, setMode] = useState<"menu" | "rename">("menu");
   const [draft, setDraft] = useState("");
@@ -113,6 +119,7 @@ export function ChecklistItemSheet({
                   }}
                   placeholder="Item name"
                   className="w-full h-12 rounded-2xl border border-soft bg-card px-4 text-[15px] outline-none focus:border-accent/60 transition-colors"
+                  style={{ fontSize: 16 }}
                 />
                 <div className="grid grid-cols-2 gap-2">
                   <button
@@ -136,6 +143,28 @@ export function ChecklistItemSheet({
                   icon={<Pencil className="h-4 w-4" />}
                   label="Rename"
                 />
+                {onTogglePriority && (
+                  <Row
+                    onClick={() => { onTogglePriority(item.id); haptics.tap(); onClose(); }}
+                    icon={
+                      <Flag
+                        className={`h-4 w-4 ${item.priority ? "text-amber-500 dark:text-amber-400" : ""}`}
+                        fill={item.priority ? "currentColor" : "none"}
+                      />
+                    }
+                    label={item.priority ? "Remove priority" : "Mark as priority"}
+                    active={item.priority}
+                  />
+                )}
+                {/* Pin only applies to loose items; grouped items inherit the
+                    pin from their category. */}
+                {item.group_id === null && onTogglePin && (
+                  <Row
+                    onClick={() => { onTogglePin(item.id); haptics.tap(); onClose(); }}
+                    icon={item.pinned ? <PinOff className="h-4 w-4" /> : <Pin className="h-4 w-4" />}
+                    label={item.pinned ? "Unpin from every day" : "Keep on every day"}
+                  />
+                )}
 
                 <Label>Move to list</Label>
                 {item.group_id !== null && (

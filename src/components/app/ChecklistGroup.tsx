@@ -3,7 +3,7 @@ import { useSortable } from "@dnd-kit/sortable";
 import { SortableContext, verticalListSortingStrategy } from "@dnd-kit/sortable";
 import { useDroppable } from "@dnd-kit/core";
 import { CSS } from "@dnd-kit/utilities";
-import { GripVertical, ChevronDown, MoreHorizontal, Plus, Check, ListChecks } from "lucide-react";
+import { GripVertical, ChevronDown, MoreHorizontal, Plus, Check, ListChecks, Flag } from "lucide-react";
 import type { ChecklistGroup as Group, ChecklistItem } from "@/hooks/useChecklist";
 import { haptics } from "@/lib/haptics";
 import { checklistCategoryTint, checklistTintVars } from "@/lib/checklistColors";
@@ -132,13 +132,18 @@ export function ChecklistItemRow({
     onToggleSelect?.(item.id);
   };
 
+  // Priority items get an amber flag + a soft amber wash so they stand out from
+  // the rest of the list — same accent the timeline + calendar use. Done items
+  // drop the wash (the strike-through already signals "handled").
+  const showPriority = !!item.priority && !item.done;
+
   return (
     <div
       ref={setNodeRef}
       style={style}
-      className={`group relative z-10 flex items-center gap-1.5 py-2.5 rounded-xl transition-colors ${
+      className={`group relative z-10 flex items-center gap-1.5 py-2.5 px-1.5 -mx-1.5 rounded-xl transition-colors ${
         isDragging ? "opacity-40" : ""
-      } ${selectMode && selected ? "bg-accent/[0.1]" : ""}`}
+      } ${selectMode && selected ? "bg-accent/[0.1]" : showPriority ? "bg-amber-400/[0.07]" : ""}`}
     >
       {selectMode ? (
         <button
@@ -162,10 +167,13 @@ export function ChecklistItemRow({
 
       <button
         onClick={() => (selectMode ? pickRow() : onOpenSheet(item))}
-        className="flex-1 min-w-0 text-left py-0.5 pressable"
+        className="flex-1 min-w-0 text-left py-0.5 pressable flex items-center gap-1.5"
       >
+        {showPriority && (
+          <Flag className="h-3 w-3 shrink-0 text-amber-500 dark:text-amber-400" fill="currentColor" aria-label="Priority" />
+        )}
         <span
-          className={`block text-[14.5px] font-medium leading-snug break-words strikethrough-animated ${
+          className={`min-w-0 text-[14.5px] font-medium leading-snug break-words strikethrough-animated ${
             item.done ? "is-done text-foreground/40" : "text-foreground/90"
           }`}
         >
@@ -243,6 +251,7 @@ export function AddItemRow({
         placeholder={placeholder}
         enterKeyHint="done"
         className="checklist-add-item-input flex-1 min-w-0 bg-transparent text-[14px] outline-none placeholder:text-secondary-fg/40"
+        style={{ fontSize: 16 }}
       />
       {draft.trim() && (
         <button

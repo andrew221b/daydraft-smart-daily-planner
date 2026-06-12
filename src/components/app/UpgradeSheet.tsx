@@ -7,6 +7,9 @@ import { toast } from "sonner";
 import { haptics } from "@/lib/haptics";
 import { PRO_FEATURES, PRO_PLANS, ProFeatureCard, ProPlanRow, type ProPlanId } from "@/components/app/proPaywall";
 import { usePlanPrices } from "@/hooks/usePlanPrices";
+import { useAuth } from "@/hooks/useAuth";
+import { useProfile } from "@/hooks/useProfile";
+import { enablePush, pushSupported } from "@/lib/push";
 
 export type UpgradeReason = "quota" | "feature" | "trial-banner" | "momentum";
 
@@ -41,13 +44,20 @@ export const UpgradeSheet = ({
   const [busy, setBusy] = useState(false);
   const [restoring, setRestoring] = useState(false);
   const prices = usePlanPrices();
+  const { user } = useAuth();
+  const { update } = useProfile();
 
   const checkout = async () => {
     haptics.impact();
     setBusy(true);
     try {
       await startCheckout(plan, {
-        onSuccess: () => { toast.success("You're Pro — enjoy DayDraft."); onOpenChange(false); },
+        onSuccess: () => {
+          void update({ notifications_enabled: true });
+          if (user?.id && pushSupported()) void enablePush(user.id);
+          toast.success("You're Pro — enjoy DayDraft.");
+          onOpenChange(false);
+        },
         onUnavailable: () => toast("Payments coming soon — we'll let you know."),
         onError: () => toast.error("Couldn't complete the purchase. Please try again."),
       });

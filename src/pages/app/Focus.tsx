@@ -21,6 +21,7 @@ import {
 } from "@/components/ui/popover";
 import { haptics } from "@/lib/haptics";
 import { liveActivity } from "@/lib/liveActivity";
+import { scheduleFocusOvertimeReminder, cancelFocusOvertimeReminder } from "@/lib/localNotifications";
 import { getAssignedCategoryId } from "@/lib/blockCategory";
 import { getCalmMode, setCalmMode } from "@/lib/calmMode";
 import { useEntitlement } from "@/hooks/useEntitlement";
@@ -249,6 +250,7 @@ export default function Focus() {
       // fires only when the user actually leaves Focus — exactly when we want
       // the activity gone.
       void liveActivity.stopFocus();
+      void cancelFocusOvertimeReminder();
       sessionStorage.removeItem("dd_focus_active");
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -483,15 +485,17 @@ export default function Focus() {
     if (!armed || !block || oneThingMode) return;
     if (focusLAStartedRef.current) return;
     focusLAStartedRef.current = true;
+    const startMs = actualStartMsRef.current ?? Date.now();
     void liveActivity.startFocus({
       taskTitle: block.title,
       plannedMinutes: block.duration_min,
       blockId: block.id,
       nextTaskTitle: next?.title,
-      startedAt: actualStartMsRef.current ?? Date.now(),
+      startedAt: startMs,
       // Seed the chip if a tracker is already running for this block on arm.
       category: liveCatRef.current,
     });
+    void scheduleFocusOvertimeReminder(block.title, block.duration_min, startMs);
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [armed, block?.id, oneThingMode]);
 
@@ -569,6 +573,45 @@ export default function Focus() {
     }
   }, [armed, lateDeepWork, longSession]);
 
+  // These computed values are used by the overrun useEffect below.
+  // They must be declared before any conditional return to preserve hook call order.
+  void sessionTick;
+  const focusElapsedSec = actualStartMsRef.current
+    ? Math.max(0, Math.floor((Date.now() - actualStartMsRef.current) / 1000))
+    : 0;
+  const ringElapsedSec = trackingThisBlock ? elapsedSec : focusElapsedSec;
+  const isFrameless = Number(block?.duration_min ?? 0) <= 0;
+  const plannedSec = (block?.duration_min ?? 0) * 60;
+  const isOverTime = !!block && !isFrameless && ringElapsedSec > 0 && ringElapsedSec > plannedSec;
+  const overrunSec = isOverTime ? Math.max(0, ringElapsedSec - plannedSec) : 0;
+  const overrunMin = Math.floor(overrunSec / 60);
+  const overrunLabel = overrunMin >= 1
+    ? `+${overrunMin < 60 ? `${overrunMin}m` : `${Math.floor(overrunMin / 60)}h${overrunMin % 60 ? ` ${overrunMin % 60}m` : ""}`} overtime`
+    : "overtime";
+
+  useEffect(() => {
+    if (!armed) {
+      wasOverTimeRef.current = false;
+      void liveActivity.updateFocusOverrun(false);
+      return;
+    }
+    if (!isOverTime || wasOverTimeRef.current) return;
+    wasOverTimeRef.current = true;
+    haptics.notify("error");
+    setTimeout(() => haptics.notify("error"), 400);
+    setTimeout(() => haptics.notify("error"), 800);
+    const capturedComplete = complete;
+    toast(`${overrunLabel}`, {
+      duration: 60_000,
+      description: "You've exceeded your planned time — keep going or wrap up.",
+      action: {
+        label: "Mark done",
+        onClick: () => void capturedComplete(),
+      },
+    });
+    void liveActivity.updateFocusOverrun(true);
+  }, [isOverTime, armed]); // eslint-disable-line react-hooks/exhaustive-deps
+
   if (!block) return <div className="min-h-screen bg-background" />;
   if (oneThingMode && !isPro) {
     return (
@@ -581,71 +624,14 @@ export default function Focus() {
     );
   }
 
-  void sessionTick;
-  const focusElapsedSec = actualStartMsRef.current
-    ? Math.max(0, Math.floor((Date.now() - actualStartMsRef.current) / 1000))
-    : 0;
   const oneThingElapsedSec = focusElapsedSec;
-  // The big ring should reflect the *tracker* when it's actually attributing
-  // time to a category. With no tracker running, it falls back to a plain
-  // wall-clock since-arm count (which doesn't persist to time_entries).
-  const ringElapsedSec = trackingThisBlock ? elapsedSec : focusElapsedSec;
-  const assignedCatIdForBlock = block ? getAssignedCategoryId(block.id) : null;
+  const assignedCatIdForBlock = getAssignedCategoryId(block.id);
   const fmtDur = (m: number) =>
     m < 60 ? `${m}m` : `${Math.floor(m / 60)}h${m % 60 ? ` ${m % 60}m` : ""}`;
 
   const RING_R = 100;
   const RING_CIRC = 2 * Math.PI * RING_R;
-  // A frameless task (no set duration) runs as a plain count-up stopwatch:
-  // no planned window, so no progress fill and never "overtime".
-  const isFrameless = Number(block.duration_min) <= 0;
-  const plannedSec = block.duration_min * 60;
   const progressRatio = !isFrameless && plannedSec > 0 ? Math.min(1, ringElapsedSec / plannedSec) : 0;
-  const isOverTime = !isFrameless && ringElapsedSec > 0 && ringElapsedSec > plannedSec;
-  const overrunSec = isOverTime ? Math.max(0, ringElapsedSec - plannedSec) : 0;
-  const overrunMin = Math.floor(overrunSec / 60);
-  // Format overrun as "+15m overtime" matching the ~Xm late pill style.
-  const overrunLabel = overrunMin >= 1
-    ? `+${overrunMin < 60 ? `${overrunMin}m` : `${Math.floor(overrunMin / 60)}h${overrunMin % 60 ? ` ${overrunMin % 60}m` : ""}`} overtime`
-    : "overtime";
-
-  // Fire the overrun alarm exactly once per session: the moment the planned
-  // duration is first exceeded fire a triple-pulse haptic (alarm feel) and a
-  // persistent toast so the user can act without looking at the screen.
-  // Reset when the session ends (armed becomes false) so the next session starts fresh.
-  // eslint-disable-next-line react-hooks/rules-of-hooks
-  useEffect(() => {
-    if (!armed) {
-      wasOverTimeRef.current = false;
-      // Reset the Live Activity widget back to blue when the session ends —
-      // without this the widget stays red after the task is completed/skipped.
-      void liveActivity.updateFocusOverrun(false);
-      return;
-    }
-    if (!isOverTime || wasOverTimeRef.current) return;
-    wasOverTimeRef.current = true;
-    // Three strong haptic bursts 400ms apart — alarm cadence.
-    haptics.notify("error");
-    setTimeout(() => haptics.notify("error"), 400);
-    setTimeout(() => haptics.notify("error"), 800);
-    // Capture `complete` at the moment the alarm fires so the toast's "Mark
-    // done" action calls the current function, not a stale closure. `complete`
-    // reads only from refs internally so the capture is safe.
-    const capturedComplete = complete;
-    // In-app toast acts as the foreground alarm. Long duration + action to
-    // surface the choice without leaving Focus. The Live Activity (if active)
-    // handles the out-of-app signal via colour change (see liveActivity.ts).
-    toast(`${overrunLabel}`, {
-      duration: 60_000, // stays until dismissed or the session ends
-      description: "You've exceeded your planned time — keep going or wrap up.",
-      action: {
-        label: "Mark done",
-        onClick: () => void capturedComplete(),
-      },
-    });
-    // Signal the Live Activity widget to turn red (handled by liveActivity helper).
-    void liveActivity.updateFocusOverrun(true);
-  }, [isOverTime, armed]); // eslint-disable-line react-hooks/exhaustive-deps
 
   if (oneThingMode) {
     return (

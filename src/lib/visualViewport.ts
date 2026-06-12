@@ -40,25 +40,60 @@ export function attachVisualViewportInset(): () => void {
   // (220ms), nudge the focused input into the visible area. This handles
   // inputs deep in scrollable page containers where padding alone isn't
   // enough to bring the field into view.
-  let scrollTimer: ReturnType<typeof setTimeout> | null = null;
-  const scrollFocusedIntoView = () => {
-    if (scrollTimer) clearTimeout(scrollTimer);
-    scrollTimer = setTimeout(() => {
-      const el = document.activeElement;
-      if (
-        el instanceof HTMLInputElement ||
-        el instanceof HTMLTextAreaElement ||
-        (el instanceof HTMLElement && el.isContentEditable)
-      ) {
-        try {
-          el.scrollIntoView({ behavior: "auto", block: "center" });
-        } catch {
-          /* iOS WKWebView occasionally throws on cross-origin scroll roots */
-        }
-      }
-      scrollTimer = null;
-    }, 260); // just after the 220ms padding transition finishes
+  const isTextEntry = (el: Element | null): el is HTMLElement => {
+    if (
+      !(el instanceof HTMLInputElement) &&
+      !(el instanceof HTMLTextAreaElement) &&
+      !(el instanceof HTMLElement && el.isContentEditable)
+    ) {
+      return false;
+    }
+    // Native time/date inputs open a picker overlay, not the text keyboard —
+    // centring them is unnecessary churn.
+    if (el instanceof HTMLInputElement && (el.type === "time" || el.type === "date")) return false;
+    return true;
   };
+
+  const scrollTimers: Array<ReturnType<typeof setTimeout>> = [];
+  const clearScrollTimers = () => {
+    while (scrollTimers.length) {
+      const t = scrollTimers.pop();
+      if (t) clearTimeout(t);
+    }
+  };
+  const scrollActiveIntoView = () => {
+    const el = document.activeElement;
+    if (!isTextEntry(el)) return;
+    try {
+      el.scrollIntoView({ behavior: "auto", block: "center" });
+    } catch {
+      /* iOS WKWebView occasionally throws on cross-origin scroll roots */
+    }
+  };
+  // Two passes: 260ms ≈ just after the padding transition; 480ms ≈ after the
+  // keyboard finishes animating and the layout has fully settled. A single
+  // early scroll often lands the field right back under the keyboard on
+  // Android WebViews, where the resize/pan arrives after our first scroll.
+  const scheduleScrollIntoView = () => {
+    clearScrollTimers();
+    scrollTimers.push(setTimeout(scrollActiveIntoView, 260));
+    scrollTimers.push(setTimeout(scrollActiveIntoView, 480));
+  };
+
+  // Focusing a text field while the keyboard is ALREADY open doesn't change the
+  // inset, so the open-transition scroll below never fires for it — re-assert
+  // here. Also covers inputs that mount + autofocus mid-session (inline rename
+  // fields), where the field appears below the fold under an open keyboard.
+  const softKeyboardLikely = () =>
+    capPriority ||
+    (typeof navigator !== "undefined" && navigator.maxTouchPoints > 0) ||
+    root.hasAttribute("data-keyboard-open");
+  const onFocusIn = (e: FocusEvent) => {
+    if (!isTextEntry(e.target as Element)) return;
+    if (!softKeyboardLikely()) return;
+    scheduleScrollIntoView();
+  };
+  document.addEventListener("focusin", onFocusIn);
 
   let wasOpen = false;
   const setInset = (overlapPx: number) => {
@@ -70,7 +105,7 @@ export function attachVisualViewportInset(): () => void {
     } else {
       root.removeAttribute("data-keyboard-open");
     }
-    if (isOpen && !wasOpen) scrollFocusedIntoView();
+    if (isOpen && !wasOpen) scheduleScrollIntoView();
     wasOpen = isOpen;
   };
 
@@ -126,8 +161,9 @@ export function attachVisualViewportInset(): () => void {
       vv.removeEventListener("resize", syncFromVV);
       vv.removeEventListener("scroll", syncFromVV);
     }
+    document.removeEventListener("focusin", onFocusIn);
     for (const remove of capCleanup) remove();
-    if (scrollTimer) clearTimeout(scrollTimer);
+    clearScrollTimers();
     attached = false;
   };
 }

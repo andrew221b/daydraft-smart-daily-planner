@@ -179,75 +179,6 @@ body.dd-dnd-scroll-lock {
       inset 0 0 0 1px hsl(var(--border) / 0.9);
   }
 
-  :root[data-visual-mode="neon"] {
-    --primary: 180 100% 50%;            /* Pure Neon Cyan #00F2FE */
-    --primary-foreground: 240 40% 6.5%; /* Dark obsidian for contrast on bright cyan */
-    --primary-glow: 320 100% 65%;       /* Neon Hot Pink / Magenta */
-    --accent: 280 100% 65%;             /* Neon Violet */
-    --accent-2: 305 100% 64%;           /* Neon magenta partner */
-    --checklist-accent: 142 90% 54%;    /* Neon emerald — checklist identity */
-    --checklist-accent-2: 158 82% 50%;
-    --background: 240 40% 6.5%;         /* Deep obsidian midnight #0A0B14 */
-    --surface: 240 35% 9%;              /* Dark glassmorphic surface #0F101A */
-    --surface-elevated: 240 32% 12%;    /* #141624 */
-    --border: 260 50% 28%;              /* Glowing violet hairline border */
-    --shadow-card: 0 1px 0 rgba(255,255,255,0.06), 0 16px 44px rgba(5,8,28,0.7);
-    --shadow-elevated: 0 24px 64px rgba(5,8,30,0.85), 0 8px 28px rgba(12,18,42,0.5);
-    --shadow-glow: 0 0 0 4px hsl(var(--primary) / 0.28), 0 0 32px hsl(var(--primary-glow) / 0.38);
-    --gradient-glow: radial-gradient(72% 56% at 50% -10%, hsl(var(--primary) / 0.36), transparent 72%);
-    --gradient-floor: radial-gradient(48% 34% at 50% 108%, hsl(var(--primary) / 0.14), transparent 78%);
-    --motion-page-switch-ms: 280ms;
-    --motion-section-in-ms: 240ms;
-    --motion-glow-breathe-s: 14s;
-    --motion-tab-indicator-s: 5s;
-    --glass-blur: 28px;
-    --glass-saturate: 1.4;
-    --hero-glass-blur: 32px;
-    --hero-glass-saturate: 1.4;
-  }
-
-  /* Light + Neon gets its own clean, high-contrast palette (not dark neon). */
-  :root.light[data-visual-mode="neon"] {
-    --background: 210 40% 98%;          /* Luminous clean neon bg */
-    --foreground: 226 34% 14%;
-    --surface: 0 0% 100%;
-    --surface-elevated: 206 42% 97%;
-    --card: 0 0% 100%;
-    --card-foreground: 226 34% 14%;
-    --popover: 0 0% 100%;
-    --popover-foreground: 226 34% 14%;
-
-    --primary: 195 100% 45%;            /* Rich glowing cyan (readable) */
-    --primary-foreground: 226 34% 14%;  /* Dark text for contrast */
-    --primary-glow: 275 100% 60%;       /* Neon purple */
-    --accent: 275 100% 60%;
-    --accent-2: 296 100% 58%;
-    --accent-foreground: 0 0% 100%;
-    --checklist-accent: 142 82% 34%;    /* emerald — checklist identity for neon-light */
-    --checklist-accent-2: 158 74% 30%;
-
-    --secondary: 205 32% 96%;
-    --secondary-foreground: 224 26% 20%;
-    --muted: 204 28% 95%;
-    --muted-foreground: 220 14% 43%;
-
-    --border: 214 30% 91%;
-    --input: 214 30% 91%;
-    --ring: 195 100% 45%;
-
-    --shadow-card: 0 1px 0 rgba(255,255,255,0.9), 0 8px 24px rgba(18,28,56,0.04);
-    --shadow-card-inset: inset 0 1px 0 rgba(255,255,255,0.94);
-    --shadow-elevated: 0 16px 36px rgba(18,28,56,0.06), 0 4px 12px rgba(18,28,56,0.03);
-    --shadow-glow: 0 0 0 3px hsl(var(--primary) / 0.18), 0 0 24px hsl(var(--primary-glow) / 0.12);
-    --shadow-tab: 0 10px 32px -12px rgba(18,28,56,0.12), inset 0 1px 0 rgba(255,255,255,0.96);
-    --gradient-glow: radial-gradient(64% 48% at 50% -8%, hsl(var(--primary) / 0.1), transparent 75%);
-    --gradient-floor: radial-gradient(44% 30% at 50% 108%, hsl(var(--primary) / 0.05), transparent 82%);
-
-    --glass-blur: 24px;
-    --glass-saturate: 1.35;
-    --hero-glass-blur: 28px;
-    --hero-glass-saturate: 1.35;
-  }
 }
 
 @layer base {
@@ -1332,39 +1263,8 @@ body.dd-dnd-scroll-lock {
     opacity: 1;
   }
 
-  :root[data-visual-mode="neon"] .hero-glass,
-  :root[data-visual-mode="neon"] .app-card {
-    border-color: hsl(var(--primary) / 0.36);
-    box-shadow:
-      0 0 0 1px hsl(var(--primary) / 0.14),
-      0 0 36px hsl(var(--primary) / 0.2),
-      var(--shadow-card),
-      var(--shadow-card-inset);
-  }
-  :root[data-visual-mode="neon"] .bg-primary {
-    box-shadow: 0 0 22px hsl(var(--primary) / 0.4), 0 0 48px hsl(var(--primary-glow) / 0.26);
-  }
-
-  :root.light[data-visual-mode="neon"] .hero-glass,
-  :root.light[data-visual-mode="neon"] .app-card {
-    border-color: hsl(var(--primary) / 0.26);
-    border-top-color: rgba(255, 255, 255, 0.98);
-    border-bottom-color: hsl(var(--border) / 0.5);
-    box-shadow:
-      0 0 0 1px rgba(255,255,255,0.85),
-      0 2px 8px -2px rgba(16,24,40,0.10),
-      0 14px 36px -18px rgba(16,24,40,0.24),
-      0 0 0 1px hsl(var(--primary) / 0.08),
-      0 8px 24px -14px hsl(var(--primary-glow) / 0.24),
-      var(--shadow-card),
-      var(--shadow-card-inset);
-  }
-  :root.light[data-visual-mode="neon"] .bg-primary {
-    box-shadow: 0 0 0 1px hsl(var(--primary) / 0.26), 0 8px 24px -10px hsl(var(--primary) / 0.35);
-  }
-
-  :root.light:not([data-visual-mode="neon"]) .hero-glass,
-  :root.light:not([data-visual-mode="neon"]) .app-card {
+  :root.light .hero-glass,
+  :root.light .app-card {
     border-color: hsl(var(--border) / 0.85);
     border-top-color: rgba(255, 255, 255, 0.98);
     border-bottom-color: hsl(var(--border) / 0.5);
@@ -1375,18 +1275,18 @@ body.dd-dnd-scroll-lock {
       var(--shadow-card),
       var(--shadow-card-inset);
   }
-  :root.light:not([data-visual-mode="neon"]) .hero-glass {
+  :root.light .hero-glass {
     background:
       radial-gradient(110% 110% at 0% 0%, hsl(var(--primary) / 0.13) 0%, transparent 58%),
       radial-gradient(120% 120% at 100% 0%, hsl(var(--primary-glow) / 0.10) 0%, transparent 62%),
       linear-gradient(160deg, hsl(var(--surface)) 0%, hsl(var(--surface-elevated)) 100%);
   }
-  :root.light:not([data-visual-mode="neon"]) .app-card {
+  :root.light .app-card {
     background:
       radial-gradient(120% 130% at 0% 0%, hsl(var(--primary) / 0.07) 0%, transparent 56%),
       linear-gradient(168deg, hsl(var(--surface)) 0%, hsl(var(--surface-elevated)) 100%);
   }
-  :root.light:not([data-visual-mode="neon"]) .bg-primary {
+  :root.light .bg-primary {
     /* Stronger ambient glow + a second deeper shadow so primary buttons
        feel volumetric on paper instead of looking like flat blue rectangles. */
     box-shadow:
@@ -1422,19 +1322,6 @@ body.dd-dnd-scroll-lock {
 }
 
 @media (prefers-reduced-data: reduce) {
-  :root[data-visual-mode="neon"], :root.light[data-visual-mode="neon"] {
-    --motion-page-switch-ms: 280ms;
-    --motion-section-in-ms: 240ms;
-    --motion-glow-breathe-s: 22s;
-    --motion-tab-indicator-s: 10s;
-    --glass-blur: 10px;
-    --glass-saturate: 1.04;
-    --hero-glass-blur: 12px;
-    --hero-glass-saturate: 1.06;
-    --gradient-glow: radial-gradient(62% 48% at 50% -8%, hsl(var(--primary) / 0.2), transparent 74%);
-    --gradient-floor: radial-gradient(44% 30% at 50% 108%, hsl(var(--primary) / 0.08), transparent 80%);
-  }
-
   .tab-indicator-luxe {
     animation-duration: calc(var(--motion-tab-indicator-s) * 2.5);
   }
@@ -1517,6 +1404,27 @@ body.dd-dnd-scroll-lock {
 
 /* Toast notifications must always appear above sheets, dialogs, and overlays */
 [data-sonner-toaster] { z-index: 9999 !important; }
+
+/* ── Kill the browser autofill yellow/amber flash ──────────────────────
+   When a WebView autofills (or merely *thinks* it can autofill) an address-
+   like field — e.g. the crypto "Wallet address" input — it paints the field
+   a hard yellow/amber for a frame. The canonical fix: park the background-
+   color transition ~indefinitely so the autofill colour never visibly lands,
+   and force our own text/caret colours back. Inputs already set
+   autoComplete="off", this is the belt-and-suspenders for engines that ignore
+   it (Chrome/Android WebView). */
+input:-webkit-autofill,
+input:-webkit-autofill:hover,
+input:-webkit-autofill:focus,
+input:-webkit-autofill:active,
+textarea:-webkit-autofill,
+textarea:-webkit-autofill:hover,
+textarea:-webkit-autofill:focus,
+select:-webkit-autofill {
+  transition: background-color 600000s 0s, color 600000s 0s;
+  -webkit-text-fill-color: hsl(var(--foreground)) !important;
+  caret-color: hsl(var(--foreground));
+}
 
   /* Animated Strikethrough for Checklist */
   .strikethrough-animated {

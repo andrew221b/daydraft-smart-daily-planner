@@ -5,8 +5,8 @@ import { CSS } from "@dnd-kit/utilities";
 import { AnimatePresence, motion } from "framer-motion";
 import { Block, fmtTime, inferScheduleBlockType, isOpenUserTask, isUserTaskDone } from "@/lib/daydraft";
 import {
-  Check, Calendar, Layers, GripVertical, Sparkles, Play, Square,
-  ChevronDown, Clock, Bell, Bookmark, Trash2, RotateCcw, SkipForward, Pencil, X as XIcon,
+  Check, Calendar, GripVertical, Sparkles, Play, Square,
+  ChevronDown, Clock, Bell, Bookmark, Trash2, RotateCcw, SkipForward, Pencil, X as XIcon, Flag,
 } from "lucide-react";
 import { haptics } from "@/lib/haptics";
 import {
@@ -54,6 +54,7 @@ export const SortableBlock = memo(({
   onSkip,
   onDeleteBlock,
   onRename,
+  onTogglePriority,
   isOverlay,
   isFuturePlan = false,
   readOnly = false,
@@ -79,6 +80,8 @@ export const SortableBlock = memo(({
   onSkip?: (b: Block) => void;
   onDeleteBlock?: (b: Block) => void;
   onRename?: (b: Block, newTitle: string) => void;
+  /** Toggle the "important" priority flag (amber highlight). */
+  onTogglePriority?: (b: Block) => void;
   /** True when the plan date is in the future — completion is locked. */
   isFuturePlan?: boolean;
   /** True when the plan date is in the past — the whole row is a frozen,
@@ -125,17 +128,16 @@ export const SortableBlock = memo(({
   const rhythmType = inferScheduleBlockType(block);
   const blockSubtype = block.type as "deep_work" | "communication" | "routine" | undefined;
 
+  // User-set "important" flag — amber accent across stripe, title flag, and a
+  // soft outline so it stands out from the rest of the plan. Only meaningful on
+  // real tasks (never calendar events).
+  const isPriority = !isCal && Boolean(block.priority);
+
   const stripeColor = isCal
     ? "hsl(var(--border))"
-    : rhythmType === "personal"
-      ? "hsl(270 78% 66%)"
-      : rhythmType === "rest"
-        ? "hsl(var(--muted-foreground) / 0.7)"
-        : blockSubtype === "communication"
-          ? "hsl(var(--type-comm))"
-          : blockSubtype === "routine"
-            ? "hsl(var(--type-routine))"
-            : "hsl(var(--type-deep))";
+    : isPriority
+      ? "hsl(38 92% 52%)"
+      : "hsl(var(--primary) / 0.6)";
 
   // Frameless task (duration_min <= 0) = a point in the day, no timer span:
   // show no duration pill at all.
@@ -145,6 +147,13 @@ export const SortableBlock = memo(({
     : durMin < 60
       ? `${durMin}m`
       : `${Math.floor(durMin / 60)}h${durMin % 60 ? ` ${durMin % 60}m` : ""}`;
+
+  // Split the formatted start time into a big numeric part + a small am/pm
+  // suffix so the enlarged time reads cleanly and still fits the tight left
+  // rail on both 12h ("9:30am") and 24h ("09:30") locales.
+  const rawStartTime = fmtTime(block.start_time);
+  const startAmPm = rawStartTime.match(/(am|pm)$/i)?.[1] ?? "";
+  const startTimeMain = startAmPm ? rawStartTime.slice(0, -startAmPm.length) : rawStartTime;
 
   const fmtMin = (mins: number) =>
     mins < 60 ? `${mins}m` : `${Math.floor(mins / 60)}h${mins % 60 ? ` ${mins % 60}m` : ""}`;
@@ -169,6 +178,7 @@ export const SortableBlock = memo(({
   const isTask = block.kind === "task" && !isCal;
   const isDone = isUserTaskDone(block);
   const isFinished = !!block.completed || block.resolution === "missed" || block.resolution === "skipped";
+  const isTerminal = isTask && (isDone || block.resolution === "skipped" || block.resolution === "missed");
   // Resolved tasks (done/skipped/missed) can now expand too — to show the Rename button.
   const canExpand = isTask && !isOverlay && !readOnly;
 
@@ -222,7 +232,11 @@ export const SortableBlock = memo(({
   return (
     <div
       ref={setNodeRef}
-      style={style}
+      style={
+        isPriority
+          ? { ...style, outline: "1.5px solid hsl(38 92% 52% / 0.6)", outlineOffset: "-1.5px" }
+          : style
+      }
       data-tour={tourSpotlight ? "dayview-block" : undefined}
       {...(sortableDisabled ? {} : attributes)}
       {...(sortableDisabled ? {} : listeners)}
@@ -235,7 +249,6 @@ export const SortableBlock = memo(({
           ? "ring-[1.5px] ring-primary/40 bg-primary/[0.04] shadow-[0_8px_30px_rgba(0,0,0,0.12),inset_0_1px_1px_rgba(255,255,255,0.2),0_0_32px_hsl(var(--primary)/0.12)] dark:shadow-[0_8px_30px_rgba(0,0,0,0.5),inset_0_1px_1px_rgba(255,255,255,0.05),0_0_32px_hsl(var(--primary)/0.12)]"
           : "shadow-[0_8px_30px_rgba(0,0,0,0.12),inset_0_1px_1px_rgba(255,255,255,0.2)] dark:shadow-[0_8px_30px_rgba(0,0,0,0.5),inset_0_1px_1px_rgba(255,255,255,0.05)]",
         isDone && block.kind === "task" ? "opacity-80" : "",
-        !isCal && block.overlap_ok ? "border-l-[3px] border-l-primary/45" : "",
         isCal
           ? "!border-border/35"
           : rhythmType === "rest"
@@ -260,26 +273,26 @@ export const SortableBlock = memo(({
         aria-hidden
       />
       {/* ── Main content row ── */}
-      <div className={`relative z-10 flex ${rowAlign} gap-2`}>
+      <div className={`relative z-10 flex ${rowAlign} gap-1.5`}>
 
-        {/* Drag handle — decorative, the whole card is the drag target */}
+        {/* Drag handle — thin & decorative; the whole card is the drag target */}
         {!sortableDisabled ? (
           <div
-            className={`shrink-0 flex h-8 w-6 items-center justify-center rounded-md pointer-events-none transition-colors ${
-              isDragging ? "text-primary" : "text-secondary-fg/45"
+            className={`shrink-0 flex h-9 w-4 items-center justify-center rounded-md pointer-events-none transition-colors ${
+              isDragging ? "text-primary" : "text-secondary-fg/40"
             }`}
             aria-hidden
           >
             <GripVertical className="h-3.5 w-3.5" />
           </div>
         ) : (
-          <div className="w-6 shrink-0" aria-hidden />
+          <div className={`${isTerminal ? "w-1" : "w-4"} shrink-0`} aria-hidden />
         )}
 
-        {/* Inner flex: time · stripe · content · right-side */}
-        <div className={`flex min-w-0 flex-1 ${rowAlign} gap-2.5`}>
+        {/* Inner flex: time-rail · stripe · content · right-side */}
+        <div className={`flex min-w-0 flex-1 ${rowAlign} gap-2`}>
 
-          {/* Time pill / status badge when terminal / invisible placeholder */}
+          {/* ── Left time rail: large start time, or the full status when resolved ── */}
           {(() => {
             const isTerminal = isTask && (isDone || block.resolution === "skipped" || block.resolution === "missed");
             if (isTerminal) {
@@ -299,22 +312,22 @@ export const SortableBlock = memo(({
                 timeStr = MOVED_DATE_FMT.format(new Date(block.moved_to_date + "T12:00:00"));
                 colorClass = "text-sky-500 dark:text-sky-400";
               } else if (block.resolution === "skipped") {
-                label = "Skip";
+                label = "Skipped";
                 timeStr = fmtResTime(block.resolved_at);
                 colorClass = "text-amber-500 dark:text-amber-400";
               } else if (block.resolution === "missed") {
-                label = "Miss";
+                label = "Missed";
                 timeStr = fmtResTime(block.resolved_at);
-                colorClass = "text-destructive/80";
+                colorClass = "text-destructive/85";
               }
 
               return (
-                <div className="shrink-0 self-start mt-[3px] flex flex-col items-center w-[42px] gap-[3px]">
-                  <span className={`text-[9px] font-bold leading-none tracking-wide uppercase whitespace-nowrap ${colorClass}`}>
+                <div className="shrink-0 self-center w-[62px] flex flex-col items-start gap-1 pl-0.5">
+                  <span className={`text-[13.5px] font-bold leading-none tracking-[0.02em] uppercase whitespace-nowrap ${colorClass}`}>
                     {label}
                   </span>
                   {timeStr && (
-                    <span className="text-[9px] font-mono-sf tabular-nums text-secondary-fg/55 leading-none text-center whitespace-nowrap overflow-hidden">
+                    <span className="text-[12px] font-mono-sf tabular-nums text-secondary-fg/60 leading-none whitespace-nowrap">
                       {timeStr}
                     </span>
                   )}
@@ -322,52 +335,56 @@ export const SortableBlock = memo(({
               );
             }
             const lateIndicator = (lateMin ?? 0) >= 2 ? (
-              <div className="text-[9px] font-semibold text-amber-500 dark:text-amber-400 tabular-nums leading-none mt-0.5 text-center whitespace-nowrap">
+              <div className="text-[9px] font-semibold text-amber-500 dark:text-amber-400 tabular-nums leading-none mt-1 text-center whitespace-nowrap">
                 ~{fmtLate(lateMin ?? 0)} late
               </div>
             ) : null;
+            const timeDisplay = (
+              <div className="flex items-baseline justify-center gap-px leading-none">
+                <span className="text-[15px] font-semibold tabular-nums leading-none">{startTimeMain}</span>
+                {startAmPm && <span className="text-[9px] font-semibold lowercase leading-none">{startAmPm}</span>}
+              </div>
+            );
             if (onTapTime && !block.is_calendar_event && !readOnly) {
               return (
                 <div
-                  className="relative shrink-0 self-start mt-[3px] flex flex-col items-center"
+                  className="relative shrink-0 self-center w-[56px] flex flex-col items-center"
                   onPointerDown={(e) => e.stopPropagation()}
                   onClick={(e) => e.stopPropagation()}
                 >
                   <div
-                    className="h-6 px-1.5 inline-flex items-center justify-center text-secondary-fg/85 text-[10px] font-mono-sf tabular-nums pressable hover:text-foreground transition-colors rounded-md cursor-pointer select-none"
+                    className="relative px-1 py-0.5 text-secondary-fg/90 pressable hover:text-foreground transition-colors rounded-md cursor-pointer select-none"
                     aria-label="Change start time"
                   >
-                    <span className="pointer-events-none">{fmtTime(block.start_time)}</span>
+                    <span className="pointer-events-none">{timeDisplay}</span>
+                    {/* Native time picker — overlays only the time row, not the late hint */}
+                    <input
+                      type="time"
+                      className="absolute inset-0 opacity-0 w-full h-full cursor-pointer"
+                      value={block.start_time || ""}
+                      min={undefined}
+                      tabIndex={-1}
+                      style={{ fontSize: 16 }}
+                      onChange={(e) => {
+                        const val = e.target.value;
+                        if (val) onTapTime(block, val);
+                      }}
+                    />
                   </div>
-                  {/* Native time picker — covers only the time pill row, not the late indicator */}
-                  <input
-                    type="time"
-                    className="absolute left-0 top-0 opacity-0 w-full h-6 cursor-pointer"
-                    value={block.start_time || ""}
-                    min={undefined}
-                    tabIndex={-1}
-                    style={{ fontSize: 16 }}
-                    onChange={(e) => {
-                      const val = e.target.value;
-                      if (val) onTapTime(block, val);
-                    }}
-                  />
                   {lateIndicator}
                 </div>
               );
             }
             return (
-              <div className="shrink-0 self-start mt-[3px] flex flex-col items-center px-1.5">
-                <div className="h-6 inline-flex items-center justify-center text-secondary-fg/70 text-[10px] font-mono-sf tabular-nums">
-                  {fmtTime(block.start_time)}
-                </div>
+              <div className="shrink-0 self-center w-[56px] flex flex-col items-center text-secondary-fg/75">
+                {timeDisplay}
                 {lateIndicator}
               </div>
             );
           })()}
 
           {/* Accent stripe */}
-          <div className="w-[4px] h-8 rounded-full shrink-0" style={{ background: stripeColor }} />
+          <div className="w-[4px] h-9 rounded-full shrink-0" style={{ background: stripeColor }} />
 
           {/* Title + subtitle stack */}
           <div className="flex-1 min-w-0">
@@ -378,6 +395,7 @@ export const SortableBlock = memo(({
             ].join(" ")}>
               {isCal && <Calendar className="h-3 w-3 text-secondary-fg shrink-0" />}
               {!isCal && rhythmType === "rest" && <span className="shrink-0 text-[12px] leading-none" aria-hidden>☕</span>}
+              {isPriority && <Flag className="h-3 w-3 text-amber-500 dark:text-amber-400 shrink-0" fill="currentColor" aria-label="Priority" />}
               <span className={[
                 "flex-1 min-w-0",
                 expanded ? "break-words whitespace-normal" : "line-clamp-2",
@@ -385,30 +403,37 @@ export const SortableBlock = memo(({
               ].join(" ")}>
                 {block.title}
               </span>
-              {!isCal && Boolean(block.overlap_ok) && (
-                <Layers className="h-3 w-3 text-secondary-fg shrink-0" aria-hidden />
-              )}
-              {!isCal && block.ai_reasoning && (
-                <Sparkles className="h-3 w-3 text-primary/70 shrink-0" aria-hidden />
-              )}
             </div>
 
-            {/* Subtitle */}
-            <div className={`${rhythmType === "rest" ? "text-[10px]" : "text-[11px]"} text-secondary-fg mt-[3px] tabular-nums leading-none`}>
-              {isDone && actualMin != null ? (
-                <>
-                  <span className="font-medium text-foreground">{fmtMin(actualMin)}</span>
-                  <span className="text-faint"> actual</span>
-                  {estimatedMin !== actualMin && (
-                    <span className="text-faint"> · {fmtMin(estimatedMin)} est</span>
-                  )}
-                </>
-              ) : isDone && estimatedMin > 0 ? (
-                <span className="text-faint">{fmtMin(estimatedMin)} planned</span>
-              ) : dur ? (
-                <span className="text-faint">{dur}</span>
-              ) : null}
-            </div>
+            {/* Meta line — done: actual/planned; active: duration + inline category chip */}
+            {isDone ? (
+              <div className={`${rhythmType === "rest" ? "text-[10px]" : "text-[11px]"} text-secondary-fg mt-[3px] tabular-nums leading-none`}>
+                {actualMin != null ? (
+                  <>
+                    <span className="font-medium text-foreground">{fmtMin(actualMin)}</span>
+                    <span className="text-faint"> actual</span>
+                    {estimatedMin !== actualMin && (
+                      <span className="text-faint"> · {fmtMin(estimatedMin)} est</span>
+                    )}
+                  </>
+                ) : estimatedMin > 0 ? (
+                  <span className="text-faint">{fmtMin(estimatedMin)} planned</span>
+                ) : null}
+              </div>
+            ) : (dur || (assignedCategory && !trackingActive)) ? (
+              <div className="mt-[3px] flex items-center gap-1.5 min-w-0 leading-none text-[11px]">
+                {dur && <span className="text-faint tabular-nums shrink-0">{dur}</span>}
+                {dur && assignedCategory && !trackingActive && (
+                  <span className="text-secondary-fg/30 shrink-0">·</span>
+                )}
+                {assignedCategory && !trackingActive && (
+                  <span className="inline-flex min-w-0 items-center gap-1">
+                    <span className="h-1.5 w-1.5 rounded-full shrink-0" style={{ background: assignedCategory.color }} aria-hidden />
+                    <span className="truncate font-medium text-foreground/70">{assignedCategory.name}</span>
+                  </span>
+                )}
+              </div>
+            ) : null}
 
             {isDone && actualMin != null && estimatedMin > 0 && actualMin >= 2 && (
               <div className={`mt-0.5 text-[10px] tabular-nums ${actualToneClass}`}>
@@ -420,64 +445,27 @@ export const SortableBlock = memo(({
               </div>
             )}
 
-            {trackingActive ? (
+            {/* Live tracking pill — only while a Focus session runs for this block */}
+            {trackingActive && (
               <div className="mt-1.5 inline-flex items-center gap-1.5 rounded-full bg-success/15 text-success border border-success/25 px-2 py-0.5 text-[11px] font-medium leading-none">
                 <span className="h-1.5 w-1.5 rounded-full bg-success animate-pulse" />
                 Tracking now
               </div>
-            ) : assignedCategory ? (
-              <div className="mt-1.5 inline-flex items-center gap-1.5 rounded-full border border-border/45 bg-card/60 px-2 py-0.5 text-[11px] font-medium leading-none text-foreground/80">
-                <span className="h-1.5 w-1.5 rounded-full" style={{ background: assignedCategory.color }} aria-hidden />
-                {assignedCategory.name}
-              </div>
-            ) : null}
+            )}
           </div>
 
-          {/* Right side: optional track button · status · chevron */}
+          {/* Right side: live Stop (Focus session) · Move · status · chevron.
+              The category-assign Track/Change button now lives in the accordion. */}
           <div className="flex items-center gap-1.5 shrink-0">
-            {onStartTrack && !isCal && block.kind === "task" && isOpenUserTask(block) && !readOnly && (
-              trackingActive ? (
-                <button
-                  type="button"
-                  onPointerDown={(e) => e.stopPropagation()}
-                  onClick={(e) => { e.stopPropagation(); onStopTrack?.(block); }}
-                  className="shrink-0 h-8 rounded-full bg-success/15 text-success border border-success/30 inline-flex items-center justify-center gap-1 px-2.5 text-[11px] font-medium pressable hover:bg-success/22 transition-colors"
-                  aria-label="Stop tracking"
-                >
-                  <Square className="h-3 w-3" fill="currentColor" /> Stop
-                </button>
-              ) : assignedCategory ? (
-                <button
-                  type="button"
-                  onPointerDown={(e) => e.stopPropagation()}
-                  onClick={(e) => { e.stopPropagation(); onStartTrack?.(block); }}
-                  className="shrink-0 h-8 rounded-full border border-soft bg-card/70 inline-flex items-center justify-center gap-1.5 px-2.5 text-[11px] font-medium text-foreground/85 pressable hover:border-primary/35 transition-colors"
-                  aria-label="Change tracker category"
-                >
-                  <span className="h-2 w-2 rounded-full" style={{ background: assignedCategory.color }} aria-hidden />
-                  Change
-                </button>
-              ) : (
-                <button
-                  type="button"
-                  onPointerDown={(e) => e.stopPropagation()}
-                  onClick={(e) => { e.stopPropagation(); onStartTrack?.(block); }}
-                  className="shrink-0 h-8 rounded-full border border-primary/35 bg-primary/10 text-primary inline-flex items-center justify-center gap-1 px-2.5 text-[11px] font-medium pressable hover:bg-primary/15 hover:border-primary/55 transition-colors"
-                  aria-label="Assign tracker category"
-                >
-                  <Play className="h-3 w-3" fill="currentColor" /> Track
-                </button>
-              )
-            )}
-            {!readOnly && onCarryForward && (block.resolution === "missed" || block.resolution === "skipped") && (
+            {trackingActive && onStopTrack && !isCal && block.kind === "task" && !readOnly && (
               <button
                 type="button"
                 onPointerDown={(e) => e.stopPropagation()}
-                onClick={(e) => { e.stopPropagation(); haptics.impact("light"); onCarryForward(block); }}
-                className="shrink-0 h-8 rounded-full border border-primary/25 bg-primary/[0.07] px-2.5 inline-flex items-center justify-center gap-1.5 text-[11px] font-medium text-primary/80 pressable hover:text-primary hover:border-primary/40 hover:bg-primary/[0.12] transition-colors"
-                aria-label="Move to another day"
+                onClick={(e) => { e.stopPropagation(); onStopTrack?.(block); }}
+                className="shrink-0 h-8 rounded-full bg-success/15 text-success border border-success/30 inline-flex items-center justify-center gap-1 px-2.5 text-[11px] font-medium pressable hover:bg-success/22 transition-colors"
+                aria-label="Stop tracking"
               >
-                <Calendar className="h-3 w-3" /> Move
+                <Square className="h-3 w-3" fill="currentColor" /> Stop
               </button>
             )}
 
@@ -562,111 +550,203 @@ export const SortableBlock = memo(({
             initial={{ height: 0, opacity: 0 }}
             animate={{ height: "auto", opacity: 1 }}
             exit={{ height: 0, opacity: 0 }}
-            transition={{ type: "spring", stiffness: 340, damping: 28, mass: 0.85 }}
+            transition={{ type: "tween", duration: 0.22, ease: [0.4, 0, 0.2, 1] }}
             style={{ overflow: "hidden" }}
           >
-            <div className="mt-3 pt-3 border-t border-border/[0.15] space-y-2.5">
+            <div className="mt-3 pt-3 border-t border-border/[0.15] space-y-2">
 
-              {/* ── Rename row — always visible in expanded state ── */}
-              <div
-                onPointerDown={(e) => e.stopPropagation()}
-                onClick={(e) => e.stopPropagation()}
-              >
-                {renaming ? (
-                  <div className="flex items-center gap-1.5">
-                    <input
-                      autoFocus
-                      value={renameDraft}
-                      onChange={(e) => setRenameDraft(e.target.value)}
-                      onKeyDown={(e) => {
-                        if (e.key === "Enter") {
+              {/* ── Rename: tapping the Rename tile expands this field in place;
+                   the rest of the actions stay put below, so the panel never
+                   jumps. ── */}
+              <AnimatePresence initial={false}>
+                {renaming && (
+                  <motion.div
+                    key="rename-field"
+                    initial={{ height: 0, opacity: 0 }}
+                    animate={{ height: "auto", opacity: 1 }}
+                    exit={{ height: 0, opacity: 0 }}
+                    transition={{ type: "tween", duration: 0.2, ease: [0.4, 0, 0.2, 1] }}
+                    style={{ overflow: "hidden" }}
+                    onPointerDown={(e) => e.stopPropagation()}
+                    onClick={(e) => e.stopPropagation()}
+                  >
+                    <div className="flex items-center gap-1.5 pb-0.5">
+                      <input
+                        autoFocus
+                        value={renameDraft}
+                        onChange={(e) => setRenameDraft(e.target.value)}
+                        onKeyDown={(e) => {
+                          if (e.key === "Enter") {
+                            const t = renameDraft.trim();
+                            if (t && t !== block.title) onRename?.(block, t);
+                            setRenaming(false);
+                            setExpanded(false);
+                          }
+                          if (e.key === "Escape") {
+                            setRenaming(false);
+                          }
+                        }}
+                        onBlur={() => {
+                          const t = renameDraft.trim();
+                          if (t && t !== block.title) onRename?.(block, t);
+                          setRenaming(false);
+                        }}
+                        className="flex-1 min-w-0 h-9 rounded-xl border border-primary/40 bg-card/60 px-3 text-[13.5px] font-medium outline-none focus:border-primary/70 transition-colors"
+                        style={{ fontSize: 16 }}
+                        aria-label="Task name"
+                      />
+                      <button
+                        type="button"
+                        onClick={() => {
                           const t = renameDraft.trim();
                           if (t && t !== block.title) onRename?.(block, t);
                           setRenaming(false);
                           setExpanded(false);
-                        }
-                        if (e.key === "Escape") {
-                          setRenaming(false);
-                        }
-                      }}
-                      onBlur={() => {
-                        const t = renameDraft.trim();
-                        if (t && t !== block.title) onRename?.(block, t);
-                        setRenaming(false);
-                      }}
-                      className="flex-1 min-w-0 h-9 rounded-xl border border-primary/40 bg-card/60 px-3 text-[13.5px] font-medium outline-none focus:border-primary/70 transition-colors"
-                      style={{ fontSize: 16 }}
-                    />
-                    <button
-                      type="button"
-                      onClick={() => {
-                        const t = renameDraft.trim();
-                        if (t && t !== block.title) onRename?.(block, t);
-                        setRenaming(false);
-                        setExpanded(false);
-                      }}
-                      className="h-9 w-9 rounded-xl bg-primary/90 flex items-center justify-center text-primary-foreground pressable shrink-0"
-                      aria-label="Save rename"
-                    >
-                      <Check className="h-4 w-4" strokeWidth={2.5} />
-                    </button>
-                    <button
-                      type="button"
-                      onClick={() => setRenaming(false)}
-                      className="h-9 w-9 rounded-xl border border-border/40 bg-card/40 flex items-center justify-center text-secondary-fg pressable shrink-0"
-                      aria-label="Cancel rename"
-                    >
-                      <XIcon className="h-3.5 w-3.5" />
-                    </button>
-                  </div>
-                ) : (
-                  <button
-                    type="button"
-                    onClick={() => {
-                      setRenameDraft(block.title);
-                      setRenaming(true);
-                    }}
-                    className="w-full flex items-center gap-2.5 px-3 py-2 rounded-xl border border-border/40 bg-black/[0.04] dark:bg-white/[0.04] hover:bg-black/[0.07] dark:hover:bg-white/[0.07] pressable transition-colors"
-                  >
-                    <Pencil className="h-3.5 w-3.5 text-secondary-fg/65 shrink-0" />
-                    <span className="flex-1 min-w-0 text-left text-[13px] font-medium text-foreground/80 truncate">{block.title}</span>
-                    <span className="text-[10px] text-secondary-fg/45 shrink-0">Rename</span>
-                  </button>
-                )}
-              </div>
-
-              {/* ── Action toolbar — only for active (non-resolved) tasks ── */}
-              {!isFinished && (
-                <div className="flex gap-1.5">
-                  {inlineActions.map(({ id, icon, label, cb, color, ...rest }) => {
-                    const destructive = "destructive" in rest && (rest as { destructive?: boolean }).destructive;
-                    return (
-                      <button
-                        key={id}
-                        type="button"
-                        onPointerDown={(e) => e.stopPropagation()}
-                        onClick={(e) => {
-                          e.stopPropagation();
-                          haptics.tap();
-                          if (destructive) { setConfirmDelete(true); return; }
-                          cb?.(block);
                         }}
+                        className="h-9 w-9 rounded-xl bg-primary/90 flex items-center justify-center text-primary-foreground pressable shrink-0"
+                        aria-label="Save rename"
+                      >
+                        <Check className="h-4 w-4" strokeWidth={2.5} />
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => setRenaming(false)}
+                        className="h-9 w-9 rounded-xl border border-border/40 bg-card/40 flex items-center justify-center text-secondary-fg pressable shrink-0"
+                        aria-label="Cancel rename"
+                      >
+                        <XIcon className="h-3.5 w-3.5" />
+                      </button>
+                    </div>
+                  </motion.div>
+                )}
+              </AnimatePresence>
+
+              {/* ── Compact action grid ──
+                   Every action is a uniform icon+label tile (4 per row) so the
+                   panel stays short no matter how many functions a task exposes.
+                   Identity actions (Rename / Track / Flag / Move) share the row
+                   with the operational ones (Duration / Remind / Skip / AI /
+                   Template / Delete). Built only while expanded. */}
+              {(() => {
+                type Tile = {
+                  id: string;
+                  icon: React.ReactNode;
+                  label: string;
+                  onClick: () => void;
+                  iconColor?: string;
+                  active?: boolean;
+                  destructive?: boolean;
+                  ariaLabel?: string;
+                };
+                const tiles: Tile[] = [];
+
+                // Rename — always available on an expandable card.
+                tiles.push({
+                  id: "rename",
+                  icon: <Pencil className="h-3.5 w-3.5" />,
+                  label: "Rename",
+                  iconColor: "text-secondary-fg/70",
+                  ariaLabel: "Rename task",
+                  onClick: () => { setRenameDraft(block.title); setRenaming(true); },
+                });
+
+                // Track / category — opens the category picker.
+                if (!isFinished && onStartTrack && !isCal && block.kind === "task") {
+                  tiles.push({
+                    id: "track",
+                    icon: assignedCategory ? (
+                      <span className="h-3.5 w-3.5 rounded-full ring-1 ring-white/25" style={{ background: assignedCategory.color }} aria-hidden />
+                    ) : (
+                      <Play className="h-3.5 w-3.5" fill="currentColor" />
+                    ),
+                    label: assignedCategory ? "Category" : "Track",
+                    iconColor: "text-primary/85",
+                    ariaLabel: assignedCategory ? `Change tracking category (${assignedCategory.name})` : "Set tracking category",
+                    onClick: () => { haptics.tap(); onStartTrack?.(block); },
+                  });
+                }
+
+                // Priority flag.
+                if (!readOnly && onTogglePriority && !isCal && block.kind === "task") {
+                  tiles.push({
+                    id: "priority",
+                    icon: <Flag className="h-3.5 w-3.5" fill={isPriority ? "currentColor" : "none"} />,
+                    label: isPriority ? "Priority" : "Flag",
+                    iconColor: isPriority ? "text-amber-500 dark:text-amber-400" : "text-secondary-fg/65",
+                    active: isPriority,
+                    ariaLabel: isPriority ? "Remove priority" : "Mark as priority",
+                    onClick: () => { haptics.tap(); setExpanded(false); onTogglePriority?.(block); },
+                  });
+                }
+
+                // Move to another day (resolved missed/skipped, or future open).
+                if (!readOnly && onCarryForward && !isCal && block.kind === "task" &&
+                  ((isFinished && (block.resolution === "missed" || block.resolution === "skipped")) ||
+                    (isFuturePlan && !isFinished))) {
+                  tiles.push({
+                    id: "move",
+                    icon: <Calendar className="h-3.5 w-3.5" />,
+                    label: "Move",
+                    iconColor: "text-primary/85",
+                    ariaLabel: "Move to another day",
+                    onClick: () => { haptics.impact("light"); setExpanded(false); onCarryForward?.(block); },
+                  });
+                }
+
+                // Operational actions — active (non-resolved) tasks only.
+                if (!isFinished) {
+                  for (const a of inlineActions) {
+                    const destructive = "destructive" in a ? Boolean((a as { destructive?: boolean }).destructive) : false;
+                    tiles.push({
+                      id: a.id,
+                      icon: a.icon,
+                      label: a.label,
+                      iconColor: a.color,
+                      destructive,
+                      ariaLabel: a.label,
+                      onClick: () => {
+                        haptics.tap();
+                        if (destructive) { setConfirmDelete(true); return; }
+                        if (a.id === "skip") setExpanded(false);
+                        a.cb?.(block);
+                      },
+                    });
+                  }
+                }
+
+                const toneClass = (t: Tile) =>
+                  t.destructive
+                    ? "border-destructive/15 bg-destructive/[0.06] hover:bg-destructive/[0.11] hover:border-destructive/25"
+                    : t.active
+                      ? "border-amber-400/45 bg-amber-400/[0.1] hover:bg-amber-400/[0.16]"
+                      : "border-black/[0.08] bg-black/[0.05] dark:border-white/[0.09] dark:bg-white/[0.04] hover:bg-black/[0.08] hover:border-black/[0.14] dark:hover:bg-white/[0.08] dark:hover:border-white/[0.14]";
+
+                return (
+                  <div
+                    className="grid grid-cols-4 gap-1.5"
+                    onPointerDown={(e) => e.stopPropagation()}
+                    onClick={(e) => e.stopPropagation()}
+                  >
+                    {tiles.map((t) => (
+                      <button
+                        key={t.id}
+                        type="button"
+                        onClick={t.onClick}
+                        aria-label={t.ariaLabel || t.label}
+                        aria-pressed={t.active}
                         className={[
-                          `block-action-${id}-btn`,
-                          "flex-1 rounded-xl py-2.5 inline-flex flex-col items-center gap-1 pressable transition-[border-color,background-color] duration-200",
-                          "border shadow-sm",
-                          destructive
-                            ? "border-destructive/15 bg-destructive/[0.06] hover:bg-destructive/[0.11] hover:border-destructive/25"
-                            : "border-black/[0.08] bg-black/[0.05] dark:border-white/[0.09] dark:bg-white/[0.04] hover:bg-black/[0.08] hover:border-black/[0.14] dark:hover:bg-white/[0.08] dark:hover:border-white/[0.14]",
+                          `block-action-${t.id}-btn`,
+                          "flex flex-col items-center justify-center gap-1 rounded-xl py-2.5 px-1 border shadow-sm pressable transition-[border-color,background-color] duration-200",
+                          toneClass(t),
                         ].join(" ")}
                       >
-                        <span className={color}>{icon}</span>
-                        <span className="text-[9px] font-medium text-secondary-fg/55 leading-none tracking-wide">{label}</span>
+                        <span className={`flex h-[15px] items-center justify-center ${t.iconColor ?? ""}`}>{t.icon}</span>
+                        <span className="text-[9px] font-medium text-secondary-fg/60 leading-none tracking-wide">{t.label}</span>
                       </button>
-                    );
-                  })}
-                </div>
-              )}
+                    ))}
+                  </div>
+                );
+              })()}
 
             </div>
           </motion.div>

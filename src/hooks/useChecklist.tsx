@@ -181,21 +181,27 @@ export function useChecklist(
   const reload = useCallback(async () => {
     if (!userId) return;
     const gen = ++reloadGenRef.current;
-    const [gRes, iRes] = await Promise.all([
+    const [gRes, iRes, gPin, iPin] = await Promise.all([
       supabase
-        .from("checklist_groups")
-        .select("*")
-        .eq("user_id", userId)
-        .eq("plan_date", planDate)
-        .order("position", { ascending: true })
-        .order("created_at", { ascending: true }),
+        .from("checklist_groups").select("*")
+        .eq("user_id", userId).eq("plan_date", planDate)
+        .order("position", { ascending: true }).order("created_at", { ascending: true }),
       supabase
-        .from("checklist_items")
-        .select("*")
-        .eq("user_id", userId)
-        .eq("plan_date", planDate)
-        .order("position", { ascending: true })
-        .order("created_at", { ascending: true }),
+        .from("checklist_items").select("*")
+        .eq("user_id", userId).eq("plan_date", planDate)
+        .order("position", { ascending: true }).order("created_at", { ascending: true }),
+      // Pinned rows live on EVERY day. This extra pair is additive + fail-safe:
+      // if the `pinned` column isn't there yet (migration not applied), the
+      // error is swallowed and pinning is simply inert — the date-scoped
+      // checklist keeps working exactly as before.
+      supabase
+        .from("checklist_groups").select("*")
+        .eq("user_id", userId).eq("pinned", true)
+        .order("position", { ascending: true }).order("created_at", { ascending: true }),
+      supabase
+        .from("checklist_items").select("*")
+        .eq("user_id", userId).eq("pinned", true)
+        .order("position", { ascending: true }).order("created_at", { ascending: true }),
     ]);
     // A newer reload started while we were awaiting — drop this (possibly stale)
     // result so it can't clobber the fresher one.
@@ -205,7 +211,14 @@ export function useChecklist(
       setLoading(false);
       return;
     }
-    commit((gRes.data ?? []) as ChecklistGroup[], (iRes.data ?? []) as ChecklistItem[]);
+    // Merge pinned rows in (deduped — a row pinned ON today appears in both).
+    const mergeById = <T extends { id: string }>(base: T[], extra: T[]): T[] => {
+      const seen = new Set(base.map((r) => r.id));
+      return [...base, ...extra.filter((r) => !seen.has(r.id))];
+    };
+    const groups = mergeById((gRes.data ?? []) as ChecklistGroup[], gPin.error ? [] : (gPin.data ?? []) as ChecklistGroup[]);
+    const items = mergeById((iRes.data ?? []) as ChecklistItem[], iPin.error ? [] : (iPin.data ?? []) as ChecklistItem[]);
+    commit(groups, items);
     setLoading(false);
   }, [userId, planDate, commit]);
 
@@ -300,6 +313,7 @@ export function useChecklist(
         plan_date: planDate,
         title: trimmed,
         position: maxPos(groupsRef.current) + 1,
+        pinned: false,
         created_at: nowIso(),
         updated_at: nowIso(),
       };
@@ -348,6 +362,8 @@ export function useChecklist(
         title: trimmed,
         done: false,
         position: maxPos(siblings) + 1,
+        pinned: false,
+        priority: false,
         created_at: nowIso(),
         updated_at: nowIso(),
       };
@@ -393,6 +409,63 @@ export function useChecklist(
       void deleteItemRow(id);
     },
     [commit],
+  );
+
+  /**
+   * Pin / unpin a whole category. Pinning cascades to the group's items so the
+   * category carries its rows to every day; unpinning re-homes the group + its
+   * items onto the CURRENT day (set `plan_date = planDate`) so they stay where
+   * the user unpinned them instead of vanishing onto their original date.
+   */
+  const togglePinGroup = useCallback(
+    (id: string) => {
+      const g = groupsRef.current.find((x) => x.id === id);
+      if (!g) return;
+      const next = !g.pinned;
+      const patch = next ? { pinned: true } : { pinned: false, plan_date: planDate };
+      const childIds = itemsRef.current.filter((x) => x.group_id === id).map((x) => x.id);
+      commit(
+        groupsRef.current.map((x) => (x.id === id ? { ...x, ...patch } : x)),
+        itemsRef.current.map((x) => (x.group_id === id ? { ...x, ...patch } : x)),
+      );
+      void updateGroup(id, patch);
+      for (const cid of childIds) void updateItem(cid, patch);
+    },
+    [commit, planDate],
+  );
+
+  /** Toggle the "important" priority flag on a single item (amber highlight +
+   *  calendar marker). Date-independent like done/pinned — works on any day. */
+  const togglePriorityItem = useCallback(
+    (id: string) => {
+      let nextPriority = false;
+      commit(
+        groupsRef.current,
+        itemsRef.current.map((i) => {
+          if (i.id !== id) return i;
+          nextPriority = !i.priority;
+          return { ...i, priority: nextPriority };
+        }),
+      );
+      void updateItem(id, { priority: nextPriority });
+    },
+    [commit],
+  );
+
+  /** Pin / unpin a single (ungrouped) item. Same re-home-on-unpin behaviour. */
+  const togglePinItem = useCallback(
+    (id: string) => {
+      const it = itemsRef.current.find((x) => x.id === id);
+      if (!it) return;
+      const next = !it.pinned;
+      const patch = next ? { pinned: true } : { pinned: false, plan_date: planDate };
+      commit(
+        groupsRef.current,
+        itemsRef.current.map((x) => (x.id === id ? { ...x, ...patch } : x)),
+      );
+      void updateItem(id, patch);
+    },
+    [commit, planDate],
   );
 
   /**
@@ -654,6 +727,9 @@ export function useChecklist(
     toggleItem,
     renameItem,
     deleteItem,
+    togglePinGroup,
+    togglePinItem,
+    togglePriorityItem,
     moveItem,
     reorder,
     clearCompleted,

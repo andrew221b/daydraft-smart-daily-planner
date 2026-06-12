@@ -10,6 +10,9 @@ interface Props {
   block: Block | null;
   onCancel: () => void;
   onConfirm: (action: "revert" | "v2", newStartTime: string, newDuration: number) => void;
+  /** Earliest selectable start (HH:MM). Set on TODAY so the task can't be
+   *  rescheduled into the past (which would auto-mark it missed instantly). */
+  minTime?: string;
 }
 
 function roundedNowHHMM(): string {
@@ -43,8 +46,13 @@ const cardStyle: CSSProperties = {
   boxShadow: "inset 0 1px 0 hsl(0 0% 100% / 0.05), 0 0 0 1px hsl(var(--border)/0.4)",
 };
 
-export function UncompleteTaskSheet({ block, onCancel, onConfirm }: Props) {
+export function UncompleteTaskSheet({ block, onCancel, onConfirm, minTime }: Props) {
   const open = !!block;
+
+  const toMin = (hhmm: string) => {
+    const [h, m] = hhmm.split(":").map(Number);
+    return (h || 0) * 60 + (m || 0);
+  };
 
   // Tracked time indicates whether the user logged time for this block.
   // If true, we create a v2 copy. Otherwise, we just revert the block.
@@ -57,23 +65,31 @@ export function UncompleteTaskSheet({ block, onCancel, onConfirm }: Props) {
   // Initialize values when the sheet opens for a new block
   useEffect(() => {
     if (block) {
-      // Default to "right now" rounded to nearest 15 mins for rescheduling
-      setTime(roundedNowHHMM());
+      // Default to "right now" rounded to nearest 15 mins — but never below the
+      // floor (today can't reschedule into the past).
+      const def = roundedNowHHMM();
+      setTime(minTime && toMin(def) < toMin(minTime) ? minTime : def);
       setDuration(block.duration_min || 30);
     }
-  }, [block]);
+  }, [block]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  const isPast = !!minTime && !!time && toMin(time) < toMin(minTime);
 
   const handleSubmit = () => {
     if (!block || !time || duration == null) {
       haptics.notify("error");
       return;
     }
+    if (isPast) {
+      haptics.notify("error");
+      return; // parent surfaces the "can't set a time in the past" toast
+    }
     haptics.selection();
     onConfirm(hasTrackedTime ? "v2" : "revert", time, duration);
   };
 
   const Icon = hasTrackedTime ? CopyPlus : RotateCcw;
-  const canSubmit = !!time && duration != null;
+  const canSubmit = !!time && duration != null && !isPast;
 
   return (
     <>
@@ -142,19 +158,26 @@ export function UncompleteTaskSheet({ block, onCancel, onConfirm }: Props) {
                       <div className="text-[11.5px] text-secondary-fg/70 mt-0.5">When it goes back on the plan</div>
                     </div>
                   </div>
-                  <span className="text-[16px] font-semibold tabular-nums text-foreground shrink-0">
+                  <span className={`text-[16px] font-semibold tabular-nums shrink-0 ${isPast ? "text-destructive" : "text-foreground"}`}>
                     {time ? fmtTime(time) : "Set"}
                   </span>
                   <input
                     type="time"
                     className="absolute inset-0 opacity-0 w-full h-full cursor-pointer"
                     value={time}
+                    min={minTime}
                     tabIndex={-1}
                     onChange={(e) => { if (e.target.value) setTime(e.target.value); }}
                     style={{ fontSize: 16 }}
                     aria-label="Start time"
                   />
                 </label>
+
+                {isPast && minTime && (
+                  <p className="px-1 -mt-1 text-[11.5px] font-medium text-destructive/90 leading-snug">
+                    Can't reschedule into the past — pick {fmtTime(minTime)} or later.
+                  </p>
+                )}
 
                 {/* Duration row */}
                 <button

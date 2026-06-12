@@ -3,7 +3,6 @@ import App from "./App.tsx";
 import "./index.css";
 import { Capacitor } from "@capacitor/core";
 import { applyNativeDocumentHints, initCapacitor } from "./lib/capacitor";
-import { applySavedVisualMode } from "./lib/visualMode";
 import { installPressFeedback } from "./lib/pressFeedback";
 import { ThemeProvider } from "./lib/theme";
 import { RootErrorBoundary } from "@/components/app/RootErrorBoundary";
@@ -15,8 +14,8 @@ import { registerServiceWorker } from "./lib/swUpdate";
 
 /* ──────────── Critical-path bootstrap ──────────────────────────────────
  * Only work that affects the very first paint runs synchronously here:
- *   - applyNativeDocumentHints / applySavedVisualMode set DOM attributes
- *     that the first stylesheet pass reads (theme + visual mode).
+ *   - applyNativeDocumentHints sets DOM attributes that the first
+ *     stylesheet pass reads (theme).
  *   - attachVisualViewportInset wires the iOS keyboard listener so the
  *     TabBar gets correct insets on the first frame.
  * Everything else — offline-queue drain, Capacitor SDK init, service
@@ -28,7 +27,6 @@ try {
   initSentry();
   document.body.addEventListener("touchstart", () => {}, { passive: true });
   applyNativeDocumentHints();
-  applySavedVisualMode();
   attachVisualViewportInset();
   installPressFeedback();
 } catch (e) {

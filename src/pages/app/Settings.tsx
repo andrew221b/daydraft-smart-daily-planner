@@ -26,7 +26,6 @@ import { getNotificationsEnabled, setNotificationsEnabled } from "@/lib/localNot
 import { supabase } from "@/integrations/supabase/client";
 import { triggerDownload } from "@/lib/reportExport";
 import { useTour, TOUR_SANDBOX } from "@/components/app/Tour";
-import { VisualMode, useVisualMode } from "@/lib/visualMode";
 import { PerfDebugPanel } from "@/components/app/PerfDebugPanel";
 
 export default function Settings() {
@@ -46,7 +45,6 @@ export default function Settings() {
   const [upgradeOpen, setUpgradeOpen] = useState(false);
   const [proSheetOpen, setProSheetOpen] = useState(false);
 
-  const [visualMode, setVisualMode] = useVisualMode();
   const [pushState, setPushState] = useState(() => pushAvailability());
   const pushReady = pushState === "ok";
 
@@ -235,37 +233,12 @@ export default function Settings() {
               <div className="px-4 py-3">
                 <div className="flex flex-col gap-2">
                   <label className="text-[11px] text-secondary-fg">Name</label>
-                  <DebouncedInput maxLength={50} value={name} onDebouncedChange={setName} onBlur={() => update({ display_name: name })} className="bg-card/45 h-9 rounded-lg border-border/45 text-[14px]" />
+                  <DebouncedInput maxLength={50} value={name} onDebouncedChange={setName} onBlur={() => update({ display_name: name })} className="bg-card/45 h-9 rounded-lg border-border/45 text-[14px]" style={{ fontSize: 16 }} />
                 </div>
               </div>
               <div className="settings-appearance px-4 py-3">
-                <div className="text-[11px] text-secondary-fg mb-2">Appearance</div>
+                <div className="text-[11px] text-secondary-fg mb-2">Mode</div>
                 <ThemeToggle />
-                <div className="mt-3">
-                  <div className="text-[11px] text-secondary-fg mb-1.5">Visual mode</div>
-                  <div className="grid grid-cols-2 gap-2">
-                    {([
-                      { key: "standard", label: "Standard" },
-                      { key: "neon", label: "Neon" },
-                    ] as Array<{ key: VisualMode; label: string }>).map((opt) => (
-                      <button
-                        key={opt.key}
-                        type="button"
-                        onClick={() => setVisualMode(opt.key)}
-                        className={`h-9 rounded-lg border text-[11px] font-medium pressable ${
-                          visualMode === opt.key
-                            ? "surface-accent border-accent text-primary"
-                            : "surface-soft border-soft text-secondary-fg"
-                        }`}
-                      >
-                        {opt.label}
-                      </button>
-                    ))}
-                  </div>
-                  <p className="mt-2 text-[11px] text-secondary-fg leading-relaxed">
-                    Standard — calm, clean interface. Neon — brighter accents and glow.
-                  </p>
-                </div>
               </div>
             </div>
           </Section>
@@ -283,6 +256,7 @@ export default function Settings() {
                   placeholder="e.g. I'm a freelance iOS designer in Lisbon. I walk my dog 1–2pm and don't take hard tasks after 5pm."
                   maxLength={500}
                   className="min-h-[96px] rounded-xl border-border/45 bg-card/45 text-[13.5px] leading-snug resize-none placeholder:text-secondary-fg/55 focus-visible:border-primary/55 focus-visible:ring-0"
+                  style={{ fontSize: 16 }}
                 />
                 <div className="flex items-center justify-between gap-3 pt-0.5">
                   <span className="text-[11px] text-secondary-fg/70 tabular-nums">{aboutDraft.length}/500</span>

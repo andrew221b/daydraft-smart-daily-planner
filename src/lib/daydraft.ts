@@ -26,6 +26,8 @@ export interface Block {
   parallel_group_id?: string | null;
   /** Planned window end (HH:MM, same calendar day as the plan); Focus counts down wall-clock to this instant. */
   slot_end_time?: string | null;
+  /** User-set "important" flag — highlighted amber across timeline, checklist, calendar. */
+  priority?: boolean;
   /** done | skipped | missed — null means still active (not completed / skipped / auto-missed). */
   resolution?: "done" | "skipped" | "missed" | null;
   /** When the block reached a terminal state (complete, skip, or auto-miss). */

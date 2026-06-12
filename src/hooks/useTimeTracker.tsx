@@ -146,6 +146,11 @@ type Ctx = {
   ) => Promise<void>;
   addManualEntry: (categoryId: string, durationSec: number, opts?: { startedAt?: Date; note?: string }) => Promise<void>;
   deleteEntry: (id: string) => Promise<void>;
+  /** Move a tracked entry's start time (e.g. you forgot to start the timer on
+   *  time). For completed entries the end stays fixed, so this changes the
+   *  duration; for the running entry it re-bases the live timer. Keeps the
+   *  linked task's actual_minutes in sync. */
+  updateEntryStart: (id: string, newStartedAt: Date) => Promise<void>;
   entries: RollingEntry[];
   todayTotalSec: number;
   weekTotalSec: number;
@@ -263,7 +268,9 @@ export function TimeTrackerProvider({ children }: { children: ReactNode }) {
     queryFn: () => fetchActiveEntry(userId!),
     enabled,
     staleTime: 60_000,
-    gcTime: 30 * 60_000,
+    // 4 hours: keeps the active-session cache alive across normal background cycles
+    // so the timer doesn't flash to 0 when the app is reopened after ≥30 min.
+    gcTime: 4 * 60 * 60_000,
     placeholderData: keepPreviousData,
   });
 
@@ -964,7 +971,51 @@ export function TimeTrackerProvider({ children }: { children: ReactNode }) {
     );
   };
 
+  // Recompute a linked task's actual_minutes from the sum of its completed
+  // time entries, then broadcast so DayView/Home patch their caches. Shared by
+  // stop(), deleteEntry() and updateEntryStart() so the timeline number stays
+  // truthful whenever tracked time tied to a task changes.
+  const recomputeBlockActual = useCallback(async (blockId: string) => {
+    if (!user?.id) return;
+    try {
+      const { data: rows } = await supabase
+        .from("time_entries")
+        .select("started_at,ended_at")
+        .eq("user_id", user.id)
+        .eq("block_id", blockId)
+        .not("ended_at", "is", null);
+      const actualMin = Math.max(
+        0,
+        Math.round(
+          (rows || []).reduce((sum: number, e: { started_at: string; ended_at: string | null }) => {
+            const s = new Date(e.started_at).getTime();
+            const en = e.ended_at ? new Date(e.ended_at).getTime() : s;
+            return sum + Math.max(0, (en - s) / 60000);
+          }, 0),
+        ),
+      );
+      await supabase.from("blocks").update({ actual_minutes: actualMin }).eq("id", blockId);
+      try {
+        window.dispatchEvent(
+          new CustomEvent("dd-block-timer-stopped", {
+            detail: { blockId, actualMinutes: actualMin },
+          }),
+        );
+      } catch {
+        /* ignore */
+      }
+    } catch {
+      /* non-fatal */
+    }
+  }, [user?.id]);
+
   const deleteEntry: Ctx["deleteEntry"] = async (id) => {
+    // Capture the linked block (if any) BEFORE the row is gone so we can
+    // recompute its actual time afterwards.
+    const cached = user?.id
+      ? queryClient.getQueryData<RollingEntry[]>(rollingEntriesQueryKey(user.id)) ?? []
+      : [];
+    const blockId = cached.find((e) => e.id === id)?.block_id ?? null;
     const { error } = await supabase.from("time_entries").delete().eq("id", id);
     if (error) {
       toast.error(error.message);
@@ -976,6 +1027,52 @@ export function TimeTrackerProvider({ children }: { children: ReactNode }) {
         (prev) => (prev ?? []).filter((e) => e.id !== id),
       );
     }
+    // If the deleted row was the running session, tear down the live timer too
+    // so the UI doesn't keep ticking against a row that no longer exists.
+    if (active?.id === id) {
+      setActiveData(null);
+      emitElapsed(0);
+      void liveActivity.stopTracker();
+    }
+    if (blockId) void recomputeBlockActual(blockId);
+  };
+
+  const updateEntryStart: Ctx["updateEntryStart"] = async (id, newStartedAt) => {
+    if (!user?.id) return;
+    const startedISO = newStartedAt.toISOString();
+    const cached = queryClient.getQueryData<RollingEntry[]>(rollingEntriesQueryKey(user.id)) ?? [];
+    const target = cached.find((e) => e.id === id);
+    const endedMs = target?.ended_at ? new Date(target.ended_at).getTime() : null;
+    // Guard: a completed entry's start must stay before its end.
+    if (endedMs != null && newStartedAt.getTime() >= endedMs) {
+      toast.error("Start time must be before the end time");
+      return;
+    }
+    // The running entry's start must not be in the future.
+    if (endedMs == null && newStartedAt.getTime() > Date.now()) {
+      toast.error("Start time can't be in the future");
+      return;
+    }
+    // Optimistic cache patch.
+    queryClient.setQueryData<RollingEntry[]>(
+      rollingEntriesQueryKey(user.id),
+      (prev) => (prev ?? []).map((e) => (e.id === id ? { ...e, started_at: startedISO } : e)),
+    );
+    const { error } = await supabase
+      .from("time_entries")
+      .update({ started_at: startedISO })
+      .eq("id", id);
+    if (error) {
+      toast.error(error.message);
+      void invalidateRollingEntries(queryClient, user.id);
+      return;
+    }
+    // Re-base the live timer if the running entry was the one edited.
+    if (active?.id === id) {
+      setActiveData({ ...(active as TimeEntry), started_at: startedISO });
+    }
+    if (target?.block_id) await recomputeBlockActual(target.block_id);
+    void invalidateRollingEntries(queryClient, user.id);
   };
 
   const value: Ctx = useMemo(
@@ -995,6 +1092,7 @@ export function TimeTrackerProvider({ children }: { children: ReactNode }) {
       updateCategoryBilling,
       addManualEntry,
       deleteEntry,
+      updateEntryStart,
       entries,
       todayTotalSec,
       weekTotalSec,

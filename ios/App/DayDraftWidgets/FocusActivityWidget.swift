@@ -3,8 +3,14 @@
 //  DayDraftWidgets
 //
 //  Live Activity for an active Focus session.
-//  Lock Screen and Dynamic Island expanded share ONE card (FocusCard) so the
-//  two presentations are visually identical and both fit their height budgets.
+//  Lock Screen and Dynamic Island expanded share ONE card (FocusCard).
+//
+//  Layout (inspired by Apple Fitness "active workout" cards):
+//    Row 1 — task title LEFT  ·  elapsed count-up RIGHT (large, tint)
+//    Row 2 — category pill (centered, own line)
+//    Row 3 — journey track (start → planned end, self-filling bar)
+//    Row 4 — start time LEFT  ·  remaining countdown RIGHT
+//    Row 5 — Mark Done button (full width)
 //
 
 import ActivityKit
@@ -21,8 +27,6 @@ struct FocusLiveActivityWidget: Widget {
             let plannedEnd = ddPlannedEnd(ctx.state.startedAt, ctx.attributes.plannedMinutes)
 
             return DynamicIsland {
-                // Whole card lives in the bottom region (below the notch) so it
-                // reads as one cohesive vertical card — same as the Lock Screen.
                 DynamicIslandExpandedRegion(.bottom) {
                     FocusCard(
                         taskTitle: ctx.attributes.taskTitle,
@@ -34,19 +38,20 @@ struct FocusLiveActivityWidget: Widget {
                         isOverrun: ctx.state.isOverrun
                     )
                     .padding(.horizontal, 14)
-                    .padding(.top, 0)
+                    .padding(.top, 2)
                     .padding(.bottom, 4)
                 }
             } compactLeading: {
-                let tint = ctx.state.isOverrun ? DD.red : DD.blue
-                Image(systemName: ctx.state.isOverrun ? "exclamationmark.circle.fill" : "scope")
+                let overrun = ctx.state.isOverrun || (plannedEnd.map { Date() >= $0 } ?? false)
+                Image(systemName: overrun ? "exclamationmark.circle.fill" : "scope")
                     .font(.system(size: 11, weight: .bold))
-                    .foregroundStyle(tint)
+                    .foregroundStyle(overrun ? DD.red : DD.blue)
                     .symbolEffect(.pulse, options: .repeating)
                     .padding(.leading, 6)
             } compactTrailing: {
-                let tint = ctx.state.isOverrun ? DD.red : DD.blue
-                if let end = plannedEnd, !ctx.state.isOverrun {
+                let overrun = ctx.state.isOverrun || (plannedEnd.map { Date() >= $0 } ?? false)
+                let tint = overrun ? DD.red : DD.blue
+                if let end = plannedEnd, !overrun {
                     Text(timerInterval: ctx.state.startedAt...end, countsDown: true)
                         .font(.system(size: 11, weight: .semibold, design: .rounded))
                         .monospacedDigit()
@@ -62,14 +67,14 @@ struct FocusLiveActivityWidget: Widget {
                         .padding(.trailing, 6)
                 }
             } minimal: {
-                let tint = ctx.state.isOverrun ? DD.red : DD.blue
-                Image(systemName: ctx.state.isOverrun ? "exclamationmark.circle.fill" : "scope")
+                let overrun = ctx.state.isOverrun || (plannedEnd.map { Date() >= $0 } ?? false)
+                Image(systemName: overrun ? "exclamationmark.circle.fill" : "scope")
                     .font(.system(size: 12, weight: .bold))
-                    .foregroundStyle(tint)
+                    .foregroundStyle(overrun ? DD.red : DD.blue)
                     .symbolEffect(.pulse, options: .repeating)
             }
             .widgetURL(ddFocusURL(ctx.attributes.blockId))
-            .keylineTint(ctx.state.isOverrun ? DD.red : DD.blue)
+            .keylineTint(ctx.state.isOverrun || (plannedEnd.map { Date() >= $0 } ?? false) ? DD.red : DD.blue)
         }
     }
 }
@@ -85,32 +90,45 @@ private struct FocusCard: View {
     var categoryColorHex: String? = nil
     var isOverrun: Bool = false
 
+    private var effectiveOverrun: Bool {
+        isOverrun || (plannedEnd.map { Date() >= $0 } ?? false)
+    }
+
     var body: some View {
-        // Tint flips blue → red the moment the planned duration is exceeded.
-        let tint = isOverrun ? DD.red : DD.blue
-        // Slightly smaller hero than Tracker: the journey track + endpoints row
-        // add height, so trim the timer to keep the whole card within the
-        // Dynamic Island expanded budget.
-        LiveActivityCard(
-            title: taskTitle,
-            titleTint: tint,
-            start: start,
-            timerTint: tint,
-            heroFont: 28,
-            spacing: 6
-        ) {
+        let tint = effectiveOverrun ? DD.red : DD.blue
+
+        VStack(alignment: .leading, spacing: 5) {
+
+            // ── Row 1: task name LEFT · elapsed count-up RIGHT ──────────────
+            // Mirrors TrackerCard's category+timer row: both read left-to-right,
+            // the eye lands on the task first, then the running clock.
+            HStack(alignment: .firstTextBaseline, spacing: 8) {
+                Text(taskTitle)
+                    .font(.system(size: 13, weight: .heavy, design: .rounded))
+                    .tracking(0.2)
+                    .foregroundStyle(tint)
+                    .lineLimit(1)
+                    .minimumScaleFactor(0.55)
+
+                Spacer(minLength: 4)
+
+                Text(start, style: .timer)
+                    .font(.system(size: 30, weight: .heavy, design: .rounded))
+                    .monospacedDigit()
+                    .foregroundStyle(tint)
+                    .shadow(color: tint.opacity(0.4), radius: 6, y: 1)
+                    .lineLimit(1)
+            }
+
+            // ── Rows 2-4: category pill + journey track + endpoint times ────
             if let end = plannedEnd {
-                // Centered hierarchy: category pill (its own line, centered under
-                // the hero timer) → progress track → start↔remaining endpoints.
-                // Kept tight (small fonts, spacing 5) so the whole card + the
-                // action button stay inside the Dynamic Island expanded budget.
-                VStack(spacing: 5) {
+                VStack(spacing: 4) {
                     if let catName = categoryName {
                         CategoryPill(name: catName, colorHex: categoryColorHex)
                     }
                     JourneyTrack(start: start, end: end, tint: tint)
                     HStack {
-                        Text(start, style: .time)            // left: started
+                        Text(start, style: .time)       // left: started at
                         Spacer()
                         Text(timerInterval: start...end, countsDown: true)  // right: remaining
                             .monospacedDigit()
@@ -118,25 +136,33 @@ private struct FocusCard: View {
                     .font(.system(size: 11, weight: .bold, design: .rounded))
                     .foregroundStyle(DD.faint)
                 }
-                .padding(.horizontal, 4)
+                .padding(.horizontal, 2)
             } else {
-                VStack(spacing: 5) {
+                VStack(spacing: 4) {
                     if let catName = categoryName {
                         CategoryPill(name: catName, colorHex: categoryColorHex)
                     }
-                    Text("STARTED AT \(start, style: .time)")
-                        .font(.system(size: 12, weight: .semibold, design: .rounded))
-                        .foregroundStyle(DD.faint)
+                    HStack {
+                        Text("STARTED AT")
+                            .font(.system(size: 11, weight: .heavy, design: .rounded))
+                            .tracking(0.8)
+                            .foregroundStyle(DD.faint)
+                        Spacer()
+                        Text(start, style: .time)
+                            .font(.system(size: 11, weight: .bold, design: .rounded))
+                            .foregroundStyle(DD.dim)
+                    }
                 }
-                .frame(maxWidth: .infinity)
             }
-        } action: {
+
+            // ── Row 5: Mark Done button ──────────────────────────────────────
             if let url = ddFocusDoneURL(blockId) {
                 Link(destination: url) {
                     LiveActionLabel(title: "Mark Done", icon: "checkmark.circle.fill", fill: DD.brandGradient)
                 }
             }
         }
+        .frame(maxWidth: .infinity)
     }
 }
 

@@ -1,5 +1,5 @@
 const PRESS_TARGET_SELECTOR = ".pressable, .tappable, .ios-row";
-const MOVE_THRESHOLD_PX = 10;
+const MOVE_THRESHOLD_PX = 6;
 
 let installed = false;
 let pressedEl: HTMLElement | null = null;
@@ -9,17 +9,28 @@ let lastTouchTime = 0;
 let pressStartTime = 0;
 
 function clearPress(e?: Event): void {
-  if (pressedEl) {
-    const el = pressedEl;
-    const timeSinceDown = Date.now() - pressStartTime;
-    const remainingTime = Math.max(0, 100 - timeSinceDown);
+  if (!pressedEl) return;
+  const el = pressedEl;
+  pressedEl = null;
 
-    setTimeout(() => {
-      el.removeAttribute("data-pressed");
-    }, remainingTime);
-
-    pressedEl = null;
+  // Scroll / system-cancel: kill the pressed state instantly with no spring-back
+  // so the animation never stays visible while the user is scrolling.
+  if (e?.type === "scroll" || e?.type === "pointercancel") {
+    el.style.transform = "none";
+    el.style.transition = "none";
+    el.removeAttribute("data-pressed");
+    requestAnimationFrame(() => {
+      el.style.transform = "";
+      el.style.transition = "";
+    });
+    return;
   }
+
+  const timeSinceDown = Date.now() - pressStartTime;
+  const remainingTime = Math.max(0, 100 - timeSinceDown);
+  setTimeout(() => {
+    el.removeAttribute("data-pressed");
+  }, remainingTime);
 }
 
 function onPointerDown(e: PointerEvent): void {

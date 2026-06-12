@@ -1,4 +1,5 @@
 import { Suspense, useEffect, useRef, type ReactNode } from "react";
+import { toast } from "sonner";
 import { createPortal } from "react-dom";
 import { Capacitor } from "@capacitor/core";
 import { keepPreviousData, QueryClient, QueryClientProvider } from "@tanstack/react-query";
@@ -113,22 +114,33 @@ const NavigationBridge = () => {
   useEffect(() => {
     if (!Capacitor.isNativePlatform()) return;
     let listener: Promise<{ remove: () => void }> | null = null;
+    let lastBackPressTime = 0;
+
     void import("@capacitor/app").then(({ App }) => {
       listener = App.addListener("backButton", ({ canGoBack }) => {
-        // A) If a modal/sheet is open, close it and consume the back button.
+        // A) Close open modal/sheet first.
         const openModal = document.querySelector('[role="dialog"][data-state="open"]');
         if (openModal) {
           document.dispatchEvent(new KeyboardEvent("keydown", { key: "Escape", bubbles: true }));
           return;
         }
-        
-        // B) If at root, exit app.
+
+        // B) At a root tab — "press back again to exit" pattern.
         const path = window.location.pathname;
-        if (path === "/home" || path === "/") {
-          App.exitApp();
-        } 
-        // C) Otherwise pop history.
-        else if (canGoBack) {
+        const isRootTab = ["/", "/home", "/today", "/today/plan", "/reports", "/settings"].includes(path);
+        if (isRootTab) {
+          const now = Date.now();
+          if (now - lastBackPressTime < 2000) {
+            App.exitApp();
+          } else {
+            lastBackPressTime = now;
+            toast("Press back again to exit", { duration: 2000 });
+          }
+          return;
+        }
+
+        // C) Pop history.
+        if (canGoBack) {
           window.history.back();
         } else {
           App.exitApp();

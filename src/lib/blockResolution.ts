@@ -31,6 +31,13 @@ export async function applyAutoMissedBlocks(
   // fall back to the order-sensitive cursor walk when the plan genuinely spans
   // midnight (some slot's end clock time precedes its start), where positional
   // ordering is the only way to know which day a "00:30" slot belongs to.
+  // Frameless tasks (duration_min = 0) have no explicit slot end, but they
+  // should still be missed once the plan day is over. Use local midnight
+  // (00:00 of the following day) as their deadline so they stay "open" all
+  // day but become "missed" as soon as the day rolls over.
+  const [py, pmo, pd] = planDateYmd.split("-").map(Number);
+  const endOfDayMs = new Date(py, (pmo || 1) - 1, (pd || 1) + 1, 0, 0, 0, 0).getTime();
+
   const crossesMidnight = blocks.some(
     (b) => timeToMinutes(blockSlotEndHHMM(b)) < timeToMinutes(b.start_time),
   );
@@ -47,17 +54,23 @@ export async function applyAutoMissedBlocks(
   // Without this, creating a plan retroactively (e.g. typing tasks at 21:00
   // with default 09:00 starts) instantly marks every block "missed".
   const GRACE_MS = 60_000;
-  // Fallback threshold: if a block has been past its end for > 10 minutes,
+  // Fallback threshold: if a block has been past its end for > 2 minutes,
   // mark it missed even when created_at is unavailable or after the end time.
   // This covers AI-generated plans where generation took until after the task's
   // scheduled end time, leaving those tasks permanently "active" under the
   // strict created_at < endMs check.
   const LONG_PAST_MS = 2 * 60_000;
+
+  // Effective deadline per block: timed tasks use slot end; frameless use end-of-day.
+  const blockEndMs = (b: Block): number => {
+    if (Number(b.duration_min || 0) <= 0) return endOfDayMs;
+    return instants.get(b.id)?.endMs ?? 0;
+  };
+
   const autoMissBlocks = blocks
     .filter((b) => {
       if (!isOpenUserTask(b)) return false;
-      if (Number((b as { duration_min?: number }).duration_min) <= 0) return false;
-      const endMs = instants.get(b.id)?.endMs ?? 0;
+      const endMs = blockEndMs(b);
       if (!endMs || endMs >= now) return false;
       const pastEnd = now - endMs;
       const createdAtRaw = (b as { created_at?: string }).created_at;
@@ -69,11 +82,11 @@ export async function applyAutoMissedBlocks(
 
   if (!autoMissBlocks.length) return [];
 
-  const missed = autoMissBlocks.map((b) => {
-    // Stamp the exact time the slot ended, rather than the current time
-    const endMs = instants.get(b.id)?.endMs;
-    return { id: b.id, resolved_at: endMs ? new Date(endMs).toISOString() : new Date().toISOString() };
-  });
+  const missed = autoMissBlocks.map((b) => ({
+    id: b.id,
+    // Stamp the exact deadline (slot end for timed tasks, midnight for frameless).
+    resolved_at: new Date(blockEndMs(b)).toISOString(),
+  }));
 
   const results = await Promise.all(
     missed.map((m) =>

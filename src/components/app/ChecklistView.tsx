@@ -12,13 +12,14 @@ import {
   type DragStartEvent,
 } from "@dnd-kit/core";
 import { SortableContext, verticalListSortingStrategy, arrayMove } from "@dnd-kit/sortable";
-import { GripVertical, FolderPlus, ListChecks, Trash2, Pencil, X, CalendarDays, Copy } from "lucide-react";
+import { GripVertical, FolderPlus, ListChecks, Trash2, Pencil, X, CalendarDays, Copy, Pin, PinOff, Flag } from "lucide-react";
 import { Sheet, SheetContent, SheetHeader, SheetTitle } from "@/components/ui/sheet";
 import { DayPickerSheet } from "@/components/app/DayPickerSheet";
 import { ChecklistGroup, ChecklistItemRow, AddItemRow, CheckCircleAccent } from "@/components/app/ChecklistGroup";
 import { ChecklistItemSheet } from "@/components/app/ChecklistItemSheet";
 import { useChecklist, type ChecklistGroup as Group, type ChecklistItem } from "@/hooks/useChecklist";
 import { haptics } from "@/lib/haptics";
+import { todayDateStr } from "@/lib/daydraft";
 import { checklistCategoryTint, checklistTintVars } from "@/lib/checklistColors";
 
 const UNGROUPED = "ungrouped";
@@ -80,6 +81,9 @@ export const ChecklistView = forwardRef<ChecklistApi, ChecklistViewProps>(({
     toggleItem,
     renameItem,
     deleteItem,
+    togglePinGroup,
+    togglePinItem,
+    togglePriorityItem,
     moveItem,
     reorder,
     deleteItems,
@@ -140,10 +144,27 @@ export const ChecklistView = forwardRef<ChecklistApi, ChecklistViewProps>(({
   const sortPos = (a: ChecklistItem, b: ChecklistItem) =>
     a.position - b.position || a.created_at.localeCompare(b.created_at);
 
+  // Pinned categories / loose items "hang" on every day in a separated section;
+  // the rest is the normal date-scoped, drag-and-drop workspace below.
+  const isFutureDay = viewDate > todayDateStr();
+
+  const dayGroups = useMemo(() => groups.filter((g) => !g.pinned), [groups]);
+  const pinnedGroups = useMemo(() => {
+    const pinned = groups.filter((g) => g.pinned);
+    if (!isFutureDay) return pinned;
+    return pinned.filter((g) =>
+      items.filter((i) => i.group_id === g.id).some((i) => !i.done),
+    );
+  }, [groups, items, isFutureDay]);
   const ungrouped = useMemo(
-    () => items.filter((i) => i.group_id === null).sort(sortPos),
+    () => items.filter((i) => i.group_id === null && !i.pinned).sort(sortPos),
     [items],
   );
+  const pinnedUngrouped = useMemo(
+    () => items.filter((i) => i.group_id === null && i.pinned && (!isFutureDay || !i.done)).sort(sortPos),
+    [items, isFutureDay],
+  );
+  const hasPinned = pinnedGroups.length > 0 || pinnedUngrouped.length > 0;
   const itemsByGroup = useMemo(() => {
     const m = new Map<string, ChecklistItem[]>();
     for (const g of groups) m.set(g.id, []);
@@ -389,6 +410,43 @@ export const ChecklistView = forwardRef<ChecklistApi, ChecklistViewProps>(({
         )
       )}
 
+      {/* ── Pinned section — categories / loose items kept on every day,
+          separated above the day's workspace (like the timeline's Past
+          divider). Rendered OUTSIDE the DnD context: pinned rows are standing,
+          you check / unpin them, they aren't reordered with the day. ── */}
+      {hasPinned && (
+        <div className="space-y-2">
+          <div className="flex items-center gap-2 px-1">
+            <Pin className="h-3 w-3 text-secondary-fg/50" strokeWidth={2.5} />
+            <span className="text-[11px] font-bold uppercase tracking-[0.14em] text-secondary-fg/50">Pinned</span>
+            <div className="flex-1 h-px bg-border/40" />
+          </div>
+          {pinnedUngrouped.length > 0 && (
+            <div className="app-card checklist-surface rounded-[20px] overflow-hidden">
+              {pinnedUngrouped.map((i) => (
+                <PinnedRow
+                  key={i.id}
+                  item={i}
+                  onToggle={toggleItem}
+                  onUnpin={() => togglePinItem(i.id)}
+                  onOpen={() => setSheetItem(i)}
+                />
+              ))}
+            </div>
+          )}
+          {pinnedGroups.map((g) => (
+            <PinnedGroupCard
+              key={g.id}
+              group={g}
+              items={(itemsByGroup.get(g.id) ?? []).filter((i) => !isFutureDay || !i.done)}
+              onToggle={toggleItem}
+              onUnpin={() => togglePinGroup(g.id)}
+              onOpenItem={(i) => setSheetItem(i)}
+            />
+          ))}
+        </div>
+      )}
+
       <DndContext
         sensors={sensors}
         collisionDetection={closestCorners}
@@ -432,8 +490,8 @@ export const ChecklistView = forwardRef<ChecklistApi, ChecklistViewProps>(({
           </Droppable>
         </div>
 
-        {/* Categories */}
-        {groups.map((g) => (
+        {/* Categories (day workspace — pinned ones render in the section above) */}
+        {dayGroups.map((g) => (
           <ChecklistGroup
             key={g.id}
             group={g}
@@ -504,6 +562,7 @@ export const ChecklistView = forwardRef<ChecklistApi, ChecklistViewProps>(({
             }}
             placeholder="List name (e.g. Groceries)"
             className="flex-1 min-w-0 bg-transparent text-[14px] outline-none placeholder:text-secondary-fg/45"
+            style={{ fontSize: 16 }}
           />
           <button
             onClick={() => {
@@ -563,6 +622,8 @@ export const ChecklistView = forwardRef<ChecklistApi, ChecklistViewProps>(({
           setDatePickItem(it);
         }}
         onDelete={deleteItem}
+        onTogglePin={togglePinItem}
+        onTogglePriority={togglePriorityItem}
       />
 
       {/* Move-to-date picker (delegated from the item sheet) */}
@@ -611,6 +672,9 @@ export const ChecklistView = forwardRef<ChecklistApi, ChecklistViewProps>(({
         }}
         onCarryAll={() => {
           if (groupMenu) setDatePickGroup({ id: groupMenu.id, mode: "all" });
+        }}
+        onTogglePin={() => {
+          if (groupMenu) togglePinGroup(groupMenu.id);
         }}
         onCopyAsText={() => {
           if (!groupMenu) return;
@@ -670,6 +734,91 @@ export const ChecklistView = forwardRef<ChecklistApi, ChecklistViewProps>(({
   );
 });
 
+/** A standing (pinned) item row — non-sortable; check/uncheck, tap to edit,
+ *  and (for loose items) an unpin affordance. */
+function PinnedRow({
+  item,
+  onToggle,
+  onUnpin,
+  onOpen,
+}: {
+  item: ChecklistItem;
+  onToggle: (id: string) => void;
+  onUnpin?: () => void;
+  onOpen?: () => void;
+}) {
+  const showPriority = !!item.priority && !item.done;
+  return (
+    <div className={`flex items-center gap-3 px-3.5 py-2.5 border-b border-border/25 last:border-b-0 ${showPriority ? "bg-amber-400/[0.07]" : ""}`}>
+      <button type="button" onClick={onOpen} className="flex-1 min-w-0 text-left pressable flex items-center gap-1.5">
+        {showPriority && (
+          <Flag className="h-3 w-3 shrink-0 text-amber-500 dark:text-amber-400" fill="currentColor" aria-label="Priority" />
+        )}
+        <span className={`min-w-0 truncate text-[15px] ${item.done ? "line-through text-secondary-fg/45" : "text-foreground"}`}>
+          {item.title}
+        </span>
+      </button>
+      {onUnpin && (
+        <button
+          type="button"
+          onClick={() => { haptics.tap(); onUnpin(); }}
+          className="shrink-0 p-1.5 text-secondary-fg/45 hover:text-foreground pressable"
+          aria-label="Unpin"
+        >
+          <PinOff className="h-4 w-4" />
+        </button>
+      )}
+      <button
+        type="button"
+        onClick={() => { haptics.tap(); onToggle(item.id); }}
+        className="shrink-0 h-9 w-9 -mr-1 flex items-center justify-center pressable active:scale-90 transition-transform"
+        aria-label={item.done ? "Mark not done" : "Mark done"}
+      >
+        <CheckCircleAccent done={item.done} />
+      </button>
+    </div>
+  );
+}
+
+/** A pinned category card — its title + an unpin action, and its items as
+ *  standing rows. */
+function PinnedGroupCard({
+  group,
+  items,
+  onToggle,
+  onUnpin,
+  onOpenItem,
+}: {
+  group: Group;
+  items: ChecklistItem[];
+  onToggle: (id: string) => void;
+  onUnpin: () => void;
+  onOpenItem: (i: ChecklistItem) => void;
+}) {
+  return (
+    <div className="app-card checklist-surface rounded-[20px] overflow-hidden">
+      <div className="flex items-center gap-2 px-3.5 pt-3 pb-1.5">
+        <span className="flex-1 min-w-0 text-[14px] font-semibold text-foreground truncate">{group.title}</span>
+        <button
+          type="button"
+          onClick={() => { haptics.tap(); onUnpin(); }}
+          className="shrink-0 p-1.5 -mr-1 text-secondary-fg/45 hover:text-foreground pressable"
+          aria-label="Unpin category"
+        >
+          <PinOff className="h-4 w-4" />
+        </button>
+      </div>
+      {items.length === 0 ? (
+        <div className="px-3.5 pb-3 text-[12.5px] text-secondary-fg/45">No items yet</div>
+      ) : (
+        items.map((i) => (
+          <PinnedRow key={i.id} item={i} onToggle={onToggle} onOpen={() => onOpenItem(i)} />
+        ))
+      )}
+    </div>
+  );
+}
+
 /** Rename / delete a category. Delete shows an inline confirm (it cascades items). */
 function GroupMenuSheet({
   group,
@@ -680,6 +829,7 @@ function GroupMenuSheet({
   onCarryUnfinished,
   onCarryAll,
   onCopyAsText,
+  onTogglePin,
 }: {
   group: Group | null;
   itemCount: number;
@@ -689,6 +839,7 @@ function GroupMenuSheet({
   onCarryUnfinished: () => void;
   onCarryAll: () => void;
   onCopyAsText: () => void;
+  onTogglePin: () => void;
 }) {
   const [mode, setMode] = useState<"menu" | "rename" | "confirm">("menu");
   const [draft, setDraft] = useState("");
@@ -730,6 +881,7 @@ function GroupMenuSheet({
                   }}
                   placeholder="List name"
                   className="w-full h-12 rounded-2xl border border-soft bg-card px-4 text-[15px] outline-none focus:border-accent/60 transition-colors"
+                  style={{ fontSize: 16 }}
                 />
                 <div className="grid grid-cols-2 gap-2">
                   <button
@@ -784,6 +936,17 @@ function GroupMenuSheet({
                 >
                   <Pencil className="h-4 w-4 text-secondary-fg shrink-0" />
                   <span className="flex-1 text-left">Rename list</span>
+                </button>
+                <button
+                  onClick={() => { onClose(); onTogglePin(); }}
+                  className="w-full flex items-center gap-3 px-3 py-3.5 rounded-xl pressable transition-colors text-[14px] text-foreground hover:bg-muted/40"
+                >
+                  {group.pinned
+                    ? <PinOff className="h-4 w-4 text-secondary-fg shrink-0" />
+                    : <Pin className="h-4 w-4 text-secondary-fg shrink-0" />}
+                  <span className="flex-1 text-left">
+                    {group.pinned ? "Unpin from every day" : "Pin to every day"}
+                  </span>
                 </button>
                 <button
                   onClick={() => { onClose(); onCarryUnfinished(); }}

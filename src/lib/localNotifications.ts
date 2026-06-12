@@ -431,3 +431,50 @@ export async function cancelChecklistReminder(): Promise<void> {
     /* ignore */
   }
 }
+
+// ── Focus overtime reminder ───────────────────────────────────────────────
+// A single local notification fires at the exact moment the planned duration
+// ends. Scheduled when Focus arms, cancelled on any completion path (done /
+// skip / cancel). ID 920002 stays outside the block-hash space.
+const FOCUS_OVERTIME_NOTIF_ID = 920002;
+
+export async function scheduleFocusOvertimeReminder(
+  taskTitle: string,
+  plannedMinutes: number,
+  startedAtMs: number,
+): Promise<void> {
+  if (!isNative()) return;
+  await cancelFocusOvertimeReminder();
+  if (!getNotificationsEnabled()) return;
+  if (plannedMinutes <= 0) return;
+
+  const at = new Date(startedAtMs + plannedMinutes * 60 * 1000);
+  if (at.getTime() <= Date.now()) return;
+
+  try {
+    await LocalNotifications.schedule({
+      notifications: [
+        {
+          id: FOCUS_OVERTIME_NOTIF_ID,
+          title: "⏰ Time's up",
+          body: `"${taskTitle}" — planned time is up. Wrap up when ready.`,
+          sound: "default",
+          channelId: ANDROID_CHANNEL_ID,
+          schedule: { at },
+          extra: { focusOvertime: true },
+        },
+      ],
+    });
+  } catch (e) {
+    console.error("[localNotifications] focus overtime schedule failed", e);
+  }
+}
+
+export async function cancelFocusOvertimeReminder(): Promise<void> {
+  if (!isNative()) return;
+  try {
+    await LocalNotifications.cancel({ notifications: [{ id: FOCUS_OVERTIME_NOTIF_ID }] });
+  } catch {
+    /* ignore */
+  }
+}

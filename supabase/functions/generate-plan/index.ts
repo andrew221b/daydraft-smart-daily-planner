@@ -550,7 +550,6 @@ TASK RULES:
 - block_type: "rest" for breaks/travel/transitions, "personal" for errands/family/appointments, "work" for everything else.
 - If location mentioned in raw text, extract a short location string.
 - For EVERY block include one-sentence reasoning explaining the placement.
-- Parallel tasks: only when user clearly implies doing two things simultaneously (e.g. "walking + call") → overlap_ok=true, same parallel_group_id, same start_time.
 - Splits for long tasks: ONLY when duration clearly exceeds 90 min. Don't split medium tasks to fill time.
 
 BREAKS & MEALS:
@@ -582,9 +581,6 @@ OUTPUT FORMAT:
               block_type: { type: "STRING", enum: ["work", "rest", "personal"] },
               reasoning: { type: "STRING" },
               location: { type: "STRING" },
-              parallel_with_index: { type: "INTEGER", description: "Zero-based index of another block this one happens IN PARALLEL with (overlapping times intended to be done together). Omit if not parallel." },
-              overlap_ok: { type: "BOOLEAN", description: "True only for intentional concurrent background tasks paired with anchored work." },
-              parallel_group_id: { type: "STRING", description: "Shared id for concurrently overlapping companions." },
             },
             required: ["start_time", "duration_min", "title", "type", "kind"],
           },
@@ -734,11 +730,6 @@ OUTPUT FORMAT:
         .map((b: any) => ({
           ...b,
           block_type: inferBlockType(b),
-          overlap_ok: Boolean(b?.overlap_ok),
-          parallel_group_id:
-            typeof b?.parallel_group_id === "string" && b.parallel_group_id.trim().length
-              ? String(b.parallel_group_id).trim().slice(0, 120)
-              : null,
         }))
       : [];
     const anchorMap = new Map<string, string>();

@@ -13,11 +13,17 @@ const ThemeCtx = createContext<Ctx>({ theme: "system", resolved: "light", setThe
 
 const STORAGE_KEY = "daydraft.theme";
 
+const systemPrefersDark = (): boolean =>
+  typeof window !== "undefined" &&
+  window.matchMedia("(prefers-color-scheme: dark)").matches;
+
+/** "system" follows the OS; an explicit choice wins. Dark is only the fallback
+ *  when the platform can't report a preference. */
+const resolveTheme = (theme: Theme): "light" | "dark" =>
+  theme === "system" ? (systemPrefersDark() ? "dark" : "light") : theme;
+
 const applyTheme = (theme: Theme): "light" | "dark" => {
-  // Dark-first product. "system" still respects OS, but dark is the default
-  // when user has expressed no preference yet.
-  const sys = window.matchMedia("(prefers-color-scheme: dark)").matches ? "dark" : "dark";
-  const resolved = theme === "system" ? sys : theme;
+  const resolved = resolveTheme(theme);
   const root = document.documentElement;
   root.classList.remove("light", "dark");
   root.classList.add(resolved);
@@ -35,7 +41,9 @@ export const ThemeProvider = ({ children }: { children: ReactNode }) => {
       return "system";
     }
   });
-  const [resolved, setResolved] = useState<"light" | "dark">("dark");
+  // Resolve synchronously from the initial theme so the very first render is
+  // already correct (no dark→light flip after mount).
+  const [resolved, setResolved] = useState<"light" | "dark">(() => resolveTheme(theme));
 
   useEffect(() => {
     setResolved(applyTheme(theme));

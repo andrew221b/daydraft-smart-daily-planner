@@ -465,14 +465,17 @@ func ddDuration(_ minutes: Int) -> String {
     return m == 0 ? "\(h)h" : "\(h)h \(m)m"
 }
 
-/// "$42/hr", "EUR 150/hr"
+/// "$42/h", "EUR 150/h" — matches the web's "/h" suffix. Whole rates drop the
+/// decimals (min == max); fractional rates show exactly two ("$42.50/h").
 func ddRate(_ rate: Double, _ code: String) -> String {
     let fmt = NumberFormatter()
     fmt.numberStyle = .currency
     fmt.currencyCode = code
-    fmt.maximumFractionDigits = rate.truncatingRemainder(dividingBy: 1) == 0 ? 0 : 2
+    let whole = rate.truncatingRemainder(dividingBy: 1) == 0
+    fmt.minimumFractionDigits = whole ? 0 : 2
+    fmt.maximumFractionDigits = whole ? 0 : 2
     let a = fmt.string(from: NSNumber(value: rate)) ?? "\(code) \(Int(rate))"
-    return "\(a)/hr"
+    return "\(a)/h"
 }
 
 /// Planned end date for a Focus session, or nil when no duration was set.

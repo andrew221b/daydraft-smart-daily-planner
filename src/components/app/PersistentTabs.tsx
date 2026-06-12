@@ -86,6 +86,15 @@ export function PersistentTabs() {
   const { pathname } = useLocation();
   const activeKey = useMemo(() => matchedTabKey(pathname), [pathname]);
 
+  // Eagerly prefetch all tab chunks in the background as soon as the shell
+  // mounts. Each `import()` call is idempotent — the browser/bundler dedupes
+  // it, so subsequent React.lazy imports for the same chunk are instant.
+  // This eliminates the Suspense-null flash on first visit to any tab.
+  useEffect(() => {
+    for (const tab of TABS) void tab.load();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
   // Lazy-mount: a tab only enters the DOM the first time it is visited.
   // After that, it stays mounted forever (within this Shell lifecycle).
   const [mounted, setMounted] = useState<Set<TabKey>>(() => {

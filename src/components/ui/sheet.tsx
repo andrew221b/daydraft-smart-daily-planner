@@ -83,12 +83,22 @@ const SheetContent = React.forwardRef<React.ElementRef<typeof SheetPrimitive.Con
     // The per-sheet `style` prop merges on top so individual sheets can still
     // override paddingBottom (e.g. AskAiSheet manages its own swipe-aware
     // transition).
+    // On Android with adjustPan the OS pans the window to show the focused
+    // input — no CSS keyboard-inset padding needed. Adding it would doubly
+    // shift content and create a large empty gap. On iOS / web the inset
+    // padding is the only mechanism, so keep it there.
+    const isNativeAndroid =
+      side === "bottom" &&
+      typeof document !== "undefined" &&
+      document.documentElement.hasAttribute("data-capacitor-android");
     const kbStyle: React.CSSProperties =
       side === "bottom"
-        ? {
-            paddingBottom: "max(calc(24px + env(safe-area-inset-bottom)), calc(var(--keyboard-inset, 0px) + 12px))",
-            transition: "padding-bottom 220ms cubic-bezier(0.32, 0.72, 0, 1)",
-          }
+        ? isNativeAndroid
+          ? { paddingBottom: "max(24px, env(safe-area-inset-bottom, 0px))" }
+          : {
+              paddingBottom: "max(calc(24px + env(safe-area-inset-bottom)), calc(var(--keyboard-inset, 0px) + 12px))",
+              transition: "padding-bottom 220ms cubic-bezier(0.32, 0.72, 0, 1)",
+            }
         : {};
 
     // iOS WKWebView fires a synthetic pointer event OUTSIDE the sheet content

@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useRef, useState, type CSSProperties, type FormEvent } from "react";
-import { motion } from "framer-motion";
+import { motion, AnimatePresence } from "framer-motion";
 import { Check, Play, Square, Plus, Search, ChevronDown, Wallet, Pencil, Trash2, Lock } from "lucide-react";
 import { Callout } from "@/components/ui/callout";
 import { useTimeTracker, subscribeElapsed, getElapsedSec, fmtHMS, fmtHM } from "@/hooks/useTimeTracker";
@@ -567,7 +567,8 @@ export function HomeTrackerHero({ onOpenDetails }: { onOpenDetails: () => void }
                   if (allowed) setBillingExpanded(true);
                 }
               }}
-              className="w-full flex items-center justify-between px-4 py-3 hover:bg-foreground/[0.02] pressable transition-colors"
+              className="w-full flex items-center justify-between px-4 py-3 hover:bg-foreground/[0.02] transition-colors"
+              style={{ WebkitTapHighlightColor: "transparent" }}
             >
               <div className="flex items-center gap-2">
                 <span className="text-[12px] font-semibold text-foreground/75">Rate & Billing</span>
@@ -586,21 +587,26 @@ export function HomeTrackerHero({ onOpenDetails }: { onOpenDetails: () => void }
               )}
             </button>
 
-            {/* CSS-only accordion — avoids Framer height remeasure on keyboard open */}
-            <div
-              className="overflow-hidden"
-              style={{
-                maxHeight: billingExpanded ? 500 : 0,
-                opacity: billingExpanded ? 1 : 0,
-                transition: billingExpanded
-                  ? "max-height 260ms ease-out, opacity 180ms ease-out"
-                  : "max-height 200ms ease-in, opacity 140ms ease-in",
-              }}
-            >
-              {/* Divider between header and content */}
-              <div className="h-px bg-border/40 mx-4" />
+            {/* Accordion body — same height-tween as the timeline task cards
+                (SortableBlock): a real height:auto animation, no max-height
+                magic number, no press-scale on the header (which used to clip
+                the rounded card and flash white behind it). Once open it rests
+                at height:auto, so focusing the rate input / the keyboard never
+                triggers a re-measure. */}
+            <AnimatePresence initial={false}>
+              {billingExpanded && (
+                <motion.div
+                  key="billing-expand"
+                  initial={{ height: 0, opacity: 0 }}
+                  animate={{ height: "auto", opacity: 1 }}
+                  exit={{ height: 0, opacity: 0 }}
+                  transition={{ type: "tween", duration: 0.22, ease: [0.4, 0, 0.2, 1] }}
+                  style={{ overflow: "hidden" }}
+                >
+                  {/* Divider between header and content */}
+                  <div className="h-px bg-border/40 mx-4" />
 
-              <div className="px-4 pb-4 flex flex-col gap-3.5 pt-3.5">
+                  <div className="px-4 pb-4 flex flex-col gap-3.5 pt-3.5">
                 {/* Hourly rate row */}
                 <div>
                   <p className="text-[10.5px] font-semibold uppercase tracking-[0.12em] text-secondary-fg/55 mb-1.5">Hourly rate</p>
@@ -693,7 +699,9 @@ export function HomeTrackerHero({ onOpenDetails }: { onOpenDetails: () => void }
                   </button>
                 </div>
               </div>
-            </div>
+                </motion.div>
+              )}
+            </AnimatePresence>
           </div>
         )}
       </div>
@@ -851,10 +859,9 @@ export function HomeTrackerHero({ onOpenDetails }: { onOpenDetails: () => void }
       <Sheet open={billingOpen} onOpenChange={setBillingOpen}>
         <SheetContent
           side="bottom"
-          className="rounded-t-[28px] border-border/45 bg-popover max-h-[90vh] flex flex-col p-0"
-          style={{ paddingBottom: "var(--keyboard-inset, 0px)" }}
+          className="rounded-t-[28px] border-border/45 bg-popover max-h-[90vh] overflow-y-auto p-0"
         >
-          <div className="flex-1 overflow-y-auto">
+          <div>
             <div className="px-5 pt-6 pb-4">
               <SheetHeader className="text-left space-y-0">
                 <p className="text-[10px] font-semibold uppercase tracking-[0.16em] text-secondary-fg/70">

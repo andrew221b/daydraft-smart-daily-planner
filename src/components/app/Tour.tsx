@@ -7,6 +7,8 @@ const LazyTourOverlay = lazy(() => import("./TourOverlay"));
 export type TourStep = {
   id: string;
   selector: string; // CSS selector for the target
+  /** Short chapter label shown as the tooltip eyebrow (replaces "Step X of Y"). */
+  chapter?: string;
   title?: string;
   body?: string;
   placement?: "top" | "bottom" | "auto" | "center";
@@ -46,6 +48,11 @@ export function TourProvider({ children }: { children: ReactNode }) {
   const step = flow?.steps[stepIndex] || null;
 
   const [isStuck, setIsStuck] = useState(false);
+  // Safety net: if a non-center step's target can't be found within a grace
+  // window, show the tooltip CENTERED (no spotlight) instead of a blank
+  // screen. All real steps target guaranteed-present elements, so this only
+  // fires if something unexpected is missing.
+  const [missingCenter, setMissingCenter] = useState(false);
   
   // Track seen tours synchronously to prevent restart loops before DB updates
   const localSeen = useRef<Record<string, boolean>>({});
@@ -54,39 +61,113 @@ export function TourProvider({ children }: { children: ReactNode }) {
     return !!(localSeen.current[key] || profile?.tour_seen?.[key]);
   }, [profile?.tour_seen]);
 
-  // Measure target on step change / window resize / scroll
+  // Measure target on step change / resize / scroll.
+  //
+  // Jitter fix: the old version pumped setTick on every scroll/resize event
+  // (capture phase, every scroll container) AND used smooth scrollIntoView —
+  // a smooth scroll fires a *stream* of scroll events, each forcing a full
+  // re-measure + re-render, so the spotlight + tooltip vibrated across the
+  // screen. Now we (1) scroll instantly, (2) coalesce every re-measure into a
+  // single rAF, and (3) only commit a new rect when it actually moved by >0.5px
+  // (diff-guard), so a stable target never triggers a render at all.
   useLayoutEffect(() => {
     if (!step) { setRect(null); return; }
-    let raf = 0;
+    let cancelled = false;
+    let settleRaf = 0;
+
+    const isCenter = step.placement === "center" || step.selector === "body";
+
+    const commit = (r: DOMRect | null) => {
+      if (cancelled) return;
+      if (!r || (r.width === 0 && r.height === 0)) { setRect(null); return; }
+      setRect((prev) => {
+        if (
+          prev &&
+          Math.abs(prev.top - r.top) < 0.5 &&
+          Math.abs(prev.left - r.left) < 0.5 &&
+          Math.abs(prev.width - r.width) < 0.5 &&
+          Math.abs(prev.height - r.height) < 0.5
+        ) {
+          return prev; // unchanged — no re-render, no jitter
+        }
+        return r;
+      });
+    };
+
+    const read = () => {
+      const el = document.querySelector(step.selector) as HTMLElement | null;
+      commit(el ? el.getBoundingClientRect() : null);
+    };
+
     const measure = () => {
       const el = document.querySelector(step.selector) as HTMLElement | null;
       if (!el) { setRect(null); return; }
       const r = el.getBoundingClientRect();
-      // Scroll into view once per step if off-screen, then measure regardless
-      if (!scrolled && (r.top < 60 || r.bottom > window.innerHeight - 220)) {
-        el.scrollIntoView({ behavior: "smooth", block: "center" });
+      if (isCenter) { commit(r); return; }
+      // Scroll into view once per step if off-screen — INSTANT, not smooth, so
+      // it can't spawn a scroll-event storm. Re-read after two frames once the
+      // new scroll position has settled.
+      if (!scrolled && (r.top < 80 || r.bottom > window.innerHeight - 240)) {
+        el.scrollIntoView({ behavior: "auto", block: "center" });
         setScrolled(true);
-        raf = window.setTimeout(() => setTick(t => t + 1), 350) as unknown as number;
+        settleRaf = requestAnimationFrame(() => requestAnimationFrame(read));
         return;
       }
-      setRect(r);
+      commit(r);
     };
+
     measure();
-    const onResize = () => setTick(t => t + 1);
-    window.addEventListener("resize", onResize);
-    window.addEventListener("scroll", onResize, true);
-    return () => {
-      window.removeEventListener("resize", onResize);
-      window.removeEventListener("scroll", onResize, true);
-      if (raf) clearTimeout(raf);
+
+    // Coalesce scroll/resize into one read per frame.
+    let scheduled = false;
+    const schedule = () => {
+      if (scheduled || cancelled) return;
+      scheduled = true;
+      requestAnimationFrame(() => { scheduled = false; read(); });
     };
-  }, [step?.selector, tick, scrolled]);
+    window.addEventListener("resize", schedule);
+    window.addEventListener("scroll", schedule, true);
+    return () => {
+      cancelled = true;
+      window.removeEventListener("resize", schedule);
+      window.removeEventListener("scroll", schedule, true);
+      if (settleRaf) cancelAnimationFrame(settleRaf);
+    };
+  }, [step?.selector, step?.placement, tick, scrolled]);
+
+  // Late-mounting targets (just navigated, tab/sheet still rendering): watch
+  // for the selector to appear instead of polling, then trigger one measure.
+  // Disconnects the moment we have a rect, so it never runs in steady state.
+  useEffect(() => {
+    if (!step || rect || step.selector === "body") return;
+    let raf = 0;
+    const obs = new MutationObserver(() => {
+      if (document.querySelector(step.selector)) {
+        cancelAnimationFrame(raf);
+        raf = requestAnimationFrame(() => setTick((t) => t + 1));
+      }
+    });
+    obs.observe(document.body, { childList: true, subtree: true });
+    return () => { obs.disconnect(); cancelAnimationFrame(raf); };
+  }, [step?.id, rect, step?.selector]);
 
   // Reset scroll and stuck flag when step changes
-  useEffect(() => { 
-    setScrolled(false); 
-    setIsStuck(false); 
+  useEffect(() => {
+    setScrolled(false);
+    setIsStuck(false);
   }, [step?.id]);
+
+  // Center-fallback driver: arm a grace timer whenever a non-center, non-silent
+  // step has no measured rect. If the target is still missing when it fires,
+  // flip to centered mode so the copy is shown rather than a black void. Clears
+  // the moment a rect arrives (target mounted) or the step changes.
+  useEffect(() => {
+    setMissingCenter(false);
+    if (!step || step.silent || step.placement === "center") return;
+    if (rect) return;
+    const id = window.setTimeout(() => setMissingCenter(true), 1100);
+    return () => clearTimeout(id);
+  }, [step?.id, step?.silent, step?.placement, rect]);
 
   // Advance logic & auto-skip (stuck)
   useEffect(() => {
@@ -99,12 +180,16 @@ export function TourProvider({ children }: { children: ReactNode }) {
 
     const doNext = () => setStepIndex(i => (flow && i < flow.steps.length - 1 ? i + 1 : i));
 
-    // Target missing timeout (first load / missing elements).
-    // Increased to 8s to prevent premature skips on slow networks/renders.
-    const t = setTimeout(() => {
-      const el = document.querySelector(step.selector);
-      if (!el) doNext();
-    }, 8000);
+    // Target-missing timeout. Only auto-skip steps that the user can't dismiss
+    // themselves (navigation / action waits). A `next-button` step keeps its
+    // tooltip and falls back to centre (see the center-fallback effect) if its
+    // target never appears, so it must NOT auto-skip out from under the user.
+    let t: number | undefined;
+    if (step.advance !== "next-button") {
+      t = window.setTimeout(() => {
+        if (!document.querySelector(step.selector)) doNext();
+      }, 8000);
+    }
 
     // If waiting for user action (click/mutation), set stuck after 15s
     if (step.advance === "click-target" || step.advance === "dom-mutation" || step.advance === "navigate") {
@@ -212,7 +297,7 @@ export function TourProvider({ children }: { children: ReactNode }) {
     <TourCtx.Provider value={value}>
       {children}
       {step &&
-        rect &&
+        (rect || (missingCenter && !step.silent)) &&
         createPortal(
           <Suspense fallback={null}>
             <LazyTourOverlay
@@ -223,6 +308,7 @@ export function TourProvider({ children }: { children: ReactNode }) {
               onNext={(clearData) => next(clearData)}
               onSkip={stop}
               isStuck={isStuck}
+              centerFallback={!rect && missingCenter}
             />
           </Suspense>,
           document.body,
@@ -241,210 +327,139 @@ export function useTour() {
 
 export const TOUR_SANDBOX: TourFlow = {
   key: "sandbox",
+  // A guided walk through all four tabs, designed for a BRAND-NEW user with
+  // zero data. We *navigate* by hand (tap the real tab to advance) and only
+  // spotlight controls that are GUARANTEED to be on screen for an empty
+  // account — verified against the render conditions:
+  //   • hero-tracker / tracker-start ......... always on the Track tab (not tracking)
+  //   • add-tasks-btn ........................ the empty-day empty-state button
+  //   • checklist-pill (PlanModePill) ........ "always visible in both modes"
+  //   • reports-summary / reports-period-tabs  render unconditionally (show 0m)
+  //   • settings-appearance / replay-btn ..... always in Settings
+  // The ⋯ "more-menu" button is intentionally NOT spotlit — it's hidden when
+  // the plan is empty (planMissing), which is exactly a new user's state, so
+  // it would black the screen. Its carry-forward power is taught in the
+  // add-tasks copy instead. Explanatory steps use a Next button so the flow
+  // can never dead-end; a center-fallback (in the provider) covers the rare
+  // case of any target going missing.
   steps: [
-    // ── Chapter 1: Welcome (Home — the default page) ──────────────
+    // ── Welcome ───────────────────────────────────────────────────
     {
       id: "welcome",
       selector: "body",
-      title: "Welcome to DayDraft!",
-      body: "Let's learn how to plan your day. We'll walk through the main features together.",
+      chapter: "Welcome",
+      title: "Welcome to DayDraft",
+      body: "A quick tour of the four things that make DayDraft tick — tracking, planning, reports and settings. Skip or replay it anytime.",
       placement: "center",
       advance: "next-button",
-      buttonLabel: "Start tour",
+      buttonLabel: "Take the tour",
     },
 
-    // ── Chapter 2: Tracker (Home) ─────────────────────────────────
+    // ── Track (Home — the tab we start on) ────────────────────────
     {
       id: "tracker-hero",
       selector: "[data-tour='hero-tracker']",
-      title: "Time Tracker",
-      body: "This is the heart of DayDraft — track time across your projects and categories.",
+      chapter: "Track",
+      title: "A timer that never loses count",
+      body: "Home base. This timer keeps running through app-switches, a locked phone, even a reboot — and on iPhone it lives right on your Lock Screen and Dynamic Island, so you can stop it without opening the app.",
       placement: "bottom",
+      advance: "next-button",
     },
     {
-      id: "start-tracking",
+      id: "tracker-start",
       selector: ".tracker-start-btn",
-      title: "Start Tracking",
-      body: "Tap Start to launch the timer. It will ask for a category if you don't have one.",
+      chapter: "Track",
+      title: "Clock in, get paid",
+      body: "Tap Start, tag the session with a category and an hourly rate, and DayDraft tallies your earnings as you work — per client, in any currency. No spreadsheets, no maths.",
       placement: "bottom",
-      advance: "click-target",
-    },
-    {
-      id: "tracker-running",
-      selector: ".tracker-stop-btn",
-      title: "Timer is running!",
-      body: "The timer is now ticking. DayDraft tracks your time automatically, even in the background.",
-      placement: "bottom",
-      advance: "auto-delay",
-      autoDelayMs: 3500,
-    },
-    {
-      id: "stop-tracking",
-      selector: ".tracker-stop-btn",
-      title: "Stop when done",
-      body: "Tap Stop to end the session. Your time is logged automatically.",
-      placement: "bottom",
-      advance: "click-target",
+      advance: "next-button",
     },
 
-    // ── Chapter 3: Planning (Today — Timeline) ────────────────────
+    // ── Plan (Today) ──────────────────────────────────────────────
     {
       id: "go-to-plan",
       selector: "[data-tour='tab-today']",
-      title: "Timeline View",
-      body: "Now let's see where your time-blocked tasks live. Tap the Plan tab.",
+      chapter: "Plan",
+      title: "Now let's plan",
+      body: "Tap the Plan tab to open today's timeline.",
       placement: "top",
       advance: "click-target",
     },
     {
       id: "plan-arrived",
       selector: "body",
-      title: "",
-      body: "",
       advance: "navigate",
       nextWaitPath: "/today",
       silent: true,
     },
     {
-      id: "add-tasks-btn",
+      id: "add-tasks",
       selector: ".add-tasks-btn",
-      title: "Add tasks",
-      body: "Build your plan here. Tap to add tasks — type them out, paste a list, or let AI do the work.",
-      placement: "top",
-      advance: "click-target",
+      chapter: "Plan",
+      title: "Let AI plan your day",
+      body: "Type a list, paste one from anywhere, or hand it to AI — it builds a realistic timeline around what's already locked in, with smart durations. Anything you don't finish rolls over to tomorrow in one tap.",
+      placement: "auto",
+      advance: "next-button",
     },
-    {
-      id: "composer-wait",
-      selector: "body",
-      title: "",
-      body: "",
-      advance: "dom-mutation",
-      nextWaitSelector: ".app-card",
-      silent: true,
-    },
-    {
-      id: "timeline-block",
-      selector: ".app-card",
-      title: "Your plan is ready!",
-      body: "AI automatically placed your tasks on the timeline. Long-press to drag and reorder them.",
-      placement: "top",
-    },
-    {
-      id: "block-tap",
-      selector: ".app-card",
-      title: "Task details",
-      body: "Tap on a task to expand it — you'll find duration, reminders, AI assist and more.",
-      placement: "top",
-      advance: "click-target",
-    },
-    {
-      id: "block-sheet-wait",
-      selector: "body",
-      title: "",
-      body: "",
-      advance: "dom-mutation",
-      nextWaitSelector: ".block-action-ai-btn",
-      silent: true,
-    },
-    {
-      id: "ask-ai-feature",
-      selector: ".block-action-ai-btn",
-      title: "Ask AI",
-      body: "This button lets AI break down complex tasks into subtasks or give time estimates. Try it later!",
-      placement: "top",
-    },
-
-    // ── Chapter 4: Mass Actions (Today) ───────────────────────────
-    {
-      id: "more-menu",
-      selector: ".more-menu-btn",
-      title: "Mass Actions",
-      body: "The '⋯' menu hides powerful operations. Tap to see what's inside.",
-      placement: "bottom",
-      advance: "click-target",
-    },
-    {
-      id: "more-actions-info",
-      selector: ".more-menu-content",
-      title: "Carry unfinished tasks",
-      body: "Copy your plan as text, select multiple items, or carry all unfinished tasks to tomorrow with one tap.",
-      placement: "bottom",
-    },
-
-    // ── Chapter 5: Checklist (Today) ──────────────────────────────
     {
       id: "checklist-pill",
       selector: "[data-tour='checklist-pill']",
-      title: "Checklist Mode",
-      body: "Not every task needs a specific time. Switch to Checklist for flexible, untimed lists.",
+      chapter: "Plan",
+      title: "Timed or flexible",
+      body: "Not everything needs a clock. Flip to Checklist for loose, untimed lists — groceries, ideas, errands — and drop any item onto your timeline whenever you're ready.",
       placement: "bottom",
-      advance: "click-target",
-    },
-    {
-      id: "add-list",
-      selector: ".checklist-add-list-btn",
-      title: "Create a list",
-      body: "Tap here to create your first category, like 'Groceries' or 'Ideas'.",
-      placement: "top",
-      advance: "click-target",
-    },
-    {
-      id: "add-item-wait",
-      selector: "body",
-      title: "",
-      body: "",
-      advance: "dom-mutation",
-      nextWaitSelector: ".checklist-add-item-input",
-      silent: true,
-    },
-    {
-      id: "checklist-item",
-      selector: ".checklist-add-item-input",
-      title: "Add items",
-      body: "Type tasks directly into the list. Tip: Tap on a task later to reschedule it to another day.",
-      placement: "top",
+      advance: "next-button",
     },
 
-    // ── Chapter 6: Reports ────────────────────────────────────────
+    // ── Reports ───────────────────────────────────────────────────
     {
       id: "go-to-reports",
       selector: "[data-tour='tab-reports']",
-      title: "Analytics",
-      body: "Let's see your statistics. Head to the Reports tab.",
+      chapter: "Reports",
+      title: "See the payoff",
+      body: "Now for the payoff — tap Reports to see where your hours and your earnings actually went.",
       placement: "top",
       advance: "click-target",
     },
     {
       id: "reports-arrived",
       selector: "body",
-      title: "",
-      body: "",
       advance: "navigate",
       nextWaitPath: "/reports",
       silent: true,
     },
     {
+      id: "reports-summary",
+      selector: "[data-tour='reports-summary']",
+      chapter: "Reports",
+      title: "Hours and income, side by side",
+      body: "Every hour and every dollar for the period, split by category. Rates update live while past earnings stay locked to exactly what you billed — and Pro forecasts where you'll land by week or month end.",
+      placement: "bottom",
+      advance: "next-button",
+    },
+    {
       id: "reports-period",
       selector: ".reports-period-tabs",
-      title: "Periods and Filters",
-      body: "Switch between Day, Week, and Month. Pro users can also export PDF/CSV reports here.",
+      chapter: "Reports",
+      title: "Slice it your way",
+      body: "Switch between Day, Week and Month, filter by category, then export a billing-ready PDF or CSV with Pro.",
       placement: "bottom",
+      advance: "next-button",
     },
 
-    // ── Chapter 7: Settings ───────────────────────────────────────
+    // ── Settings ──────────────────────────────────────────────────
     {
       id: "go-to-settings",
       selector: "[data-tour='tab-settings']",
-      title: "Personalization",
-      body: "Finally, let's open Settings.",
+      chapter: "Settings",
+      title: "Make it yours",
+      body: "Last stop — open Settings.",
       placement: "top",
       advance: "click-target",
     },
     {
       id: "settings-arrived",
       selector: "body",
-      title: "",
-      body: "",
       advance: "navigate",
       nextWaitPath: "/settings",
       silent: true,
@@ -452,23 +467,31 @@ export const TOUR_SANDBOX: TourFlow = {
     {
       id: "settings-appearance",
       selector: ".settings-appearance",
-      title: "Your Style",
-      body: "Customize the theme (Light/Dark) and visual mode (Standard or Neon).",
+      chapter: "Settings",
+      title: "Make it yours",
+      body: "Light, Dark or a neon accent theme — DayDraft adapts to match your vibe. Notifications and gentle daily nudges that keep your plan on track live here too.",
       placement: "bottom",
+      advance: "next-button",
     },
     {
       id: "settings-replay",
       selector: ".settings-replay-btn",
-      title: "Replay Tutorial",
-      body: "You can always replay this tutorial from here if you need a refresher.",
+      chapter: "Settings",
+      title: "Replay anytime",
+      body: "Want a refresher down the road? Replay this whole tour from right here.",
       placement: "bottom",
+      advance: "next-button",
     },
+
+    // ── Finish ────────────────────────────────────────────────────
     {
       id: "finish",
       selector: "body",
-      title: "You're all set! 🎉",
-      body: "You've mastered the essentials of DayDraft. Have a productive day!",
+      chapter: "All set",
+      title: "You're ready 🎉",
+      body: "That's the grand tour. Plan boldly, track honestly, and have a genuinely good day.",
       placement: "center",
+      advance: "next-button",
       buttonLabel: "Got it",
     },
   ],

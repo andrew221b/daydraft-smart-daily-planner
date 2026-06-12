@@ -19,6 +19,24 @@
       flaky connections / first-launch-after-install was a measurable
       chunk of the perceived "black screen" delay.
     -->
+    <!--
+      Apply the resolved theme class BEFORE React mounts so the system theme is
+      honoured from the very first paint on every launch (cold or warm) — no
+      dark→light flash, no "system not picked up". Mirrors src/lib/theme.tsx
+      (STORAGE_KEY = "daydraft.theme"; "system" follows prefers-color-scheme).
+    -->
+    <script>
+      (function () {
+        try {
+          var t = localStorage.getItem("daydraft.theme") || "system";
+          var dark = t === "dark" ||
+            (t === "system" && window.matchMedia("(prefers-color-scheme: dark)").matches);
+          document.documentElement.classList.add(dark ? "dark" : "light");
+        } catch (e) {
+          document.documentElement.classList.add("dark");
+        }
+      })();
+    </script>
     <link rel="manifest" href="/manifest.json" />
     <link rel="apple-touch-icon" href="/icons/icon-192.png" />
     <meta name="apple-mobile-web-app-capable" content="yes" />

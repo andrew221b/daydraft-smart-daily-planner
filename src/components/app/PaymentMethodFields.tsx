@@ -61,11 +61,16 @@ const DETAIL_CARD_VARIANTS = {
   },
 };
 
-/** Per-row reveal inside the detail card. */
+/** Per-row reveal inside the detail card.
+ *  Slide-only — NO opacity. The card already crossfades as a unit
+ *  (DETAIL_CARD_VARIANTS); fading each row's opacity on top of that briefly made
+ *  the row translucent over the card's accent-tinted background, so the (amber)
+ *  crypto card bled THROUGH the wallet-address input for a frame — the "amber
+ *  flash" on switching to Crypto. Sliding an already-opaque row removes it. */
 const DETAIL_ITEM_VARIANTS = {
-  initial: { opacity: 0, y: 8 },
-  animate: { opacity: 1, y: 0, transition: { type: "spring" as const, stiffness: 460, damping: 34 } },
-  exit: { opacity: 0 },
+  initial: { y: 8 },
+  animate: { y: 0, transition: { type: "spring" as const, stiffness: 460, damping: 34 } },
+  exit: {},
 };
 
 /**
@@ -184,94 +189,109 @@ export function PaymentMethodFields({
         </>
       )}
 
-      {methods.length > 1 && (
-        <MethodGrid
-          methods={methods}
-          selectedId={value.payment_method}
-          onPick={setMethod}
-          compact={compact}
-          legacy={legacy}
-          onClearLegacy={() => onChange("payment_method", "")}
-        />
-      )}
+      {/* Outer layout wrapper animates height when kind changes.
+          Inner AnimatePresence crossfades ALL kind-content as one unit,
+          so MethodGrid + detail card + hint always transition together. */}
+      {/* `-mx-1.5 px-1.5`: the height animation needs overflow:hidden, but flush
+          clipping cut off the method chips' selection ring + drop shadow on the
+          left/right edges ("buttons clipped by the window"). Pulling the clip
+          box 6px outward (negative margin) while padding the content back in
+          keeps the layout identical but gives the chips room to breathe. */}
+      <motion.div
+        layout
+        transition={{ duration: 0.22, ease: [0.16, 1, 0.3, 1] }}
+        className="-mx-1.5 px-1.5"
+        style={{ overflow: "hidden" }}
+      >
+        <AnimatePresence mode="wait" initial={false}>
+          <motion.div
+            key={kind}
+            initial={{ opacity: 0 }}
+            animate={{ opacity: 1, transition: { duration: 0.14, ease: [0.16, 1, 0.3, 1] } }}
+            exit={{ opacity: 0, transition: { duration: 0.08, ease: [0.4, 0, 1, 1] } }}
+            className="space-y-3"
+          >
+            {methods.length > 1 && (
+              <MethodGrid
+                methods={methods}
+                selectedId={value.payment_method}
+                onPick={setMethod}
+                compact={compact}
+                legacy={legacy}
+                onClearLegacy={() => onChange("payment_method", "")}
+              />
+            )}
 
-      {/* mode="wait" crossfade: the leaving card fades + lifts away BEFORE the
-          new one rises in, so the two never overlap (which is what made the
-          old popLayout version look doubled/ragged). Variants stagger the
-          fields so the card "assembles" itself — pure transform+opacity, no
-          layout thrash. */}
-      <AnimatePresence mode="wait" initial={false}>
-        {method && method.kind === kind ? (
-          <motion.div
-            key={method.id}
-            variants={DETAIL_CARD_VARIANTS}
-            initial="initial"
-            animate="animate"
-            exit="exit"
-            className="relative overflow-hidden rounded-2xl p-3.5 space-y-2.5 border border-border/20 shadow-sm"
-            style={{
-              background: "linear-gradient(180deg, hsl(var(--m-accent) / 0.14) 0%, hsl(var(--m-accent) / 0.04) 100%)",
-              boxShadow: "inset 0 1px 0 hsl(0 0% 100% / 0.18), 0 0 0 1px hsl(var(--m-accent) / 0.22)",
-              ["--m-accent" as string]: method.accent,
-            } as CSSProperties}
-          >
-            <motion.div variants={DETAIL_ITEM_VARIANTS} className="flex items-center gap-2 px-0.5">
-              <span
-                className="flex h-5 w-5 shrink-0 items-center justify-center rounded-md"
-                style={{ background: "hsl(var(--m-accent) / 0.28)", color: "hsl(var(--m-accent))" }}
-              >
-                <method.Icon className="h-3 w-3" strokeWidth={2.4} />
-              </span>
-              <span className="text-[10px] font-semibold uppercase tracking-[0.14em] text-secondary-fg/80">
-                {method.detailTitle}
-              </span>
-            </motion.div>
-            <div className="space-y-2">
-              {method.fields.map((f) => {
-                // crypto_network options are derived from the selected coin
-                // so a user picking BTC sees Bitcoin/Lightning, USDT sees the
-                // top stablecoin chains, etc. — not the full 30-row menu.
-                // If the user already saved a network that doesn't match the
-                // current coin (e.g. switched USDT→BTC), keep it in the list
-                // so we never silently drop their data.
-                const effective: PaymentField =
-                  f.key === "crypto_network"
-                    ? (() => {
-                        const base = networksForCurrency(value.currency);
-                        const current = value.crypto_network?.trim();
-                        const opts = current && !base.includes(current)
-                          ? [current, ...base]
-                          : base;
-                        return { ...f, options: opts };
-                      })()
-                    : f;
-                return (
-                  <motion.div key={f.key} variants={DETAIL_ITEM_VARIANTS}>
-                    <FieldRow field={effective} value={value[f.key as FieldKey] ?? ""} onChange={(v) => onChange(f.key as FieldKey, v)} />
+            {/* Inner AnimatePresence handles method changes within the same kind. */}
+            <AnimatePresence mode="wait" initial={false}>
+              {method && method.kind === kind ? (
+                <motion.div
+                  key={method.id}
+                  variants={DETAIL_CARD_VARIANTS}
+                  initial="initial"
+                  animate="animate"
+                  exit="exit"
+                  className="relative overflow-hidden rounded-2xl p-3.5 space-y-2.5 border border-border/20 shadow-sm"
+                  style={{
+                    background: "linear-gradient(180deg, hsl(var(--m-accent) / 0.14) 0%, hsl(var(--m-accent) / 0.04) 100%)",
+                    boxShadow: "inset 0 1px 0 hsl(0 0% 100% / 0.18), 0 0 0 1px hsl(var(--m-accent) / 0.22)",
+                    ["--m-accent" as string]: method.accent,
+                  } as CSSProperties}
+                >
+                  <motion.div variants={DETAIL_ITEM_VARIANTS} className="flex items-center gap-2 px-0.5">
+                    <span
+                      className="flex h-5 w-5 shrink-0 items-center justify-center rounded-md"
+                      style={{ background: "hsl(var(--m-accent) / 0.28)", color: "hsl(var(--m-accent))" }}
+                    >
+                      <method.Icon className="h-3 w-3" strokeWidth={2.4} />
+                    </span>
+                    <span className="text-[10px] font-semibold uppercase tracking-[0.14em] text-secondary-fg/80">
+                      {method.detailTitle}
+                    </span>
                   </motion.div>
-                );
-              })}
-            </div>
-          </motion.div>
-        ) : (
-          <motion.div
-            key="no-method"
-            initial={{ opacity: 0, y: 4 }}
-            animate={{ opacity: 1, y: 0 }}
-            exit={{ opacity: 0, y: -2 }}
-            transition={{ duration: 0.12, ease: [0.16, 1, 0.3, 1] }}
-            className="rounded-2xl border border-dashed border-border/70 bg-foreground/[0.03] px-4 py-5 text-center"
-          >
-            <p className="text-[12px] text-secondary-fg/70 leading-relaxed">
-              {kind === "fiat" ? (
-                <>Pick a payment method above —<br />we'll only ask for the fields it actually needs.</>
+                  <div className="space-y-2">
+                    {method.fields.map((f) => {
+                      const effective: PaymentField =
+                        f.key === "crypto_network"
+                          ? (() => {
+                              const base = networksForCurrency(value.currency);
+                              const current = value.crypto_network?.trim();
+                              const opts = current && !base.includes(current)
+                                ? [current, ...base]
+                                : base;
+                              return { ...f, options: opts };
+                            })()
+                          : f;
+                      return (
+                        <motion.div key={f.key} variants={DETAIL_ITEM_VARIANTS}>
+                          <FieldRow field={effective} value={value[f.key as FieldKey] ?? ""} onChange={(v) => onChange(f.key as FieldKey, v)} />
+                        </motion.div>
+                      );
+                    })}
+                  </div>
+                </motion.div>
               ) : (
-                <>Pick a crypto rail above —<br />then add the network and wallet address.</>
+                <motion.div
+                  key="no-method"
+                  initial={{ opacity: 0, y: 4 }}
+                  animate={{ opacity: 1, y: 0 }}
+                  exit={{ opacity: 0, y: -2 }}
+                  transition={{ duration: 0.12, ease: [0.16, 1, 0.3, 1] }}
+                  className="rounded-2xl border border-dashed border-border/70 bg-foreground/[0.03] px-4 py-5 text-center"
+                >
+                  <p className="text-[12px] text-secondary-fg/70 leading-relaxed">
+                    {kind === "fiat" ? (
+                      <>Pick a payment method above —<br />we'll only ask for the fields it actually needs.</>
+                    ) : (
+                      <>Pick a crypto rail above —<br />then add the network and wallet address.</>
+                    )}
+                  </p>
+                </motion.div>
               )}
-            </p>
+            </AnimatePresence>
           </motion.div>
-        )}
-      </AnimatePresence>
+        </AnimatePresence>
+      </motion.div>
     </div>
   );
 }
@@ -303,19 +323,23 @@ function KindToggle({
         aria-label="Payment rail"
         className="groove-track relative grid grid-cols-2 gap-1 rounded-2xl p-1"
       >
-        {/* Sliding pill — gradient-tinted by the active kind, plus the
-            standard pebble shadow stack so the active rail visibly LIFTS
-            out of the recessed track. Transform-only animation keeps fast
-            taps perfectly responsive. */}
-        <span
+        {/* Sliding pill — spring-animated for a premium feel. The background
+            colour crossfades independently so both the position AND the tint
+            feel alive on every switch. */}
+        <motion.span
           aria-hidden
           className="pointer-events-none absolute top-1 bottom-1 left-1 w-[calc(50%-4px)] rounded-xl border border-border/20 shadow-sm"
-          style={{
-            transform: kind === "crypto" ? "translateX(calc(100% + 4px))" : "translateX(0)",
-            transition: "transform 200ms cubic-bezier(0.32,0.72,0,1), background-color 180ms ease, box-shadow 180ms ease",
+          animate={{
+            x: kind === "crypto" ? "calc(100% + 4px)" : "0%",
             backgroundColor: `hsl(${tintHsl} / 0.28)`,
             boxShadow: `inset 0 1px 0 hsl(0 0% 100% / 0.22), 0 0 0 1px hsl(${tintHsl} / 0.40), 0 2px 8px -2px hsl(${tintHsl} / 0.22)`,
           }}
+          transition={{
+            x: { type: "spring", stiffness: 320, damping: 32, mass: 0.8 },
+            backgroundColor: { duration: 0.22, ease: [0.16, 1, 0.3, 1] },
+            boxShadow: { duration: 0.22, ease: [0.16, 1, 0.3, 1] },
+          }}
+          style={{ backgroundColor: `hsl(${tintHsl} / 0.28)` }}
         />
         <KindTab active={kind === "fiat"} onClick={() => onChange("fiat")} icon={Banknote} label="Fiat" tintHsl={fiatHsl} />
         <KindTab active={kind === "crypto"} onClick={() => onChange("crypto")} icon={Coins} label="Crypto" tintHsl={cryptoHsl} />
@@ -681,7 +705,12 @@ function FieldRow({
           value={value}
           onChange={(e) => onChange(e.target.value)}
           placeholder={field.placeholder}
+          autoComplete="off"
+          autoCorrect="off"
+          autoCapitalize="off"
+          spellCheck={false}
           className="min-h-[96px] rounded-xl border border-border/40 bg-background shadow-sm text-[13px] text-foreground leading-snug placeholder:text-secondary-fg/45 focus-visible:ring-1 focus-visible:ring-primary/30"
+          style={{ fontSize: 16 }}
         />
       </label>
     );
@@ -694,7 +723,12 @@ function FieldRow({
         value={value}
         onChange={(e) => onChange(e.target.value)}
         placeholder={field.placeholder}
+        autoComplete="off"
+        autoCorrect="off"
+        autoCapitalize="off"
+        spellCheck={false}
         className="h-10 rounded-xl border border-border/40 bg-background shadow-sm text-[13px] text-foreground placeholder:text-secondary-fg/45 focus-visible:ring-1 focus-visible:ring-primary/30"
+        style={{ fontSize: 16 }}
       />
     </label>
   );
