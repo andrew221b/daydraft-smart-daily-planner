@@ -3,6 +3,7 @@ import { LocalNotifications } from "@capacitor/local-notifications";
 import { Block, isUserTask, planBlockInstants } from "./daydraft";
 import { getReminderConfig } from "./blockReminders";
 import { getAssignedCategoryId } from "./blockCategory";
+import { pickMorningTemplate, pickEveningTemplate, pickSmartTemplate, type NudgeCopy } from "./nudgeTemplates";
 
 /**
  * Native scheduled notifications (Capacitor LocalNotifications).
@@ -45,8 +46,11 @@ const TYPE_TRACK = "DD_TASK_TRACK"; // Done + Track (category assigned)
 const TYPE_SOON = "DD_TASK_SOON"; // Done only
 const TYPE_END = "DD_TASK_END"; // Done + Skip
 
-// iOS pending-notification ceiling is 64. Stay comfortably under it.
-const MAX_SCHEDULED = 60;
+// iOS pending-notification ceiling is 64, shared across ALL local notifications.
+// The daily nudges (≤10) + checklist + focus reminders draw from the same pool,
+// so the per-day block pings are capped lower to leave room. The soonest pings
+// win, and block pings re-sync constantly, so any overflow self-heals.
+const MAX_SCHEDULED = 50;
 
 const MASTER_KEY = "dd_notifications_enabled";
 
@@ -101,6 +105,29 @@ export function setNotificationsEnabled(enabled: boolean) {
   if (typeof window === "undefined") return;
   try {
     localStorage.setItem(MASTER_KEY, enabled ? "1" : "0");
+  } catch {
+    /* ignore */
+  }
+}
+
+// Daily nudges (morning/evening) are an INDEPENDENT switch from per-task
+// reminders — its own key so turning task reminders off never silences the
+// daily brief, and vice-versa. Defaults ON unless explicitly disabled.
+const DAILY_NUDGES_KEY = "dd_daily_nudges_enabled";
+
+export function getDailyNudgesEnabled(): boolean {
+  if (typeof window === "undefined") return true;
+  try {
+    return localStorage.getItem(DAILY_NUDGES_KEY) !== "0";
+  } catch {
+    return true;
+  }
+}
+
+export function setDailyNudgesEnabled(enabled: boolean) {
+  if (typeof window === "undefined") return;
+  try {
+    localStorage.setItem(DAILY_NUDGES_KEY, enabled ? "1" : "0");
   } catch {
     /* ignore */
   }
@@ -180,12 +207,15 @@ export async function attachNotificationActionListener(
       "localNotificationActionPerformed",
       (event) => {
         const actionId = event.actionId;
-        const extra = event.notification?.extra as { blockId?: string; date?: string } | undefined;
+        const extra = event.notification?.extra as
+          | { blockId?: string; date?: string; path?: string }
+          | undefined;
         const blockId = extra?.blockId;
         const date = extra?.date;
-        // `tap` is the body tap (no action button) — open the plan.
+        // `tap` is the body tap (no action button). Daily nudges carry their own
+        // deep-link target in `extra.path`; task pings fall back to the plan.
         if (actionId === "tap") {
-          handlers.onNavigate("/today/plan");
+          handlers.onNavigate(extra?.path || "/today/plan");
           return;
         }
         if (!blockId) return;
@@ -216,9 +246,10 @@ type Candidate = {
 export async function syncBlockNotifications(dateStr: string, blocks: Block[]) {
   if (!isNative()) return;
 
-  // Master switch off → make sure nothing is pending and bail.
+  // Master switch off → clear our task pings and bail. Scoped to block pings so
+  // the independent daily nudges / checklist / focus reminders are untouched.
   if (!getNotificationsEnabled()) {
-    await clearLocalNotifications();
+    await clearBlockNotifications();
     return;
   }
 
@@ -230,10 +261,11 @@ export async function syncBlockNotifications(dateStr: string, blocks: Block[]) {
   await registerNotificationActions();
   await ensureNotificationChannel();
 
-  // Full resync: cancel everything, then reschedule from scratch. This is what
-  // makes the "only ping if still unresolved" guarantee work — a task the user
-  // completed simply isn't re-added below.
-  await clearLocalNotifications();
+  // Full resync: cancel our block pings, then reschedule from scratch. This is
+  // what makes the "only ping if still unresolved" guarantee work — a task the
+  // user completed simply isn't re-added below. Scoped to block pings so a plan
+  // edit never wipes the daily nudges / checklist / focus reminders.
+  await clearBlockNotifications();
 
   const now = Date.now();
   const candidates: Candidate[] = [];
@@ -359,6 +391,7 @@ export async function syncBlockNotifications(dateStr: string, blocks: Block[]) {
   }
 }
 
+/** Global nuke — cancels EVERY pending notification. For logout / hard reset. */
 export async function clearLocalNotifications() {
   if (!isNative()) return;
   try {
@@ -366,6 +399,24 @@ export async function clearLocalNotifications() {
     if (pending.notifications.length > 0) {
       await LocalNotifications.cancel({ notifications: pending.notifications });
     }
+  } catch {
+    /* ignore */
+  }
+}
+
+/**
+ * Cancel only the per-task BLOCK pings (those carry `extra.blockId`), leaving
+ * the independent reminders — daily nudges, checklist, focus overtime — alone.
+ * Used by the block resync so a plan edit doesn't collateral-cancel them.
+ */
+async function clearBlockNotifications() {
+  if (!isNative()) return;
+  try {
+    const pending = await LocalNotifications.getPending();
+    const mine = pending.notifications.filter(
+      (n) => !!(n.extra as { blockId?: string } | undefined)?.blockId,
+    );
+    if (mine.length > 0) await LocalNotifications.cancel({ notifications: mine });
   } catch {
     /* ignore */
   }
@@ -476,5 +527,195 @@ export async function cancelFocusOvertimeReminder(): Promise<void> {
     await LocalNotifications.cancel({ notifications: [{ id: FOCUS_OVERTIME_NOTIF_ID }] });
   } catch {
     /* ignore */
+  }
+}
+
+// ── Daily nudges (morning / evening brief) ─────────────────────────────────
+// Two on-device pings a day, scheduled in advance from a template pool. This
+// fully replaced the server-side `send-daily-nudges` cron — no Supabase
+// function, no push tokens, fires even when the app is closed.
+//
+// TODAY's slots can carry the user's real numbers (passed in `todayFresh`);
+// future days use evergreen templates as a buffer so the user keeps getting
+// pinged even without opening the app. Re-run on every app open to refresh the
+// fresh copy and roll the horizon forward. Own reserved id space + an
+// `extra.dailyNudge` tag so the block resync never touches them.
+
+const DAILY_NUDGE_ID_BASE = 921000; // +offset*2 (morning), +offset*2+1 (evening)
+const DAILY_NUDGE_HORIZON_DAYS = 5;
+
+const parseHHMM = (s: string | undefined, fallback: [number, number]): [number, number] => {
+  if (s && /^\d{2}:\d{2}$/.test(s)) {
+    const [h, m] = s.split(":").map(Number);
+    if (h >= 0 && h < 24 && m >= 0 && m < 60) return [h, m];
+  }
+  return fallback;
+};
+
+const localDateStr = (d: Date): string =>
+  `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
+
+export type DailyNudgeOptions = {
+  /** "HH:MM" local; default 07:00. */
+  morningTime?: string;
+  /** "HH:MM" local; default 21:00. */
+  eveningTime?: string;
+  /** Real-number copy for TODAY only. null/undefined ⇒ use an evergreen template. */
+  todayFresh?: { morning?: NudgeCopy | null; evening?: NudgeCopy | null };
+};
+
+export async function cancelDailyNudges(): Promise<void> {
+  if (!isNative()) return;
+  const ids: { id: number }[] = [];
+  for (let o = 0; o < DAILY_NUDGE_HORIZON_DAYS; o++) {
+    ids.push({ id: DAILY_NUDGE_ID_BASE + o * 2 });
+    ids.push({ id: DAILY_NUDGE_ID_BASE + o * 2 + 1 });
+  }
+  try {
+    await LocalNotifications.cancel({ notifications: ids });
+  } catch {
+    /* ignore */
+  }
+}
+
+export async function syncDailyNudges(opts: DailyNudgeOptions = {}): Promise<void> {
+  if (!isNative()) return;
+  // Always clear the prior horizon first so we never stack duplicates.
+  await cancelDailyNudges();
+  if (!getDailyNudgesEnabled()) return;
+
+  const { display } = await LocalNotifications.checkPermissions();
+  if (display !== "granted") return;
+  await ensureNotificationChannel();
+
+  const [mh, mm] = parseHHMM(opts.morningTime, [7, 0]);
+  const [eh, em] = parseHHMM(opts.eveningTime, [21, 0]);
+  const now = Date.now();
+
+  type Pending = { id: number; at: Date; copy: NudgeCopy; path: string };
+  const pending: Pending[] = [];
+
+  for (let offset = 0; offset < DAILY_NUDGE_HORIZON_DAYS; offset++) {
+    const day = new Date();
+    day.setDate(day.getDate() + offset);
+    const dateStr = localDateStr(day);
+
+    const mAt = new Date(day);
+    mAt.setHours(mh, mm, 0, 0);
+    if (mAt.getTime() > now) {
+      const fresh = offset === 0 ? opts.todayFresh?.morning : null;
+      pending.push({
+        id: DAILY_NUDGE_ID_BASE + offset * 2,
+        at: mAt,
+        copy: fresh ?? pickMorningTemplate(dateStr),
+        path: "/today/plan",
+      });
+    }
+
+    const eAt = new Date(day);
+    eAt.setHours(eh, em, 0, 0);
+    if (eAt.getTime() > now) {
+      const fresh = offset === 0 ? opts.todayFresh?.evening : null;
+      pending.push({
+        id: DAILY_NUDGE_ID_BASE + offset * 2 + 1,
+        at: eAt,
+        copy: fresh ?? pickEveningTemplate(dateStr),
+        path: "/reports",
+      });
+    }
+  }
+
+  if (pending.length === 0) return;
+
+  const notifications = pending.map((p) => ({
+    id: p.id,
+    title: p.copy.title,
+    body: p.copy.body,
+    sound: "default",
+    channelId: ANDROID_CHANNEL_ID,
+    schedule: { at: p.at },
+    extra: { dailyNudge: true, path: p.path },
+  }));
+
+  try {
+    await LocalNotifications.schedule({ notifications });
+  } catch (e) {
+    console.error("[localNotifications] daily nudge schedule failed", e);
+  }
+}
+
+// ── Smart re-engagement nudge (pattern-timed) ──────────────────────────────
+// One extra ping a day, timed to the hour the user is most likely to follow
+// through — their peak completion hour from `user_patterns` (computed by the
+// caller; stored as local wall-clock hours). This is the achievable version of
+// "nudge me when I'm on my phone": iOS gives third-party apps no way to detect
+// device unlock from the background, so instead we land a local notification in
+// the user's own productive window. Copy is habit-based and evergreen — it never
+// references live task counts, so scheduling it hours ahead can't make it stale.
+//
+// Fully independent of the morning/evening brief: its own reserved id and an
+// `extra.smartNudge` tag, gated by the SAME daily-nudges switch, so existing
+// nudge behaviour is untouched. Only the soonest occurrence is scheduled (+1
+// pending notification), re-synced on every app open so it rolls forward.
+const SMART_NUDGE_ID = 922000;
+
+export async function cancelSmartNudge(): Promise<void> {
+  if (!isNative()) return;
+  try {
+    await LocalNotifications.cancel({ notifications: [{ id: SMART_NUDGE_ID }] });
+  } catch {
+    /* ignore */
+  }
+}
+
+export type SmartNudgeOptions = {
+  /** Local hour (0–23) the user is most likely to follow through; null ⇒ skip. */
+  peakHour: number | null;
+  /** Fixed morning/evening times to stay clear of, so the day never clusters. */
+  morningTime?: string;
+  eveningTime?: string;
+};
+
+export async function syncSmartNudge(opts: SmartNudgeOptions): Promise<void> {
+  if (!isNative()) return;
+  // Always clear the previous one first so we never stack duplicates.
+  await cancelSmartNudge();
+  if (!getDailyNudgesEnabled()) return;
+
+  const { peakHour } = opts;
+  if (peakHour == null || !Number.isInteger(peakHour) || peakHour < 0 || peakHour > 23) return;
+  // Only inside a sane awake window.
+  if (peakHour < 8 || peakHour > 22) return;
+  // Keep ≥2h clear of the fixed morning/evening pings so we never double-ping.
+  const [mh] = parseHHMM(opts.morningTime, [7, 0]);
+  const [eh] = parseHHMM(opts.eveningTime, [21, 0]);
+  if (Math.abs(peakHour - mh) < 2 || Math.abs(peakHour - eh) < 2) return;
+
+  const { display } = await LocalNotifications.checkPermissions();
+  if (display !== "granted") return;
+  await ensureNotificationChannel();
+
+  // Next occurrence of the peak hour: today if it's still ahead, else tomorrow.
+  const at = new Date();
+  at.setHours(peakHour, 0, 0, 0);
+  if (at.getTime() <= Date.now()) at.setDate(at.getDate() + 1);
+
+  const copy = pickSmartTemplate(localDateStr(at));
+  try {
+    await LocalNotifications.schedule({
+      notifications: [
+        {
+          id: SMART_NUDGE_ID,
+          title: copy.title,
+          body: copy.body,
+          sound: "default",
+          channelId: ANDROID_CHANNEL_ID,
+          schedule: { at },
+          extra: { smartNudge: true, path: "/today/plan" },
+        },
+      ],
+    });
+  } catch (e) {
+    console.error("[localNotifications] smart nudge schedule failed", e);
   }
 }

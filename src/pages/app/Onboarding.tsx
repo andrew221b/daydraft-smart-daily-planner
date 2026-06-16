@@ -24,7 +24,7 @@ import { supabase } from "@/integrations/supabase/client";
 import { haptics } from "@/lib/haptics";
 import { startCheckout } from "@/hooks/useEntitlement";
 import { toast } from "sonner";
-import { PRO_FEATURES, PRO_PLANS, ProFeatureCard, ProPlanRow } from "@/components/app/proPaywall";
+import { PRO_FEATURES, PRO_PLANS, ProFeatureCard, ProPlanRow, PaywallTerms } from "@/components/app/proPaywall";
 import { usePlanPrices } from "@/hooks/usePlanPrices";
 
 const PROGRESS_KEY = "dd_onboarding_progress_v6";
@@ -688,7 +688,7 @@ function MockBlock({
               <>
                 <button
                   type="button"
-                  className="relative h-8 w-8 rounded-full border-[1.5px] border-border/60 shrink-0 shadow-[inset_0_2px_6px_rgba(0,0,0,0.06)]"
+                  className="relative h-8 w-8 rounded-full border-[1.5px] border-border/90 shrink-0 shadow-[inset_0_2px_6px_rgba(0,0,0,0.06)]"
                   aria-hidden
                 />
                 <div className="shrink-0 h-[18px] w-[18px] flex items-center justify-center text-secondary-fg/30 pointer-events-none">
@@ -762,7 +762,7 @@ function LiveTrackerCard({ baseElapsed, delay = 0.55 }: { baseElapsed: number, d
             initial={{ opacity: 0, scale: 0.9 }} 
             animate={{ opacity: 1, scale: 1 }} 
             transition={{ delay: delay + 0.25, type: "spring", stiffness: 260, damping: 28 }}
-            className="inline-flex items-center gap-2 rounded-full bg-foreground/[0.07] px-3 py-1 border border-border/30"
+            className="inline-flex items-center gap-2 rounded-full bg-foreground/[0.07] px-3 py-1 border border-border/60"
           >
             <span
               className={`h-1.5 w-1.5 rounded-full shadow-[0_0_0_3px_color-mix(in_srgb,var(--hero-accent)_22%,transparent)] ${isSettled ? "animate-pulse" : ""}`}
@@ -1187,9 +1187,7 @@ function PaywallStep({
           >
             {restoring ? "Restoring…" : "Restore purchases"}
           </button>
-          <p className="text-[11px] text-secondary-fg/50 text-center">
-            Cancel anytime · No surprise add-ons
-          </p>
+          <PaywallTerms planId={plan} priceInfo={prices[plan]} />
         </div>
       </motion.div>
     </div>

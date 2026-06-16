@@ -1,11 +1,12 @@
-import { lazy, Suspense, useMemo, useState } from "react";
-import { keepPreviousData, useQuery } from "@tanstack/react-query";
+import { lazy, Suspense, useEffect, useMemo, useState } from "react";
+import { keepPreviousData, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useAuth } from "@/hooks/useAuth";
 import { supabase } from "@/integrations/supabase/client";
 
-import { BarChart3, ChevronDown, Download, FileText, ListFilter, ChevronRight, Timer, Pencil, Trash2, Check, X, TrendingUp } from "lucide-react";
+import { BarChart3, ChevronDown, Download, FileText, ListFilter, ChevronRight, Timer, Pencil, Check, X, TrendingUp, MoreHorizontal, Clock } from "lucide-react";
 import { useNavigate } from "react-router-dom";
 import { EmptyState } from "@/components/app/EmptyState";
+import { FeatureHint } from "@/components/app/FeatureHint";
 import { useExchangeRates, convertCurrency } from "@/hooks/useExchangeRates";
 import { CurrencyPickerSheet } from "@/components/app/CurrencyPickerSheet";
 import { motion, AnimatePresence } from "framer-motion";
@@ -37,7 +38,7 @@ import {
 import { toast } from "sonner";
 import { useEntitlement } from "@/hooks/useEntitlement";
 import { UpgradeSheet } from "@/components/app/UpgradeSheet";
-import { EntryStartSheet, EntryDeleteDialog, type EditableEntry } from "@/components/app/EntryEditSheet";
+import { EntryStartSheet, EntryDeleteDialog, SessionNoteSheet, SessionTaskSheet, ReportsActionSheet, AdjustmentInfoSheet, type EditableEntry } from "@/components/app/EntryEditSheet";
 import { TickingNumber } from "@/components/app/TickingNumber";
 import { FitText } from "@/components/app/FitText";
 import { useTimeTracker, useTimeTrackerElapsed } from "@/hooks/useTimeTracker";
@@ -101,6 +102,16 @@ const fmtHM = (sec: number) => {
   return mm ? `${h}h ${mm}m` : `${h}h`;
 };
 
+/** "+1h 30m" / "−15m" from a signed seconds value (manual adjustment badge). */
+const fmtSignedMin = (sec: number): string => {
+  const mins = Math.round(Math.abs(sec) / 60);
+  const sign = sec >= 0 ? "+" : "−";
+  if (mins < 60) return `${sign}${mins}m`;
+  const h = Math.floor(mins / 60);
+  const r = mins % 60;
+  return r ? `${sign}${h}h ${r}m` : `${sign}${h}h`;
+};
+
 function paymentFingerprint(d: ReportPaymentDetails): string {
   return [
     d.currency ?? "",
@@ -130,6 +141,7 @@ const fmtMoney = (amount: number, currency = "USD") => {
     return `${amount.toFixed(2)} ${code}`;
   }
 };
+
 
 type CategoryGroup = {
   id: string;
@@ -162,7 +174,7 @@ export default function Reports() {
   const { isPro } = useEntitlement();
   // Categories already live in the TimeTrackerProvider — reading them from the
   // shared context avoids a Reports-only fetch on every tab switch.
-  const { categories, allCatMap: contextAllCatMap, updateCategoryBilling, deleteEntry, updateEntryStart, renameCategory } = useTimeTracker();
+  const { categories, allCatMap: contextAllCatMap, updateCategoryBilling, deleteEntry, updateEntryStart, updateEntryNote, updateEntryTaskTitle, renameCategory } = useTimeTracker();
   // Subscribing to elapsedSec keeps live totals (running timer in the active
   // category) ticking inside Reports without a per-tab Supabase query.
   useTimeTrackerElapsed();
@@ -189,22 +201,15 @@ export default function Reports() {
   const [dateSheetOpen, setDateSheetOpen] = useState(false);
   const [catSheetOpen, setCatSheetOpen] = useState(false);
   const [expandedCategoryIds, setExpandedCategoryIds] = useState<Set<string>>(() => new Set());
-  // Per-rate-tier collapse state (only relevant for multi-rate categories).
-  // Key = `${categoryId}:${rate}`. A tier sits collapsed by default so an
-  // expanded category reads as a clean stack of rate summaries — tap a rate
-  // to reveal the sessions billed at it.
-  const [expandedTierKeys, setExpandedTierKeys] = useState<Set<string>>(() => new Set());
-  const toggleTierExpanded = (key: string) => {
-    setExpandedTierKeys((prev) => {
-      const next = new Set(prev);
-      if (next.has(key)) next.delete(key);
-      else next.add(key);
-      return next;
-    });
-  };
   // Per-session edit (adjust start) + delete, and inline category rename.
   const [editEntry, setEditEntry] = useState<EditableEntry | null>(null);
   const [deleteEntryTarget, setDeleteEntryTarget] = useState<EditableEntry | null>(null);
+  // Session being named/labelled (its note edited) via SessionNoteSheet.
+  const [noteEntry, setNoteEntry] = useState<{ id: string; note: string; categoryName: string; categoryColor: string } | null>(null);
+  const [taskEntry, setTaskEntry] = useState<{ id: string; taskTitle: string; categoryName?: string; categoryColor?: string } | null>(null);
+  const [actionsEntry, setActionsEntry] = useState<EditableEntry & { note: string; taskTitle: string | null } | null>(null);
+  // Read-only view of a session's manual-time-adjustment audit.
+  const [reasonEntry, setReasonEntry] = useState<EditableEntry | null>(null);
   const [renamingCatId, setRenamingCatId] = useState<string | null>(null);
   const [renameDraft, setRenameDraft] = useState("");
   const toEditable = (e: RollingEntry, name?: string | null, color?: string | null): EditableEntry => ({
@@ -213,6 +218,9 @@ export default function Reports() {
     endedAtMs: e.ended_at ? new Date(e.ended_at).getTime() : null,
     categoryName: name ?? null,
     categoryColor: color ?? null,
+    note: e.note ?? null,
+    adjustmentSeconds: e.adjustment_seconds ?? 0,
+    adjustmentReason: e.adjustment_reason ?? null,
   });
   const [upgradeOpen, setUpgradeOpen] = useState(false);
   const [displayCurrency, setDisplayCurrency] = useState<string>(
@@ -238,7 +246,34 @@ export default function Reports() {
   // `editDraft` holds the working payment data for that category.
   const [editIdx, setEditIdx] = useState(0);
   const [editDraft, setEditDraft] = useState<PaymentFieldsValue | null>(null);
-  const range = useMemo(() => periodRange(period, customFrom, customTo), [period, customFrom, customTo]);
+
+  const queryClient = useQueryClient();
+
+  // Tracks the current calendar date as a string. When focus or visibility
+  // changes and the date has rolled over (app left open past midnight), we
+  // update this key — which forces `range` to recompute with today's date
+  // and evicts the rolling-entries cache so fresh data is fetched.
+  const [todayKey, setTodayKey] = useState(() => todayDateStr());
+  useEffect(() => {
+    const check = () => {
+      const current = todayDateStr();
+      setTodayKey((prev) => {
+        if (prev !== current) {
+          void queryClient.invalidateQueries({ queryKey: rollingEntriesQueryKey(user?.id) });
+          return current;
+        }
+        return prev;
+      });
+    };
+    window.addEventListener("focus", check);
+    document.addEventListener("visibilitychange", check);
+    return () => {
+      window.removeEventListener("focus", check);
+      document.removeEventListener("visibilitychange", check);
+    };
+  }, [queryClient, user?.id]);
+
+  const range = useMemo(() => periodRange(period, customFrom, customTo), [period, customFrom, customTo, todayKey]);
 
   const { data: rollingEntries = [] } = useQuery({
     queryKey: rollingEntriesQueryKey(user?.id),
@@ -297,11 +332,15 @@ export default function Reports() {
   // aggregations (`byCategory` and `categoryGroups`) which doubled the work on
   // every period change. One walk computes totals, per-category sums, per-day
   // sums, and per-category entry lists at once.
-  const { totalSec, categoryGroups, perDay, earningsByCurrency } = useMemo(() => {
+  const { totalSec, categoryGroups, perDay, perHour, earningsByCurrency } = useMemo(() => {
     const now = Date.now();
     let total = 0;
     const groups = new Map<string, CategoryGroup>();
     const dMap = new Map<string, number>();
+    // Seconds tracked per hour-of-day (local), spread across the hours each
+    // session actually spans — powers the "Rhythm / peak hours" chart view,
+    // which is meaningful even on a single day of data.
+    const hourSec = new Array(24).fill(0) as number[];
     // Accumulate earnings per snapshot currency (not per current category currency)
     // so that changing a category's currency never rebuckets historical earnings.
     const byCurrency = new Map<string, number>();
@@ -313,6 +352,22 @@ export default function Reports() {
       const sec = Math.max(0, (en - s) / 1000);
       if (sec <= 0) continue;
       total += sec;
+
+      // Spread this session across the local hour buckets it overlaps so a long
+      // session is attributed accurately (not all to its start hour).
+      // Pure arithmetic: avoid new Date() inside the hot loop (each session can
+      // span multiple hours; new Date is slow on iOS JSC vs V8).
+      let cur = s;
+      while (cur < en) {
+        // Floor to the start of the current local hour without Date allocation.
+        const localOffset = new Date(cur).getTimezoneOffset() * 60_000;
+        const hourStart = Math.floor((cur - localOffset) / 3_600_000) * 3_600_000 + localOffset;
+        const hourEnd = hourStart + 3_600_000;
+        const sliceEnd = Math.min(en, hourEnd);
+        const h = Math.floor(((cur - localOffset) % 86_400_000) / 3_600_000);
+        hourSec[h] += (sliceEnd - cur) / 1000;
+        cur = sliceEnd;
+      }
       const id = e.category_id || "uncategorized";
       const cat = (e.category_id ? catMap.get(e.category_id) : undefined) as
         | (typeof categories)[number]
@@ -376,6 +431,7 @@ export default function Reports() {
     const perDay = Array.from(dMap.entries())
       .sort(([a], [b]) => a.localeCompare(b))
       .map(([k, sec]) => ({
+        date: k,
         day: k.slice(5),
         hours: Number((sec / 3600).toFixed(2)),
       }));
@@ -383,17 +439,16 @@ export default function Reports() {
       totalSec: total,
       categoryGroups: groupList,
       perDay,
+      perHour: hourSec,
       earningsByCurrency: byCurrency,
     };
   }, [periodEntries, catMap, getReportCurrency]);
 
-  // ── Earnings forecast (week + month, Pro only) ───────────────────────────
-  // Projects forward from the ALREADY-COMPUTED earningsByCurrency pipeline so
-  // rate_set_at / snapshot_hourly_rate semantics are respected automatically.
-  // Elapsed days are derived from range.from (not now.getDate()) so the math
-  // works for both week and month periods.
-  // Guard: require ≥ 3 elapsed days to avoid divide-by-small-N noise.
-  const forecast = useMemo(() => {
+  // ── Earnings insight (week + month, Pro only) ────────────────────────────
+  // Day 1: shows "Today so far" — no projection until there's a meaningful
+  // baseline. Day 2+: daily average + projected period total, always adapting
+  // to whatever was actually tracked (no stale minimum-day gate).
+  const insight = useMemo(() => {
     if (period !== "month" && period !== "week") return null;
     if (!isPro) return null;
     if (earningsByCurrency.size === 0) return null;
@@ -407,25 +462,32 @@ export default function Reports() {
     const now = new Date();
     const today = new Date(now.getFullYear(), now.getMonth(), now.getDate());
     const fromDay = new Date(range.from.getFullYear(), range.from.getMonth(), range.from.getDate());
-    const elapsedDays = Math.max(1, Math.floor((today.getTime() - fromDay.getTime()) / 86_400_000) + 1);
+    // Fully completed days before today (today is still in progress).
+    const completedDays = Math.max(0, Math.floor((today.getTime() - fromDay.getTime()) / 86_400_000));
     const periodDays = period === "week"
       ? 7
       : new Date(now.getFullYear(), now.getMonth() + 1, 0).getDate();
-    const remainingDays = Math.max(0, periodDays - elapsedDays);
-    if (elapsedDays < 3) return { tooEarly: true as const, elapsedDays, periodDays, isWeek: period === "week" };
+    const remainingDays = Math.max(0, periodDays - completedDays - 1);
+    if (completedDays === 0) {
+      // First day of the period — show earnings to date, no projection yet.
+      return { type: "today" as const, earnedSoFar, remainingDays, periodDays, isWeek: period === "week" };
+    }
+    const elapsedDays = completedDays + 1; // completed days + today
     const dailyAvg = earnedSoFar / elapsedDays;
-    const projectedTotal = dailyAvg * periodDays;
+    const projectedTotal = earnedSoFar + dailyAvg * remainingDays;
     return {
-      tooEarly: false as const,
+      type: "trend" as const,
       earnedSoFar,
-      projectedTotal,
       dailyAvg,
-      elapsedDays,
-      periodDays,
+      projectedTotal,
       remainingDays,
+      periodDays,
       isWeek: period === "week",
+      totalSec,
     };
-  }, [period, isPro, earningsByCurrency, displayCurrency, rates, range.from]);
+  // range.from is a new Date object every render — use its timestamp to avoid
+  // spurious recomputes of insight when the date hasn't actually changed.
+  }, [period, isPro, earningsByCurrency, displayCurrency, rates, range.from.getTime(), totalSec]);
 
   const toggleCategoryExpanded = (id: string) => {
     setExpandedCategoryIds((prev) => {
@@ -544,6 +606,8 @@ export default function Reports() {
           hourlyRate: displayedRate,
           earnings,
           note: e.note ?? null,
+          manual: e.source === "manual_add",
+          adjustmentReason: e.adjustment_reason ?? null,
         };
       }),
     };
@@ -774,7 +838,7 @@ export default function Reports() {
                 <button
                   type="button"
                   onClick={() => setDateSheetOpen(true)}
-                  className="hero-glass border border-border/35 rounded-2xl px-4 py-3 text-left pressable hover:border-primary/30 transition-colors min-w-0"
+                  className="hero-glass border border-border/65 rounded-2xl px-4 py-3 text-left pressable hover:border-primary/30 transition-colors min-w-0"
                 >
                   <p className="text-[10px] font-semibold uppercase tracking-[0.18em] text-secondary-fg/65 mb-1">From</p>
                   <p className="text-[15px] font-semibold text-foreground/95 truncate tabular-nums">
@@ -784,7 +848,7 @@ export default function Reports() {
                 <button
                   type="button"
                   onClick={() => setDateSheetOpen(true)}
-                  className="hero-glass border border-border/35 rounded-2xl px-4 py-3 text-left pressable hover:border-primary/30 transition-colors min-w-0"
+                  className="hero-glass border border-border/65 rounded-2xl px-4 py-3 text-left pressable hover:border-primary/30 transition-colors min-w-0"
                 >
                   <p className="text-[10px] font-semibold uppercase tracking-[0.18em] text-secondary-fg/65 mb-1">To</p>
                   <p className="text-[15px] font-semibold text-foreground/95 truncate tabular-nums">
@@ -838,7 +902,7 @@ export default function Reports() {
                     </div>
 
                     {hasPay && (
-                      <div className="min-w-0 border-l border-border/30 pl-4">
+                      <div className="min-w-0 border-l border-border/60 pl-4">
                         <p className="text-[11px] font-semibold uppercase tracking-[0.14em] text-secondary-fg/70 truncate">
                           Estimated pay
                         </p>
@@ -870,49 +934,69 @@ export default function Reports() {
                     )}
                   </div>
 
-                  {/* ── Compact earnings forecast ── small, in the SAME card, below
-                       the numbers. Amber = projected, clearly distinct from the
-                       green actual earnings. Projects from the already-computed
-                       earnings pipeline (rate_set_at / snapshot respected). */}
-                  {forecast && (
+                  {/* ── Earnings insight ── day 1 = "Today so far"; day 2+ = daily
+                       average + period projection. Amber keeps it visually distinct
+                       from the green "Estimated pay" total above. */}
+                  {insight && (
                     <div className="mt-3.5 pt-3.5" style={{ borderTop: "1px solid hsl(38 92% 52% / 0.18)" }}>
-                      {forecast.tooEarly ? (
-                        <div className="flex items-center gap-2.5">
-                          <div className="h-8 w-8 rounded-[9px] flex items-center justify-center shrink-0" style={{ background: "hsl(38 92% 52% / 0.13)", border: "1px solid hsl(38 92% 52% / 0.26)" }}>
-                            <TrendingUp style={{ width: 14, height: 14, color: "hsl(38 92% 52%)" }} strokeWidth={2.5} />
-                          </div>
-                          <div className="min-w-0">
-                            <p className="text-[10px] font-semibold uppercase tracking-[0.12em] text-secondary-fg/55">Earnings forecast</p>
-                            <p className="text-[12.5px] text-foreground/75 mt-0.5">
-                              {Math.max(1, 3 - forecast.elapsedDays)} more {Math.max(1, 3 - forecast.elapsedDays) === 1 ? "day" : "days"} of data needed
-                            </p>
-                          </div>
+                      <div className="flex items-center gap-2.5">
+                        <div className="h-8 w-8 rounded-[9px] flex items-center justify-center shrink-0" style={{ background: "hsl(38 92% 52% / 0.13)", border: "1px solid hsl(38 92% 52% / 0.26)" }}>
+                          <TrendingUp style={{ width: 14, height: 14, color: "hsl(38 92% 52%)" }} strokeWidth={2.5} />
                         </div>
-                      ) : (
-                        <div className="flex items-center gap-2.5">
-                          <div className="h-8 w-8 rounded-[9px] flex items-center justify-center shrink-0" style={{ background: "hsl(38 92% 52% / 0.13)", border: "1px solid hsl(38 92% 52% / 0.26)" }}>
-                            <TrendingUp style={{ width: 14, height: 14, color: "hsl(38 92% 52%)" }} strokeWidth={2.5} />
+                        {insight.type === "today" ? (
+                          <div className="min-w-0 flex-1">
+                            <p className="text-[10px] font-semibold uppercase tracking-[0.12em] text-secondary-fg/55">Today so far</p>
+                            <FitText max={18} min={13} className="mt-0.5 font-display font-semibold tabular-nums" style={{ color: "hsl(38 92% 52%)" }} watch={fmtMoney(insight.earnedSoFar, displayCurrency)}>
+                              {fmtMoney(insight.earnedSoFar, displayCurrency)}
+                            </FitText>
                           </div>
+                        ) : insight.remainingDays === 0 ? (
+                          // Last day — show effective hourly rate for the period
+                          // (the only number not shown anywhere else).
                           <div className="min-w-0 flex-1">
                             <p className="text-[10px] font-semibold uppercase tracking-[0.12em] text-secondary-fg/55">
-                              Forecast · by {forecast.isWeek ? "week" : "month"} end
+                              Effective rate · {insight.isWeek ? "this week" : "this month"}
                             </p>
                             <FitText
                               max={19}
                               min={13}
                               className="mt-0.5 font-display font-semibold tabular-nums"
                               style={{ color: "hsl(38 92% 52%)" }}
-                              watch={fmtMoney(forecast.projectedTotal, displayCurrency)}
+                              watch={insight.totalSec > 0 ? `${fmtMoney(insight.earnedSoFar / (insight.totalSec / 3600), displayCurrency)}/hr` : ""}
                             >
-                              ≈ {fmtMoney(forecast.projectedTotal, displayCurrency)}
+                              {insight.totalSec > 0
+                                ? `${fmtMoney(insight.earnedSoFar / (insight.totalSec / 3600), displayCurrency)}/hr`
+                                : "—"}
                             </FitText>
+                            {insight.totalSec > 0 && (
+                              <p className="text-[10px] text-secondary-fg/50 tabular-nums mt-0.5">
+                                across {fmtHM(insight.totalSec)} tracked
+                              </p>
+                            )}
                           </div>
-                          <div className="text-right shrink-0 pl-1">
-                            <p className="text-[10px] font-semibold uppercase tracking-[0.1em] text-secondary-fg/50">left</p>
-                            <p className="text-[13px] font-semibold tabular-nums text-foreground/80 mt-0.5">{forecast.remainingDays}d</p>
-                          </div>
-                        </div>
-                      )}
+                        ) : (
+                          <>
+                            <div className="min-w-0 flex-1">
+                              <p className="text-[10px] font-semibold uppercase tracking-[0.12em] text-secondary-fg/55">
+                                avg {fmtMoney(insight.dailyAvg, displayCurrency)}/day · by {insight.isWeek ? "week" : "month"} end
+                              </p>
+                              <FitText
+                                max={19}
+                                min={13}
+                                className="mt-0.5 font-display font-semibold tabular-nums"
+                                style={{ color: "hsl(38 92% 52%)" }}
+                                watch={`≈ ${fmtMoney(insight.projectedTotal, displayCurrency)}`}
+                              >
+                                ≈ {fmtMoney(insight.projectedTotal, displayCurrency)}
+                              </FitText>
+                            </div>
+                            <div className="text-right shrink-0 pl-1">
+                              <p className="text-[10px] font-semibold uppercase tracking-[0.1em] text-secondary-fg/50">left</p>
+                              <p className="text-[13px] font-semibold tabular-nums text-foreground/80 mt-0.5">{insight.remainingDays}d</p>
+                            </div>
+                          </>
+                        )}
+                      </div>
                     </div>
                   )}
                 </>
@@ -921,7 +1005,7 @@ export default function Reports() {
           </section>
 
           {categoryGroups.length > 0 ? (
-            <section className="hero-glass border border-border/35 rounded-[28px] p-4">
+            <section className="hero-glass border border-border/65 rounded-[28px] p-4">
               <div className="mb-3 flex items-start justify-between gap-3">
                 <div>
                   <p className="text-[11px] font-semibold uppercase tracking-[0.16em] text-secondary-fg/70">
@@ -976,196 +1060,119 @@ export default function Reports() {
                       <button
                         type="button"
                         onClick={() => toggleCategoryExpanded(group.id)}
-                        className="flex w-full items-start gap-3 px-4 py-3.5 text-left"
-                        style={{ WebkitTapHighlightColor: "transparent" }}
+                        className="relative grid w-full items-start gap-x-2.5 pl-5 pr-3 py-3.5 text-left"
+                        style={{ WebkitTapHighlightColor: "transparent", gridTemplateColumns: "1fr 80px 20px" }}
                         aria-expanded={isOpen}
                       >
-                        {/* Category colour dot — the soft halo uses an 8-digit
-                            hex alpha, which only parses for hex colours; the
-                            uncategorized fallback is an hsl() string, so guard it. */}
+                        {/* Category-colour edge — 3 px stripe at rest; stretches to a
+                            full-width tinted backdrop when the card is open so the
+                            accent colour follows and hugs the card's rounded corners. */}
                         <span
-                          className="reports-cat-dot mt-[6px] h-2.5 w-2.5 rounded-full shrink-0"
+                          aria-hidden
+                          className="absolute top-0 bottom-0 left-0"
                           style={{
                             background: group.color,
-                            boxShadow: group.color.startsWith("#") ? `0 0 0 3px ${group.color}1f` : undefined,
+                            width: isOpen ? "100%" : "3px",
+                            opacity: isOpen ? 0.12 : 1,
+                            borderRadius: isOpen ? "16px 16px 0 0" : "0 9999px 9999px 0",
+                            // Open: width expands first (bloom), opacity fades after 80ms delay
+                            // so stripe is vivid for a beat before settling to the tint.
+                            // Close: opacity snaps back to vivid first, then width collapses.
+                            transition: isOpen
+                              ? "width 580ms cubic-bezier(0.32, 0.72, 0, 1), opacity 480ms cubic-bezier(0.4, 0, 0.2, 1) 80ms, border-radius 480ms cubic-bezier(0.4, 0, 0.2, 1)"
+                              : "width 420ms cubic-bezier(0.4, 0, 0.2, 1), opacity 180ms cubic-bezier(0.4, 0, 0.2, 1), border-radius 360ms cubic-bezier(0.4, 0, 0.2, 1) 80ms",
                           }}
                         />
 
-                        <div className="min-w-0 flex-1">
-                          {/* ── Row 1: name (left) · headline value (right) ──
-                              Billable category → the earned amount is the
-                              headline (green, right). No rate → the duration
-                              takes that slot. FitText keeps KZT-sized values on
-                              one line; the name truncates first so money is
-                              never squeezed. */}
-                          <div className="flex items-center gap-2.5">
-                            <span className="flex-1 min-w-0 truncate text-[14.5px] font-semibold text-foreground">
-                              {group.name}
-                              {group.isDeleted && (
-                                <span className="text-[11px] font-medium text-destructive/70"> (Deleted)</span>
-                              )}
-                            </span>
-                            {group.earnings > 0 ? (() => {
-                              const shouldConvert = group.reportCurrency !== group.currency;
-                              const displayedAmount = shouldConvert
-                                ? convertCurrency(group.earnings, group.currency, group.reportCurrency, rates)
-                                : group.earnings;
-                              const moneyStr = fmtMoney(displayedAmount, group.reportCurrency);
-                              return (
-                                <div className="shrink-0" style={{ maxWidth: "58%" }}>
-                                  <FitText
-                                    max={15.5}
-                                    min={11}
-                                    align="right"
-                                    className="font-semibold tabular-nums text-success"
-                                    watch={moneyStr}
-                                  >
-                                    {moneyStr}
-                                  </FitText>
-                                </div>
-                              );
-                            })() : (
-                              <span className="reports-cat-total shrink-0 text-[14px] font-semibold tabular-nums text-foreground/90">
-                                {fmtHM(group.sec)}
-                              </span>
+                        {/* col 1 — name + metadata */}
+                        <div className="min-w-0">
+                          <span className="block truncate text-[14.5px] font-semibold text-foreground leading-snug">
+                            {group.name}
+                            {group.isDeleted && (
+                              <span className="text-[11px] font-medium text-destructive/70"> (Deleted)</span>
                             )}
-                          </div>
-
-                          {/* ── Row 2: metadata (left) · Mixed / rate badge (right) ──
-                              The % share is already shown by the colour bar above
-                              the list, so it's dropped here to give "N sessions"
-                              the room it needs (no more "4…"). The per-category
-                              currency selector moved into the expanded detail. */}
-                          <div className="mt-1.5 flex items-center gap-2">
-                            <div className="reports-cat-meta flex min-w-0 flex-1 items-center gap-1.5 overflow-hidden text-[11.5px] text-secondary-fg/60">
-                              {group.earnings > 0 && (
-                                <>
-                                  <span className="shrink-0 tabular-nums font-medium text-foreground/70">{fmtHM(group.sec)}</span>
-                                  <span className="shrink-0 text-secondary-fg/25">·</span>
-                                </>
-                              )}
-                              <span className="whitespace-nowrap">{group.entries.length} session{group.entries.length === 1 ? "" : "s"}</span>
-                            </div>
-
-                            {showTiers ? (
-                              <span className="shrink-0 inline-flex items-center rounded-full bg-primary/[0.1] border border-primary/25 px-2 py-0.5 text-[9.5px] font-bold uppercase tracking-[0.08em] text-primary">
-                                Mixed rate
-                              </span>
-                            ) : headerRate != null && headerRate > 0 ? (
-                              <span className="shrink-0 inline-flex max-w-[120px] items-center rounded-full bg-foreground/[0.06] border border-border/40 px-2 py-0.5 text-[10.5px] font-medium tabular-nums text-secondary-fg/80">
-                                <span className="truncate">{fmtMoney(headerRate, currentCurrency)}</span>
-                                <span className="shrink-0">/h</span>
-                              </span>
-                            ) : null}
-                          </div>
+                          </span>
+                          <span className="reports-cat-meta mt-1 block truncate text-[11.5px] text-secondary-fg/60 tabular-nums">
+                            {group.earnings > 0 ? `${fmtHM(group.sec)} · ` : ""}{group.entries.length} session{group.entries.length === 1 ? "" : "s"}
+                          </span>
                         </div>
 
+                        {/* col 2 — fixed 80px right column so the decimal point lines
+                            up identically across every category card regardless of amount.
+                            Green only on the category total; rate hint stays muted. */}
+                        <div className="flex flex-col items-end min-w-0">
+                          {group.earnings > 0 ? (() => {
+                            const shouldConvert = group.reportCurrency !== group.currency;
+                            const displayedAmount = shouldConvert
+                              ? convertCurrency(group.earnings, group.currency, group.reportCurrency, rates)
+                              : group.earnings;
+                            const moneyStr = fmtMoney(displayedAmount, group.reportCurrency);
+                            return (
+                              <>
+                                <span className="text-[9px] font-semibold uppercase tracking-[0.12em] text-secondary-fg/45 mb-0.5">Total</span>
+                                <FitText
+                                  max={14}
+                                  min={10.5}
+                                  align="right"
+                                  className="font-semibold tabular-nums text-success leading-snug w-full"
+                                  watch={moneyStr}
+                                >
+                                  {moneyStr}
+                                </FitText>
+                                {(showTiers || (headerRate != null && headerRate > 0)) && (
+                                  <span className="mt-0.5 text-[10px] tabular-nums text-secondary-fg/50 overflow-hidden text-ellipsis whitespace-nowrap max-w-full">
+                                    {showTiers ? "Mixed" : `${fmtMoney(headerRate, currentCurrency)}/h`}
+                                  </span>
+                                )}
+                              </>
+                            );
+                          })() : (
+                            <span className="reports-cat-total text-[14px] font-semibold tabular-nums text-foreground/90 text-right">
+                              {fmtHM(group.sec)}
+                            </span>
+                          )}
+                        </div>
+
+                        {/* col 3 — chevron, self-centered */}
                         <ChevronDown
-                          className={`mt-1.5 h-4 w-4 shrink-0 text-secondary-fg/50 transition-transform duration-[420ms] ease-[cubic-bezier(0.34,1.2,0.64,1)] ${
-                            isOpen ? "rotate-180" : ""
-                          }`}
+                          className={`self-center h-4 w-4 text-secondary-fg/45 ${isOpen ? "rotate-180" : ""}`}
+                          style={{
+                            transitionProperty: "transform",
+                            transitionDuration: isOpen ? "520ms" : "380ms",
+                            transitionTimingFunction: isOpen
+                              ? "cubic-bezier(0.34, 1.4, 0.64, 1)"
+                              : "cubic-bezier(0.4, 0, 0.2, 1)",
+                          }}
                         />
                       </button>
                       <AnimatePresence initial={false}>
                         {isOpen && (
                           <motion.div
                             key="cat-detail"
-                            initial={{ height: 0, opacity: 0 }}
-                            animate={{ height: "auto", opacity: 1 }}
-                            exit={{ height: 0, opacity: 0 }}
-                            transition={{
-                              height: { type: "tween", duration: 0.34, ease: [0.4, 0, 0.2, 1] },
-                              opacity: { duration: 0.22, ease: "easeOut" },
+                            initial="collapsed"
+                            animate="open"
+                            exit="collapsed"
+                            variants={{
+                              open: {
+                                height: "auto",
+                                opacity: 1,
+                                transition: {
+                                  height: { type: "spring", damping: 28, stiffness: 260, mass: 0.8 },
+                                  opacity: { duration: 0.28, ease: [0.4, 0, 0.2, 1] },
+                                },
+                              },
+                              collapsed: {
+                                height: 0,
+                                opacity: 0,
+                                transition: {
+                                  height: { type: "tween", duration: 0.40, ease: [0.4, 0, 0.2, 1] },
+                                  opacity: { duration: 0.18, ease: "easeIn" },
+                                },
+                              },
                             }}
                             style={{ overflow: "hidden" }}
                           >
                             <div className="border-t border-soft">
-                              {/* ── Actions: rename + report-currency selector ── */}
-                              {group.id !== "uncategorized" && (
-                                <div className="flex items-center gap-2 px-4 py-2.5 border-b border-soft/60">
-                                  {renamingCatId === group.id ? (
-                                    <>
-                                      <input
-                                        autoFocus
-                                        value={renameDraft}
-                                        onChange={(ev) => setRenameDraft(ev.target.value)}
-                                        onKeyDown={(ev) => {
-                                          if (ev.key === "Enter") {
-                                            const t = renameDraft.trim();
-                                            if (t && t !== group.name) void renameCategory(group.id, t);
-                                            setRenamingCatId(null);
-                                          }
-                                          if (ev.key === "Escape") setRenamingCatId(null);
-                                        }}
-                                        className="flex-1 min-w-0 h-9 rounded-xl border border-primary/40 bg-card/60 px-3 text-[13px] font-medium outline-none focus:border-primary/70 transition-colors"
-                                        style={{ fontSize: 16 }}
-                                        aria-label="Category name"
-                                      />
-                                      <button
-                                        type="button"
-                                        onClick={() => {
-                                          const t = renameDraft.trim();
-                                          if (t && t !== group.name) void renameCategory(group.id, t);
-                                          setRenamingCatId(null);
-                                        }}
-                                        className="h-9 w-9 rounded-xl bg-primary/90 flex items-center justify-center text-primary-foreground pressable shrink-0"
-                                        aria-label="Save name"
-                                      >
-                                        <Check className="h-4 w-4" strokeWidth={2.5} />
-                                      </button>
-                                      <button
-                                        type="button"
-                                        onClick={() => setRenamingCatId(null)}
-                                        className="h-9 w-9 rounded-xl border border-border/40 bg-card/40 flex items-center justify-center text-secondary-fg pressable shrink-0"
-                                        aria-label="Cancel rename"
-                                      >
-                                        <X className="h-3.5 w-3.5" />
-                                      </button>
-                                    </>
-                                  ) : (
-                                    <>
-                                      {!group.isDeleted ? (
-                                        <button
-                                          type="button"
-                                          onClick={() => { setRenameDraft(group.name); setRenamingCatId(group.id); }}
-                                          className="flex-1 min-w-0 flex items-center gap-2.5 text-left text-secondary-fg/75 hover:text-foreground pressable transition-colors"
-                                        >
-                                          <Pencil className="h-3.5 w-3.5 shrink-0" />
-                                          <span className="text-[12px] font-medium truncate">Rename category</span>
-                                        </button>
-                                      ) : (
-                                        <span className="flex-1 min-w-0 text-[12px] font-medium text-secondary-fg/45 truncate">Deleted category</span>
-                                      )}
-                                      <span className="shrink-0 text-[10px] font-semibold uppercase tracking-[0.1em] text-secondary-fg/45">Currency</span>
-                                      <button
-                                        type="button"
-                                        onClick={(e) => {
-                                          e.stopPropagation();
-                                          setReportCurrencyTarget({ catId: group.id, trackerCurrency: group.currency });
-                                        }}
-                                        aria-label={`Change report currency for ${group.name}`}
-                                        className="shrink-0 inline-flex items-center gap-0.5 rounded-lg px-2 py-1 text-[11px] font-semibold tabular-nums tracking-[0.04em] pressable transition-[transform,box-shadow,background-color] duration-150 active:scale-[0.96]"
-                                        style={
-                                          group.reportCurrency !== group.currency
-                                            ? {
-                                                background: "linear-gradient(180deg, hsl(var(--primary) / 0.18) 0%, hsl(var(--primary) / 0.08) 100%)",
-                                                boxShadow: "inset 0 1px 0 hsl(0 0% 100% / 0.12), 0 0 0 1px hsl(var(--primary) / 0.40)",
-                                                color: "hsl(var(--primary))",
-                                              }
-                                            : {
-                                                background: "hsl(var(--foreground) / 0.05)",
-                                                boxShadow: "inset 0 0 0 1px hsl(var(--border) / 0.40)",
-                                                color: "hsl(var(--foreground) / 0.7)",
-                                              }
-                                        }
-                                      >
-                                        {group.reportCurrency}
-                                        <ChevronDown className="h-2.5 w-2.5 opacity-60" />
-                                      </button>
-                                    </>
-                                  )}
-                                </div>
-                              )}
                               {(() => {
                                 // Convert a tracker-currency amount to the report currency for display.
                                 const toDisplay = (amt: number) =>
@@ -1173,7 +1180,7 @@ export default function Reports() {
                                     ? convertCurrency(amt, group.currency, group.reportCurrency, rates)
                                     : amt;
                                 // One session row — shared by flat and grouped views.
-                                const renderSession = (e: RollingEntry, inTier = false) => {
+                                const renderSession = (e: RollingEntry, isLast: boolean) => {
                                   const started = new Date(e.started_at).getTime();
                                   const ended = e.ended_at ? new Date(e.ended_at).getTime() : Date.now();
                                   const s = new Date(Math.max(started, range.from.getTime()));
@@ -1187,66 +1194,84 @@ export default function Reports() {
                                   return (
                                     <li
                                       key={e.id}
-                                      className={`flex items-start gap-3 py-3 ${inTier ? "px-4 pl-5" : "px-4"}`}
+                                      data-hint="reports-session"
+                                      className={`flex items-start gap-3 py-3 px-4 ${isLast ? "" : "border-b border-border/90"}`}
                                     >
-                                      {/* Left: tracked task (when known) primary, else date; time range secondary */}
+                                      {/* Left: the session's name. Priority:
+                                          planned task title → user's session note
+                                          (set in the tracker / here) → the date.
+                                          No "No title" placeholder. */}
                                       <div className="min-w-0 flex-1">
                                         {taskTitle ? (
                                           <>
-                                            <p className="truncate text-[12px] font-medium text-foreground/85">{taskTitle}</p>
+                                            <p className="truncate text-[12.5px] font-medium text-foreground/85">{taskTitle}</p>
+                                            <p className="mt-0.5 text-[11px] text-secondary-fg/55 tabular-nums">
+                                              {dateStr} · {timeStr}
+                                            </p>
+                                          </>
+                                        ) : e.note ? (
+                                          <>
+                                            <p className="truncate text-[12.5px] font-medium text-foreground/85">{e.note}</p>
                                             <p className="mt-0.5 text-[11px] text-secondary-fg/55 tabular-nums">
                                               {dateStr} · {timeStr}
                                             </p>
                                           </>
                                         ) : (
                                           <>
-                                            <p className="text-[12px] font-medium text-foreground/80">{dateStr}</p>
+                                            <p className="text-[12.5px] font-semibold text-foreground/80 tabular-nums">{dateStr}</p>
                                             <p className="mt-0.5 text-[11px] text-secondary-fg/55 tabular-nums">{timeStr}</p>
                                           </>
                                         )}
-                                        {e.note && (
-                                          <p className="mt-0.5 truncate text-[11px] text-secondary-fg/65 italic">{e.note}</p>
+                                        {/* If a planned task also carries a note, show it under the title. */}
+                                        {e.note && taskTitle && (
+                                          <p className="mt-0.5 text-[11.5px] text-secondary-fg/65 italic leading-relaxed line-clamp-2">{e.note}</p>
                                         )}
-                                      </div>
-                                      {/* Right: duration (neutral) then earned (green) —
-                                          earned uses FitText so KZT-sized amounts
-                                          never clip the icons that follow. */}
-                                      <div className="text-right shrink-0" style={{ minWidth: 56, maxWidth: 124 }}>
-                                        <p className="text-[12.5px] font-semibold tabular-nums text-foreground/75">
-                                          {fmtHM(sec)}
-                                        </p>
-                                        {earned > 0 && (
-                                          <FitText
-                                            max={12}
-                                            min={10}
-                                            align="right"
-                                            className="mt-0.5 font-semibold tabular-nums text-success"
-                                            watch={fmtMoney(toDisplay(earned), group.reportCurrency)}
+                                        {/* Manual time adjustment — colored badge, tap to view the reason. */}
+                                        {(e.adjustment_seconds ?? 0) !== 0 && (e.adjustment_reason ?? "").trim() && (
+                                          <button
+                                            type="button"
+                                            onClick={() => setReasonEntry(toEditable(e, group.name, group.color))}
+                                            className="mt-1 inline-flex items-center gap-1 rounded-md px-1.5 py-0.5 bg-amber-500/12 border border-amber-500/20 pressable transition-colors hover:bg-amber-500/[0.18]"
                                           >
-                                            {fmtMoney(toDisplay(earned), group.reportCurrency)}
-                                          </FitText>
+                                            <Clock className="h-3 w-3 text-amber-600 dark:text-amber-400 shrink-0" strokeWidth={2.4} />
+                                            <span className="text-[10.5px] font-semibold tabular-nums text-amber-700 dark:text-amber-400">
+                                              {fmtSignedMin(e.adjustment_seconds ?? 0)} manual
+                                            </span>
+                                          </button>
                                         )}
                                       </div>
-                                      {/* Edit start / delete this session */}
-                                      <div className="flex items-center gap-0.5 shrink-0 -mr-1 mt-0.5">
-                                        <button
-                                          type="button"
-                                          onClick={() => setEditEntry(toEditable(e, group.name, group.color))}
-                                          className="h-7 w-7 inline-flex items-center justify-center rounded-lg text-secondary-fg/55 hover:text-foreground hover:bg-foreground/[0.06] pressable transition-colors"
-                                          aria-label="Adjust start time"
-                                          title="Adjust start time"
-                                        >
-                                          <Pencil className="h-3.5 w-3.5" />
-                                        </button>
-                                        <button
-                                          type="button"
-                                          onClick={() => setDeleteEntryTarget(toEditable(e, group.name, group.color))}
-                                          className="h-7 w-7 inline-flex items-center justify-center rounded-lg text-secondary-fg/55 hover:text-destructive hover:bg-destructive/10 pressable transition-colors"
-                                          aria-label="Delete session"
-                                          title="Delete session"
-                                        >
-                                          <Trash2 className="h-3.5 w-3.5" />
-                                        </button>
+                                      <div className="flex flex-col justify-center shrink-0">
+                                        <div className="flex items-center gap-1.5">
+                                          <div className="w-[70px] text-left">
+                                            <p className="text-[11.5px] font-medium tabular-nums text-secondary-fg/70">
+                                              {fmtHM(sec)}
+                                            </p>
+                                          </div>
+                                          <button
+                                            type="button"
+                                            onClick={() => setActionsEntry({ ...toEditable(e, group.name, group.color), note: e.note ?? "", taskTitle: taskTitle })}
+                                            className="h-8 w-8 shrink-0 inline-flex items-center justify-center rounded-xl text-secondary-fg/40 hover:text-foreground hover:bg-foreground/[0.06] pressable transition-colors -mr-2"
+                                            aria-label="More actions"
+                                          >
+                                            <MoreHorizontal className="h-4 w-4" />
+                                          </button>
+                                        </div>
+                                        {earned > 0 && (
+                                          <div className="flex items-center gap-1.5 mt-0.5">
+                                            <div className="w-[85px] text-left">
+                                              <FitText
+                                                max={12.5}
+                                                min={10}
+                                                align="left"
+                                                className="font-bold tabular-nums text-foreground/95"
+                                                watch={fmtMoney(toDisplay(earned), group.reportCurrency)}
+                                              >
+                                                {fmtMoney(toDisplay(earned), group.reportCurrency)}
+                                              </FitText>
+                                            </div>
+                                            <div className="w-8 shrink-0 -mr-2" aria-hidden="true" />
+                                          </div>
+                                        )}
                                       </div>
                                     </li>
                                   );
@@ -1254,148 +1279,144 @@ export default function Reports() {
 
                                 // Single rate — sessions in one category-accented card
                                 // (matches the multi-rate tiers; no flat grey wash).
-                                if (!showTiers) {
-                                  const accentBorder = `color-mix(in srgb, ${group.color} 34%, transparent)`;
-                                  return (
-                                    <div className="px-3 py-2.5">
-                                      <div className="rounded-xl overflow-hidden" style={{ border: `1px solid ${accentBorder}` }}>
-                                        <ul className="divide-y divide-border/15">
-                                          {group.entries.map((e) => renderSession(e, false))}
-                                        </ul>
-                                      </div>
-                                    </div>
-                                  );
-                                }
-
-                                // Multiple rates — each rate is its own collapsible
-                                // accordion. Header (rate + subtotal + duration)
-                                // stays visible; tapping reveals that rate's
-                                // sessions. Collapsed by default so the category
-                                // reads as a tidy stack of rate summaries.
                                 const tiers = [...group.rateTiers.entries()].sort(
                                   (a, b) => b[1].lastStart - a[1].lastStart,
                                 );
-                                // Accent the tier cards with the category's OWN colour
-                                // (color-mix → an alpha of the hex/hsl, valid in both
-                                // themes) instead of a flat grey fill. Tinted header +
-                                // coloured hairline border = a distinct, on-brand group.
-                                const accentBorder = `color-mix(in srgb, ${group.color} 34%, transparent)`;
-                                const accentHeader = `color-mix(in srgb, ${group.color} 13%, transparent)`;
-                                const accentDivider = `color-mix(in srgb, ${group.color} 22%, transparent)`;
+                                const accentBorder = `color-mix(in srgb, ${group.color} 64%, transparent)`;
+                                const accentDivider = `color-mix(in srgb, ${group.color} 65%, transparent)`;
+
                                 return (
-                                  <div className="px-3 py-2.5 space-y-2.5">
-                                    {tiers.map(([tierRate, tier]) => {
-                                      const tierKey = `${group.id}:${tierRate}`;
-                                      const tierOpen = expandedTierKeys.has(tierKey);
-                                      const rateStr =
-                                        tierRate > 0
-                                          ? `${fmtMoney(toDisplay(tierRate), group.reportCurrency)}/h`
-                                          : "No rate";
-                                      const subtotalStr =
-                                        tier.earned > 0
-                                          ? fmtMoney(toDisplay(tier.earned), group.reportCurrency)
-                                          : null;
-                                      return (
-                                        <div
-                                          key={tierRate}
-                                          className="rounded-xl overflow-hidden"
-                                          style={{ border: `1px solid ${accentBorder}` }}
-                                        >
-                                          {/* Tier accordion header — category-tinted */}
-                                          <button
-                                            type="button"
-                                            onClick={() => toggleTierExpanded(tierKey)}
-                                            className="w-full flex items-center gap-2.5 px-3 py-2.5 text-left"
-                                            style={{ WebkitTapHighlightColor: "transparent", background: accentHeader }}
-                                            aria-expanded={tierOpen}
-                                          >
-                                            <span
-                                              className="w-[3px] self-stretch rounded-full shrink-0"
-                                              style={{ background: group.color, minHeight: 30 }}
-                                            />
-                                            <div className="min-w-0 flex-1">
-                                              {/* rate (left) · subtotal (right) */}
-                                              <div className="flex items-center gap-2.5">
-                                                <div className="min-w-0 flex-1">
-                                                  <FitText
-                                                    max={13}
-                                                    min={10}
-                                                    className="font-semibold tabular-nums text-foreground/90"
-                                                    watch={rateStr}
-                                                  >
-                                                    {rateStr}
-                                                  </FitText>
-                                                </div>
-                                                {subtotalStr && (
-                                                  <div className="shrink-0" style={{ maxWidth: "48%" }}>
-                                                    <FitText
-                                                      max={13}
-                                                      min={10}
-                                                      align="right"
-                                                      className="font-semibold tabular-nums text-success"
-                                                      watch={subtotalStr}
-                                                    >
-                                                      {subtotalStr}
-                                                    </FitText>
-                                                  </div>
-                                                )}
-                                              </div>
-                                              {/* duration · session count */}
-                                              <div className="mt-1 flex items-center gap-1.5 text-[11px] text-secondary-fg/55">
-                                                <span className="tabular-nums font-medium text-foreground/65">{fmtHM(tier.sec)}</span>
-                                                <span className="text-secondary-fg/25">·</span>
-                                                <span>{tier.entries.length} session{tier.entries.length === 1 ? "" : "s"}</span>
-                                              </div>
-                                            </div>
-                                            <ChevronDown
-                                              className={`h-3.5 w-3.5 shrink-0 text-secondary-fg/45 transition-transform duration-300 ${tierOpen ? "rotate-180" : ""}`}
-                                            />
-                                          </button>
-                                          <AnimatePresence initial={false}>
-                                            {tierOpen && (
-                                              <motion.div
-                                                key="tier-detail"
-                                                initial={{ height: 0, opacity: 0 }}
-                                                animate={{ height: "auto", opacity: 1 }}
-                                                exit={{ height: 0, opacity: 0 }}
-                                                transition={{
-                                                  height: { type: "tween", duration: 0.28, ease: [0.4, 0, 0.2, 1] },
-                                                  opacity: { duration: 0.18, ease: "easeOut" },
-                                                }}
-                                                style={{ overflow: "hidden" }}
+                                  <div className="px-3 py-3">
+                                    <div
+                                      className="reports-tier-card rounded-[16px] overflow-hidden bg-card/60"
+                                      style={{ border: `1px solid ${accentBorder}` }}
+                                    >
+                                      {tiers.map(([tierRate, tier], i) => {
+                                        const rateStr = tierRate > 0 ? `${fmtMoney(toDisplay(tierRate), group.reportCurrency)}/h` : "No rate";
+                                        return (
+                                          <div key={tierRate} style={i > 0 ? { borderTop: `1px solid ${accentDivider}` } : undefined}>
+                                            {showTiers && (
+                                              <div
+                                                className="px-4 py-2 flex items-center gap-2"
+                                                style={{ borderBottom: `1px solid ${accentDivider}` }}
                                               >
-                                                <ul
-                                                  className="divide-y divide-border/15"
-                                                  style={{ borderTop: `1px solid ${accentDivider}` }}
-                                                >
-                                                  {tier.entries.map((e) => renderSession(e, true))}
-                                                </ul>
-                                              </motion.div>
+                                                <span className="text-[10px] font-bold uppercase tracking-[0.14em] text-secondary-fg/55">Rate</span>
+                                                <span className="text-[11.5px] font-bold tabular-nums text-foreground/85 truncate">{rateStr}</span>
+                                              </div>
                                             )}
-                                          </AnimatePresence>
-                                        </div>
-                                      );
-                                    })}
+                                            <ul className="flex flex-col">
+                                              {tier.entries.map((e, idx) => renderSession(e, idx === tier.entries.length - 1))}
+                                            </ul>
+                                          </div>
+                                        );
+                                      })}
+                                    </div>
                                   </div>
                                 );
                               })()}
-                              <div className="grid grid-cols-2 gap-2 px-4 py-3">
-                                <button
-                                  type="button"
-                                  onClick={(e) => { e.stopPropagation(); onExport("pdf", [group.id], group.name); }}
-                                  className="h-9 rounded-xl border border-primary/30 bg-primary/[0.07] hover:bg-primary/[0.13] text-[11px] font-semibold text-primary pressable flex items-center justify-center gap-1.5 transition-colors"
-                                  aria-label={`Download PDF report for ${group.name}`}
-                                >
-                                  <FileText className="h-3 w-3" /> PDF
-                                </button>
-                                <button
-                                  type="button"
-                                  onClick={(e) => { e.stopPropagation(); onExport("csv", [group.id], group.name); }}
-                                  className="h-9 rounded-xl border border-success/30 bg-success/[0.06] hover:bg-success/[0.12] text-[11px] font-semibold text-success pressable flex items-center justify-center gap-1.5 transition-colors"
-                                  aria-label={`Download CSV report for ${group.name}`}
-                                >
-                                  <Download className="h-3 w-3" /> CSV
-                                </button>
+
+                              {/* ── Footer: Controls & Export ── */}
+                              <div className="border-t border-soft bg-foreground/[0.02] mt-auto">
+                                {group.id !== "uncategorized" && (
+                                  <div className="flex items-center justify-between px-4 py-2.5 border-b border-soft/50">
+                                    {renamingCatId === group.id ? (
+                                      <div className="flex items-center gap-2 w-full">
+                                        <input
+                                          autoFocus
+                                          value={renameDraft}
+                                          onChange={(ev) => setRenameDraft(ev.target.value)}
+                                          onKeyDown={(ev) => {
+                                            if (ev.key === "Enter") {
+                                              const t = renameDraft.trim();
+                                              if (t && t !== group.name) void renameCategory(group.id, t);
+                                              setRenamingCatId(null);
+                                            }
+                                            if (ev.key === "Escape") setRenamingCatId(null);
+                                          }}
+                                          className="flex-1 min-w-0 h-8 rounded-xl border border-primary/40 bg-card/60 px-3 text-[12px] font-medium outline-none focus:border-primary/70 transition-colors"
+                                          aria-label="Category name"
+                                        />
+                                        <button
+                                          type="button"
+                                          onClick={() => {
+                                            const t = renameDraft.trim();
+                                            if (t && t !== group.name) void renameCategory(group.id, t);
+                                            setRenamingCatId(null);
+                                          }}
+                                          className="h-8 w-8 rounded-xl bg-primary/90 flex items-center justify-center text-primary-foreground pressable shrink-0"
+                                        >
+                                          <Check className="h-3.5 w-3.5" strokeWidth={2.5} />
+                                        </button>
+                                        <button
+                                          type="button"
+                                          onClick={() => setRenamingCatId(null)}
+                                          className="h-8 w-8 rounded-xl border border-border/70 bg-card/40 flex items-center justify-center text-secondary-fg pressable shrink-0"
+                                        >
+                                          <X className="h-3.5 w-3.5" />
+                                        </button>
+                                      </div>
+                                    ) : (
+                                      <div className="flex items-center gap-4 w-full">
+                                        {!group.isDeleted ? (
+                                          <button
+                                            type="button"
+                                            onClick={() => { setRenameDraft(group.name); setRenamingCatId(group.id); }}
+                                            className="min-w-0 flex items-center gap-2 text-left text-secondary-fg/60 hover:text-foreground pressable transition-colors flex-1"
+                                          >
+                                            <Pencil className="h-3 w-3 shrink-0" />
+                                            <span className="text-[11.5px] font-medium truncate">Rename category</span>
+                                          </button>
+                                        ) : (
+                                          <span className="min-w-0 text-[11.5px] font-medium text-secondary-fg/45 truncate flex-1">Deleted category</span>
+                                        )}
+                                        <div className="flex items-center gap-2 shrink-0">
+                                          <span className="text-[10px] font-semibold uppercase tracking-[0.1em] text-secondary-fg/45">Currency</span>
+                                          <button
+                                            type="button"
+                                            onClick={(e) => {
+                                              e.stopPropagation();
+                                              setReportCurrencyTarget({ catId: group.id, trackerCurrency: group.currency });
+                                            }}
+                                            aria-label={`Change report currency for ${group.name}`}
+                                            className="inline-flex items-center gap-0.5 rounded-lg px-2 py-1 text-[11px] font-semibold tabular-nums tracking-[0.04em] pressable transition-[transform,box-shadow,background-color] duration-150 active:scale-[0.96]"
+                                            style={
+                                              group.reportCurrency !== group.currency
+                                                ? {
+                                                    background: "linear-gradient(180deg, hsl(var(--primary) / 0.18) 0%, hsl(var(--primary) / 0.08) 100%)",
+                                                    boxShadow: "inset 0 1px 0 hsl(0 0% 100% / 0.12), 0 0 0 1px hsl(var(--primary) / 0.40)",
+                                                    color: "hsl(var(--primary))",
+                                                  }
+                                                : {
+                                                    background: "hsl(var(--foreground) / 0.05)",
+                                                    boxShadow: "inset 0 0 0 1px hsl(var(--border) / 0.40)",
+                                                    color: "hsl(var(--foreground) / 0.7)",
+                                                  }
+                                            }
+                                          >
+                                            {group.reportCurrency}
+                                            <ChevronDown className="h-2.5 w-2.5 opacity-60" />
+                                          </button>
+                                        </div>
+                                      </div>
+                                    )}
+                                  </div>
+                                )}
+                                <div className="grid grid-cols-2 gap-2 px-4 py-3">
+                                  <button
+                                    type="button"
+                                    onClick={(e) => { e.stopPropagation(); onExport("pdf", [group.id], group.name); }}
+                                    className="h-9 rounded-xl border border-primary/45 bg-primary/[0.14] hover:bg-primary/[0.20] text-[11px] font-semibold text-primary pressable flex items-center justify-center gap-1.5 transition-colors"
+                                  >
+                                    <FileText className="h-3 w-3" /> PDF
+                                  </button>
+                                  <button
+                                    type="button"
+                                    onClick={(e) => { e.stopPropagation(); onExport("csv", [group.id], group.name); }}
+                                    className="h-9 rounded-xl border border-success/40 bg-success/[0.12] hover:bg-success/[0.18] text-[11px] font-semibold text-success pressable flex items-center justify-center gap-1.5 transition-colors"
+                                  >
+                                    <Download className="h-3 w-3" /> CSV
+                                  </button>
+                                </div>
                               </div>
                             </div>
                           </motion.div>
@@ -1421,20 +1442,35 @@ export default function Reports() {
             />
           )}
 
-          {period !== "day" && perDay.length > 1 && (
-            <section className="hero-glass border border-border/35 rounded-[28px] p-4">
-              <p className="text-[11px] font-semibold uppercase tracking-[0.16em] text-secondary-fg/70 mb-2">
-                Daily trend
-              </p>
-              <div className="h-32 -mx-2">
-                <Suspense fallback={<div className="h-full w-full rounded-xl shimmer opacity-60" />}>
-                  <ReportsTrendChart perDay={perDay} />
-                </Suspense>
-              </div>
+          {period !== "day" && totalSec > 0 && (
+            <section className="hero-glass border border-border/65 rounded-[28px] p-4">
+              <Suspense fallback={<div className="h-[196px] w-full rounded-xl shimmer opacity-60" />}>
+                <ReportsTrendChart perDay={perDay} perHour={perHour} totalSec={totalSec} />
+              </Suspense>
             </section>
           )}
 
-          <section className="space-y-3 pt-2">
+          {/* In-context coachmark: session rows are tappable for editing — not
+              obvious. Anchors to the first session; auto-hidden when none exist. */}
+          <FeatureHint
+            id="reports-session-edit"
+            selector="[data-hint='reports-session']"
+            title="Sessions are editable"
+            placement="top"
+          >
+            Tap any session to fix its start time, delete it, or move it to another category.
+          </FeatureHint>
+
+          <FeatureHint
+            id="reports-export"
+            selector="[data-tour='reports-export']"
+            title="Hand it to a client"
+            placement="top"
+          >
+            Export the period — or one category — as a billing-ready PDF or CSV, with rates and totals already worked out.
+          </FeatureHint>
+
+          <section data-tour="reports-export" className="space-y-3 pt-2">
             {!isPro && (
               <p className="text-[11px] text-secondary-fg/70 px-0.5">
                 PDF and CSV export with billing details is included with Pro.
@@ -1445,7 +1481,7 @@ export default function Reports() {
               <button
                 type="button"
                 onClick={() => onExport("pdf")}
-                className="group relative h-[62px] rounded-2xl border border-primary/35 bg-primary/[0.08] hover:bg-primary/[0.14] pressable flex flex-col items-center justify-center gap-0.5 overflow-hidden transition-colors"
+                className="group relative h-[62px] rounded-2xl border border-primary/55 bg-primary/[0.16] hover:bg-primary/[0.22] pressable flex flex-col items-center justify-center gap-0.5 overflow-hidden transition-colors"
               >
                 {/* subtle top glow */}
                 <span aria-hidden className="pointer-events-none absolute inset-x-0 top-0 h-px bg-gradient-to-r from-transparent via-primary/50 to-transparent" />
@@ -1461,7 +1497,7 @@ export default function Reports() {
               <button
                 type="button"
                 onClick={() => onExport("csv")}
-                className="group relative h-[62px] rounded-2xl border border-success/30 bg-success/[0.06] hover:bg-success/[0.11] pressable flex flex-col items-center justify-center gap-0.5 overflow-hidden transition-colors"
+                className="group relative h-[62px] rounded-2xl border border-success/45 bg-success/[0.13] hover:bg-success/[0.19] pressable flex flex-col items-center justify-center gap-0.5 overflow-hidden transition-colors"
               >
                 <span aria-hidden className="pointer-events-none absolute inset-x-0 top-0 h-px bg-gradient-to-r from-transparent via-success/40 to-transparent" />
                 <span className="flex items-center gap-1.5 text-[13px] font-semibold text-success">
@@ -1560,7 +1596,7 @@ export default function Reports() {
       >
         <SheetContent
           side="bottom"
-          className="rounded-t-[28px] border-border/45 bg-popover max-h-[90vh] flex flex-col p-0"
+          className="rounded-t-[28px] border-border/75 bg-popover max-h-[90vh] flex flex-col p-0"
         >
           <SheetTitle className="sr-only">
             Update payment details
@@ -1591,7 +1627,7 @@ export default function Reports() {
                   <button
                     type="button"
                     onClick={skipCurrentEdit}
-                    className="flex-1 h-11 rounded-xl border border-border/45 bg-card/40 text-[12.5px] font-medium text-secondary-fg/90 hover:text-foreground transition-colors"
+                    className="flex-1 h-11 rounded-xl border border-border/75 bg-card/40 text-[12.5px] font-medium text-secondary-fg/90 hover:text-foreground transition-colors"
                   >
                     Skip this one
                   </button>
@@ -1616,13 +1652,61 @@ export default function Reports() {
         open={!!editEntry}
         entry={editEntry}
         onClose={() => setEditEntry(null)}
-        onCommit={(d) => { if (editEntry) void updateEntryStart(editEntry.id, d); }}
+        onCommit={(d, reason) => {
+          if (!editEntry) return;
+          // Reason is stored as an immutable audit field, NOT merged into the
+          // editable note — so it can't be deleted while the added time stays.
+          void updateEntryStart(editEntry.id, d, reason);
+        }}
       />
       <EntryDeleteDialog
         open={!!deleteEntryTarget}
         onOpenChange={(o) => { if (!o) setDeleteEntryTarget(null); }}
         entry={deleteEntryTarget}
         onConfirm={() => { if (deleteEntryTarget) void deleteEntry(deleteEntryTarget.id); setDeleteEntryTarget(null); }}
+      />
+      {/* Name the task -> task_title */}
+      <SessionTaskSheet
+        open={!!taskEntry}
+        onClose={() => setTaskEntry(null)}
+        initialTitle={taskEntry?.taskTitle ?? ""}
+        categoryName={taskEntry?.categoryName}
+        categoryColor={taskEntry?.categoryColor}
+        onSave={(taskTitle) => { if (taskEntry) void updateEntryTaskTitle(taskEntry.id, taskTitle); }}
+      />
+      {/* Name / re-label a past session notes — writes to time_entries.note. */}
+      <SessionNoteSheet
+        open={!!noteEntry}
+        onClose={() => setNoteEntry(null)}
+        initialNote={noteEntry?.note ?? ""}
+        categoryName={noteEntry?.categoryName}
+        categoryColor={noteEntry?.categoryColor}
+        onSave={(note) => { if (noteEntry) void updateEntryNote(noteEntry.id, note); }}
+      />
+      <ReportsActionSheet
+        open={!!actionsEntry}
+        onClose={() => setActionsEntry(null)}
+        entry={actionsEntry}
+        onEditTask={() => {
+          if (actionsEntry) setTaskEntry({ id: actionsEntry.id, taskTitle: actionsEntry.taskTitle || "", categoryName: actionsEntry.categoryName ?? "", categoryColor: actionsEntry.categoryColor ?? "" });
+        }}
+        onEditNote={() => {
+          if (actionsEntry) setNoteEntry({ id: actionsEntry.id, note: actionsEntry.note, categoryName: actionsEntry.categoryName ?? "", categoryColor: actionsEntry.categoryColor ?? "" });
+        }}
+        onEditTime={() => {
+          if (actionsEntry) setEditEntry(actionsEntry);
+        }}
+        onViewReason={() => {
+          if (actionsEntry) setReasonEntry(actionsEntry);
+        }}
+        onDelete={() => {
+          if (actionsEntry) setDeleteEntryTarget(actionsEntry);
+        }}
+      />
+      <AdjustmentInfoSheet
+        open={!!reasonEntry}
+        onClose={() => setReasonEntry(null)}
+        entry={reasonEntry}
       />
     </>
   );
@@ -1667,7 +1751,7 @@ function CategoryFilterChip({
         className={`flex items-center gap-2 h-9 px-3 rounded-full border text-[13px] font-medium pressable transition-colors min-w-0 ${
           isFiltered
             ? "border-primary/40 bg-primary/[0.08] text-foreground/95"
-            : "border-border/40 bg-foreground/[0.03] text-foreground/85 hover:bg-foreground/[0.06]"
+            : "border-border/70 bg-foreground/[0.03] text-foreground/85 hover:bg-foreground/[0.06]"
         }`}
         aria-label="Filter by category"
       >

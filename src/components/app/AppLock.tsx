@@ -2,8 +2,8 @@ import { useEffect, useRef, useState } from "react";
 import { App as CapacitorApp } from "@capacitor/app";
 import { Capacitor } from "@capacitor/core";
 import { NativeBiometric } from "@capgo/capacitor-native-biometric";
-import { Fingerprint, ScanFace } from "lucide-react";
 import { getAppLockEnabled } from "@/lib/biometricGate";
+import { BiometricAura } from "@/components/app/BiometricAura";
 
 /** Background-lock grace period. Brief inactivity events (Face ID system
  *  prompt, Control Center pull-down, notification banner expand, even an
@@ -134,18 +134,13 @@ export function AppLock({ children }: { children: React.ReactNode }) {
     <>
       {locked && (
         <div className="fixed inset-0 z-[9999] flex flex-col items-center justify-center bg-background px-6 animate-in fade-in zoom-in duration-200">
-          {Capacitor.getPlatform() === "android" ? (
-            <div className="relative h-24 w-24 flex items-center justify-center mb-8">
-              <div className="absolute inset-0 rounded-full bg-primary/30 blur-2xl animate-pulse" />
-              <div className="relative z-10 h-20 w-20 rounded-full bg-background border border-primary/30 flex items-center justify-center text-primary shadow-[0_0_24px_rgba(var(--primary-rgb),0.4),inset_0_2px_4px_rgba(255,255,255,0.1),inset_0_-4px_8px_rgba(var(--primary-rgb),0.3)]">
-                <Fingerprint className="h-10 w-10 drop-shadow-[0_2px_8px_rgba(var(--primary-rgb),0.5)]" />
-              </div>
-            </div>
-          ) : (
-            <div className="h-20 w-20 rounded-3xl bg-secondary/30 border border-soft/50 flex items-center justify-center text-foreground mb-8 backdrop-blur-md shadow-sm">
-              <ScanFace className="h-11 w-11 stroke-[1.5]" />
-            </div>
-          )}
+          <div className="mb-8">
+            <BiometricAura
+              variant={Capacitor.getPlatform() === "android" ? "fingerprint" : "face"}
+              size={150}
+              subtle
+            />
+          </div>
           <h2 className="text-2xl font-display font-semibold mb-2 text-foreground text-balance text-center">App Locked</h2>
           <p className="text-[14px] text-secondary-fg text-center max-w-xs mb-10 leading-relaxed">
             Verify your identity to view your schedule and tasks.

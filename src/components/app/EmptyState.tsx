@@ -52,7 +52,7 @@ export function EmptyState({
       initial={{ opacity: 0, y: 8 }}
       animate={{ opacity: 1, y: 0 }}
       transition={{ duration: 0.36, ease: [0.32, 0.72, 0, 1] }}
-      className={`relative overflow-hidden rounded-[28px] hero-glass border border-border/35 px-6 py-10 text-center ${className}`}
+      className={`relative overflow-hidden rounded-[28px] hero-glass border border-border/65 px-6 py-10 text-center ${className}`}
     >
       <div
         aria-hidden

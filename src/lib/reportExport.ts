@@ -27,6 +27,10 @@ export type ReportEntryRow = {
   hourlyRate?: number | null;
   earnings?: number;
   note: string | null;
+  /** Hand-entered session (typed in after the fact), not a live-timed one. */
+  manual?: boolean;
+  /** Immutable audit reason recorded when the session's start time was edited. */
+  adjustmentReason?: string | null;
 };
 
 export type ReportPaymentDetails = {
@@ -108,14 +112,25 @@ export async function triggerDownload(blob: Blob, filename: string, mimeType: st
         import("@capacitor/filesystem"),
         import("@capacitor/share"),
       ]);
-      const base64 = await blobToBase64(blob);
+      // Text files (CSV): read as a plain string and write with Encoding.UTF8 so
+      // Capacitor writes the actual characters (including the BOM) to disk.
+      // Passing base64 with Encoding.UTF8 would write the base64 string itself —
+      // the "one garbled strip" bug.  Binary files (PDF): no encoding = Capacitor
+      // expects base64 and decodes before writing.
+      let fileData: string;
+      let fileEncoding: typeof Encoding.UTF8 | undefined;
+      if (mimeType.startsWith("text/")) {
+        fileData = await blob.text();
+        fileEncoding = Encoding.UTF8;
+      } else {
+        fileData = await blobToBase64(blob);
+        fileEncoding = undefined;
+      }
       const writeRes = await Filesystem.writeFile({
         path: filename,
-        data: base64,
+        data: fileData,
         directory: Directory.Cache,
-        // Encoding.UTF8 only works for text; binary needs no encoding
-        // and a base64 payload, which is what we pass above.
-        encoding: mimeType.startsWith("text/") ? Encoding.UTF8 : undefined,
+        encoding: fileEncoding,
         recursive: true,
       });
       try {
@@ -213,17 +228,42 @@ export const paymentDetailRows = (details?: ReportPaymentDetails | null) => {
 };
 
 export async function downloadReportCsv(report: ReportPayload) {
-  const lines: string[] = [];
-  
-  lines.push("--- SUMMARY ---");
-  lines.push(`"Report type","${report.periodLabel.replace(/"/g, '""')}"`);
-  lines.push(`"Date range","${report.rangeLabel.replace(/"/g, '""')}"`);
-  if (report.scopeLabel) lines.push(`"Categories","${report.scopeLabel.replace(/"/g, '""')}"`);
-  lines.push(`"Total tracked (Hours)","${(report.totalSeconds / 3600).toFixed(2)}"`);
-  const globalCurrency = report.categories[0]?.currency || report.paymentDetails?.currency || "USD";
-  lines.push(`"Total earned","${(report.totalEarnings || 0).toFixed(2)}"`);
-  lines.push(`"Currency","${globalCurrency}"`);
+  // A spreadsheet-friendly export. Three things make the difference between a
+  // clean table and the "everything in one garbled column" mess:
+  //   1. UTF-8 BOM so Excel/Numbers detect the encoding (Cyrillic → real text,
+  //      not mojibake).
+  //   2. A delimiter that matches the user's locale. In en/US the list
+  //      separator is "," ; in ru/uk/most of Europe Excel expects ";" and a
+  //      plain comma file collapses into a single column. We pick by locale and
+  //      switch the decimal mark to match (";" ⇒ decimal comma) so numbers stay
+  //      numeric, not text.
+  //   3. CRLF rows + every text field quoted + tidy, titled sections.
+  const lang = (typeof navigator !== "undefined" ? navigator.language : "en").toLowerCase();
+  // Locales whose spreadsheets default to ";" as the list separator.
+  const semicolonLocale =
+    /^(ru|uk|be|de|fr|es|it|pl|pt|nl|cs|sk|sv|sl|hu|ro|tr|el|bg|hr|et|lv|lt|fi|da|nb|nn|no|ka|hy|az|sr|mk)/.test(lang);
+  const D = semicolonLocale ? ";" : ",";
+  const decSep = semicolonLocale ? "," : ".";
+  const EOL = "\r\n";
 
+  const q = (v: unknown) => `"${String(v ?? "").replace(/"/g, '""')}"`;
+  const num = (n: number, digits = 2) => n.toFixed(digits).replace(".", decSep);
+  const lines: string[] = [];
+  const push = (...cells: string[]) => lines.push(cells.join(D));
+  const blank = () => lines.push("");
+
+  const globalCurrency = report.categories[0]?.currency || report.paymentDetails?.currency || "USD";
+
+  // ── Summary ──
+  push(q("DayDraft — Time report"));
+  push(q("Report type"), q(report.periodLabel));
+  push(q("Date range"), q(report.rangeLabel));
+  if (report.scopeLabel) push(q("Categories"), q(report.scopeLabel));
+  push(q("Total tracked (h)"), num(report.totalSeconds / 3600));
+  push(q("Total earned"), num(report.totalEarnings || 0));
+  push(q("Currency"), q(globalCurrency));
+
+  // ── Payment details ──
   const sections = report.paymentSections?.length
     ? report.paymentSections
     : report.paymentDetails
@@ -232,46 +272,67 @@ export async function downloadReportCsv(report: ReportPayload) {
   for (const sec of sections) {
     const paymentRows = paymentDetailRows(sec.details);
     if (!paymentRows.length) continue;
-    lines.push("");
-    lines.push(`--- ${sec.title.toUpperCase().replace(/"/g, '""')} ---`);
-    for (const [label, value] of paymentRows) {
-      lines.push(`"${label.replace(/"/g, '""')}","${value.replace(/"/g, '""')}"`);
-    }
+    blank();
+    const scope = sec.title.replace(/^Payment\s*—\s*/i, "").trim();
+    push(q(scope && scope.toLowerCase() !== "all categories" ? `PAYMENT DETAILS — ${scope}` : "PAYMENT DETAILS"));
+    push(q("Field"), q("Value"));
+    for (const [label, value] of paymentRows) push(q(label), q(value));
   }
 
+  // ── Category breakdown ──
   if (report.categories.length) {
-    lines.push("");
-    lines.push("--- CATEGORY BREAKDOWN ---");
-    lines.push("Category,Duration (Hours),Share (%),Rate / hour,Earned,Currency");
+    blank();
+    push(q("CATEGORY BREAKDOWN"));
+    push(q("Category"), q("Duration (h)"), q("Share %"), q("Rate/h"), q("Earned"), q("Currency"));
     for (const c of report.categories) {
-      lines.push(`"${c.name.replace(/"/g, '""')}",${(c.seconds / 3600).toFixed(2)},${(c.pct * 100).toFixed(1)},${c.hourlyRate ?? ""},${(c.earnings || 0).toFixed(2)},"${c.currency || "USD"}"`);
-    }
-  }
-
-  if (report.entries.length) {
-    lines.push("");
-    lines.push("--- ACTIVITY LOG ---");
-    lines.push("Date,Started,Ended,Category,Task,Duration (Minutes),Duration (Hours),Rate / hour,Earned,Currency,Note");
-    for (const e of report.entries) {
-      lines.push(
-        [
-          e.date,
-          e.startedAt,
-          e.endedAt,
-          `"${e.category.replace(/"/g, '""')}"`,
-          `"${(e.taskTitle ?? "").replace(/"/g, '""')}"`,
-          e.durationMin.toString(),
-          (e.durationMin / 60).toFixed(2),
-          e.hourlyRate ?? "",
-          (e.earnings || 0).toFixed(2),
-          `"${e.currency || "USD"}"`,
-          `"${(e.note ?? "").replace(/"/g, '""')}"`,
-        ].join(",")
+      push(
+        q(c.name),
+        num(c.seconds / 3600),
+        num(c.pct * 100, 1),
+        c.hourlyRate != null ? num(c.hourlyRate) : "",
+        num(c.earnings || 0),
+        q(c.currency || "USD"),
       );
     }
   }
 
-  const blob = new Blob([lines.join("\n")], { type: "text/csv;charset=utf-8" });
+  // ── Activity log — one flat table, rows grouped by category order ──
+  if (report.entries.length) {
+    blank();
+    push(q("ACTIVITY LOG"));
+    push(
+      q("Date"), q("Start"), q("End"), q("Category"), q("Session"), q("Note"),
+      q("Duration (min)"), q("Duration (h)"), q("Rate/h"), q("Earned"), q("Currency"),
+      q("Manual"), q("Adjustment reason"),
+    );
+    // Sort by the breakdown's category order (Uncategorized last) so rows read
+    // grouped, while staying a single flat table the user can re-sort/filter.
+    const order = new Map<string, number>();
+    report.categories.forEach((c, i) => order.set(c.name, i));
+    const rank = (cat: string) => (cat === "Uncategorized" ? Infinity : order.get(cat) ?? 1e6);
+    const sorted = [...report.entries].sort((a, b) => rank(a.category) - rank(b.category));
+    for (const e of sorted) {
+      push(
+        q(e.date),
+        q(e.startedAt),
+        q(e.endedAt),
+        q(e.category),
+        q(e.taskTitle ?? ""),
+        q(e.note ?? ""),
+        String(e.durationMin),
+        num(e.durationMin / 60),
+        e.hourlyRate != null ? num(e.hourlyRate) : "",
+        num(e.earnings || 0),
+        q(e.currency || "USD"),
+        q(e.manual ? "yes" : ""),
+        q(e.adjustmentReason ?? ""),
+      );
+    }
+  }
+
+  // UTF-8 BOM up front so spreadsheet apps don't mis-detect the encoding.
+  const csv = "﻿" + lines.join(EOL) + EOL;
+  const blob = new Blob([csv], { type: "text/csv;charset=utf-8" });
   await triggerDownload(blob, `${filenameBase(report)}.csv`, "text/csv");
 }
 
@@ -376,6 +437,7 @@ export async function downloadReportPdf(report: ReportPayload) {
   const accent: RGB      = [99, 102, 241];   // indigo-500
   const accentSoft: RGB  = [139, 92, 246];   // violet-500 (second card)
   const success: RGB     = [16, 185, 129];   // emerald-500 (earnings)
+  const amber: RGB       = [217, 119, 6];    // amber-600 (hand-entered / adjusted)
   const white: RGB       = [255, 255, 255];
 
   const usableW = pageW - margin * 2;
@@ -588,87 +650,146 @@ export async function downloadReportPdf(report: ReportPayload) {
       ? [{ title: "Payment details", details: report.paymentDetails }]
       : [];
 
+  // Emphasised block: an accent banner header, a tinted body, an accent strip
+  // down the left edge, and the payment-method value called out in accent +
+  // underline — so the "how do I get paid" details are the first thing the eye
+  // lands on (this is the part an invoice recipient actually needs).
+  const payTint: RGB = [243, 244, 255];      // very light indigo body fill
+  const payTintAlt: RGB = [235, 236, 252];   // alternating row
   for (let si = 0; si < sections.length; si++) {
     const sec = sections[si];
     const paymentRows = paymentDetailRows(sec.details);
     if (!paymentRows.length) continue;
-    cursorY = ensureRoom(cursorY, 96);
-    // Section title is always just "Payment details"; the scope is shown
-    // as a sub-eyebrow underneath so the layout doesn't collapse when the
-    // category names are long or Cyrillic.
-    sectionTitle(sections.length === 1 ? "Payment details" : `Payment details · ${si + 1} of ${sections.length}`, cursorY);
-    cursorY += 16;
-    // Scope sub-eyebrow — strip the "Payment — " prefix the caller adds.
+    cursorY = ensureRoom(cursorY, 120);
+
+    // Scope label (strip the "Payment — " prefix the caller adds). Folded into
+    // the accent banner so long / Cyrillic names never collapse the layout.
     const scopeLabel = sec.title.replace(/^Payment\s*—\s*/i, "").trim();
-    if (scopeLabel) {
-      doc.setFont(FONT, "bold");
-      doc.setFontSize(10.5);
-      doc.setTextColor(...ink);
-      doc.text(scopeLabel, margin, cursorY + 4);
-      cursorY += 14;
-    }
-    // Payment key/value table.
-    // Col 0 (label) and col 1 (value) use the SAME fontSize so the two-column
-    // grid sits on a shared baseline — previously 9 vs 10 caused a half-line
-    // shift that made values look mis-seated against their labels.
+    const showScope = !!scopeLabel && scopeLabel.toLowerCase() !== "all categories";
+    const bannerText =
+      sections.length === 1
+        ? showScope ? `Payment details · ${scopeLabel}` : "Payment details"
+        : `Payment details · ${showScope ? scopeLabel : `${si + 1} of ${sections.length}`}`;
+
+    // Which row is the payment method — gets the accent + underline treatment.
+    const methodIdx = paymentRows.findIndex(([label]) => /payment method/i.test(label));
+
     autoTable(doc, {
       startY: cursorY,
+      head: [[{ content: bannerText, colSpan: 2 }]],
       body: paymentRows,
       margin: { left: margin, right: margin },
+      tableWidth: usableW,
       styles: {
         font: FONT,
         fontSize: 9.5,
-        cellPadding: { top: 11, bottom: 11, left: 14, right: 14 },
+        cellPadding: { top: 11, bottom: 11, left: 18, right: 14 },
         textColor: body,
-        lineColor: hairline,
+        lineColor: white,
         lineWidth: 0,
         valign: "middle",
         overflow: "linebreak",
       },
+      headStyles: {
+        fillColor: accent,
+        textColor: white,
+        fontStyle: "bold",
+        fontSize: 10.5,
+        cellPadding: { top: 10, bottom: 10, left: 18, right: 14 },
+        lineWidth: 0,
+      },
       columnStyles: {
         0: { fontStyle: "bold", textColor: sub, cellWidth: 150 },
-        1: { textColor: ink, fontStyle: "normal" },
+        1: { fontStyle: "bold", textColor: ink },
       },
-      alternateRowStyles: { fillColor: soft },
+      bodyStyles: { fillColor: payTint },
+      alternateRowStyles: { fillColor: payTintAlt },
       theme: "plain",
+      didParseCell: (data) => {
+        if (data.section === "body" && data.column.index === 1 && data.row.index === methodIdx) {
+          data.cell.styles.textColor = accent;
+        }
+      },
+      didDrawCell: (data) => {
+        // Accent strip down the left edge of the body (keys the whole block).
+        if (data.section === "body" && data.column.index === 0) {
+          doc.setFillColor(...accent);
+          doc.rect(margin, data.cell.y, 3, data.cell.height, "F");
+        }
+        // Underline the payment-method value to make it pop.
+        if (data.section === "body" && data.column.index === 1 && data.row.index === methodIdx) {
+          const v = String(paymentRows[methodIdx]?.[1] ?? "");
+          if (v) {
+            doc.setFont(FONT, "bold");
+            doc.setFontSize(9.5);
+            const ux = data.cell.x + 18;
+            const uy = data.cell.y + data.cell.height / 2 + 5.5;
+            doc.setDrawColor(...accent);
+            doc.setLineWidth(0.8);
+            doc.line(ux, uy, ux + doc.getTextWidth(v), uy);
+          }
+        }
+      },
     });
     cursorY = ((doc as { lastAutoTable?: { finalY: number } }).lastAutoTable?.finalY || cursorY) + 24;
   }
 
+  // ── Column-sizing helpers ────────────────────────────────
+  // Measure the widest string in a set at a given size/weight so the money /
+  // date / time columns are sized to their actual data and never clip. Both
+  // tables use overflow:"ellipsize" (never linebreak), so the only thing that
+  // can shorten is a flex text column — numbers and dates always fit on one line.
+  const headFill: RGB = [243, 245, 251];
+  const measureMax = (values: string[], size: number, bold = false): number => {
+    doc.setFont(FONT, bold ? "bold" : "normal");
+    doc.setFontSize(size);
+    let w = 0;
+    for (const v of values) { const t = doc.getTextWidth(v || ""); if (t > w) w = t; }
+    return w;
+  };
+  const clampN = (n: number, lo: number, hi: number) => Math.max(lo, Math.min(hi, n));
+  const getFinalY = () => (doc as { lastAutoTable?: { finalY: number } }).lastAutoTable?.finalY || cursorY;
+
   // ── Category breakdown ───────────────────────────────────
-  // FIX: header and body now share the same font size (10pt) so right-aligned
-  // columns ("Earned", "Rate", "Time") land on the same visual anchor.
-  // Previously headers at 7.5pt were positioned much further from the right
-  // edge than body values at 10.5pt, creating the "column shifted right" look.
-  //
-  // dot col: cellWidth 20, zero horizontal padding — the circle is drawn
-  // manually in didDrawCell; extra padding was wasting space and miscentring.
+  // Numeric columns auto-size from the data (+ a small buffer) so "Share" never
+  // collapses to "100…." and rate/earned of any currency magnitude stay on one
+  // line; the Category column flexes into whatever space is left.
   if (report.categories.length) {
-    cursorY = ensureRoom(cursorY, 120);
+    cursorY = ensureRoom(cursorY, 110);
     sectionTitle("Category breakdown", cursorY);
     cursorY += 14;
 
-    // Shared padding for both head and body so every row has the same rhythm.
-    const CP = { top: 11, bottom: 11, left: 14, right: 14 };
-    const HEAD_CP = { top: 9, bottom: 10, left: 14, right: 14 };
-    const headFill: RGB = [242, 244, 250];
+    const FS = 9.5;
+    const PAD = 9;
+    const BUF = PAD * 2 + 3;
+    const fmtPct = (p: number) => {
+      const v = p * 100;
+      if (v >= 99.95) return "100%";
+      return v < 9.95 ? `${v.toFixed(1)}%` : `${Math.round(v)}%`;
+    };
+    const cb = report.categories.map((c) => ({
+      time: fmtH(c.seconds),
+      share: fmtPct(c.pct),
+      rate: c.hourlyRate ? `${fmtMoney(c.hourlyRate, c.currency || "USD")}/h` : "—",
+      earned: c.earnings && c.earnings > 0 ? fmtMoney(c.earnings, c.currency || "USD") : "—",
+    }));
+    const dotW = 18;
+    const timeW = clampN(measureMax([...cb.map((r) => r.time), "Time"], FS, true) + BUF, 50, 84);
+    const shareW = clampN(measureMax([...cb.map((r) => r.share), "Share"], FS) + BUF, 44, 64);
+    const rateW = clampN(measureMax([...cb.map((r) => r.rate), "Rate/hr"], FS) + BUF, 54, 110);
+    const earnedW = clampN(measureMax([...cb.map((r) => r.earned), "Earned"], FS, true) + BUF, 58, 120);
+    const nameW = usableW - dotW - timeW - shareW - rateW - earnedW;
 
     autoTable(doc, {
       startY: cursorY,
-      head: [["", "Category", "Time", "Share", "Rate / hr", "Earned"]],
-      body: report.categories.map((c) => [
-        "",
-        c.name,
-        fmtH(c.seconds),
-        `${(c.pct * 100).toFixed(1)}%`,
-        c.hourlyRate ? fmtMoney(c.hourlyRate, c.currency || "USD") : "—",
-        c.earnings && c.earnings > 0 ? fmtMoney(c.earnings, c.currency || "USD") : "—",
-      ]),
+      head: [["", "Category", "Time", "Share", "Rate/h", "Earned"]],
+      body: report.categories.map((c, i) => ["", c.name, cb[i].time, cb[i].share, cb[i].rate, cb[i].earned]),
       margin: { left: margin, right: margin },
+      tableWidth: usableW,
       styles: {
         font: FONT,
-        fontSize: 10,
-        cellPadding: CP,
+        fontSize: FS,
+        cellPadding: { top: 9, bottom: 9, left: PAD, right: PAD },
         textColor: ink,
         lineColor: hairline,
         lineWidth: 0,
@@ -679,20 +800,18 @@ export async function downloadReportPdf(report: ReportPayload) {
         fillColor: headFill,
         textColor: sub,
         fontStyle: "bold",
-        fontSize: 10,       // ← same as body; eliminates the right-edge drift
-        cellPadding: HEAD_CP,
-        lineColor: hairline,
+        fontSize: FS,
+        cellPadding: { top: 8, bottom: 9, left: PAD, right: PAD },
         lineWidth: 0,
       },
       alternateRowStyles: { fillColor: soft },
       columnStyles: {
-        // dot: tight, zero horizontal padding — circle drawn in didDrawCell
-        0: { cellWidth: 20, cellPadding: { top: 11, bottom: 11, left: 0, right: 4 } },
-        1: { fontStyle: "bold", textColor: ink },
-        2: { halign: "right", cellWidth: 78, fontStyle: "bold" },
-        3: { halign: "right", cellWidth: 58, textColor: sub },
-        4: { halign: "right", cellWidth: 100, textColor: sub },
-        5: { halign: "right", cellWidth: 100, fontStyle: "bold" },
+        0: { cellWidth: dotW, cellPadding: { top: 9, bottom: 9, left: 0, right: 0 } },
+        1: { cellWidth: nameW, fontStyle: "bold", textColor: ink },
+        2: { cellWidth: timeW, halign: "left", fontStyle: "bold" },
+        3: { cellWidth: shareW, halign: "left", textColor: sub },
+        4: { cellWidth: rateW, halign: "left", textColor: sub },
+        5: { cellWidth: earnedW, halign: "left", fontStyle: "bold" },
       },
       theme: "plain",
       didParseCell: (data) => {
@@ -706,18 +825,16 @@ export async function downloadReportPdf(report: ReportPayload) {
         }
       },
       didDrawCell: (data) => {
-        // Colour dot — drawn at cell centre, size proportional to row height.
+        // Colour dot — centred in the tight first column.
         if (data.section === "body" && data.column.index === 0) {
           const row = report.categories[data.row.index];
           if (row) {
             const [r, g, b] = hexToRgb(row.color || "#6366f1");
             doc.setFillColor(r, g, b);
-            const cx = data.cell.x + data.cell.width - 4;
-            const cy = data.cell.y + data.cell.height / 2;
-            doc.circle(cx, cy, 3.8, "F");
+            doc.circle(data.cell.x + data.cell.width / 2 + 2, data.cell.y + data.cell.height / 2, 3.6, "F");
           }
         }
-        // Accent underline beneath header row once (last column only).
+        // Accent underline beneath the full header row (drawn once).
         if (data.section === "head" && data.column.index === 5) {
           doc.setDrawColor(...accent);
           doc.setLineWidth(1);
@@ -726,93 +843,268 @@ export async function downloadReportPdf(report: ReportPayload) {
         }
       },
     });
-    cursorY = ((doc as { lastAutoTable?: { finalY: number } }).lastAutoTable?.finalY || cursorY) + 30;
+    cursorY = getFinalY() + 26;
   }
 
-  // ── Activity log ─────────────────────────────────────────
-  // Same fix applied: headers and body share fontSize 9. Start/End columns
-  // are 52px (was 44) so "10:30 AM" fits without truncation. Earned column
-  // is 78px (was 68) to handle wider currency strings like "CA$1,234".
-  // Head and body use the same cellPadding left/right so right-aligned text
-  // in header and body cells shares the same right anchor pixel.
+  // ── Activity log — grouped by category ───────────────────
+  // Sessions are bucketed under their category (a coloured header card), with
+  // Uncategorized last. Every group uses the SAME column geometry (widths
+  // measured once across ALL rows) so the tables line up down the page. A
+  // leading marker column flags hand-entered / time-adjusted / noted sessions
+  // with a coloured ref number that points at the "Notes & adjustments" block
+  // below — keeping the log itself uncluttered. All columns are left-aligned.
+  type NoteRef = { n: number; e: ReportEntryRow; manual: boolean; hasReason: boolean };
+  const noteRefs: NoteRef[] = [];
+  const flagOf = (e: ReportEntryRow) => {
+    const manual = !!e.manual;
+    const hasReason = !!(e.adjustmentReason && e.adjustmentReason.trim());
+    const hasNote = !!(e.note && e.note.trim());
+    return { manual, hasReason, hasNote, flagged: manual || hasReason || hasNote };
+  };
+
   if (report.entries.length) {
-    cursorY = ensureRoom(cursorY, 100);
+    cursorY = ensureRoom(cursorY, 110);
     sectionTitle(
       `Activity log · ${report.entries.length} ${report.entries.length === 1 ? "session" : "sessions"}`,
       cursorY,
     );
-    cursorY += 14;
+    cursorY += 20;
 
-    const headFill2: RGB = [242, 244, 250];
+    const FS = 9;
+    const PAD = 8;
+    const BUF = PAD * 2 + 3;
+    const markW = 22;
 
-    autoTable(doc, {
-      startY: cursorY,
-      head: [["Date", "Start", "End", "Category", "Task", "Duration", "Earned", "Note"]],
-      body: report.entries.map((e) => [
-        e.date,
-        e.startedAt,
-        e.endedAt,
-        e.category,
-        e.taskTitle ?? "",
-        `${e.durationMin}m`,
-        e.earnings && e.earnings > 0 ? fmtMoney(e.earnings, e.currency || "USD") : "—",
-        e.note ?? "",
-      ]),
-      margin: { left: margin, right: margin, bottom: 56 },
-      styles: {
-        font: FONT,
-        fontSize: 9,
-        cellPadding: { top: 11, bottom: 11, left: 14, right: 14 },
-        textColor: body,
-        lineColor: hairline,
-        lineWidth: 0,
-        valign: "middle",
-        overflow: "linebreak",
-      },
-      headStyles: {
-        fillColor: headFill2,
-        textColor: sub,
-        fontStyle: "bold",
-        fontSize: 9,        // ← matches body; right-aligned headers now share
-        cellPadding: { top: 9, bottom: 10, left: 14, right: 14 }, // same L/R as body
-        lineColor: hairline,
-        lineWidth: 0,
-      },
-      alternateRowStyles: { fillColor: soft },
-      columnStyles: {
-        0: { textColor: ink, fontStyle: "bold", cellWidth: 62 },
-        1: { textColor: sub, cellWidth: 54, halign: "right" },  // fits "10:30 AM"
-        2: { textColor: sub, cellWidth: 54, halign: "right" },
-        3: { textColor: ink, cellWidth: 78, overflow: "ellipsize" },
-        4: { textColor: ink, cellWidth: 100, overflow: "ellipsize" }, // Task title
-        5: { halign: "right", textColor: ink, fontStyle: "bold", cellWidth: 56 },
-        6: { halign: "right", textColor: ink, fontStyle: "bold", cellWidth: 80 },
-        7: { textColor: sub, fontSize: 8.5 },
-      },
-      theme: "plain",
-      didParseCell: (data) => {
-        if (
-          data.section === "body" &&
-          data.column.index === 6 &&
-          data.cell.raw === "—"
-        ) {
-          data.cell.styles.textColor = faint;
-          data.cell.styles.fontStyle = "normal";
-        }
-      },
-      didDrawCell: (data) => {
-        if (data.section === "head" && data.column.index === 7) {
-          doc.setDrawColor(...accent);
-          doc.setLineWidth(1);
-          const lineY = data.cell.y + data.cell.height;
-          doc.line(margin, lineY, pageW - margin, lineY);
-        }
-      },
+    const rowOf = (e: ReportEntryRow) => ({
+      date: e.date,
+      time: `${e.startedAt} – ${e.endedAt}`,
+      session: (e.taskTitle && e.taskTitle.trim()) || "—",
+      dur: fmtH(e.durationMin * 60),
+      earned: e.earnings && e.earnings > 0 ? fmtMoney(e.earnings, e.currency || "USD") : "—",
     });
+    const allRows = report.entries.map(rowOf);
+    const anyEarned = allRows.some((r) => r.earned !== "—");
+
+    // Global widths — measured across every row so all category tables align.
+    const dateW = clampN(measureMax([...allRows.map((r) => r.date), "Date"], FS, true) + BUF, 46, 72);
+    const timeW = clampN(measureMax([...allRows.map((r) => r.time), "Time"], FS) + BUF, 70, 120);
+    const durW = clampN(measureMax([...allRows.map((r) => r.dur), "Duration"], FS, true) + BUF, 50, 64);
+    const earnedW = anyEarned ? clampN(measureMax([...allRows.map((r) => r.earned), "Earned"], FS, true) + BUF, 58, 104) : 0;
+    const sessionW = usableW - markW - dateW - timeW - durW - earnedW;
+
+    const cols: { header: string; key: string; width: number; bold?: boolean; color: RGB }[] = [
+      { header: "", key: "mark", width: markW, color: sub },
+      { header: "Date", key: "date", width: dateW, color: ink, bold: true },
+      { header: "Time", key: "time", width: timeW, color: sub },
+      { header: "Session", key: "session", width: sessionW, color: ink },
+      { header: "Duration", key: "dur", width: durW, color: ink, bold: true },
+    ];
+    if (anyEarned) cols.push({ header: "Earned", key: "earned", width: earnedW, color: ink, bold: true });
+    const sessionColIdx = 3;
+    const earnedColIdx = anyEarned ? cols.length - 1 : -1;
+
+    const columnStyles: Record<number, Record<string, unknown>> = {};
+    cols.forEach((c, i) => {
+      columnStyles[i] = {
+        cellWidth: c.width,
+        halign: "left",
+        fontStyle: c.bold ? "bold" : "normal",
+        textColor: c.color,
+        ...(c.key === "mark" ? { cellPadding: { top: 7, bottom: 7, left: 0, right: 0 } } : {}),
+      };
+    });
+
+    // Bucket entries by category, ordered to match the breakdown; Uncat last.
+    const byCat = new Map<string, { color: string; items: ReportEntryRow[] }>();
+    for (const e of report.entries) {
+      const name = e.category || "Uncategorized";
+      if (!byCat.has(name)) {
+        const fromBreakdown = report.categories.find((c) => c.name === name);
+        byCat.set(name, {
+          color: fromBreakdown?.color || (name === "Uncategorized" ? "#9aa0b4" : "#6366f1"),
+          items: [],
+        });
+      }
+      byCat.get(name)!.items.push(e);
+    }
+    const orderedNames: string[] = [];
+    for (const c of report.categories) if (byCat.has(c.name) && !orderedNames.includes(c.name)) orderedNames.push(c.name);
+    for (const name of byCat.keys()) if (!orderedNames.includes(name)) orderedNames.push(name);
+    orderedNames.sort((a, b) => (a === "Uncategorized" ? 1 : 0) - (b === "Uncategorized" ? 1 : 0));
+
+    for (const name of orderedNames) {
+      const group = byCat.get(name)!;
+      const groupSecs = group.items.reduce((s, e) => s + e.durationMin * 60, 0);
+      const groupEarned = group.items.reduce((s, e) => s + (e.earnings || 0), 0);
+      const groupCur = group.items.find((e) => e.currency)?.currency || "USD";
+
+      // Category header card — colour strip + dot + name (truncated) + stats.
+      const headH = 26;
+      cursorY = ensureRoom(cursorY, headH + 46);
+      doc.setFillColor(...cardFill);
+      doc.roundedRect(margin, cursorY, usableW, headH, 7, 7, "F");
+      const [cr, cg, cb] = hexToRgb(group.color || "#6366f1");
+      doc.setFillColor(cr, cg, cb);
+      doc.roundedRect(margin, cursorY, 3, headH, 1.5, 1.5, "F");
+      doc.circle(margin + 16, cursorY + headH / 2, 3.6, "F");
+      const stats = `${group.items.length} ${group.items.length === 1 ? "session" : "sessions"} · ${fmtH(groupSecs)}${groupEarned > 0 ? ` · ${fmtMoney(groupEarned, groupCur)}` : ""}`;
+      doc.setFont(FONT, "bold");
+      doc.setFontSize(8.5);
+      doc.setTextColor(...sub);
+      const statsW = doc.getTextWidth(stats);
+      doc.text(stats, pageW - margin - 12, cursorY + headH / 2 + 3, { align: "right" });
+      // Name — truncated so it never collides with the right-rail stats.
+      doc.setFont(FONT, "bold");
+      doc.setFontSize(11);
+      doc.setTextColor(...ink);
+      const nameX = margin + 28;
+      const nameMaxW = (pageW - margin - 12 - statsW - 14) - nameX;
+      let nm = name;
+      while (doc.getTextWidth(nm) > nameMaxW && nm.length > 1) nm = nm.slice(0, -1);
+      if (nm.length < name.length) nm = nm.slice(0, Math.max(1, nm.length - 1)) + "…";
+      doc.text(nm, nameX, cursorY + headH / 2 + 4);
+      cursorY += headH + 6;
+
+      // Assign refs (render order, top→bottom) for flagged rows in this group.
+      const refByRowIdx = new Map<number, NoteRef>();
+      group.items.forEach((e, idx) => {
+        const f = flagOf(e);
+        if (f.flagged) {
+          const ref: NoteRef = { n: noteRefs.length + 1, e, manual: f.manual, hasReason: f.hasReason };
+          noteRefs.push(ref);
+          refByRowIdx.set(idx, ref);
+        }
+      });
+
+      autoTable(doc, {
+        startY: cursorY,
+        head: [cols.map((c) => c.header)],
+        body: group.items.map((e) => {
+          const rec: Record<string, string> = { mark: "", ...rowOf(e) };
+          return cols.map((c) => rec[c.key]);
+        }),
+        margin: { left: margin, right: margin, bottom: 56 },
+        tableWidth: usableW,
+        styles: {
+          font: FONT,
+          fontSize: FS,
+          cellPadding: { top: 7, bottom: 7, left: PAD, right: PAD },
+          textColor: body,
+          lineColor: hairline,
+          lineWidth: 0,
+          valign: "middle",
+          overflow: "ellipsize",
+        },
+        headStyles: {
+          fillColor: headFill,
+          textColor: sub,
+          fontStyle: "bold",
+          fontSize: FS,
+          cellPadding: { top: 6, bottom: 7, left: PAD, right: PAD },
+          lineWidth: 0,
+        },
+        alternateRowStyles: { fillColor: soft },
+        columnStyles,
+        theme: "plain",
+        didParseCell: (data) => {
+          if (
+            data.section === "body" &&
+            data.cell.raw === "—" &&
+            (data.column.index === sessionColIdx || data.column.index === earnedColIdx)
+          ) {
+            data.cell.styles.textColor = faint;
+            data.cell.styles.fontStyle = "normal";
+          }
+        },
+        didDrawCell: (data) => {
+          // Marker badge — coloured ref number for flagged rows.
+          if (data.section === "body" && data.column.index === 0) {
+            const ref = refByRowIdx.get(data.row.index);
+            if (ref) {
+              const mc: RGB = ref.manual || ref.hasReason ? amber : accent;
+              const bw = 15, bh = 12;
+              const bx = data.cell.x + (data.cell.width - bw) / 2;
+              const by = data.cell.y + (data.cell.height - bh) / 2;
+              doc.setFillColor(...mc);
+              doc.roundedRect(bx, by, bw, bh, 2.5, 2.5, "F");
+              doc.setFont(FONT, "bold");
+              doc.setFontSize(7.5);
+              doc.setTextColor(...white);
+              doc.text(String(ref.n), bx + bw / 2, by + bh / 2 + 2.5, { align: "center" });
+            }
+          }
+        },
+      });
+      cursorY = getFinalY() + 12;
+    }
+
+    // ── Notes & adjustments ────────────────────────────────
+    // The decluttered detail: each flagged session, by ref number, with its
+    // note and/or the audit reason for any manual time change. Amber ref =
+    // hand-entered / adjusted, indigo ref = note only.
+    if (noteRefs.length) {
+      cursorY = ensureRoom(cursorY, 74);
+      cursorY += 6;
+      sectionTitle("Notes & adjustments", cursorY);
+      cursorY += 16;
+
+      const NFS = 9;
+      const NPAD = 8;
+      const refW = 28;
+      const noteBody = noteRefs.map((ref) => {
+        const e = ref.e;
+        const sess = (e.taskTitle && e.taskTitle.trim()) || "Session";
+        const when = `${e.date} · ${e.startedAt}–${e.endedAt}`;
+        const lines = [`${sess}  —  ${when}${ref.manual ? "   • Manually added" : ""}`];
+        if (e.note && e.note.trim()) lines.push(`Note: ${e.note.trim()}`);
+        if (e.adjustmentReason && e.adjustmentReason.trim()) lines.push(`Adjusted: ${e.adjustmentReason.trim()}`);
+        return ["", lines.join("\n")];
+      });
+
+      autoTable(doc, {
+        startY: cursorY,
+        body: noteBody,
+        margin: { left: margin, right: margin, bottom: 56 },
+        tableWidth: usableW,
+        styles: {
+          font: FONT,
+          fontSize: NFS,
+          cellPadding: { top: 9, bottom: 9, left: NPAD, right: NPAD },
+          textColor: body,
+          lineColor: hairline,
+          lineWidth: 0,
+          valign: "top",
+          overflow: "linebreak",
+        },
+        columnStyles: {
+          0: { cellWidth: refW, cellPadding: { top: 9, bottom: 9, left: 0, right: 0 } },
+          1: { textColor: body },
+        },
+        alternateRowStyles: { fillColor: soft },
+        theme: "plain",
+        didDrawCell: (data) => {
+          if (data.section === "body" && data.column.index === 0) {
+            const ref = noteRefs[data.row.index];
+            if (!ref) return;
+            const mc: RGB = ref.manual || ref.hasReason ? amber : accent;
+            const bw = 16, bh = 13;
+            const bx = data.cell.x + (data.cell.width - bw) / 2 + 1;
+            const by = data.cell.y + 9;
+            doc.setFillColor(...mc);
+            doc.roundedRect(bx, by, bw, bh, 3, 3, "F");
+            doc.setFont(FONT, "bold");
+            doc.setFontSize(8);
+            doc.setTextColor(...white);
+            doc.text(String(ref.n), bx + bw / 2, by + bh / 2 + 2.8, { align: "center" });
+          }
+        },
+      });
+      cursorY = getFinalY() + 16;
+    }
   } else {
     cursorY = ensureRoom(cursorY, 50);
     sectionTitle("Activity log", cursorY);
-    cursorY += 30;
+    cursorY += 28;
     doc.setTextColor(...sub);
     doc.setFont(FONT, "normal");
     doc.setFontSize(10.5);

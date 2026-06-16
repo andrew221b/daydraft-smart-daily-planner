@@ -12,7 +12,7 @@ import NotFound from "./pages/NotFound";
 import { AuthProvider, useAuth } from "@/hooks/useAuth";
 import { ProfileProvider, useProfile } from "@/hooks/useProfile";
 import { useTheme } from "@/lib/theme";
-import { TourProvider } from "@/components/app/Tour";
+import { HintsProvider } from "@/hooks/useHints";
 import { TimeTrackerProvider, useTimeTracker } from "@/hooks/useTimeTracker";
 import { PageFallback } from "@/components/app/PageFallback";
 import { RouteErrorBoundary } from "@/components/app/RouteErrorBoundary";
@@ -180,7 +180,21 @@ const NavigationBridge = () => {
         // "Stop" tapped inside the Tracker Live Activity. The tracker is the
         // single global session, so no id is needed — stop() ends it and the
         // tracker store tears the activity down.
-        if (action.type === "tracker_stop") void stopRef.current?.();
+        //
+        // On a cold/suspended wake the tracker store may not have hydrated the
+        // active session yet, so stop() returns false on the first try — that
+        // was the "widget Stop needs two taps" bug. Retry briefly (every 250ms,
+        // up to ~3s) until it lands; harmless no-op if nothing is active.
+        if (action.type === "tracker_stop") {
+          let attempts = 0;
+          const tryStop = async () => {
+            const ok = await stopRef.current?.({ fromWidget: true });
+            if (ok || attempts >= 12) return;
+            attempts += 1;
+            setTimeout(() => void tryStop(), 250);
+          };
+          void tryStop();
+        }
       },
     );
     setPushDeepLinkHandler((path) => navigate(path));
@@ -254,7 +268,7 @@ const AppContent = () => {
       <BrowserRouter>
         <AuthProvider>
         <ProfileProvider>
-        <TourProvider>
+        <HintsProvider>
         <TimeTrackerProvider>
           <AppLock>
             <EagerPrefetcher />
@@ -288,7 +302,7 @@ const AppContent = () => {
           </Routes>
           </AppLock>
         </TimeTrackerProvider>
-        </TourProvider>
+        </HintsProvider>
         </ProfileProvider>
         </AuthProvider>
       </BrowserRouter>

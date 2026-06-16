@@ -6,8 +6,8 @@ import { DebouncedTextarea } from "@/components/ui/textarea";
 import { Button } from "@/components/ui/button";
 import { useEffect, useState } from "react";
 import { ThemeToggle } from "@/components/app/ThemeToggle";
-import { Sparkles, AlarmClock, FileText, Shield, Trash2, HelpCircle, Download, Loader2, ScanFace, Fingerprint, Lock, Vibrate } from "lucide-react";
-import { Link, useNavigate, useLocation } from "react-router-dom";
+import { Sparkles, AlarmClock, FileText, Shield, Trash2, Download, Loader2, ScanFace, Fingerprint, Lock, Vibrate, Lightbulb } from "lucide-react";
+import { Link, useLocation } from "react-router-dom";
 import { Capacitor } from "@capacitor/core";
 import { NativeBiometric } from "@capgo/capacitor-native-biometric";
 import {
@@ -21,18 +21,26 @@ import { useEntitlement } from "@/hooks/useEntitlement";
 import { Sheet, SheetContent, SheetHeader, SheetTitle, SheetDescription } from "@/components/ui/sheet";
 import { UpgradeSheet } from "@/components/app/UpgradeSheet";
 import { ProFeatureHighlights } from "@/components/app/ProFeatureHighlights";
-import { enablePush, disablePush, pushAvailability, pushAvailabilityCopy } from "@/lib/push";
-import { getNotificationsEnabled, setNotificationsEnabled } from "@/lib/localNotifications";
+import { pushAvailability, pushAvailabilityCopy } from "@/lib/push";
+import {
+  getNotificationsEnabled,
+  setNotificationsEnabled,
+  getDailyNudgesEnabled,
+  setDailyNudgesEnabled,
+  syncDailyNudges,
+  cancelDailyNudges,
+} from "@/lib/localNotifications";
 import { supabase } from "@/integrations/supabase/client";
 import { triggerDownload } from "@/lib/reportExport";
-import { useTour, TOUR_SANDBOX } from "@/components/app/Tour";
+import { useHints } from "@/hooks/useHints";
 import { PerfDebugPanel } from "@/components/app/PerfDebugPanel";
+import { invalidateAiCache } from "@/lib/aiCache";
+import { INSIGHTS_DEV_MODE_EVENT } from "@/components/app/YesterdayDebriefCard";
 
 export default function Settings() {
   const { profile, update } = useProfile();
-  const { signOut, user } = useAuth();
-  const tour = useTour();
-  const nav = useNavigate();
+  const { signOut } = useAuth();
+  const hints = useHints();
   const location = useLocation();
   const [name, setName] = useState("");
   // "About you" — sent to AI alongside every plan / morning insight so it can
@@ -54,6 +62,33 @@ export default function Settings() {
   const [bioTogglingLock, setBioTogglingLock] = useState(false);
   const [hapticsOn, setHapticsOn] = useState<boolean>(() => getHapticsEnabled());
   const [taskRemindersOn, setTaskRemindersOn] = useState<boolean>(() => getNotificationsEnabled());
+  const [dailyNudgesOn, setDailyNudgesOn] = useState<boolean>(() => getDailyNudgesEnabled());
+
+  const DEV_MODE_KEY = "dd_insights_dev_mode";
+  const INSIGHT_MODES = ["recap", "riddle", "quiz", "challenge"] as const;
+  const [insightsDevMode, setInsightsDevMode] = useState<string>(() => {
+    try { return localStorage.getItem(DEV_MODE_KEY) || ""; } catch { return ""; }
+  });
+  const setInsightsModeOverride = (m: string) => {
+    try {
+      if (m) localStorage.setItem(DEV_MODE_KEY, m);
+      else localStorage.removeItem(DEV_MODE_KEY);
+    } catch {}
+    invalidateAiCache("yesterday-debrief");
+    setInsightsDevMode(m);
+    window.dispatchEvent(new Event(INSIGHTS_DEV_MODE_EVENT));
+  };
+
+  const refreshInsights = () => {
+    // Bump a nonce so the edge function rotates theme + re-samples the model —
+    // proves generation is live and gives genuinely new content each tap.
+    try {
+      const cur = parseInt(localStorage.getItem("dd_insights_variation") || "0", 10) || 0;
+      localStorage.setItem("dd_insights_variation", String(cur + 1));
+    } catch {}
+    invalidateAiCache("yesterday-debrief");
+    window.dispatchEvent(new Event(INSIGHTS_DEV_MODE_EVENT));
+  };
 
   const toggleHaptics = (enable: boolean) => {
     setHapticsEnabled(enable);     // persist BEFORE the buzz so an enable can fire
@@ -171,24 +206,24 @@ export default function Settings() {
     return () => cancelAnimationFrame(id);
   }, [location.hash]);
 
-  const togglePush = async (v: boolean) => {
-    if (!user) return;
+  // Daily nudges are now plain on-device notifications (no server push). The
+  // toggle just flips the local flag and (re)schedules the morning/evening
+  // pings — NotificationBridge enriches them with fresh numbers on next open.
+  const toggleDailyNudges = (v: boolean) => {
     if (v && !pushReady) {
-      // Don't toast — the inline helper under the row already explains why and
-      // what to do. Toasting on every tap is noise.
+      // Inline helper under the row explains why it's unavailable; no toast.
       return;
     }
-    try {
-      if (v) {
-        await enablePush(user.id);
-        update({ notifications_enabled: true });
-        toast.success("Notifications enabled");
-      } else {
-        await disablePush(user.id);
-        update({ notifications_enabled: false });
-      }
-    } catch (e) {
-      toast.error(e.message || "Unable to update notification settings");
+    setDailyNudgesOn(v);
+    setDailyNudgesEnabled(v);
+    if (v) {
+      void syncDailyNudges({
+        morningTime: profile?.morning_nudge_local_time,
+        eveningTime: profile?.evening_nudge_local_time,
+      });
+      toast.success("Daily nudges on");
+    } else {
+      void cancelDailyNudges();
     }
   };
 
@@ -224,16 +259,46 @@ export default function Settings() {
                   onCheckedChange={(v) => update({ is_developer: v })}
                 />
               </div>
+              {profile?.is_developer && (
+                <div className="pt-2 border-t border-primary/15 space-y-2.5">
+                  <div>
+                    <div className="text-[11px] text-secondary-fg mb-2">Insights mode preview</div>
+                    <div className="flex flex-wrap gap-1.5">
+                      {(["", ...INSIGHT_MODES] as const).map((m) => (
+                        <button
+                          key={m || "auto"}
+                          type="button"
+                          onClick={() => setInsightsModeOverride(m)}
+                          className={`px-2.5 py-1 rounded-full text-[11px] font-semibold transition-colors pressable pressable-instant ${
+                            insightsDevMode === m
+                              ? "bg-primary text-primary-foreground"
+                              : "bg-foreground/[0.07] text-secondary-fg hover:bg-foreground/[0.12]"
+                          }`}
+                        >
+                          {m || "auto"}
+                        </button>
+                      ))}
+                    </div>
+                  </div>
+                  <button
+                    type="button"
+                    onClick={refreshInsights}
+                    className="w-full px-3 py-2 rounded-lg bg-foreground/[0.08] text-secondary-fg text-[12px] font-semibold border border-foreground/[0.1] hover:bg-foreground/[0.12] transition-colors pressable pressable-instant"
+                  >
+                    Refresh Insights
+                  </button>
+                </div>
+              )}
             </div>
           </Section>
 
           {/* 2. Profile — name + appearance grouped */}
           <Section title="You">
-            <div className="rounded-[18px] border border-border/35 hero-glass divide-y divide-border/35 overflow-hidden">
+            <div className="rounded-[18px] border border-border/65 hero-glass divide-y divide-border/35 overflow-hidden">
               <div className="px-4 py-3">
                 <div className="flex flex-col gap-2">
                   <label className="text-[11px] text-secondary-fg">Name</label>
-                  <DebouncedInput maxLength={50} value={name} onDebouncedChange={setName} onBlur={() => update({ display_name: name })} className="bg-card/45 h-9 rounded-lg border-border/45 text-[14px]" style={{ fontSize: 16 }} />
+                  <DebouncedInput maxLength={50} value={name} onDebouncedChange={setName} onBlur={() => update({ display_name: name })} className="bg-card/45 h-9 rounded-lg border-border/75 text-[14px]" style={{ fontSize: 16 }} />
                 </div>
               </div>
               <div className="settings-appearance px-4 py-3">
@@ -243,9 +308,29 @@ export default function Settings() {
             </div>
           </Section>
 
-          {/* 3. About you — the personal context the AI uses for every plan + insight */}
-          <Section title="About you">
-            <div className="rounded-[18px] border border-border/35 hero-glass overflow-hidden">
+          {/* 3. Personalization — behavioural-learning toggle + the explicit context the AI uses */}
+          <Section title="Personalization">
+            {/* Learning opt-out. Off → generate-plan ignores ALL learned signals
+                (typical durations, focus hours, dodged tasks); explicit context
+                below + your typed tasks are still used. */}
+            <div className="rounded-[18px] border border-border/65 hero-glass overflow-hidden mb-3">
+              <div className="px-4 py-3 flex items-center justify-between gap-3">
+                <div className="flex items-center gap-3 min-w-0">
+                  <Sparkles className="h-4 w-4 text-secondary-fg shrink-0" />
+                  <div className="min-w-0">
+                    <div className="text-[14px]">Learn from my activity</div>
+                    <div className="text-[11px] text-secondary-fg/75 mt-0.5 leading-snug">
+                      Tailors plans from your own history — typical durations, focus hours, tasks you tend to put off. Turn off and plans use only what you type.
+                    </div>
+                  </div>
+                </div>
+                <Switch
+                  checked={profile?.ai_personalization_enabled !== false}
+                  onCheckedChange={(v) => void update({ ai_personalization_enabled: v })}
+                />
+              </div>
+            </div>
+            <div className="rounded-[18px] border border-border/65 hero-glass overflow-hidden">
               <div className="px-4 py-3 space-y-2.5">
                 <div className="text-[11px] text-secondary-fg leading-relaxed">
                   Your work, schedule quirks, hard constraints. Used by AI for every plan and morning insight.
@@ -255,7 +340,7 @@ export default function Settings() {
                   onDebouncedChange={setAboutDraft}
                   placeholder="e.g. I'm a freelance iOS designer in Lisbon. I walk my dog 1–2pm and don't take hard tasks after 5pm."
                   maxLength={500}
-                  className="min-h-[96px] rounded-xl border-border/45 bg-card/45 text-[13.5px] leading-snug resize-none placeholder:text-secondary-fg/55 focus-visible:border-primary/55 focus-visible:ring-0"
+                  className="min-h-[96px] rounded-xl border-border/75 bg-card/45 text-[13.5px] leading-snug resize-none placeholder:text-secondary-fg/55 focus-visible:border-primary/55 focus-visible:ring-0"
                   style={{ fontSize: 16 }}
                 />
                 <div className="flex items-center justify-between gap-3 pt-0.5">
@@ -276,7 +361,7 @@ export default function Settings() {
 
           {/* 4. Notifications + Calendar — connected channels */}
           <Section title="Connections">
-            <div className="rounded-[18px] border border-border/35 hero-glass divide-y divide-border/35 overflow-hidden">
+            <div className="rounded-[18px] border border-border/65 hero-glass divide-y divide-border/35 overflow-hidden">
               <div className="px-4 py-3">
                 <div className="flex items-center justify-between">
                   <div className="flex items-center gap-3 min-w-0">
@@ -285,15 +370,15 @@ export default function Settings() {
                       <div className={`text-[14px] ${pushReady ? "" : "text-foreground/70"}`}>Daily nudges</div>
                       {pushReady && (
                         <div className="text-[11px] text-secondary-fg/75 mt-0.5">
-                          Your morning brief, evening recap and weekly review.
+                          A morning brief and evening recap, right on your device.
                         </div>
                       )}
                     </div>
                   </div>
                   <Switch
-                    checked={pushReady && !!profile?.notifications_enabled}
+                    checked={pushReady && dailyNudgesOn}
                     disabled={!pushReady}
-                    onCheckedChange={togglePush}
+                    onCheckedChange={toggleDailyNudges}
                   />
                 </div>
                 {!pushReady && (
@@ -379,7 +464,7 @@ export default function Settings() {
           {/* Security — only shown when device has enrolled biometrics */}
           {Capacitor.isNativePlatform() && bioInfo?.available && (
             <Section title="Security">
-              <div className="rounded-[18px] border border-border/35 hero-glass divide-y divide-border/35 overflow-hidden">
+              <div className="rounded-[18px] border border-border/65 hero-glass divide-y divide-border/35 overflow-hidden">
                 {/* Biometric Lock */}
                 <div className="px-4 py-3 flex items-center gap-3">
                   <div className="flex items-center justify-center h-8 w-8 rounded-[10px] bg-primary/10 border border-primary/18 shrink-0">
@@ -407,19 +492,27 @@ export default function Settings() {
 
           {/* 6. Help + legal — quiet, terminal items */}
           <Section title="More">
-            <div className="rounded-[18px] border border-border/35 hero-glass divide-y divide-border/35 overflow-hidden">
-              <button
-                onClick={async () => {
-                  await tour.resetAll();
-                  nav("/home");
-                  setTimeout(() => tour.start(TOUR_SANDBOX, { force: true }), 400);
-                }}
-                className="settings-replay-btn w-full flex items-center gap-3 px-4 py-3 ios-row"
-              >
-                <HelpCircle className="h-4 w-4 text-secondary-fg" />
-                <span className="text-[14px] flex-1 text-left">Replay tutorial</span>
-                <span className="text-secondary-fg">›</span>
-              </button>
+            <div className="rounded-[18px] border border-border/65 hero-glass divide-y divide-border/35 overflow-hidden">
+              {/* In-context tips master switch. Flipping ON re-arms any tips the
+                  user already dismissed, so it doubles as "show tips again". */}
+              <div className="px-4 py-3">
+                <div className="flex items-center gap-3">
+                  <Lightbulb className="h-4 w-4 text-secondary-fg shrink-0" />
+                  <div className="min-w-0 flex-1">
+                    <div className="text-[14px]">Feature tips</div>
+                    <div className="text-[11px] text-secondary-fg/75 mt-0.5">
+                      Short pointers the first time you reach a new feature.
+                    </div>
+                  </div>
+                  <Switch
+                    checked={hints.enabled}
+                    onCheckedChange={(v) => {
+                      hints.setEnabled(v);
+                      if (v) hints.resetSeen();
+                    }}
+                  />
+                </div>
+              </div>
               <Link to="/privacy" className="flex items-center gap-3 px-4 py-3 ios-row">
                 <Shield className="h-4 w-4 text-secondary-fg" />
                 <span className="text-[14px] flex-1">Privacy</span>
@@ -452,7 +545,7 @@ export default function Settings() {
             </div>
           </Section>
 
-          <Button onClick={signOut} variant="outline" className="w-full h-11 rounded-[14px] border-border/35 hero-glass hover:bg-white/[0.06] pressable text-[13px]">
+          <Button onClick={signOut} variant="outline" className="w-full h-11 rounded-[14px] border-border/65 hero-glass hover:bg-white/[0.06] pressable text-[13px]">
             Sign out
           </Button>
 

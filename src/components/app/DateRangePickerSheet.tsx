@@ -177,7 +177,7 @@ export function DateRangePickerSheet({
     <Sheet open={open} onOpenChange={onOpenChange}>
       <SheetContent
         side="bottom"
-        className="rounded-t-[28px] border-border/45 bg-popover max-h-[88vh] p-0 flex flex-col"
+        className="rounded-t-[28px] border-border/75 bg-popover max-h-[88vh] p-0 flex flex-col"
         onOpenAutoFocus={(e) => e.preventDefault()}
         hideClose
       >
@@ -203,7 +203,7 @@ export function DateRangePickerSheet({
 
         {/* Range summary chip */}
         <div className="shrink-0 px-5 pb-3">
-          <div className="hero-glass border border-border/35 rounded-2xl px-4 py-3 flex items-center justify-between gap-3">
+          <div className="hero-glass border border-border/65 rounded-2xl px-4 py-3 flex items-center justify-between gap-3">
             <button
               type="button"
               onClick={() => setEditingEnd("from")}
@@ -245,7 +245,7 @@ export function DateRangePickerSheet({
               key={p.id}
               type="button"
               onClick={() => handleQuick(p.id as "today" | "yesterday" | "last7" | "last30")}
-              className="shrink-0 h-8 px-3 rounded-full border border-border/40 bg-foreground/[0.03] hover:bg-foreground/[0.06] text-[12px] font-medium text-foreground/85 pressable transition-colors whitespace-nowrap"
+              className="shrink-0 h-8 px-3 rounded-full border border-border/70 bg-foreground/[0.03] hover:bg-foreground/[0.06] text-[12px] font-medium text-foreground/85 pressable transition-colors whitespace-nowrap"
             >
               {p.label}
             </button>

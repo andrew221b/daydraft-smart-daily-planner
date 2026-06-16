@@ -32,7 +32,14 @@ serve(async (req) => {
       behavior_signals,
       ai_memory,
       ai_planning_rules,
+      personalization,
     } = await req.json();
+    // Behavioural-learning opt-out (Settings → Personalization). When false we
+    // ignore every LEARNED signal for this user — server-computed plan-vs-actual
+    // overshoot + chronic procrastination, plus any pattern / behavior / memory
+    // hints — and plan purely from the typed tasks + explicit settings. The
+    // user's own "About you" context still applies (they wrote it on purpose).
+    const personalizationEnabled = personalization !== false;
     let aiContextCustom: string = typeof aiContextFromBody === "string" ? aiContextFromBody : "";
     let raw_input = rawInputValue;
     const clarifiedList = Array.isArray(clarified_tasks) ? clarified_tasks : [];
@@ -252,7 +259,7 @@ serve(async (req) => {
     let overshootSamples = 0;
     let learningActive = false;
     let chronicTaskTitles: string[] = [];
-    if (authedSupabase && authedUserId) {
+    if (personalizationEnabled && authedSupabase && authedUserId) {
       try {
         const since14 = new Date(nowDate);
         since14.setDate(since14.getDate() - 13);
@@ -438,7 +445,7 @@ Rules for clarified tasks:
 - For FIXED times / parsed anchors / finish-by hints, obey them unless physically impossible vs ${earliestStart} or overlaps a calendar hold.` : rawParsedAnchorSection;
 
 
-    const patternHints = pattern ? `
+    const patternHints = (personalizationEnabled && pattern) ? `
 User patterns (use to compound intelligence):
 - Deep work overrun: ${Number(pattern.deep_work_overrun_pct || 0).toFixed(0)}% (account for it; pad deep blocks if positive)
 - Top abandoned types: ${JSON.stringify(pattern.abandoned_types || [])}
@@ -453,7 +460,7 @@ User patterns (use to compound intelligence):
       typeof skipM === "number" && Number.isFinite(skipM)
         ? `\n- Skip/miss rate on tasks (7d): ${(skipM * 100).toFixed(0)}%`
         : "";
-    const behaviorHints = behavior_signals ? `
+    const behaviorHints = (personalizationEnabled && behavior_signals) ? `
 Recent behavior signals:
 - Completion rate (14d): ${Number(behavior_signals.completion_rate_14d || 0).toFixed(2)}
 - Average completed task duration (14d): ${Math.round(Number(behavior_signals.avg_completed_task_min_14d || 0))}m
@@ -461,7 +468,7 @@ Recent behavior signals:
 Use this to keep plans realistic: if completion rate < 0.65, trim low-priority volume by default; if avg completed task duration is short, prefer smaller blocks.
 If skip/miss rate is high (>0.25), suggest fewer parallel commitments and smaller first wins; mention gently without shaming.
 If closure punctuality is high (>0.75), acknowledge they usually wrap on time — keep plans ambitious but humane; if low (<0.45), add lighter buffers and fewer back-to-back deep blocks.` : "";
-    const overshootHints = `
+    const overshootHints = personalizationEnabled ? `
 14-day plan vs actual history:
 - Samples: ${overshootSamples}
 - Avg overshoot work: ${(overshootAvg.work * 100).toFixed(0)}%
@@ -469,16 +476,23 @@ If closure punctuality is high (>0.75), acknowledge they usually wrap on time �
 - Avg overshoot rest: ${(overshootAvg.rest * 100).toFixed(0)}%
 Buffer policy:
 - Pattern-based buffers active: ${patternBufferEnabled ? "yes" : "no"}${patternBufferEnabled ? ` (${patternBufferMin}m after deep-work blocks)` : ""}
-- New-user default buffers active: ${defaultBufferEnabled ? "yes" : "no"}${defaultBufferEnabled ? ` (${defaultBufferMin}m after each 2h+ work sequence)` : ""}`;
-    const memoryHints = ai_memory ? `
+- New-user default buffers active: ${defaultBufferEnabled ? "yes" : "no"}${defaultBufferEnabled ? ` (${defaultBufferMin}m after each 2h+ work sequence)` : ""}` : "";
+    const memoryHints = (personalizationEnabled && ai_memory) ? `
 AI weekly memory:
 - Best focus hours: ${String(ai_memory.best_focus_hours || "unknown")}
 - Realistic block length: ${Math.round(Number(ai_memory.realistic_block_min || 45))}m
 - Common slip pattern: ${String(ai_memory.common_slip || "none")}
 - Recommendation: ${String(ai_memory.recommendation || "keep plans realistic")}
 Use these as defaults unless they conflict with fixed commitments.` : "";
-    // learningHints removed — chronic/peak signals now surfaced through
-    // overshootHints + patternHints; the new prompt is context-driven.
+    // Proactive nudge — revives the (previously computed-but-unused) chronic
+    // procrastination signal: tasks planned 3+ times and never finished. When
+    // one shows up today, lower its activation energy with a tiny first step
+    // instead of letting it get dodged a fourth time. This operationalises the
+    // persona's self-efficacy principle ("make the next step small and winnable").
+    const chronicHints = chronicTaskTitles.length ? `
+
+PROACTIVE NUDGE — these tasks were planned 3+ times and never finished: ${JSON.stringify(chronicTaskTitles)}.
+If any appears in today's input, lower its activation energy: schedule it EARLY and shrink that one block to a tiny 10–15 min FIRST STEP (keep the user's title; you may append " — just the first step"). Put the smallest possible start on the calendar so momentum can take over. Carry the gentle intent in that block's reasoning — never shame, never say "you keep skipping this".` : "";
     const emotionalContext = typeof planning_context === "string" ? planning_context.trim() : "";
     // Detect whether planning_context contains structured clarification answers
     // (added by the client as "User Clarifications:\n- Q: ...\n  A: ...").
@@ -561,7 +575,7 @@ GIBBERISH GUARD: if input is completely unintelligible (random keys, "test", no 
 
 OUTPUT FORMAT:
 - Summary: short, e.g. "4 tasks · done by 6pm".
-- Subtext: one short sentence.${planningPrefsHints}${clarifiedHints}${patternHints}${behaviorHints}${overshootHints}${memoryHints}${emotionalHints}${calHints}${personalContextHints}`;
+- Subtext: one short sentence.${planningPrefsHints}${clarifiedHints}${patternHints}${behaviorHints}${overshootHints}${memoryHints}${emotionalHints}${calHints}${personalContextHints}${chronicHints}`;
 
     const schema = {
       type: "OBJECT",
@@ -597,6 +611,20 @@ OUTPUT FORMAT:
     const planSystem = system;
     const planUser = `Name: ${name || "User"}\nRaw tasks:\n${raw_input}${emotionalContext ? `\nOptional context:\n${emotionalContext}` : ""}`;
 
+    // Adaptive "thinking" budget. Gemini 2.5 thinking tokens add real latency,
+    // and a short to-do list barely needs them. Reserve the deep budget for
+    // genuinely complex days (a calendar to schedule around, a mid-day re-plan,
+    // many tasks, or custom planning rules); simple lists get a small budget and
+    // come back noticeably faster.
+    const taskLineCount = String(raw_input || "").split(/\n+/).filter((l) => l.trim()).length;
+    const planComplexity =
+      (calendarEvents.length > 0 ? 2 : 0) +
+      (isReplan ? 1 : 0) +
+      (mergedClarified.length > 0 ? 1 : 0) +
+      (userPlanningRules ? 1 : 0) +
+      (taskLineCount > 6 ? 2 : taskLineCount > 3 ? 1 : 0);
+    const thinkingBudget = planComplexity >= 4 ? 6144 : planComplexity >= 2 ? 2560 : 512;
+
     let resp: Response | null = null;
     let lastStatus = 0;
     let lastBody = "";
@@ -623,7 +651,7 @@ OUTPUT FORMAT:
             generationConfig: {
               responseMimeType: "application/json",
               responseSchema: schema,
-              thinkingConfig: { thinkingBudget: 6144 },
+              thinkingConfig: { thinkingBudget },
             },
           }),
           signal: ctrl.signal,

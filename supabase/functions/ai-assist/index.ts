@@ -16,7 +16,7 @@ If the user's input is completely unintelligible gibberish or random letters (e.
 /** Models to try, in order. Falls back to a cheaper/older model when the
  *  preferred one is overloaded or rate-limited so the user still gets an answer
  *  instead of an error toast. */
-const MODEL_CHAIN = ["gemini-2.5-flash", "gemini-1.5-flash-latest"];
+const MODEL_CHAIN = ["gemini-2.5-flash", "gemini-2.0-flash"];
 
 /** Errors worth a quick retry. Gemini sometimes 503s / 500s transiently. */
 const isTransient = (status: number) => status === 500 || status === 502 || status === 503 || status === 504;
@@ -85,7 +85,12 @@ Deno.serve(async (req) => {
 
     const body = await req.json().catch(() => ({}));
     const messages = Array.isArray(body?.messages) ? body.messages : [];
+    // `userFacts` is the compact background block the client assembles from the
+    // in-memory profile + local time + lazily-fetched patterns. It supersedes
+    // the older `personalContext` field (kept as a fallback for older clients).
+    const userFacts = typeof body?.userFacts === "string" ? body.userFacts.trim().slice(0, 1200) : "";
     const personalContext = typeof body?.personalContext === "string" ? body.personalContext.trim().slice(0, 2000) : "";
+    const aboutUser = userFacts || personalContext;
     const seedContext = typeof body?.seedContext === "string" ? body.seedContext.trim().slice(0, 2000) : "";
     if (!messages.length) {
       return new Response(JSON.stringify({ error: "Tell me what you want to ask." }), {
@@ -95,8 +100,8 @@ Deno.serve(async (req) => {
     }
 
     const systemParts = [SYSTEM];
-    if (personalContext) {
-      systemParts.push(`\nUSER CONTEXT (background, never quote back):\n${personalContext}`);
+    if (aboutUser) {
+      systemParts.push(`\nABOUT THE USER (quiet background, never quote back):\n${aboutUser}`);
     }
     if (seedContext) {
       systemParts.push(`\nCURRENT MOMENT (background, never quote back):\n${seedContext}`);

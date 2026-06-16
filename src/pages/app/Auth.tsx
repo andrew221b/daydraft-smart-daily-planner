@@ -211,14 +211,15 @@ export default function Auth() {
                   hit-test could deliver a tap on Google to Apple. Bumped to
                   space-y-3 (12px) to clear the fuzziness window. */}
               <div className="mt-8 space-y-3">
+                {/* Google — white background, colorful logo, high contrast on dark bg */}
                 <button onClick={(e) => { if (busy || oauthBusy || oauthBlockedReason) return; oauth("google"); }}
-                  className={`w-full h-12 rounded-[14px] bg-background text-foreground border border-border hover:bg-muted/50 pressable pressable-instant text-sm font-medium inline-flex items-center justify-center gap-2 shadow-sm ${oauthBlockedReason || busy || oauthBusy ? "opacity-50 cursor-not-allowed" : ""}`}
+                  className={`w-full h-[52px] rounded-[14px] bg-white text-[#3c4043] border border-[#dadce0] pressable pressable-instant text-[15px] font-semibold inline-flex items-center justify-center gap-2.5 shadow-md ${oauthBlockedReason || busy || oauthBusy ? "opacity-50 cursor-not-allowed" : ""}`}
                   title={oauthBlockedReason || undefined}>
-                  <GoogleIcon /> {oauthBusy === "google" ? "..." : "Continue with Google"}
+                  <GoogleIcon size={20} /> {oauthBusy === "google" ? "..." : "Continue with Google"}
                 </button>
                 {(!Capacitor.isNativePlatform() || Capacitor.getPlatform() !== "android") && (
                   <button onClick={(e) => { if (busy || oauthBusy || oauthBlockedReason) return; oauth("apple"); }}
-                    className={`w-full h-12 rounded-[14px] bg-foreground text-background hover:opacity-90 pressable pressable-instant text-sm font-medium inline-flex items-center justify-center gap-2 shadow-card ${oauthBlockedReason || busy || oauthBusy ? "opacity-50 cursor-not-allowed" : ""}`}
+                    className={`w-full h-[52px] rounded-[14px] bg-foreground text-background hover:opacity-90 pressable pressable-instant text-[15px] font-semibold inline-flex items-center justify-center gap-2.5 shadow-card ${oauthBlockedReason || busy || oauthBusy ? "opacity-50 cursor-not-allowed" : ""}`}
                     title={oauthBlockedReason || undefined}>
                     <AppleIcon /> {oauthBusy === "apple" ? "..." : "Continue with Apple"}
                   </button>
@@ -261,14 +262,14 @@ export default function Auth() {
                 </Button>
               </form>
 
-              <div className="mt-6 flex items-center justify-between">
+              <div className="mt-6 flex flex-col items-center gap-3">
                 <button
                   type="button"
                   onClick={() => {
                     setAwaitingConfirmation(false);
                     setMode(mode === "signup" ? "signin" : "signup");
                   }}
-                  className="text-secondary-fg text-sm hover:text-foreground transition-colors pressable pressable-instant px-2 py-1 -ml-2 rounded-lg"
+                  className="text-secondary-fg text-sm hover:text-foreground transition-colors pressable pressable-instant px-3 py-1.5 rounded-lg"
                 >
                   {mode === "signup" ? "I already have an account" : "Create a new account"}
                 </button>
@@ -278,6 +279,15 @@ export default function Auth() {
                   </Link>
                 )}
               </div>
+
+              {mode === "signup" && (
+                <p className="mt-auto pt-8 text-center text-[11px] leading-snug text-secondary-fg/50">
+                  By creating an account you agree to our{" "}
+                  <Link to="/terms" className="font-medium text-secondary-fg/80 underline underline-offset-2 hover:text-foreground">Terms</Link>
+                  {" "}and{" "}
+                  <Link to="/privacy" className="font-medium text-secondary-fg/80 underline underline-offset-2 hover:text-foreground">Privacy Policy</Link>.
+                </p>
+              )}
             </>
           ) : (
             <div className="mt-10 space-y-3">
@@ -314,8 +324,8 @@ export default function Auth() {
   );
 }
 
-const GoogleIcon = forwardRef<SVGSVGElement>((_, ref) => (
-  <svg ref={ref} width="16" height="16" viewBox="0 0 48 48" aria-hidden="true">
+const GoogleIcon = forwardRef<SVGSVGElement, { size?: number }>((props, ref) => (
+  <svg ref={ref} width={props.size ?? 16} height={props.size ?? 16} viewBox="0 0 48 48" aria-hidden="true">
     <path fill="#FFC107" d="M43.6 20.5H42V20H24v8h11.3C33.7 32.4 29.3 35.5 24 35.5c-6.4 0-11.5-5.1-11.5-11.5S17.6 12.5 24 12.5c2.9 0 5.6 1.1 7.7 2.9l5.7-5.7C33.9 6.5 29.2 4.5 24 4.5 13.2 4.5 4.5 13.2 4.5 24S13.2 43.5 24 43.5c10.7 0 19.5-8.7 19.5-19.5 0-1.2-.1-2.3-.4-3.5z"/>
     <path fill="#FF3D00" d="M6.3 14.7l6.6 4.8C14.7 15.7 19 12.5 24 12.5c2.9 0 5.6 1.1 7.7 2.9l5.7-5.7C33.9 6.5 29.2 4.5 24 4.5 16.3 4.5 9.7 8.7 6.3 14.7z"/>
     <path fill="#4CAF50" d="M24 43.5c5.1 0 9.8-1.9 13.3-5.1l-6.1-5.2C29.2 34.7 26.7 35.5 24 35.5c-5.3 0-9.7-3.1-11.3-7.5l-6.5 5C9.5 39.3 16.2 43.5 24 43.5z"/>

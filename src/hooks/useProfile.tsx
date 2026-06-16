@@ -23,6 +23,9 @@ export interface Profile {
   active_hours_start?: string;
   active_hours_end?: string;
   ai_planning_rules?: string | null;
+  /** Behavioural-learning opt-out. Default true (undefined treated as true). */
+  ai_personalization_enabled?: boolean;
+  is_developer?: boolean | null;
 }
 
 type ProfileData = {

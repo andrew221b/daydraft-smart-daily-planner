@@ -18,7 +18,7 @@ import { idbGet, idbSet } from "@/lib/idbCache";
 export const ROLLING_ENTRIES_DAYS = 60;
 
 export const ROLLING_ENTRIES_SELECT =
-  "id,category_id,started_at,ended_at,note,block_id,task_title,source,snapshot_hourly_rate,snapshot_currency";
+  "id,category_id,started_at,ended_at,note,block_id,task_title,source,snapshot_hourly_rate,snapshot_currency,adjustment_seconds,adjustment_reason";
 
 export type RollingEntry = {
   id: string;
@@ -31,6 +31,10 @@ export type RollingEntry = {
   source: string | null;
   snapshot_hourly_rate: number | null;
   snapshot_currency: string | null;
+  /** Cumulative manually-added seconds (signed). Immutable audit field. */
+  adjustment_seconds: number | null;
+  /** Append-only audit log of start-time adjustments. Not user-editable. */
+  adjustment_reason: string | null;
 };
 
 export const ROLLING_ENTRIES_ROOT = "rolling-time-entries" as const;

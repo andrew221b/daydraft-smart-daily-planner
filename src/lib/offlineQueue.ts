@@ -73,6 +73,10 @@ export async function drainOfflineQueue(): Promise<{ replayed: number; remaining
       if (ok) {
         await removeQueuedWrite(item.id);
         replayed += 1;
+      } else {
+        // Transient failure — stop immediately to preserve write order.
+        // The remaining items stay queued and will replay on the next online event.
+        break;
       }
     }
     const remaining = (await listQueuedWrites()).length;

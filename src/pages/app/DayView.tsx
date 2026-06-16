@@ -1,4 +1,5 @@
-import { Fragment, memo, useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { Fragment, memo, startTransition, useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
+import { ptMark } from "@/lib/perfTrace"; // TEMP perf trace
 import { createPortal } from "react-dom";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { useNavigate, useSearchParams } from "react-router-dom";
@@ -18,12 +19,13 @@ import { ChevronLeft, ChevronRight, Play, CalendarDays, Trash2, Bell, BellOff, M
 import { DayPickerSheet } from "@/components/app/DayPickerSheet";
 import { UncompleteTaskSheet } from "@/components/app/UncompleteTaskSheet";
 import { ChecklistView, type ChecklistApi } from "@/components/app/ChecklistView";
-import { peekChecklistCounts } from "@/hooks/useChecklist";
+import { peekChecklistCounts, prefetchChecklistCounts } from "@/hooks/useChecklist";
 import { Button } from "@/components/ui/button";
 import { DndContext, closestCenter, MouseSensor, TouchSensor, useSensor, useSensors, DragEndEvent, DragStartEvent, DragOverlay } from "@dnd-kit/core";
 import { motion, AnimatePresence } from "framer-motion";
 import { SortableContext, verticalListSortingStrategy } from "@dnd-kit/sortable";
 import { SortableBlock } from "@/components/app/SortableBlock";
+import { FeatureHint } from "@/components/app/FeatureHint";
 import { Sheet, SheetContent, SheetHeader, SheetTitle } from "@/components/ui/sheet";
 import { Switch } from "@/components/ui/switch";
 import {
@@ -39,7 +41,6 @@ import {
 import { useProfile } from "@/hooks/useProfile";
 import { getTone, t as toneCopy } from "@/lib/tone";
 import { toast } from "sonner";
-import { useTour } from "@/components/app/Tour";
 import { haptics } from "@/lib/haptics";
 import { SkeletonBlock } from "@/components/app/SkeletonBlock";
 import { scheduleBlockReminders, ensureNotificationPermission, clearScheduledReminders, getReminderConfig, setReminderConfig, ReminderConfig } from "@/lib/blockReminders";
@@ -216,7 +217,7 @@ const BulkInputStep = memo(function BulkInputStep({
           <p className="text-[10px] font-semibold uppercase tracking-[0.12em] text-secondary-fg/55 mb-2">Templates</p>
           <div className="-mx-1 flex gap-1.5 overflow-x-auto pb-1 px-1 scrollbar-none">
             {templates.map((t) => (
-              <div key={t.id} className="shrink-0 flex items-center gap-0.5 rounded-full border border-border/40 bg-card/50 pl-3 pr-1 py-1">
+              <div key={t.id} className="shrink-0 flex items-center gap-0.5 rounded-full border border-border/70 bg-card/50 pl-3 pr-1 py-1">
                 <button
                   type="button"
                   onClick={() => setVal((v) => v ? `${v}\n${t.raw_input}` : t.raw_input)}
@@ -266,7 +267,6 @@ export default function DayView() {
   const { user } = useAuth();
   const { profile } = useProfile();
   const nav = useNavigate();
-  const tour = useTour();
   const [searchParams] = useSearchParams();
   const queryClient = useQueryClient();
   const rawDate = searchParams.get("date");
@@ -449,6 +449,11 @@ export default function DayView() {
     enabled: !!user?.id && dayTabVisible,
     staleTime: 15_000,
     refetchOnWindowFocus: true,
+    // NOTE: deliberately NOT using keepPreviousData — showing the prior day's
+    // rows under the new date reads as a flicker (old → new). Instead the
+    // neighbour prefetch below makes arrow-nav an instant cache hit, and far
+    // (uncached) jumps show the skeleton then fade the real content in
+    // (.day-content-fade) — never stale data.
   });
   const plan = dayData?.plan ?? null;
   const planMissing = !loading && !plan;
@@ -466,8 +471,29 @@ export default function DayView() {
     // active tasks stay chronological on top — matching every edit path. Without
     // this, the DB's position-based order could leave resolved rows at the top.
     const taskRows = activeFirstOrder(raw.filter((b) => b.kind !== "break"));
-    setBlocks(taskRows);
-    setLoadedBlocksDate(viewDate);
+    ptMark(`DayView data->setBlocks N=${taskRows.length}`); // TEMP perf trace
+    // The FIRST render of the populated block list (DndContext + every
+    // SortableBlock's useSortable + framer-motion) is the heavy synchronous work
+    // that froze the Plan tab on its first visit. For that cold paint we defer
+    // 120ms so the skeleton + route transition land FIRST, then startTransition
+    // renders the heavy list concurrently.
+    //
+    // Once a day has been shown, a day-to-day switch is a much lighter re-render
+    // (DndContext already mounted) — so commit on the very next frame instead.
+    // That collapses the skeleton flash the user saw on every day jump while
+    // still keeping the work off the current paint. (loadedBlocksDate is read
+    // intentionally stale here: at switch time it still holds the PREVIOUS day,
+    // which is exactly the "have we shown a day yet?" signal we want.)
+    const commitRows = () =>
+      startTransition(() => {
+        setBlocks(taskRows);
+        setLoadedBlocksDate(viewDate);
+      });
+    const warmSwitch = loadedBlocksDate !== null;
+    let timer: ReturnType<typeof setTimeout> | undefined;
+    let raf: number | undefined;
+    if (warmSwitch) raf = requestAnimationFrame(commitRows);
+    else timer = setTimeout(commitRows, 120);
 
     // One-time cleanup: AI plans (and legacy data) may still contain invisible
     // "break" rows. Drop them so they don't linger — scoped to this plan's
@@ -481,10 +507,50 @@ export default function DayView() {
     if (viewDate === todayDateStr()) {
       syncBlockNotifications(viewDate, taskRows);
     }
-    // `plan?.id`/`isPast` are derived from the deps already listed; the cleanup
-    // is fire-and-forget + idempotent, so re-running only on these is correct.
+    
+    return () => { if (timer) clearTimeout(timer); if (raf !== undefined) cancelAnimationFrame(raf); };
+    // `plan?.id`/`isPast`/`loadedBlocksDate` are read intentionally from this
+    // render's closure; the cleanup is fire-and-forget + idempotent, so
+    // re-running only on these is correct.
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [viewDate, isPlaceholderData, dayData?.plan?.id, dayData?.blocks]);
+
+  // ── Seamless day switching: warm the neighbours ──────────────────────────
+  // Prefetch the previous & next day's timeline plan into React Query, and each
+  // day's checklist into its localStorage cache, so arrow-navigation lands on
+  // already-loaded content (no empty flash) and the checklist-tab badge is right
+  // the moment a day comes into view. Idempotent + best-effort — never blocks.
+  useEffect(() => {
+    const uid = user?.id;
+    if (!uid || !dayTabVisible) return;
+    let cancelled = false;
+
+    for (const d of [yesterdayDate, tomorrowDate]) {
+      void queryClient.prefetchQuery({
+        queryKey: planDayQueryKey(uid, d),
+        queryFn: () => fetchDayPlan(uid, d),
+        staleTime: 15_000,
+      });
+    }
+
+    (async () => {
+      let wrote = false;
+      for (const d of [yesterdayDate, viewDate, tomorrowDate]) {
+        const didWrite = await prefetchChecklistCounts(uid, d).catch(() => false);
+        wrote = wrote || didWrite;
+      }
+      // A fresh checklist cache write means peekChecklistCounts has new data for
+      // a visible day — bump so the mode-switcher badge re-reads it.
+      if (!cancelled && wrote) handleChecklistChange();
+    })();
+
+    return () => { cancelled = true; };
+  }, [user?.id, viewDate, yesterdayDate, tomorrowDate, dayTabVisible, queryClient, handleChecklistChange]);
+
+  // TEMP perf trace: marks when the populated block list actually commits.
+  useLayoutEffect(() => {
+    if (blocks.length > 0) ptMark(`DayView committed blocks=${blocks.length}`);
+  }, [blocks]);
 
   // Play the entrance stagger only on the FIRST paint that has rows, then turn
   // it off so day switches don't replay it (the source of the date-change jerk).
@@ -1768,6 +1834,9 @@ export default function DayView() {
           ai_tone_custom: profile?.ai_tone_custom || null,
           ai_planning_rules: profile?.ai_planning_rules || "",
           ai_context_custom: profile?.ai_context_custom || null,
+          // Behavioural-learning opt-out (Settings → Personalization). When off,
+          // generate-plan ignores all learned signals for this user.
+          personalization: profile?.ai_personalization_enabled !== false,
         },
         { ttlMs: 0, timeoutMs: 75_000, signal },
       );
@@ -1930,6 +1999,9 @@ export default function DayView() {
           ai_tone_custom: profile?.ai_tone_custom || null,
           ai_planning_rules: profile?.ai_planning_rules || "",
           ai_context_custom: profile?.ai_context_custom || null,
+          // Behavioural-learning opt-out (Settings → Personalization). When off,
+          // generate-plan ignores all learned signals for this user.
+          personalization: profile?.ai_personalization_enabled !== false,
         },
         { ttlMs: 0, timeoutMs: 75_000, signal },
       );
@@ -2191,11 +2263,6 @@ export default function DayView() {
   // Keep alias for any existing references below.
   const missedTasks = movableTasks;
 
-  const spotlightId = useMemo(
-    () => displayBlocks.find((b) => isUserTask(b) && isOpenUserTask(b) && !b.is_calendar_event)?.id,
-    [displayBlocks],
-  );
-
   // ── Render-perf memoization for the block list ──────────────────────────
   // O(1) category lookup instead of a per-row `.find()` over all categories.
   const categoryMap = useMemo(
@@ -2358,8 +2425,56 @@ export default function DayView() {
         {/* Plan mode switcher — Timeline | Checklist (always visible in both) */}
         <PlanModePill mode={planViewMode} onChange={setPlanViewMode} openCount={checklistCounts.open} />
 
+        {/* In-context coachmarks — fire once when the user first reaches a real
+            context where these gestures are usable (not on the empty tour). */}
+        <FeatureHint
+          id="plan-braindump"
+          selector=".add-tasks-btn"
+          active={planViewMode === "timeline" && !isPast && blocks.length === 0}
+          title="Brain-dump, get a timeline"
+          placement="top"
+        >
+          Type or paste your to-dos — one per line, however messy — and AI turns them into a realistic, timed day around what's already locked in.
+        </FeatureHint>
+        <FeatureHint
+          id="plan-ask-ai"
+          selector="[data-tour='ask-ai']"
+          active={planViewMode === "timeline" && !isPast && blocks.length === 0}
+          title="Or just ask"
+          placement="top"
+        >
+          Plan out loud instead — "fit a workout in before my 6pm call." Ask AI knows your day, hours and rules, and reshapes the timeline for you.
+        </FeatureHint>
+        <FeatureHint
+          id="timeline-gestures"
+          selector="[data-hint='timeline-task']"
+          active={planViewMode === "timeline" && !isPast && blocks.length > 0}
+          title="Every task is hands-on"
+          placement="bottom"
+        >
+          Tap a task to open its actions — flag a priority, assign a tracking category, edit time or duration, skip or move it. Tap the circle to complete; drag to reorder.
+        </FeatureHint>
+        <FeatureHint
+          id="plan-more-menu"
+          selector=".more-menu-btn"
+          active={!isPast}
+          title="The ⋯ holds the power tools"
+          placement="bottom"
+        >
+          Didn't finish everything? Carry unfinished tasks to another day, copy your whole plan as shareable text, or mute the day's notifications — all in here.
+        </FeatureHint>
+        <FeatureHint
+          id="checklist-basics"
+          selector="[data-hint='checklist-area']"
+          active={planViewMode === "checklist"}
+          title="Lists, your way"
+          placement="bottom"
+        >
+          Group items into categories and star the important ones. Drop any item onto your timeline whenever you're ready to give it a time.
+        </FeatureHint>
+
         {planViewMode === "checklist" ? (
-          <div className="checklist-theme">
+          <div className="checklist-theme" data-hint="checklist-area">
           <ChecklistView
             ref={checklistRef}
             userId={user?.id}
@@ -2428,7 +2543,11 @@ export default function DayView() {
             <motion.button
               key="carry-banner"
               type="button"
-              initial={{ opacity: 0, y: -6, scale: 0.97 }}
+              // initial={false}: the banner appears INSTANTLY at its resting
+              // state (no entrance animation), so it never "blinks" in when the
+              // async auto-missed pass populates it or the gate briefly toggles.
+              // Exit still animates for a clean fade-out when tasks are resolved.
+              initial={false}
               animate={{ opacity: 1, y: 0, scale: 1 }}
               exit={{ opacity: 0, y: -4, scale: 0.97 }}
               transition={{ type: "spring", stiffness: 380, damping: 30 }}
@@ -2465,7 +2584,7 @@ export default function DayView() {
 
         {planMissing && (
           <div className="flex items-center justify-center" style={{ minHeight: "56vh" }}>
-          <div className="w-full rounded-[28px] border border-border/30 bg-card/35 px-6 py-12 text-center hero-glass shadow-card relative overflow-hidden empty-state-fade">
+          <div className="w-full rounded-[28px] border border-border/60 bg-card/35 px-6 py-12 text-center hero-glass shadow-card relative overflow-hidden empty-state-fade">
             {/* Soft decorative background circles inside the empty card */}
             <div className="absolute -top-12 -left-12 h-28 w-28 rounded-full bg-primary/8 blur-xl pointer-events-none" />
             <div className="absolute -bottom-12 -right-12 h-28 w-28 rounded-full bg-primary-glow/8 blur-xl pointer-events-none" />
@@ -2493,6 +2612,7 @@ export default function DayView() {
                 </button>
                 <button
                   type="button"
+                  data-tour="ask-ai"
                   onClick={() => {
                     setAskAiTaskTitle(null);
                     setAskAiContext("__empty_day__");
@@ -2510,7 +2630,7 @@ export default function DayView() {
 
         {!planMissing && blocksMatchView && !loading && displayBlocks.length === 0 && (
           <div className="flex items-center justify-center" style={{ minHeight: "56vh" }}>
-            <div className="w-full rounded-[28px] border border-border/30 bg-card/35 px-6 py-12 text-center hero-glass shadow-card relative overflow-hidden empty-state-fade">
+            <div className="w-full rounded-[28px] border border-border/60 bg-card/35 px-6 py-12 text-center hero-glass shadow-card relative overflow-hidden empty-state-fade">
               <div className="absolute -top-12 -left-12 h-28 w-28 rounded-full bg-primary/8 blur-xl pointer-events-none" />
               <div className="absolute -bottom-12 -right-12 h-28 w-28 rounded-full bg-primary-glow/8 blur-xl pointer-events-none" />
               <div className="h-12 w-12 rounded-2xl bg-gradient-primary flex items-center justify-center mx-auto mb-4 border border-primary/25 shadow-[0_4px_16px_hsl(var(--primary)/0.2)] breathe">
@@ -2535,6 +2655,7 @@ export default function DayView() {
                   </button>
                   <button
                     type="button"
+                    data-tour="ask-ai"
                     onClick={() => {
                       setAskAiTaskTitle(null);
                       setAskAiContext("__empty_day__");
@@ -2562,7 +2683,7 @@ export default function DayView() {
                 onDragEnd={onDragEnd}
               >
                 <SortableContext items={blockIds} strategy={verticalListSortingStrategy}>
-                  <div className={`touch-pan-y space-y-2.5 mt-4 ${introPlayed ? "" : "enter-stagger"}`}>
+                  <div className={`touch-pan-y space-y-2.5 mt-4 ${introPlayed ? "day-content-fade" : "enter-stagger"}`}>
                     {displayBlocks.map((b, idx) => {
                       // Working set is break-free (filtered on load), so every row
                       // is a real card. Lunch renders as a normal rest card.
@@ -2597,7 +2718,7 @@ export default function DayView() {
                         {showSeparator && (
                           <div className="flex items-center gap-2.5 py-2 mt-2 mb-0.5 select-none" aria-hidden>
                             <div className="flex-1 h-px bg-gradient-to-r from-transparent to-border/55" />
-                            <div className="flex items-center gap-1.5 rounded-full border border-border/45 bg-muted/40 px-2.5 py-1 shadow-[inset_0_1px_0_hsl(0_0%_100%/0.05)]">
+                            <div className="flex items-center gap-1.5 rounded-full border border-border/75 bg-muted/40 px-2.5 py-1 shadow-[inset_0_1px_0_hsl(0_0%_100%/0.05)]">
                               <History className="h-3 w-3 text-secondary-fg/55" strokeWidth={2.2} />
                               <span className="text-[10.5px] font-bold uppercase tracking-[0.14em] text-secondary-fg/65">
                                 Past
@@ -2609,7 +2730,8 @@ export default function DayView() {
                         <SortableBlock
                           block={b}
                           editing={false}
-                          tourSpotlight={spotlightId === b.id}
+                          tourSpotlight={false}
+                          hintAnchor={idx === 0}
                           trackingActive={!!tracker.active && tracker.active.block_id === b.id}
                           assignedCategory={assignedCat}
                           isFuturePlan={isFuture}
@@ -2707,7 +2829,7 @@ export default function DayView() {
 
       {/* Header "more" sheet — Re-plan, Delete plan */}
       <Sheet open={moreOpen} onOpenChange={setMoreOpen}>
-        <SheetContent side="bottom" className="more-menu-content rounded-t-[28px] border-border/45 bg-popover" hideClose>
+        <SheetContent side="bottom" className="more-menu-content rounded-t-[28px] border-border/75 bg-popover" hideClose>
           <SheetHeader className="text-left mb-3">
             <SheetTitle className="text-[16px]">Plan options</SheetTitle>
           </SheetHeader>
@@ -2776,7 +2898,7 @@ export default function DayView() {
                     checklistRef.current?.enterSelectMode();
                   }}
                   icon={<CheckSquare className="h-4 w-4" />}
-                  label="Select items"
+                  label="Edit items"
                 />
               )}
               {!isFuture && (
@@ -2821,7 +2943,7 @@ export default function DayView() {
       >
         <SheetContent 
           side="bottom" 
-          className="rounded-t-[28px] border-border/45 bg-popover max-h-[92vh] flex flex-col"
+          className="rounded-t-[28px] border-border/75 bg-popover max-h-[92vh] flex flex-col"
           onOpenAutoFocus={(e) => e.preventDefault()}
         >
           <SheetHeader className="text-left shrink-0">
@@ -2868,7 +2990,7 @@ export default function DayView() {
                     return (
                       <div
                         key={q.id}
-                        className="rounded-[18px] border border-border/55 bg-foreground/[0.04] dark:bg-foreground/[0.06] px-4 py-4"
+                        className="rounded-[18px] border border-border/85 bg-foreground/[0.04] dark:bg-foreground/[0.06] px-4 py-4"
                       >
                         {/* Step indicator + question */}
                         <div className="flex items-baseline gap-2 mb-3">
@@ -2896,7 +3018,7 @@ export default function DayView() {
                                   "pressable inline-flex items-center gap-1.5 rounded-full px-3.5 py-2 text-[13px] font-medium transition-all duration-150 border",
                                   active
                                     ? "bg-primary/12 border-primary/35 text-primary"
-                                    : "bg-foreground/[0.05] border-border/40 text-secondary-fg hover:bg-foreground/[0.09] hover:text-foreground",
+                                    : "bg-foreground/[0.05] border-border/70 text-secondary-fg hover:bg-foreground/[0.09] hover:text-foreground",
                                 ].join(" ")}
                               >
                                 {active && <span className="h-1.5 w-1.5 rounded-full bg-primary shrink-0" />}
@@ -2927,7 +3049,7 @@ export default function DayView() {
                               "w-full h-9 rounded-xl px-3 text-[13px] border transition-colors outline-none",
                               isCustom
                                 ? "bg-primary/[0.06] border-primary/30 text-foreground placeholder:text-secondary-fg/40"
-                                : "bg-foreground/[0.03] border-border/35 text-foreground placeholder:text-secondary-fg/35 focus:border-primary/30 focus:bg-primary/[0.04]",
+                                : "bg-foreground/[0.03] border-border/65 text-foreground placeholder:text-secondary-fg/35 focus:border-primary/30 focus:bg-primary/[0.04]",
                             ].join(" ")}
                           />
                         </div>
@@ -2989,7 +3111,7 @@ export default function DayView() {
                 </div>
                 <div className="space-y-2.5 max-h-[48vh] overflow-y-auto pr-1 pb-2 pt-1">
                   {bulkRows.map((row, i) => (
-                    <div key={i} className="flex flex-col gap-2 rounded-[18px] border border-border/60 bg-foreground/[0.04] dark:bg-foreground/[0.06] px-4 py-4 shadow-sm">
+                    <div key={i} className="flex flex-col gap-2 rounded-[18px] border border-border/90 bg-foreground/[0.04] dark:bg-foreground/[0.06] px-4 py-4 shadow-sm">
                       <form 
                         className="flex items-center gap-2"
                         onSubmit={(e) => {
@@ -3007,7 +3129,7 @@ export default function DayView() {
                             }
                           }}
                           onDebouncedChange={(val) => { setBulkRows((rs) => rs.map((r, idx) => idx === i ? { ...r, title: val } : r)); setPreFetchedQuestions(null); }}
-                          className="flex-1 h-9 px-3 rounded-xl border border-border/45 bg-foreground/[0.04] text-[15px] font-semibold text-foreground focus-visible:ring-0 focus-visible:border-primary/55 focus-visible:bg-primary/[0.05] shadow-none placeholder:text-secondary-fg/45 transition-colors duration-150"
+                          className="flex-1 h-9 px-3 rounded-xl border border-border/75 bg-foreground/[0.04] text-[15px] font-semibold text-foreground focus-visible:ring-0 focus-visible:border-primary/55 focus-visible:bg-primary/[0.05] shadow-none placeholder:text-secondary-fg/45 transition-colors duration-150"
                         />
                         <button type="button" onClick={() => { setBulkRows((rs) => rs.filter((_, idx) => idx !== i)); setPreFetchedQuestions(null); }}
                           className="h-8 w-8 grid place-items-center rounded-full text-secondary-fg/50 hover:text-destructive hover:bg-destructive/10 pressable transition-colors shrink-0" aria-label="Remove"
@@ -3022,8 +3144,8 @@ export default function DayView() {
                               !row.start_time && highlightMissingStartTime
                                 ? "animate-warn-bg"
                                 : !row.start_time
-                                  ? "border-border/45 bg-muted/40 text-secondary-fg/55 italic"
-                                  : "border-border/45 bg-muted/40 text-secondary-fg hover:text-foreground"
+                                  ? "border-border/75 bg-muted/40 text-secondary-fg/55 italic"
+                                  : "border-border/75 bg-muted/40 text-secondary-fg hover:text-foreground"
                             }`}
                           >
                             <Clock className="h-3.5 w-3.5 opacity-70 pointer-events-none" />
@@ -3066,8 +3188,8 @@ export default function DayView() {
                             row.duration == null && highlightMissingDuration
                               ? "border-destructive/60 bg-destructive/10 text-destructive animate-pulse"
                               : row.duration == null
-                                ? "border-border/45 bg-muted/40 text-secondary-fg/45 italic"
-                                : "border-border/45 bg-muted/40 text-secondary-fg hover:text-foreground"
+                                ? "border-border/75 bg-muted/40 text-secondary-fg/45 italic"
+                                : "border-border/75 bg-muted/40 text-secondary-fg hover:text-foreground"
                           }`}
                         >
                           <Timer className="h-3.5 w-3.5 opacity-70" />
@@ -3089,7 +3211,7 @@ export default function DayView() {
                           className={`flex items-center gap-1.5 h-8 px-3 rounded-full border text-[13px] font-medium pressable transition-colors ${
                             row.priority
                               ? "border-amber-400/55 bg-amber-400/15 text-amber-500 dark:text-amber-300"
-                              : "border-border/45 bg-muted/40 text-secondary-fg/55 hover:text-foreground"
+                              : "border-border/75 bg-muted/40 text-secondary-fg/55 hover:text-foreground"
                           }`}
                         >
                           <Flag className="h-3.5 w-3.5" fill={row.priority ? "currentColor" : "none"} />
@@ -3099,10 +3221,10 @@ export default function DayView() {
                     </div>
                   ))}
                   {bulkRows.length === 0 && (
-                    <p className="text-center text-[13px] text-secondary-fg py-10 bg-muted/20 rounded-[18px] border border-dashed border-border/45 mx-1">No tasks left.</p>
+                    <p className="text-center text-[13px] text-secondary-fg py-10 bg-muted/20 rounded-[18px] border border-dashed border-border/75 mx-1">No tasks left.</p>
                   )}
                 </div>
-                <div className="flex items-center gap-2 pt-3 border-t border-border/30 px-1">
+                <div className="flex items-center gap-2 pt-3 border-t border-border/60 px-1">
                   <Button variant="outline" onClick={() => {
                     if (pendingMoveState) {
                       // In move mode "Back" cancels the whole flow
@@ -3234,7 +3356,7 @@ export default function DayView() {
       <Sheet open={!!reminderBlockId} onOpenChange={(v) => { if (!v) { setReminderBlockId(null); setReminderAdvancedOpen(false); } }}>
         <SheetContent
           side="bottom"
-          className="rounded-t-[28px] border-border/45 bg-popover p-0 flex flex-col max-h-[90vh]"
+          className="rounded-t-[28px] border-border/75 bg-popover p-0 flex flex-col max-h-[90vh]"
           hideClose
         >
           <SheetTitle className="sr-only">Reminders</SheetTitle>
@@ -3437,7 +3559,7 @@ export default function DayView() {
                             transition={{ duration: 0.22, ease: [0.32, 0.72, 0, 1] }}
                             className="overflow-hidden"
                           >
-                            <div className="px-4 pb-4 pt-2 space-y-4 border-t border-border/30">
+                            <div className="px-4 pb-4 pt-2 space-y-4 border-t border-border/60">
                               <div>
                                 <div className="text-[11px] font-bold uppercase tracking-[0.16em] text-secondary-fg/80 mb-2.5 px-0.5">Before it ends</div>
                                 <div className="flex flex-wrap gap-1.5">
@@ -3560,13 +3682,13 @@ export default function DayView() {
           // p-0 overrides the SheetContent default p-6 — without it the sheet
           // has 24px padding AND the sticky header adds its own px-6 pt-5,
           // producing ~44px of double top-padding.
-          className="rounded-t-[28px] border-border/45 bg-popover max-h-[85vh] flex flex-col p-0"
+          className="rounded-t-[28px] border-border/75 bg-popover max-h-[85vh] flex flex-col p-0"
           style={{ paddingBottom: "var(--keyboard-inset, 0px)" }}
           hideClose
         >
           {/* Sticky header keeps the title + close always visible even when
               there are many categories and the user has scrolled down. */}
-          <div className="shrink-0 sticky top-0 z-10 bg-popover px-5 pt-4 pb-3 flex items-center justify-between gap-2 border-b border-border/30">
+          <div className="shrink-0 sticky top-0 z-10 bg-popover px-5 pt-4 pb-3 flex items-center justify-between gap-2 border-b border-border/60">
             <SheetTitle className="flex items-center gap-2 text-[16px]">
               <Play className="h-4 w-4 text-primary" fill="currentColor" /> Tracker category
             </SheetTitle>

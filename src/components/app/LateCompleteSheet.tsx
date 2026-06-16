@@ -47,7 +47,7 @@ export function LateCompleteSheet({
     <Sheet open={open} onOpenChange={onOpenChange}>
       <SheetContent
         side="bottom"
-        className="rounded-t-[28px] border-border/45 bg-popover p-0 flex flex-col overflow-hidden"
+        className="rounded-t-[28px] border-border/75 bg-popover p-0 flex flex-col overflow-hidden"
         style={swipe.sheetStyle ?? undefined}
         onOpenAutoFocus={(e) => e.preventDefault()}
         hideClose
@@ -221,7 +221,7 @@ export function LateCompleteSheet({
             <button
               type="button"
               onClick={handleReturn}
-              className="w-full h-[50px] rounded-[16px] text-[14px] font-semibold text-foreground/90 border border-border/45 bg-card/40 hover:bg-card/70 pressable flex items-center justify-center gap-2 transition-colors"
+              className="w-full h-[50px] rounded-[16px] text-[14px] font-semibold text-foreground/90 border border-border/75 bg-card/40 hover:bg-card/70 pressable flex items-center justify-center gap-2 transition-colors"
             >
               <RotateCcw className="h-4 w-4 shrink-0" strokeWidth={2.25} />
               Return to task list

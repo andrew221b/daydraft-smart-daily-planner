@@ -15,7 +15,9 @@ export default function Terms() {
       <p>Don't: reverse-engineer the app, abuse AI quotas via automated scripts, upload illegal content, attempt to access other users' data, or use DayDraft for spam.</p>
 
       <h2>4. Subscriptions</h2>
-      <p>Free plan: limited AI plans per week. Pro plan: unlimited plans + advanced features. Subscriptions auto-renew until cancelled. Cancel anytime in your platform's subscription settings (App Store, Google Play, or web). No refunds for partial periods, except where required by law.</p>
+      <p>The free plan includes a limited number of AI plans per week. <strong>Pro</strong> unlocks unlimited plans and advanced features, offered as an auto-renewing subscription in weekly, monthly, or annual periods. The price for your region is shown in the app before you confirm and is charged to your App Store or Google Play account when you purchase.</p>
+      <p>Your subscription renews automatically for the same period unless you turn off auto-renew at least 24 hours before the current period ends; your account is charged for the renewal within the 24 hours before the period ends. If a free trial is offered, any unused portion is forfeited once a paid subscription begins.</p>
+      <p>Manage or cancel anytime in your App Store or Google Play subscription settings — deleting the app alone does not cancel a subscription. We don't refund partial periods except where required by law. See our <a href="/privacy">Privacy Policy</a> for how purchase data is handled.</p>
 
       <h2>5. AI output disclaimer</h2>
       <p>AI-generated schedules are suggestions, not professional advice. You are responsible for your own decisions. We don't guarantee accuracy.</p>

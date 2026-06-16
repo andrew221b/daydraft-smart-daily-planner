@@ -3,6 +3,7 @@
  * and the onboarding paywall step so the two never drift apart visually.
  */
 import { motion } from "framer-motion";
+import { Link } from "react-router-dom";
 import { type LucideIcon } from "lucide-react";
 import { type PlanPrice } from "@/lib/revenueCat";
 
@@ -232,13 +233,13 @@ export function ProPlanRow({
       type="button"
       onClick={onClick}
       className={`relative w-full text-left rounded-[14px] px-4 py-3 pressable transition-all duration-200 border ${
-        active ? "ring-2 ring-primary/60 bg-primary/[0.08] border-primary/20" : "bg-card/40 border-border/30"
+        active ? "ring-2 ring-primary/60 bg-primary/[0.08] border-primary/20" : "bg-card/40 border-border/60"
       }`}
     >
       <div className="flex items-center gap-3">
         <span
           className={`flex h-5 w-5 shrink-0 items-center justify-center rounded-full border-2 transition-colors duration-300 ${
-            active ? "border-primary" : "border-border/60"
+            active ? "border-primary" : "border-border/90"
           }`}
         >
           <span
@@ -253,7 +254,7 @@ export function ProPlanRow({
           {isAnnual && <span className="text-[11px] font-semibold text-amber-500">Save 50%</span>}
         </div>
 
-        <div className="text-right shrink-0">
+        <div className="text-left shrink-0 min-w-[96px]">
           {isAnnual ? (
             <>
               <p className="text-[13.5px] font-semibold text-foreground tabular-nums">
@@ -273,5 +274,40 @@ export function ProPlanRow({
         </div>
       </div>
     </button>
+  );
+}
+
+/* ─── Subscription terms + legal links ─────────────────────────────
+   Apple Guideline 3.1.2 requires the auto-renew terms AND functional
+   links to the EULA (Terms) + Privacy Policy to be visible on the
+   purchase screen itself — not just in Settings. Shared so the in-app
+   sheet and the onboarding paywall always carry identical, compliant
+   disclosure. The renewal line reflects the SELECTED plan + its real
+   localized price, and the trial clause shows only when that plan
+   actually carries one (annual). */
+export function PaywallTerms({
+  planId,
+  priceInfo,
+}: {
+  planId: ProPlanId;
+  priceInfo?: PlanPrice;
+}) {
+  const plan = PRO_PLANS.find((p) => p.id === planId) ?? PRO_PLANS[0];
+  const priceStr = priceInfo ? priceInfo.priceString : plan.price;
+  const periodWord = plan.id === "annual" ? "year" : plan.id === "monthly" ? "month" : "week";
+  const lead = plan.id === "annual" ? `7 days free, then ${priceStr}/${periodWord}.` : `${priceStr}/${periodWord}.`;
+
+  return (
+    <div className="mt-3 px-3 text-center">
+      <p className="text-[10.5px] leading-[1.5] text-secondary-fg/45">
+        {lead} Auto-renews until cancelled; your App Store or Google Play account is charged on
+        confirmation and again at each renewal. Cancel anytime in your store subscription settings.
+      </p>
+      <p className="text-[10.5px] leading-[1.5] text-secondary-fg/55 mt-1">
+        <Link to="/terms" className="underline underline-offset-2 hover:text-foreground">Terms of Use</Link>
+        <span className="px-1 text-secondary-fg/35">·</span>
+        <Link to="/privacy" className="underline underline-offset-2 hover:text-foreground">Privacy Policy</Link>
+      </p>
+    </div>
   );
 }

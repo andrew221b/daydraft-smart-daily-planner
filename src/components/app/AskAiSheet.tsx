@@ -5,12 +5,85 @@ import { useAbortOnUnmount } from "@/hooks/useAbortOnUnmount";
 import { toast } from "sonner";
 import { supabase } from "@/integrations/supabase/client";
 import { useEntitlement } from "@/hooks/useEntitlement";
-import { useProfileData } from "@/hooks/useProfile";
+import { useProfileData, type Profile } from "@/hooks/useProfile";
 import { UpgradeSheet } from "@/components/app/UpgradeSheet";
 import { useSheetSwipeDown } from "@/hooks/useSheetSwipeDown";
 import { haptics } from "@/lib/haptics";
 
 type Msg = { role: "user" | "assistant"; content: string };
+
+/** Behavioural patterns precomputed nightly by `update-user-patterns`.
+ *  Fetched lazily off the chat's critical path. */
+type UserPatterns = {
+  deep_work_overrun_pct?: number | null;
+  completion_by_hour?: Record<string, number> | null;
+  abandoned_types?: string[] | null;
+};
+
+const hourLabel = (h: number): string => {
+  const period = h < 12 ? "am" : "pm";
+  const hr = h % 12 === 0 ? 12 : h % 12;
+  return `${hr}${period}`;
+};
+
+/**
+ * Builds the compact "quiet background" facts block the chat AI uses to feel
+ * like it knows the user — assembled entirely from data already in memory
+ * (`useProfile`) plus the lazily-fetched patterns, so the send path stays
+ * zero-latency. Capped to ~900 chars to protect the token budget.
+ *
+ * Explicit fields (time, name, rhythm, rules, about) are always included.
+ * Learned patterns are gated on the personalization toggle.
+ */
+function buildUserFacts(profile: Profile | null, patterns: UserPatterns | null): string {
+  const lines: string[] = [];
+
+  const tz = profile?.timezone || Intl.DateTimeFormat().resolvedOptions().timeZone;
+  try {
+    const nowStr = new Intl.DateTimeFormat("en-US", {
+      weekday: "long", month: "short", day: "numeric",
+      hour: "numeric", minute: "2-digit", hour12: true, timeZone: tz,
+    }).format(new Date());
+    lines.push(`Now: ${nowStr} (their local time)`);
+  } catch { /* invalid tz — skip the time line */ }
+
+  const name = profile?.display_name?.trim();
+  if (name) lines.push(`Name: ${name}`);
+
+  const start = profile?.active_hours_start;
+  const end = profile?.active_hours_end;
+  const rhythm: string[] = [];
+  if (start && end) rhythm.push(`active ${start}–${end}`);
+  if (profile?.energy_preference) rhythm.push(`${profile.energy_preference} person`);
+  if (rhythm.length) lines.push(`Rhythm: ${rhythm.join(", ")}`);
+
+  const rules = profile?.ai_planning_rules?.trim();
+  if (rules) lines.push(`Their planning rules: ${rules.slice(0, 400)}`);
+
+  const about = profile?.ai_context_custom?.trim();
+  if (about) lines.push(`About them: ${about.slice(0, 400)}`);
+
+  // Learned patterns — only when personalization isn't explicitly off.
+  if (profile?.ai_personalization_enabled !== false && patterns) {
+    const bits: string[] = [];
+    const overrun = Number(patterns.deep_work_overrun_pct || 0);
+    if (overrun >= 8) bits.push(`deep work tends to run ~${overrun}% over estimate`);
+    const cbh = patterns.completion_by_hour || {};
+    const strong = Object.entries(cbh)
+      .map(([h, pct]) => [parseInt(h, 10), Number(pct)] as [number, number])
+      .filter(([h, pct]) => Number.isFinite(h) && pct >= 70)
+      .sort((a, b) => b[1] - a[1])
+      .slice(0, 3)
+      .sort((a, b) => a[0] - b[0])
+      .map(([h]) => hourLabel(h));
+    if (strong.length) bits.push(`finishes most around ${strong.join(", ")}`);
+    const abandoned = (patterns.abandoned_types || []).filter(Boolean);
+    if (abandoned.length) bits.push(`tends to skip: ${abandoned.join(", ").replace(/_/g, " ")}`);
+    if (bits.length) lines.push(`Patterns: ${bits.join("; ")}`);
+  }
+
+  return lines.join("\n").slice(0, 900);
+}
 
 // Isolated memoised input — local state never propagates to parent while typing,
 // so streaming AI responses never cause the keyboard/caret to jump.
@@ -73,7 +146,7 @@ const ChatInput = memo(function ChatInput({
         "flex items-center gap-2 rounded-[18px] border px-4 py-2 transition-[border-color,box-shadow] duration-150",
         canSend
           ? "border-primary/40 bg-primary/[0.04] shadow-[0_0_0_4px_hsl(var(--primary)/0.08)]"
-          : "border-border/55 bg-foreground/[0.05]",
+          : "border-border/85 bg-foreground/[0.05]",
       ].join(" ")}>
         <textarea
           ref={taRef}
@@ -151,10 +224,34 @@ export function AskAiSheet({
   const messagesRef = useRef<Msg[]>([]);
   const loadingRef = useRef(false);
   const seedContextRef = useRef(seedContext);
+  // Learned patterns — fetched lazily when the sheet opens (off the send path)
+  // and cached for the session. Never blocks; omitted from facts if not ready.
+  const patternsRef = useRef<UserPatterns | null>(null);
+  const patternsFetchedRef = useRef(false);
 
   useEffect(() => { messagesRef.current = messages; }, [messages]);
   useEffect(() => { loadingRef.current = loading; }, [loading]);
   useEffect(() => { seedContextRef.current = seedContext; }, [seedContext]);
+
+  // Warm the behavioural patterns once, in the background, when the sheet opens.
+  // Uses profile.id (= auth user id) so there's no extra getUser() round-trip.
+  // Skipped entirely if personalization is off.
+  useEffect(() => {
+    if (!open || patternsFetchedRef.current) return;
+    const uid = profileRef.current?.id;
+    if (!uid || profileRef.current?.ai_personalization_enabled === false) return;
+    patternsFetchedRef.current = true;
+    void (async () => {
+      try {
+        const { data } = await supabase
+          .from("user_patterns")
+          .select("deep_work_overrun_pct, completion_by_hour, abandoned_types")
+          .eq("user_id", uid)
+          .maybeSingle();
+        if (data) patternsRef.current = data as UserPatterns;
+      } catch { /* non-blocking — chat just omits the patterns line */ }
+    })();
+  }, [open]);
 
   const streamBufRef = useRef("");
   const rafRef = useRef<number | null>(null);
@@ -194,7 +291,10 @@ export function AskAiSheet({
       // Context goes in dedicated fields — the function folds them into the
       // system prompt. Sending them as fake "user" messages caused two
       // consecutive user turns which Gemini's chat API sometimes rejects.
-      const personalContext = profileRef.current?.ai_context_custom?.trim() || "";
+      // `userFacts` is the compact "quiet background" block (time, identity,
+      // rules, about, learned patterns) built from in-memory data — zero fetch
+      // on the send path, so the stream starts as fast as before.
+      const userFacts = buildUserFacts(profileRef.current, patternsRef.current);
       // Strip internal UI markers before sending to the AI
       const rawSeed = seedContextRef.current || "";
       const seedContext = rawSeed === "__empty_day__" ? "" : rawSeed;
@@ -202,7 +302,7 @@ export function AskAiSheet({
       const res = await fetch(`${import.meta.env.VITE_SUPABASE_URL}/functions/v1/ai-assist`, {
         method: "POST",
         headers: { "Content-Type": "application/json", "Authorization": `Bearer ${token}` },
-        body: JSON.stringify({ messages: next, personalContext, seedContext }),
+        body: JSON.stringify({ messages: next, userFacts, seedContext }),
         signal,
       });
 
@@ -330,7 +430,7 @@ export function AskAiSheet({
     <Sheet open={open} onOpenChange={onOpenChange}>
       <SheetContent
         side="bottom"
-        className="rounded-t-[28px] border-border/30 bg-popover h-[82vh] flex flex-col p-0 will-change-transform"
+        className="rounded-t-[28px] border-border/60 bg-popover h-[82vh] flex flex-col p-0 will-change-transform"
         style={{
           // Slide content up by keyboard height so the input stays above the
           // keyboard. padding-bottom steals from the inner flex layout
@@ -403,7 +503,7 @@ export function AskAiSheet({
                         key={p.label}
                         type="button"
                         onClick={() => p.send ? void send(p.prompt) : setPresetInput(p.prompt)}
-                        className="w-full text-left rounded-2xl border border-border/30 bg-surface/60 px-4 py-3 pressable transition-[border-color,background-color] duration-200 hover:border-primary/22 hover:bg-primary/[0.04]"
+                        className="w-full text-left rounded-2xl border border-border/60 bg-surface/60 px-4 py-3 pressable transition-[border-color,background-color] duration-200 hover:border-primary/22 hover:bg-primary/[0.04]"
                       >
                         <div className="flex items-center gap-2">
                           <div className="min-w-0 flex-1">
@@ -430,7 +530,7 @@ export function AskAiSheet({
                         "max-w-[84%] rounded-[18px] px-4 py-2.5 text-[14px] leading-[1.6] whitespace-pre-wrap",
                         m.role === "user"
                           ? "bg-primary text-primary-foreground shadow-[0_4px_16px_hsl(var(--primary)/0.26)] rounded-tr-[6px]"
-                          : "bg-surface text-foreground/95 border border-border/30 rounded-tl-[6px]",
+                          : "bg-surface text-foreground/95 border border-border/60 rounded-tl-[6px]",
                       ].join(" ")}>
                         {m.content || (m.role === "assistant" ? <ThinkingDots /> : null)}
                       </div>
@@ -439,7 +539,7 @@ export function AskAiSheet({
 
                   {loading && !hasEmptyAssistant && (
                     <div className="flex justify-start bubble-in">
-                      <div className="rounded-[18px] rounded-tl-[6px] bg-surface border border-border/30 px-4 py-3.5">
+                      <div className="rounded-[18px] rounded-tl-[6px] bg-surface border border-border/60 px-4 py-3.5">
                         <ThinkingDots />
                       </div>
                     </div>
@@ -496,7 +596,7 @@ function AskAiPaywall({ onUpgrade }: { onUpgrade: () => void }) {
         {PERKS.map(({ Icon, label, blurb }) => (
           <li
             key={label}
-            className="flex items-start gap-3 rounded-2xl border border-border/35 bg-card/35 px-3.5 py-3"
+            className="flex items-start gap-3 rounded-2xl border border-border/65 bg-card/35 px-3.5 py-3"
           >
             <span className="mt-0.5 inline-flex h-8 w-8 shrink-0 items-center justify-center rounded-xl bg-primary/[0.14] text-primary">
               <Icon className="h-4 w-4" strokeWidth={2.2} />

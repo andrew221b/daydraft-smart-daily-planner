@@ -11,6 +11,10 @@ import { attachVisualViewportInset } from "./lib/visualViewport";
 import { markTTI } from "./lib/perfMonitor";
 import { startOfflineQueueDrainer } from "./lib/offlineQueue";
 import { registerServiceWorker } from "./lib/swUpdate";
+import { startPerfTrace } from "./lib/perfTrace";
+
+// TEMP: trace main-thread freezes on tab switch.
+startPerfTrace();
 
 /* ──────────── Critical-path bootstrap ──────────────────────────────────
  * Only work that affects the very first paint runs synchronously here:

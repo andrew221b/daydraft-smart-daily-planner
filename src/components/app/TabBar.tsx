@@ -1,5 +1,6 @@
-import { memo, useEffect, useLayoutEffect, useRef, useState } from "react";
-import { NavLink, useLocation } from "react-router-dom";
+import { memo, useEffect, useLayoutEffect, useRef, useState, useTransition } from "react";
+import { NavLink, useLocation, useNavigate } from "react-router-dom";
+import { ptMark } from "@/lib/perfTrace"; // TEMP perf trace
 import { BarChart3, CalendarDays, Settings as SettingsIcon, Timer } from "lucide-react";
 import { motion, useMotionValue, useSpring, useTransform, useVelocity } from "framer-motion";
 import { haptics } from "@/lib/haptics";
@@ -38,14 +39,42 @@ const activeTabIndex = (pathname: string) => {
 
 export const TabBar = () => {
   const { pathname } = useLocation();
-  const prevPath = useRef<string | null>(null);
+  const navigate = useNavigate();
+  const [, startNav] = useTransition();
 
   const activeIdx = activeTabIndex(pathname);
 
+  // Optimistic target index while a transition mounts the next (possibly heavy)
+  // tab. The tap moves the indicator + active styling on the SAME frame, even
+  // though the actual route change is deferred to a transition (see selectTab).
+  const [pendingIdx, setPendingIdx] = useState<number | null>(null);
+  const displayIdx = pendingIdx ?? activeIdx;
+
+  // Once the real location catches up to the optimistic target, drop it.
   useEffect(() => {
-    if (prevPath.current !== null && prevPath.current !== pathname) haptics.selection();
-    prevPath.current = pathname;
+    setPendingIdx(null);
   }, [pathname]);
+
+  // ROOT-CAUSE FIX for the "tap Plan → app freezes 1–2s on first visit" bug:
+  // a NavLink click is an URGENT React update, so the first mount of a heavy
+  // tab (DayView pulls in dnd-kit + framer-motion + every sheet) renders
+  // synchronously in the navigation frame and blocks the main thread — the old
+  // screen stays frozen until it finishes. Wrapping navigate() in a transition
+  // lets React keep the CURRENT tab fully interactive while it prepares the
+  // next one off the critical path, then swap when ready. Combined with the
+  // background pre-mount in PersistentTabs, the common case is instant and the
+  // fast-tap-on-cold-start case degrades to "stays responsive" instead of
+  // "frozen". The pendingIdx above keeps the indicator feeling immediate.
+  const selectTab = (idx: number, to: string) => {
+    if (idx === activeIdx) return;
+    ptMark(`TAP tab ${to}`); // TEMP perf trace
+    setPendingIdx(idx);
+    haptics.selection();
+    startNav(() => {
+      ptMark(`navigate() ${to}`); // TEMP perf trace
+      navigate(to);
+    });
+  };
 
   const n = tabs.length;
   const totalGapPx = Math.max(0, n - 1) * TAB_GAP_PX;
@@ -65,7 +94,7 @@ export const TabBar = () => {
   }, []);
 
   const pillWidth = rowWidth > 0 ? (rowWidth - totalGapPx) / n : 0;
-  const targetX = activeIdx * (pillWidth + TAB_GAP_PX);
+  const targetX = displayIdx * (pillWidth + TAB_GAP_PX);
 
   // Liquid-rubber indicator: a real spring drives x, and we derive scaleX /
   // scaleY from |velocity| so the pill squashes & stretches mid-flight, then
@@ -109,15 +138,20 @@ export const TabBar = () => {
         touchAction: "manipulation",
       }}
     >
-      {/* The gradient blur under the pill */}
-      <div 
+      {/* Frosted strip over the Android system-nav / iOS home-indicator zone.
+          The app's scroll content passes behind the fixed bar, so a real
+          backdrop-blur here shows that content gently blurred under the system
+          buttons (the Telegram look) instead of a flat black bar. Strong blur +
+          an early mask fade so it reads clearly as frosted glass, with no hard
+          top edge. */}
+      <div
         className="pointer-events-none absolute inset-x-0 bottom-0 z-[-1]"
         style={{
           height: "max(var(--safe-area-inset-bottom, env(safe-area-inset-bottom, 0px)), 10px)",
-          backdropFilter: "blur(6px)",
-          WebkitBackdropFilter: "blur(6px)",
-          maskImage: "linear-gradient(to bottom, transparent, black 80%)",
-          WebkitMaskImage: "linear-gradient(to bottom, transparent, black 80%)",
+          backdropFilter: "blur(18px) saturate(140%)",
+          WebkitBackdropFilter: "blur(18px) saturate(140%)",
+          maskImage: "linear-gradient(to bottom, transparent, black 35%)",
+          WebkitMaskImage: "linear-gradient(to bottom, transparent, black 35%)",
         }}
       />
       {/* Centering wrapper — pill stays max 424 px wide, centred */}
@@ -146,7 +180,8 @@ export const TabBar = () => {
                 label={it.label}
                 tour={it.tour}
                 prefetch={it.prefetch}
-                highlighted={activeIdx === idx}
+                highlighted={displayIdx === idx}
+                onSelect={() => selectTab(idx, it.to)}
               />
             ))}
           </div>
@@ -164,6 +199,7 @@ const TabItem = memo(function TabItem({
   tour,
   prefetch,
   highlighted,
+  onSelect,
 }: {
   to: string;
   icon: LucideIcon;
@@ -171,6 +207,7 @@ const TabItem = memo(function TabItem({
   tour: string;
   prefetch: () => Promise<unknown>;
   highlighted: boolean;
+  onSelect: () => void;
 }) {
   // Kick the route chunk download the moment the user's finger touches
   // the tab — gives Vite a head start so by the time the click commits
@@ -181,6 +218,11 @@ const TabItem = memo(function TabItem({
     <NavLink
       to={to}
       data-tour={tour}
+      // Intercept the click so navigation runs through selectTab's transition
+      // instead of NavLink's urgent default — keeps the current screen
+      // responsive while the next (possibly heavy) tab mounts. We still render
+      // a real NavLink so the href/accessibility semantics stay intact.
+      onClick={(e) => { e.preventDefault(); onSelect(); }}
       onPointerDown={warmRoute}
       onTouchStart={warmRoute}
       onFocus={warmRoute}

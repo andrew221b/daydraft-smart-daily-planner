@@ -94,7 +94,7 @@ export default function DeleteAccount() {
         </div>
 
         {/* Export card */}
-        <div className="mt-8 p-4 rounded-2xl border border-border/35 hero-glass space-y-3">
+        <div className="mt-8 p-4 rounded-2xl border border-border/65 hero-glass space-y-3">
           <div>
             <p className="text-sm font-medium text-foreground">Before you go — grab a copy</p>
             <p className="text-xs text-secondary-fg mt-1">
@@ -126,7 +126,7 @@ export default function DeleteAccount() {
 
       {/* ── Sticky confirm footer — stays above keyboard ── */}
       <div
-        className="shrink-0 px-6 pt-4 border-t border-border/25 bg-background space-y-3"
+        className="shrink-0 px-6 pt-4 border-t border-border/55 bg-background space-y-3"
         style={{
           paddingBottom: "calc(max(env(safe-area-inset-bottom), 16px) + var(--keyboard-inset, 0px))",
           transition: "padding-bottom 220ms cubic-bezier(0.32, 0.72, 0, 1)",

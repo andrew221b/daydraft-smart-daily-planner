@@ -1,8 +1,9 @@
 import { useEffect, useMemo, useRef, useState, type CSSProperties, type FormEvent } from "react";
 import { motion, AnimatePresence } from "framer-motion";
-import { Check, Play, Square, Plus, Search, ChevronDown, Wallet, Pencil, Trash2, Lock } from "lucide-react";
+import { Check, Play, Square, Plus, Search, ChevronDown, Wallet, Pencil, Trash2, Lock, Tag, FileText } from "lucide-react";
+import { SessionNoteSheet, SessionTaskSheet } from "@/components/app/EntryEditSheet";
 import { Callout } from "@/components/ui/callout";
-import { useTimeTracker, subscribeElapsed, getElapsedSec, fmtHMS, fmtHM } from "@/hooks/useTimeTracker";
+import { useTimeTracker, subscribeElapsed, getElapsedSec, fmtHMS, fmtHM, subscribeWidgetStop, consumeWidgetStopMeta } from "@/hooks/useTimeTracker";
 import { LiveElapsed } from "@/components/app/LiveElapsed";
 import { Sheet, SheetContent, SheetHeader, SheetTitle } from "@/components/ui/sheet";
 import { Input } from "@/components/ui/input";
@@ -114,26 +115,26 @@ const emptyPaymentDetails: PaymentDetailsDraft = {
 
 function NewCategoryForm({
   focusNewCategory,
-  categoriesLength,
   addingCategory,
   onAdd
 }: {
   focusNewCategory: boolean;
-  categoriesLength: number;
   addingCategory: boolean;
   onAdd: (name: string) => void;
 }) {
   const [name, setName] = useState("");
   const inputRef = useRef<HTMLInputElement>(null);
 
-  // Auto-focus when the user clicks "New category" elsewhere.
-  // Delay by 120ms to allow the sheet/drawer to animate open before focusing.
+  // Auto-focus the new-category input ONLY when the user explicitly chose
+  // "New category" (focusNewCategory). Previously a transient categoriesLength
+  // of 0 (while categories were still loading) also focused — popping the
+  // keyboard over the list when the user only wanted to pick / manage a
+  // category. Opening the picker to choose now never raises the keyboard.
   useEffect(() => {
-    if (categoriesLength === 0 || focusNewCategory) {
-      const id = window.setTimeout(() => inputRef.current?.focus(), 120);
-      return () => window.clearTimeout(id);
-    }
-  }, [categoriesLength, focusNewCategory]);
+    if (!focusNewCategory) return;
+    const id = window.setTimeout(() => inputRef.current?.focus(), 120);
+    return () => window.clearTimeout(id);
+  }, [focusNewCategory]);
 
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault();
@@ -144,8 +145,8 @@ function NewCategoryForm({
   };
 
   return (
-    <form onSubmit={handleSubmit} className="border-t border-border/35 px-5 pt-4 shrink-0" style={{ paddingBottom: "max(env(safe-area-inset-bottom), 16px)" }}>
-      <div className="flex items-center gap-2 rounded-2xl border border-dashed border-border/45 bg-card/35 px-3 py-2.5">
+    <form onSubmit={handleSubmit} className="border-t border-border/65 px-5 pt-4 shrink-0" style={{ paddingBottom: "max(env(safe-area-inset-bottom), 16px)" }}>
+      <div className="flex items-center gap-2 rounded-2xl border border-dashed border-border/75 bg-card/35 px-3 py-2.5">
         <Plus className="h-4 w-4 text-secondary-fg shrink-0" />
         <input
           ref={inputRef}
@@ -170,11 +171,56 @@ function NewCategoryForm({
   );
 }
 
+function StartSessionPrompt({
+  categoryId,
+  onClose,
+  onStart,
+}: {
+  categoryId: string | null;
+  onClose: () => void;
+  onStart: (title: string) => void;
+}) {
+  const [title, setTitle] = useState("");
+  useEffect(() => {
+    if (categoryId) setTitle("");
+  }, [categoryId]);
+
+  return (
+    <Sheet open={!!categoryId} onOpenChange={(o) => !o && onClose()}>
+      <SheetContent side="bottom" className="rounded-t-[28px] p-0 flex flex-col bg-popover border-border/75 transition-[padding-bottom] duration-200" style={{ paddingBottom: "var(--keyboard-inset, 0px)" }} onOpenAutoFocus={(e) => e.preventDefault()}>
+        <div className="px-5 pt-6 pb-4">
+          <SheetTitle className="font-display text-[20px] font-semibold tracking-tight">Name this session</SheetTitle>
+          <p className="text-[13px] text-secondary-fg/80 mt-1">Optional. What will you be working on?</p>
+        </div>
+        <div className="px-5 pb-5 flex flex-col gap-4">
+          <Input 
+            autoFocus
+            placeholder="e.g. Design homepage..."
+            value={title}
+            onChange={(e) => setTitle(e.target.value)}
+            onKeyDown={(e) => {
+              if (e.key === "Enter") {
+                onStart(title);
+              }
+            }}
+            className="h-12 rounded-xl text-[15px] border border-black/[0.08] dark:border-white/[0.09] bg-black/[0.04] dark:bg-white/[0.04] px-4 outline-none focus:border-primary/55 transition-colors placeholder:text-secondary-fg/55 shadow-[inset_0_1px_0_hsl(0_0%_100%/0.06)] dark:shadow-[inset_0_1px_0_hsl(0_0%_100%/0.05)]"
+          />
+          <div className="flex gap-2">
+            <Button variant="outline" className="flex-1 rounded-xl h-12 text-[14px]" onClick={() => onStart("")}>Skip</Button>
+            <Button className="flex-1 rounded-xl h-12 text-[14px] font-semibold" onClick={() => onStart(title)}>Start</Button>
+          </div>
+        </div>
+      </SheetContent>
+    </Sheet>
+  );
+}
+
 export function HomeTrackerHero({ onOpenDetails }: { onOpenDetails: () => void }) {
   const { isPro } = useEntitlement();
   const {
     active,
     categories,
+    allCatMap,
     start,
     stop,
     switchCategory,
@@ -184,9 +230,51 @@ export function HomeTrackerHero({ onOpenDetails }: { onOpenDetails: () => void }
     todayTotalSec,
     updateCategoryRate,
     updateCategoryBilling,
+    updateEntryNote,
+    updateEntryTaskTitle,
   } = useTimeTracker();
   const activeCat = categories.find((c) => c.id === active?.category_id);
   const [pickerOpen, setPickerOpen] = useState(false);
+  const [noteSheetOpen, setNoteSheetOpen] = useState(false);
+  const [taskSheetOpen, setTaskSheetOpen] = useState(false);
+  // Stop flow: STOP the session first, then optionally attach a note. Because
+  // `active` is null the instant the session stops, we snapshot what the note
+  // sheet needs (entry id + category chrome) at stop time. `notePrompt` drives
+  // the Yes/No dialog; `noteEditor` drives the actual note input sheet.
+  type StoppedSessionMeta = { entryId: string; note: string; categoryName?: string; categoryColor?: string };
+  const [stopBusy, setStopBusy] = useState(false);
+  const [notePrompt, setNotePrompt] = useState<StoppedSessionMeta | null>(null);
+  const [noteEditor, setNoteEditor] = useState<StoppedSessionMeta | null>(null);
+
+  const handleStop = async () => {
+    if (!active || stopBusy) return;
+    const meta: StoppedSessionMeta = {
+      entryId: active.id,
+      note: active.note ?? "",
+      categoryName: activeCat?.name,
+      categoryColor: activeCat?.color,
+    };
+    setStopBusy(true);
+    haptics.impact("medium");
+    const ok = await stop();
+    setStopBusy(false);
+    // Only offer the note prompt once the session is actually stopped.
+    if (ok) setNotePrompt(meta);
+  };
+
+  // When the tracker is stopped from the Live Activity widget, the in-app stop
+  // button never fires — so `handleStop` never runs. Subscribe to the module-
+  // level signal that `stop({ fromWidget: true })` emits and open the same note
+  // prompt so widget users get the same post-stop UX.
+  useEffect(() => {
+    return subscribeWidgetStop(() => {
+      const m = consumeWidgetStopMeta();
+      if (!m) return;
+      const cat = allCatMap.get(m.categoryId ?? "");
+      setNotePrompt({ entryId: m.entryId, note: m.note, categoryName: cat?.name, categoryColor: cat?.color });
+    });
+  }, [allCatMap]);
+
   const [selectedCategoryId, setSelectedCategoryId] = useState<string | null>(null);
   const [categoryQuery, setCategoryQuery] = useState("");
   const [addingCategory, setAddingCategory] = useState(false);
@@ -206,6 +294,7 @@ export function HomeTrackerHero({ onOpenDetails }: { onOpenDetails: () => void }
   const [manageName, setManageName] = useState("");
   const [manageBusy, setManageBusy] = useState(false);
   const [confirmDeleteId, setConfirmDeleteId] = useState<string | null>(null);
+  const [pendingStartCatId, setPendingStartCatId] = useState<string | null>(null);
   const chipsScrollRef = useRef<HTMLDivElement>(null);
 
   const selectedCat = categories.find((c) => c.id === selectedCategoryId) || null;
@@ -398,7 +487,7 @@ export function HomeTrackerHero({ onOpenDetails }: { onOpenDetails: () => void }
       className={`relative overflow-hidden rounded-[28px] hero-glass border px-5 pt-6 pb-5 transition-[border-color,background-color,box-shadow,transform] duration-[320ms] ease-out ${
         active
           ? "tracker-hero-clock border-[color-mix(in_srgb,var(--hero-accent)_45%,hsl(var(--border)/0.5))]"
-          : "border-border/35"
+          : "border-border/65"
       }`}
       style={{ "--hero-accent": accent } as CSSProperties}
     >
@@ -420,7 +509,7 @@ export function HomeTrackerHero({ onOpenDetails }: { onOpenDetails: () => void }
         <div className="mt-4 flex flex-col items-center text-center">
           {active && activeCat ? (
             <>
-              <div className="inline-flex items-center gap-2 rounded-full bg-foreground/[0.07] px-3 py-1 border border-border/30">
+              <div className="inline-flex items-center gap-2 rounded-full bg-foreground/[0.07] px-3 py-1 border border-border/60">
                 <span
                   className="h-1.5 w-1.5 rounded-full animate-pulse shadow-[0_0_0_3px_color-mix(in_srgb,var(--hero-accent)_22%,transparent)]"
                   style={{ background: accent }}
@@ -429,6 +518,51 @@ export function HomeTrackerHero({ onOpenDetails }: { onOpenDetails: () => void }
                   {activeCat.name}
                 </span>
               </div>
+
+              {/* Task title + notes — one row, balanced around a centred
+                  divider: the name hugs the divider from the left, the note
+                  from the right, so the pair reads dead-centre and never wraps
+                  (each side truncates within its half). */}
+              <div className="mt-2 grid w-full grid-cols-[1fr_auto_1fr] items-center gap-1.5 px-2">
+                <button
+                  type="button"
+                  onClick={() => { haptics.tap(); setTaskSheetOpen(true); }}
+                  className="min-w-0 justify-self-end inline-flex items-center justify-end gap-1.5 rounded-full px-2.5 py-1 text-[12.5px] pressable transition-colors hover:bg-foreground/[0.05]"
+                  aria-label={active.task_title ? "Edit task name" : "Name this task"}
+                >
+                  {active.task_title ? (
+                    <>
+                      <span className="truncate font-medium text-foreground/90">{active.task_title}</span>
+                      <Pencil className="h-3 w-3 shrink-0 text-secondary-fg/45" />
+                    </>
+                  ) : (
+                    <span className="inline-flex items-center gap-1.5 text-secondary-fg/65 whitespace-nowrap">
+                      <Tag className="h-3 w-3" />
+                      Task name
+                    </span>
+                  )}
+                </button>
+                <div className="h-3 w-px bg-border/60 shrink-0" />
+                <button
+                  type="button"
+                  onClick={() => { haptics.tap(); setNoteSheetOpen(true); }}
+                  className="min-w-0 justify-self-start inline-flex items-center justify-start gap-1.5 rounded-full px-2.5 py-1 text-[12.5px] pressable transition-colors hover:bg-foreground/[0.05]"
+                  aria-label={active.note ? "Edit notes" : "Add notes"}
+                >
+                  {active.note ? (
+                    <>
+                      <span className="truncate font-medium text-foreground/90">{active.note}</span>
+                      <Pencil className="h-3 w-3 shrink-0 text-secondary-fg/45" />
+                    </>
+                  ) : (
+                    <span className="inline-flex items-center gap-1.5 text-secondary-fg/65 whitespace-nowrap">
+                      <FileText className="h-3 w-3" />
+                      Notes
+                    </span>
+                  )}
+                </button>
+              </div>
+
               <div className="mt-3 breathe">
                 <LiveElapsed
                   format={fmtHMS}
@@ -450,17 +584,18 @@ export function HomeTrackerHero({ onOpenDetails }: { onOpenDetails: () => void }
               })()}
               <button
                 type="button"
-                onClick={() => { haptics.impact("medium"); void stop(); }}
-                className="tracker-stop-btn mt-4 inline-flex items-center gap-2 rounded-full text-white px-7 py-3 text-[14px] font-semibold pressable btn-volumetric-danger"
+                onClick={() => void handleStop()}
+                disabled={stopBusy}
+                className="tracker-stop-btn mt-4 inline-flex items-center gap-2 rounded-full text-white px-7 py-3 text-[14px] font-semibold pressable btn-volumetric-danger disabled:opacity-60"
               >
                 <Square className="h-3.5 w-3.5" fill="currentColor" />
-                Stop
+                {stopBusy ? "Stopping…" : "Stop"}
               </button>
               {categories.length > 1 && (
                 <button
                   type="button"
                   onClick={() => openCategoryPicker()}
-                  className="mt-2 inline-flex items-center gap-1.5 rounded-full border border-border/45 bg-background/45 px-4 py-2 text-[12px] font-semibold text-secondary-fg/90 pressable hover:text-foreground"
+                  className="mt-2 inline-flex items-center gap-1.5 rounded-full border border-border/75 bg-background/45 px-4 py-2 text-[12px] font-semibold text-secondary-fg/90 pressable hover:text-foreground"
                 >
                   Switch category
                   <ChevronDown className="h-3 w-3" />
@@ -482,8 +617,8 @@ export function HomeTrackerHero({ onOpenDetails }: { onOpenDetails: () => void }
                     return;
                   }
                   if (selectedCat) {
-                    haptics.impact("medium");
-                    void start(selectedCat.id);
+                    haptics.tap();
+                    setPendingStartCatId(selectedCat.id);
                     return;
                   }
                   haptics.tap();
@@ -509,7 +644,7 @@ export function HomeTrackerHero({ onOpenDetails }: { onOpenDetails: () => void }
                 className={`shrink-0 inline-flex items-center gap-1.5 rounded-full border py-1.5 pl-2 pr-3 text-[12px] font-medium transition-colors pressable ${
                   selectedCategoryId === c.id
                     ? "border-primary/50 bg-primary/[0.12] text-foreground ring-[1.5px] ring-primary/20"
-                    : "border-border/35 bg-black/[0.05] dark:bg-white/[0.05] text-foreground/80 hover:bg-black/[0.08] dark:hover:bg-white/[0.08]"
+                    : "border-border/65 bg-black/[0.05] dark:bg-white/[0.05] text-foreground/80 hover:bg-black/[0.08] dark:hover:bg-white/[0.08]"
                 }`}
               >
                 <span className="h-1.5 w-1.5 rounded-full" style={{ background: c.color }} />
@@ -520,7 +655,7 @@ export function HomeTrackerHero({ onOpenDetails }: { onOpenDetails: () => void }
               <button
                 type="button"
                 onClick={() => openCategoryPicker()}
-                className="shrink-0 inline-flex items-center gap-1 rounded-full border border-border/40 bg-background/40 py-1.5 px-2.5 text-[12px] font-medium text-secondary-fg/85 hover:text-foreground pressable"
+                className="shrink-0 inline-flex items-center gap-1 rounded-full border border-border/70 bg-background/40 py-1.5 px-2.5 text-[12px] font-medium text-secondary-fg/85 hover:text-foreground pressable"
               >
                 <ChevronDown className="h-3 w-3" />
                 More
@@ -529,7 +664,7 @@ export function HomeTrackerHero({ onOpenDetails }: { onOpenDetails: () => void }
             <button
               type="button"
               onClick={() => openCategoryPicker({ focusAdd: true })}
-              className="shrink-0 inline-flex items-center gap-1 rounded-full border border-dashed border-border/60 bg-transparent py-1.5 px-2.5 text-[12px] font-medium text-secondary-fg/80 hover:text-foreground pressable"
+              className="shrink-0 inline-flex items-center gap-1 rounded-full border border-dashed border-border/90 bg-transparent py-1.5 px-2.5 text-[12px] font-medium text-secondary-fg/80 hover:text-foreground pressable"
             >
               <Plus className="h-3 w-3" />
               New
@@ -547,7 +682,7 @@ export function HomeTrackerHero({ onOpenDetails }: { onOpenDetails: () => void }
         )}
         {/* Billing — collapsed by default, tap to expand. */}
         {!active && selectedCat && (
-          <div className="mt-3 rounded-2xl border border-border/50 bg-card overflow-hidden shadow-sm">
+          <div className="mt-3 rounded-2xl border border-border/80 bg-card overflow-hidden shadow-sm">
             {/* Accordion header */}
             <button
               type="button"
@@ -621,7 +756,7 @@ export function HomeTrackerHero({ onOpenDetails }: { onOpenDetails: () => void }
                         e.target.setSelectionRange(len, len);
                       }}
                       placeholder="0.00"
-                      className="flex-1 h-10 rounded-xl bg-foreground/[0.04] text-[13px] font-mono tabular-nums border-border/40 focus-visible:ring-1 focus-visible:ring-primary/30 focus-visible:border-primary/40"
+                      className="flex-1 h-10 rounded-xl bg-foreground/[0.04] text-[13px] font-mono tabular-nums border-border/70 focus-visible:ring-1 focus-visible:ring-primary/30 focus-visible:border-primary/40"
                     />
                     {rateDirty && (
                       <Button
@@ -713,9 +848,9 @@ export function HomeTrackerHero({ onOpenDetails }: { onOpenDetails: () => void }
           if (!open) setFocusNewCategory(false);
         }}
       >
-        <SheetContent side="bottom" className="rounded-t-[28px] p-0 flex flex-col bg-popover border-border/45" style={{ maxHeight: "calc(84vh - var(--keyboard-inset, 0px))", transition: "max-height 220ms cubic-bezier(0.32,0.72,0,1)" }} onOpenAutoFocus={(e) => e.preventDefault()}>
+        <SheetContent side="bottom" className="rounded-t-[28px] p-0 flex flex-col bg-popover border-border/75 transition-[padding-bottom] duration-200" style={{ maxHeight: "84vh", paddingBottom: "var(--keyboard-inset, 0px)" }} onOpenAutoFocus={(e) => e.preventDefault()}>
           <div className="flex flex-col flex-1 min-h-0">
-            <div className="px-5 pt-3 pb-4 border-b border-border/35 shrink-0">
+            <div className="px-5 pt-3 pb-4 border-b border-border/65 shrink-0">
               <SheetTitle className="font-display text-[20px] font-semibold tracking-tight">
                 {active ? "Switch category" : "Choose category"}
               </SheetTitle>
@@ -723,7 +858,7 @@ export function HomeTrackerHero({ onOpenDetails }: { onOpenDetails: () => void }
                 {active ? "Pick a category and the current session will continue there." : "Pick a category, then press Start tracking."}
               </p>
               {categories.length > 6 && (
-                <label className="mt-4 flex items-center gap-2 rounded-2xl border border-border/45 bg-card/55 px-3 py-2.5">
+                <label className="mt-4 flex items-center gap-2 rounded-2xl border border-border/75 bg-card/55 px-3 py-2.5">
                   <Search className="h-4 w-4 text-secondary-fg shrink-0" />
                   <input
                     value={categoryQuery}
@@ -759,7 +894,7 @@ export function HomeTrackerHero({ onOpenDetails }: { onOpenDetails: () => void }
                               onChange={(e) => setManageName(e.target.value)}
                               autoFocus
                               maxLength={40}
-                              className="flex-1 h-9 bg-card/55 border-border/40 rounded-xl text-[14px] font-semibold"
+                              className="flex-1 h-9 bg-card/55 border-border/70 rounded-xl text-[14px] font-semibold"
                               onKeyDown={(e) => {
                                 if (e.key === "Enter") void commitManageRename();
                                 if (e.key === "Escape") setManageCatId(null);
@@ -779,7 +914,7 @@ export function HomeTrackerHero({ onOpenDetails }: { onOpenDetails: () => void }
                             <button
                               type="button"
                               onClick={() => setManageCatId(null)}
-                              className="h-9 px-3.5 rounded-xl border border-border/40 bg-card/40 text-[12px] font-medium text-secondary-fg/85 pressable hover:text-foreground"
+                              className="h-9 px-3.5 rounded-xl border border-border/70 bg-card/40 text-[12px] font-medium text-secondary-fg/85 pressable hover:text-foreground"
                             >
                               Cancel
                             </button>
@@ -810,7 +945,7 @@ export function HomeTrackerHero({ onOpenDetails }: { onOpenDetails: () => void }
                     return (
                       <div
                         key={c.id}
-                        className={`group flex items-stretch gap-1 rounded-2xl border border-border/45 bg-card/60 transition-colors ${
+                        className={`group flex items-stretch gap-1 rounded-2xl border border-border/75 bg-card/60 transition-colors ${
                           isCurrent ? "opacity-90" : isSelected ? "ring-1 ring-primary/25 bg-primary/10" : "hover:bg-card/90"
                         }`}
                         style={{ borderColor: `${c.color}55` }}
@@ -840,15 +975,14 @@ export function HomeTrackerHero({ onOpenDetails }: { onOpenDetails: () => void }
                   })}
                 </div>
               ) : (
-                <div className="rounded-2xl border border-dashed border-border/45 px-4 py-6 text-center text-[13px] text-secondary-fg/80">
+                <div className="rounded-2xl border border-dashed border-border/75 px-4 py-6 text-center text-[13px] text-secondary-fg/80">
                   No categories match your search.
                 </div>
               )}
             </div>
 
-            <NewCategoryForm 
+            <NewCategoryForm
               focusNewCategory={focusNewCategory}
-              categoriesLength={categories.length}
               addingCategory={addingCategory}
               onAdd={handleAddCategory}
             />
@@ -856,10 +990,20 @@ export function HomeTrackerHero({ onOpenDetails }: { onOpenDetails: () => void }
         </SheetContent>
       </Sheet>
 
+      {/* Name the running session ("what you worked on"). */}
+      <SessionNoteSheet
+        open={noteSheetOpen}
+        onClose={() => setNoteSheetOpen(false)}
+        initialNote={active?.note ?? ""}
+        categoryName={activeCat?.name}
+        categoryColor={activeCat?.color}
+        onSave={(note) => { if (active) void updateEntryNote(active.id, note); }}
+      />
+
       <Sheet open={billingOpen} onOpenChange={setBillingOpen}>
         <SheetContent
           side="bottom"
-          className="rounded-t-[28px] border-border/45 bg-popover max-h-[90vh] overflow-y-auto p-0"
+          className="rounded-t-[28px] border-border/75 bg-popover max-h-[90vh] overflow-y-auto p-0"
         >
           <div>
             <div className="px-5 pt-6 pb-4">
@@ -948,6 +1092,56 @@ export function HomeTrackerHero({ onOpenDetails }: { onOpenDetails: () => void }
           </AlertDialogFooter>
         </AlertDialogContent>
       </AlertDialog>
+
+      <StartSessionPrompt
+        categoryId={pendingStartCatId}
+        onClose={() => setPendingStartCatId(null)}
+        onStart={(title) => {
+          if (!pendingStartCatId) return;
+          const id = pendingStartCatId;
+          setPendingStartCatId(null);
+          haptics.impact("medium");
+          void start(id, title.trim() ? { taskTitle: title.trim() } : undefined);
+        }}
+      />
+
+      <SessionTaskSheet
+        open={taskSheetOpen}
+        onClose={() => setTaskSheetOpen(false)}
+        initialTitle={active?.task_title ?? ""}
+        categoryName={activeCat?.name}
+        categoryColor={activeCat?.color}
+        onSave={(task) => {
+          if (active) void updateEntryTaskTitle(active.id, task);
+        }}
+      />
+
+      {/* After Stop: ask whether to add a note. The session is already stopped. */}
+      <AlertDialog open={!!notePrompt} onOpenChange={(o) => !o && setNotePrompt(null)}>
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>Add a note?</AlertDialogTitle>
+            <AlertDialogDescription>
+              Session stopped. Want to add notes about what you worked on?
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel onClick={() => setNotePrompt(null)}>No</AlertDialogCancel>
+            <AlertDialogAction onClick={() => { setNoteEditor(notePrompt); setNotePrompt(null); }}>
+              Yes
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
+
+      <SessionNoteSheet
+        open={!!noteEditor}
+        onClose={() => setNoteEditor(null)}
+        initialNote={noteEditor?.note ?? ""}
+        categoryName={noteEditor?.categoryName}
+        categoryColor={noteEditor?.categoryColor}
+        onSave={(note) => { if (noteEditor) void updateEntryNote(noteEditor.entryId, note); }}
+      />
     </section>
   );
 }

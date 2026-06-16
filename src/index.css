@@ -48,7 +48,7 @@ body.dd-dnd-scroll-lock {
     --destructive: 3 75% 62%;
     --destructive-foreground: 0 0% 100%;
 
-    --border: 227 20% 31%;
+    --border: 227 20% 42%;
     --input: 228 22% 23%;
     --ring: 200 89% 68%;
 
@@ -58,7 +58,7 @@ body.dd-dnd-scroll-lock {
 
     --radius: 1.125rem;
 
-    --shadow-card: 0 1px 0 rgba(255,255,255,0.07), 0 12px 42px -4px rgba(0,0,0,0.52);
+    --shadow-card: 0 1px 0 rgba(255,255,255,0.1), 0 16px 48px -4px rgba(0,0,0,0.7);
     --shadow-card-inset: inset 1px 1px 0 rgba(255,255,255,0.12), inset -1px -1px 0 rgba(0,0,0,0.2);
     --shadow-elevated: 0 24px 64px -8px rgba(6,8,26,0.72), 0 8px 26px -4px rgba(12,16,42,0.45);
     --shadow-glow: 0 0 0 4px hsl(var(--primary) / 0.22);
@@ -137,7 +137,7 @@ body.dd-dnd-scroll-lock {
     --success-foreground: 0 0% 100%;
     --destructive: 3 78% 44%;
     --destructive-foreground: 0 0% 100%;
-    --border: 220 20% 80%;              /* Crisp hairline — visible even at 0.5 alpha */
+    --border: 220 20% 65%;              /* Crisp hairline — visible even at 0.5 alpha */
     --input: 220 20% 80%;
     --ring: 200 96% 38%;
     --type-deep: 200 96% 38%;
@@ -145,7 +145,7 @@ body.dd-dnd-scroll-lock {
     --type-routine: 230 22% 40%;
     /* Cooler blue-tinted shadow stack so cards feel grounded on the paper,
        not floating in flat grey. Multi-step shadow gives depth perception. */
-    --shadow-card: 0 1px 1.5px rgba(18,28,56,0.06), 0 4px 12px -2px rgba(24,40,72,0.10), 0 16px 36px -10px rgba(18,28,56,0.16);
+    --shadow-card: 0 2px 4px rgba(18,28,56,0.08), 0 8px 24px -4px rgba(24,40,72,0.15), 0 24px 48px -12px rgba(18,28,56,0.25);
     --shadow-card-inset: inset 0 1px 0 rgba(255,255,255,1), inset 0 -1px 0 rgba(0,0,0,0.04);
     --shadow-elevated: 0 2px 4px rgba(18,28,56,0.06), 0 12px 28px -8px rgba(24,40,72,0.16), 0 28px 60px -16px rgba(18,28,56,0.24);
     --shadow-tab: 0 16px 40px -14px rgba(18,28,56,0.18), 0 2px 6px rgba(18,28,56,0.06), inset 0 1px 0 rgba(255,255,255,0.98);
@@ -259,8 +259,8 @@ body.dd-dnd-scroll-lock {
   .surface-soft { background-color: hsl(var(--surface) / 0.5); }
   .surface-card { background-color: hsl(var(--surface) / 0.7); }
   .surface-accent { background-color: hsl(var(--primary) / 0.08); }
-  .border-soft { border-color: hsl(var(--border) / 0.5); }
-  .border-strong { border-color: hsl(var(--border) / 0.68); }
+  .border-soft { border-color: hsl(var(--border) / 0.7); }
+  .border-strong { border-color: hsl(var(--border) / 0.9); }
   .border-accent { border-color: hsl(var(--primary) / 0.3); }
 
   /* iOS 26 motion tokens — spring-physics curves used throughout. */
@@ -431,6 +431,22 @@ body.dd-dnd-scroll-lock {
     .enter-stagger > * { animation: none; }
   }
 
+  /* ─── Day-content fade: a single, whole-list dissolve when a day's plan
+     mounts after the skeleton (day switches / far calendar jumps). Deliberately
+     NOT a per-row stagger (that re-animation reads as a jerk on every switch) —
+     the list comes in as one calm unit so info "appears beautifully" instead of
+     popping or flickering from stale data. */
+  .day-content-fade {
+    animation: dayContentFade 0.34s cubic-bezier(0.22, 1, 0.36, 1) both;
+  }
+  @keyframes dayContentFade {
+    from { opacity: 0; transform: translateY(7px); }
+    to   { opacity: 1; transform: translateY(0); }
+  }
+  @media (prefers-reduced-motion: reduce) {
+    .day-content-fade { animation: none; }
+  }
+
   /* ─── Spring-in: for elements that pop into view ─────────────────
      Slight overshoot — the iOS 26 "comes alive" feel. */
   .spring-in {
@@ -576,12 +592,15 @@ body.dd-dnd-scroll-lock {
     animation: pageSwitchLuxe var(--motion-page-switch-ms) cubic-bezier(0.25, 0.46, 0.45, 0.94) backwards;
   }
   @keyframes pageSwitchLuxe {
+    /* No opacity fade: the tabs are persistent (already rendered), so fading the
+       incoming page in from opacity 0 read as a flash/"мелькание" on every
+       switch. iOS push/tab transitions are fully opaque — only the transform
+       moves. Keeping the content visible the whole time gives the continuity
+       the redesign was after; the subtle slide/scale still plays. */
     from {
-      opacity: 0;
       transform: translateX(var(--switch-x, 0)) scale(var(--switch-scale, 0.994)) translateZ(0);
     }
     to {
-      opacity: 1;
       transform: translateX(0) scale(1) translateZ(0);
     }
   }
@@ -770,7 +789,6 @@ body.dd-dnd-scroll-lock {
     border-radius: calc(var(--radius) + 2px);
     border: 1px solid hsl(var(--border) / 0.38);
     border-top-color: rgba(255, 255, 255, 0.16);
-    border-bottom-color: rgba(0, 0, 0, 0.28);
     background:
       radial-gradient(120% 140% at 0% 0%, hsl(var(--primary) / 0.055) 0%, transparent 60%),
       linear-gradient(168deg, hsl(var(--surface) / 0.88) 0%, hsl(var(--surface) / 0.76) 100%);
@@ -788,7 +806,6 @@ body.dd-dnd-scroll-lock {
     border-radius: 22px;
     border: 1px solid hsl(var(--border) / 0.35);
     border-top-color: rgba(255, 255, 255, 0.22);
-    border-bottom-color: rgba(0, 0, 0, 0.32);
     background:
       radial-gradient(120% 120% at 0% 0%, hsl(var(--primary) / 0.09) 0%, transparent 64%),
       radial-gradient(120% 120% at 100% 0%, hsl(var(--primary-glow) / 0.06) 0%, transparent 68%),
@@ -956,9 +973,19 @@ body.dd-dnd-scroll-lock {
     background-color: hsl(var(--surface));
     border-color: hsl(var(--border) / 0.9);
     box-shadow:
-      0 1px 0 hsl(0 0% 100% / 0.8) inset,
-      0 6px 16px -10px hsl(220 30% 24% / 0.18),
-      0 1px 2px hsl(220 30% 24% / 0.04);
+      0 1px 0 hsl(0 0% 100% / 0.9) inset,
+      0 10px 26px -12px hsl(220 35% 22% / 0.28),
+      0 3px 8px -4px hsl(220 35% 22% / 0.12),
+      0 1px 2px hsl(220 30% 24% / 0.06);
+  }
+  /* Inner rate-tier card sits ON the white category card, so it needs its own
+     soft lift in light mode (it's transparent/near-white otherwise). */
+  :root.light .reports-tier-card {
+    background-color: hsl(0 0% 100% / 0.7);
+    box-shadow:
+      0 1px 0 hsl(0 0% 100% / 0.9) inset,
+      0 4px 12px -6px hsl(220 35% 22% / 0.16),
+      0 1px 2px hsl(220 30% 24% / 0.05);
   }
   :root.light .reports-category-card .reports-cat-meta {
     color: hsl(var(--muted-foreground));
@@ -1093,7 +1120,7 @@ body.dd-dnd-scroll-lock {
       linear-gradient(175deg, hsl(var(--primary) / 0.12) 0%, transparent 55%);
     box-shadow:
       0 12px 36px -18px hsl(var(--primary) / 0.22),
-      0 0 0 1px hsl(var(--border) / 0.5);
+      0 0 0 1px hsl(var(--border) / 0.7);
   }
 
   /* Prevent rounded glass clipping artifacts in iOS/Lovable webviews */
@@ -1267,7 +1294,7 @@ body.dd-dnd-scroll-lock {
   :root.light .app-card {
     border-color: hsl(var(--border) / 0.85);
     border-top-color: rgba(255, 255, 255, 0.98);
-    border-bottom-color: hsl(var(--border) / 0.5);
+    border-bottom-color: hsl(var(--border) / 0.7);
     box-shadow:
       0 0 0 1px rgba(255,255,255,0.85),
       0 2px 8px -2px rgba(16,24,40,0.10),

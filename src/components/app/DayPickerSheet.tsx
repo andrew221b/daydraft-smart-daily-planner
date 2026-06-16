@@ -10,6 +10,17 @@ import { supabase } from "@/integrations/supabase/client";
 
 const AMBER = "hsl(38 92% 52%)";
 
+// Remember whether the user prefers the full month calendar over the day
+// scroller, so picking via the calendar doesn't bounce them back to the
+// scroller every time they reopen the picker.
+const CALENDAR_PREF_KEY = "dd_daypicker_calendar";
+const readCalendarPref = (): boolean => {
+  try { return localStorage.getItem(CALENDAR_PREF_KEY) === "1"; } catch { return false; }
+};
+const writeCalendarPref = (on: boolean) => {
+  try { localStorage.setItem(CALENDAR_PREF_KEY, on ? "1" : "0"); } catch { /* ignore */ }
+};
+
 /** Per-day open-work summary.
  *  `tTasks`/`cTasks` hold up to 8 titles each (for the info expand).
  *  `prio` holds the priority-flagged subset shown in the Priority section. */
@@ -114,7 +125,7 @@ export function DayPickerSheet({
   preview = false,
 }: Props) {
   const scrollerRef = useRef<HTMLDivElement | null>(null);
-  const [expanded, setExpanded] = useState(false);
+  const [expanded, setExpanded] = useState(readCalendarPref);
   const [previewYmd, setPreviewYmd] = useState<string | null>(null);
   // Which count row is currently expanded ("t" | "c" | null).
   const [expandedInfo, setExpandedInfo] = useState<"t" | "c" | null>(null);
@@ -210,7 +221,7 @@ export function DayPickerSheet({
 
   useEffect(() => {
     if (!open) return;
-    setExpanded(false);
+    setExpanded(readCalendarPref()); // restore the user's last-used picker mode
     setPreviewYmd(null);
     setExpandedInfo(null);
     setViewMonth(firstOfMonth(parseDateStr(value || todayYmd)));
@@ -308,7 +319,7 @@ export function DayPickerSheet({
     <Sheet open={open} onOpenChange={onOpenChange}>
       <SheetContent
         side="bottom"
-        className="rounded-t-[28px] border-border/45 bg-popover max-h-[90vh] p-0 flex flex-col"
+        className="rounded-t-[28px] border-border/75 bg-popover max-h-[90vh] p-0 flex flex-col"
         hideClose
       >
         <SheetTitle className="sr-only">{title}</SheetTitle>
@@ -327,7 +338,7 @@ export function DayPickerSheet({
 
           <button
             type="button"
-            onClick={() => { haptics.selection(); setExpanded((e) => !e); }}
+            onClick={() => { haptics.selection(); setExpanded((e) => { writeCalendarPref(!e); return !e; }); }}
             aria-label={expanded ? "Compact view" : "Full calendar"}
             aria-pressed={expanded}
             className={[
@@ -631,7 +642,7 @@ export function DayPickerSheet({
                 <motion.div
                   layout="size"
                   transition={{ type: "spring", stiffness: 360, damping: 32, mass: 0.9 }}
-                  className="rounded-[20px] border border-border/45 bg-card/50 overflow-hidden"
+                  className="rounded-[20px] border border-border/75 bg-card/50 overflow-hidden"
                 >
                   <div className="p-4">
                     {/* Date header — × dismisses the preview card (clears previewYmd)
@@ -759,7 +770,7 @@ export function DayPickerSheet({
 
                     {/* Priority section */}
                     {mk.prio.length > 0 && (
-                      <div className="mt-2.5 pt-2.5 border-t border-border/30">
+                      <div className="mt-2.5 pt-2.5 border-t border-border/60">
                         <p
                           className="text-[11px] font-bold uppercase tracking-[0.12em] mb-1.5 inline-flex items-center gap-1"
                           style={{ color: AMBER }}
@@ -814,7 +825,7 @@ export function DayPickerSheet({
           <button
             type="button"
             onClick={() => onOpenChange(false)}
-            className="flex-1 h-[50px] rounded-[16px] border border-border/40 bg-card/30 text-[14px] font-medium text-secondary-fg/80 hover:text-foreground pressable transition-colors"
+            className="flex-1 h-[50px] rounded-[16px] border border-border/70 bg-card/30 text-[14px] font-medium text-secondary-fg/80 hover:text-foreground pressable transition-colors"
           >
             Cancel
           </button>

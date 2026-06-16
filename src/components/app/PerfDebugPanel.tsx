@@ -169,7 +169,7 @@ function Value({ children }: { children: React.ReactNode }) {
 function CallRow({ name, bucket }: { name: string; bucket: PerfBucket }) {
   const avg = bucket.count > 0 ? bucket.totalMs / bucket.count : 0;
   return (
-    <div className="rounded-lg border border-border/40 px-3 py-1.5 surface-card">
+    <div className="rounded-lg border border-border/70 px-3 py-1.5 surface-card">
       <div className="flex items-center justify-between">
         <span className="font-medium text-[12.5px] truncate">{name}</span>
         <span className="text-[11px] text-secondary-fg tabular-nums">

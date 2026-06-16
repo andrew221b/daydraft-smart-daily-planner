@@ -58,7 +58,7 @@ export function ReportCurrencyMismatchDialog({
     <Sheet open={open} onOpenChange={(v) => { if (!v) onCancel(); }}>
       <SheetContent
         side="bottom"
-        className="rounded-t-[28px] border-border/45 bg-popover p-0 flex flex-col"
+        className="rounded-t-[28px] border-border/75 bg-popover p-0 flex flex-col"
         onOpenAutoFocus={(e) => e.preventDefault()}
         hideClose
       >
@@ -89,11 +89,11 @@ export function ReportCurrencyMismatchDialog({
           </p>
 
           {/* Mismatch list */}
-          <div className="rounded-2xl border border-border/30 bg-background/40 backdrop-blur-sm overflow-hidden mb-5">
+          <div className="rounded-2xl border border-border/60 bg-background/40 backdrop-blur-sm overflow-hidden mb-5">
             {mismatches.map((m, i) => (
               <div
                 key={m.catId}
-                className={`flex items-center gap-3 px-4 py-3 ${i < mismatches.length - 1 ? "border-b border-border/20" : ""}`}
+                className={`flex items-center gap-3 px-4 py-3 ${i < mismatches.length - 1 ? "border-b border-border/50" : ""}`}
               >
                 <span
                   className="h-2.5 w-2.5 rounded-full shrink-0"
@@ -127,7 +127,7 @@ export function ReportCurrencyMismatchDialog({
           <button
             type="button"
             onClick={handleExportAsIs}
-            className="w-full h-[46px] rounded-[16px] border border-border/40 bg-card/30 text-[14px] font-medium text-foreground/75 hover:text-foreground hover:bg-card/60 pressable transition-colors mb-1"
+            className="w-full h-[46px] rounded-[16px] border border-border/70 bg-card/30 text-[14px] font-medium text-foreground/75 hover:text-foreground hover:bg-card/60 pressable transition-colors mb-1"
           >
             Export as-is
           </button>

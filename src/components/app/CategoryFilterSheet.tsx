@@ -64,7 +64,7 @@ export function CategoryFilterSheet({
     <Sheet open={open} onOpenChange={onOpenChange}>
       <SheetContent
         side="bottom"
-        className="rounded-t-[28px] border-border/45 bg-popover max-h-[80vh] p-0 flex flex-col"
+        className="rounded-t-[28px] border-border/75 bg-popover max-h-[80vh] p-0 flex flex-col"
         onOpenAutoFocus={(e) => e.preventDefault()}
         hideClose
       >
@@ -96,7 +96,7 @@ export function CategoryFilterSheet({
           <button
             type="button"
             onClick={selectAll}
-            className="w-full flex items-center gap-3 rounded-2xl border border-border/35 bg-foreground/[0.03] hover:bg-foreground/[0.06] px-4 py-3 pressable transition-colors mb-3"
+            className="w-full flex items-center gap-3 rounded-2xl border border-border/65 bg-foreground/[0.03] hover:bg-foreground/[0.06] px-4 py-3 pressable transition-colors mb-3"
           >
             <span className="h-6 w-6 rounded-full bg-primary/15 border border-primary/30 flex items-center justify-center shrink-0">
               {allSelected && (
@@ -132,7 +132,7 @@ export function CategoryFilterSheet({
                   className={`w-full flex items-center gap-3 rounded-2xl border px-4 py-3.5 pressable transition-colors ${
                     isSelected
                       ? "border-primary/30 bg-primary/[0.06]"
-                      : "border-border/35 bg-foreground/[0.02] hover:bg-foreground/[0.05]"
+                      : "border-border/65 bg-foreground/[0.02] hover:bg-foreground/[0.05]"
                   }`}
                 >
                   <span className="h-6 w-6 rounded-full border-[1.5px] flex items-center justify-center shrink-0"

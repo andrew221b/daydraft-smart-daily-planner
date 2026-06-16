@@ -1,4 +1,4 @@
-import { useRef, useState, type CSSProperties } from "react";
+import { useRef, useState, useEffect, type CSSProperties } from "react";
 import { useSortable } from "@dnd-kit/sortable";
 import { SortableContext, verticalListSortingStrategy } from "@dnd-kit/sortable";
 import { useDroppable } from "@dnd-kit/core";
@@ -202,29 +202,32 @@ export function ChecklistItemRow({
 export function AddItemRow({
   onAdd,
   placeholder = "Add item…",
+  autoFocus = false,
 }: {
   onAdd: (title: string) => void;
   placeholder?: string;
+  autoFocus?: boolean;
 }) {
   const [draft, setDraft] = useState("");
   const inputRef = useRef<HTMLInputElement>(null);
-  // Keep this row above the soft keyboard. The global keyboard handler only
-  // reveals the focused field on the keyboard's OPEN transition; this row is
-  // inline in the scrolling page (not a bottom-anchored sheet), so once the
-  // keyboard is already open — on first focus, and after each add pushes the
-  // row further down the growing list — it would slip underneath it. Re-center
-  // it ourselves so what you're typing always sits above the keyboard.
+
   const reveal = (delay = 0) => {
     window.setTimeout(() => {
       try {
-        // `auto` (instant), NOT `smooth`: a smooth scroll fights the keyboard
-        // slide-in animation on iOS WKWebView and visibly freezes/janks input.
         inputRef.current?.scrollIntoView({ block: "center", behavior: "auto" });
-      } catch {
-        /* WKWebView can throw on an early scroll root — safe to ignore */
-      }
+      } catch {}
     }, delay);
   };
+
+  useEffect(() => {
+    if (autoFocus) {
+      setTimeout(() => {
+        inputRef.current?.focus();
+        reveal();
+      }, 50);
+    }
+  }, [autoFocus]);
+
   const submit = () => {
     const t = draft.trim();
     if (!t) return;
@@ -268,8 +271,10 @@ export function AddItemRow({
   );
 }
 
-/** A category = one lifted 3D card: header (chevron · accent chip · name ·
- *  progress · menu) over a body of flat, hairline-divided rows + the add row. */
+/** A category = one unified card: header row (chevron · icon · title · ring ·
+ *  menu) always visible, items below with animated collapse. The card is the
+ *  "плашка" — it stays on screen even when folded so the user can always tap
+ *  to expand without hunting for a separator that looks invisible. */
 export function ChecklistGroup({
   group,
   items,
@@ -283,6 +288,7 @@ export function ChecklistGroup({
   selectMode = false,
   selectedIds,
   onToggleSelect,
+  autoFocusAdd = false,
 }: {
   group: Group;
   items: ChecklistItem[];
@@ -296,84 +302,97 @@ export function ChecklistGroup({
   selectMode?: boolean;
   selectedIds?: Set<string>;
   onToggleSelect?: (id: string) => void;
+  autoFocusAdd?: boolean;
 }) {
   const { setNodeRef, isOver } = useDroppable({ id: group.id });
   const done = items.filter((i) => i.done).length;
   const total = items.length;
-  // Each category gets its own identity colour. Re-tinting `--accent`/`--accent-2`
-  // here makes the list chip, checkboxes, progress ring and title all adopt it —
-  // ungrouped items (outside any group) keep the page's emerald accent.
   const tint = checklistCategoryTint(group.id);
 
   return (
-    <div
-      style={checklistTintVars(tint) as CSSProperties}
-      className={`relative app-card checklist-surface rounded-[20px] overflow-hidden transition-shadow ${
-        isOver ? "ring-2 ring-accent/55" : ""
-      }`}
-    >
-      {/* Header */}
-      <div className="relative z-10 flex items-center gap-2 px-3 py-2.5">
-        <button
-          onClick={onToggleCollapse}
-          className="flex items-center gap-2 flex-1 min-w-0 text-left pressable py-0.5"
-        >
-          <ChevronDown
-            className={`h-4 w-4 shrink-0 text-secondary-fg/50 transition-transform ${collapsed ? "-rotate-90" : ""}`}
-          />
-          <span className="accent-grad flex h-[22px] w-[22px] items-center justify-center rounded-[7px] shrink-0 shadow-sm">
-            <ListChecks className="h-3 w-3 text-white" strokeWidth={2.75} />
-          </span>
-          <span className="font-semibold text-[15px] truncate" style={{ color: "hsl(var(--accent))" }}>{group.title}</span>
-        </button>
-        <ProgressRing done={done} total={total} />
-        <button
-          onClick={() => onOpenGroupMenu(group)}
-          aria-label="List options"
-          className="shrink-0 h-8 w-8 flex items-center justify-center rounded-full text-secondary-fg/55 pressable hover:bg-muted/50 transition-colors"
-        >
-          <MoreHorizontal className="h-4 w-4" />
-        </button>
-      </div>
-
-      {/* Body — animated collapse via grid-template-rows */}
+    <div style={checklistTintVars(tint) as CSSProperties} className="mt-4">
       <div
-        className={`relative z-10 grid transition-all duration-300 ease-out origin-top ${
-          collapsed ? "grid-rows-[0fr] opacity-0" : "grid-rows-[1fr] opacity-100"
+        className={`relative app-card checklist-surface rounded-[20px] overflow-hidden transition-shadow ${
+          isOver ? "ring-2 ring-accent/55" : ""
         }`}
       >
-        <div className="overflow-hidden">
-          <div
-            ref={setNodeRef}
-            className={`px-3 pb-1 transition-colors ${isOver ? "bg-accent/[0.06]" : ""}`}
+        {/* ── Card header — always visible ─────────────────────────────── */}
+        <div className="flex items-center gap-2 px-3 pt-3 pb-2.5">
+          <button
+            onClick={onToggleCollapse}
+            className="flex items-center justify-center pressable shrink-0 text-secondary-fg/40 hover:text-secondary-fg/70 transition-colors"
+            aria-label={collapsed ? "Expand list" : "Collapse list"}
           >
-            <div className="border-t border-border/40 divide-y divide-border/25">
-              <SortableContext items={items.map((i) => i.id)} strategy={verticalListSortingStrategy}>
-                {items.map((i) => (
-                  <ChecklistItemRow
-                    key={i.id}
-                    item={i}
-                    onToggle={onToggleItem}
-                    onOpenSheet={onOpenItemSheet}
-                    selectMode={selectMode}
-                    selected={!!selectedIds?.has(i.id)}
-                    onToggleSelect={onToggleSelect}
-                  />
-                ))}
-              </SortableContext>
-              {items.length === 0 && (
-                <div
-                  className={`my-1 rounded-xl py-3.5 text-center text-[13px] transition-colors ${
-                    dragging
-                      ? "border border-dashed border-accent/50 text-accent font-medium bg-accent/[0.05]"
-                      : "text-secondary-fg/45"
-                  }`}
-                >
-                  {dragging ? "Drop here" : "No items yet"}
-                </div>
-              )}
-              {/* No adding while picking items. */}
-              {!selectMode && <AddItemRow onAdd={(t) => onAddItem(t, group.id)} placeholder="Add to list…" />}
+            <ChevronDown
+              className={`h-4 w-4 transition-transform ${collapsed ? "-rotate-90" : ""}`}
+              strokeWidth={2.5}
+            />
+          </button>
+          <span className="flex items-center justify-center shrink-0" style={{ color: "hsl(var(--accent))" }}>
+            <ListChecks className="h-3.5 w-3.5" strokeWidth={2.5} />
+          </span>
+          <span
+            className="text-[13px] font-bold uppercase tracking-[0.1em] flex-1 min-w-0 truncate"
+            style={{ color: "hsl(var(--accent))" }}
+          >
+            {group.title}
+          </span>
+          <div className="flex items-center gap-1 shrink-0">
+            <ProgressRing done={done} total={total} />
+            <button
+              onClick={() => onOpenGroupMenu(group)}
+              aria-label="List options"
+              className="flex items-center justify-center h-7 w-7 rounded-full text-secondary-fg/50 hover:text-secondary-fg/80 hover:bg-muted/50 pressable transition-colors"
+            >
+              <MoreHorizontal className="h-4 w-4" />
+            </button>
+          </div>
+        </div>
+
+        {/* Hairline divider — only when expanded so the card edge is clean when folded */}
+        <div
+          className={`mx-3 transition-all duration-300 ${collapsed ? "h-0 opacity-0" : "h-px opacity-100"}`}
+          style={{ backgroundColor: "hsl(var(--accent) / 0.18)" }}
+        />
+
+        {/* ── Items — animated collapse via grid-template-rows ──────────── */}
+        <div
+          className={`relative z-10 grid transition-all duration-300 ease-out origin-top ${
+            collapsed ? "grid-rows-[0fr] opacity-0" : "grid-rows-[1fr] opacity-100"
+          }`}
+        >
+          <div className="overflow-hidden">
+            <div
+              ref={setNodeRef}
+              className={`px-3 pb-1 pt-1 transition-colors ${isOver ? "bg-accent/[0.06]" : ""}`}
+            >
+              <div className="divide-y divide-border/25">
+                <SortableContext items={items.map((i) => i.id)} strategy={verticalListSortingStrategy}>
+                  {items.map((i) => (
+                    <ChecklistItemRow
+                      key={i.id}
+                      item={i}
+                      onToggle={onToggleItem}
+                      onOpenSheet={onOpenItemSheet}
+                      selectMode={selectMode}
+                      selected={!!selectedIds?.has(i.id)}
+                      onToggleSelect={onToggleSelect}
+                    />
+                  ))}
+                </SortableContext>
+                {items.length === 0 && (
+                  <div
+                    className={`my-1 rounded-xl py-3.5 text-center text-[13px] transition-colors ${
+                      dragging
+                        ? "border border-dashed border-accent/50 text-accent font-medium bg-accent/[0.05]"
+                        : "text-secondary-fg/45"
+                    }`}
+                  >
+                    {dragging ? "Drop here" : "No items yet"}
+                  </div>
+                )}
+                {!selectMode && <AddItemRow onAdd={(t) => onAddItem(t, group.id)} placeholder="Add to list…" autoFocus={autoFocusAdd} />}
+              </div>
             </div>
           </div>
         </div>

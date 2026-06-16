@@ -1,13 +1,12 @@
 import { useEffect, useMemo, useState } from "react";
 import { keepPreviousData, useQuery, useQueryClient } from "@tanstack/react-query";
-import { toast } from "sonner";
 import { useLocation, useNavigate, useSearchParams } from "react-router-dom";
 import { HomeTrackerHero } from "@/components/app/HomeTrackerHero";
+import { FeatureHint } from "@/components/app/FeatureHint";
 import { PullToRefresh } from "@/components/app/PullToRefresh";
 import { YesterdayDebriefCard } from "@/components/app/YesterdayDebriefCard";
 import { useAuth } from "@/hooks/useAuth";
 import { useProfile } from "@/hooks/useProfile";
-import { useTour, TOUR_SANDBOX } from "@/components/app/Tour";
 import { todayDateStr, isUserTask, isOpenUserTask, isUserTaskDone, type Block } from "@/lib/daydraft";
 import { fetchPlanDashboard, planDashboardQueryKey } from "@/lib/planQueries";
 import { supabase } from "@/integrations/supabase/client";
@@ -21,6 +20,7 @@ import {
 } from "@/lib/timeEntriesQuery";
 import { useTabVisible } from "@/components/app/PersistentTabs";
 import { peekChecklistCounts, prefetchChecklistCounts } from "@/hooks/useChecklist";
+import { useDayKey } from "@/hooks/useDayKey";
 import { motion } from "framer-motion";
 
 function fmtMoney(amount: number, currency: string): string | null {
@@ -42,7 +42,6 @@ export default function Home() {
   const { user } = useAuth();
   const { profile } = useProfile();
   const tone = getTone(profile);
-  const tour = useTour();
   const nav = useNavigate();
   const location = useLocation();
   const [searchParams] = useSearchParams();
@@ -71,46 +70,10 @@ export default function Home() {
     };
   }, []);
   const { allCatMap } = useTimeTracker();
-
-  useEffect(() => {
-    if (!profile?.onboarded) return;
-    if (tour.hasSeen("sandbox")) return;
-    const t = setTimeout(() => tour.start(TOUR_SANDBOX), 800);
-    return () => clearTimeout(t);
-  }, [profile?.onboarded, tour]);
-
-  useEffect(() => {
-    const handleClear = async () => {
-      if (!user) return;
-      const today = todayDateStr();
-      try {
-        const { data: plans } = await supabase.from("plans").select("id").eq("user_id", user.id).eq("date", today);
-        if (plans && plans.length > 0) {
-          const planIds = plans.map((p: any) => p.id);
-          await supabase.from("blocks").delete().in("plan_id", planIds);
-          await supabase.from("plans").delete().in("id", planIds);
-        }
-        await supabase.from("checklist_items").delete().eq("user_id", user.id).eq("plan_date", today);
-        await supabase.from("checklist_groups").delete().eq("user_id", user.id).eq("plan_date", today);
-        
-        const d = new Date();
-        const startOfToday = new Date(d.getFullYear(), d.getMonth(), d.getDate(), 0, 0, 0, 0).toISOString();
-        const endOfToday = new Date(d.getFullYear(), d.getMonth(), d.getDate(), 23, 59, 59, 999).toISOString();
-        await supabase.from("time_entries")
-          .delete()
-          .eq("user_id", user.id)
-          .gte("started_at", startOfToday)
-          .lte("started_at", endOfToday);
-        
-        queryClient.invalidateQueries();
-        toast.success("Sandbox data cleared");
-      } catch (e) {
-        console.error("Failed to clear sandbox data", e);
-      }
-    };
-    window.addEventListener("tour-sandbox-clear", handleClear);
-    return () => window.removeEventListener("tour-sandbox-clear", handleClear);
-  }, [user, queryClient]);
+  // Rolls over at local midnight (live: matches the hero counter) so the
+  // "Time tracked today" breakdown below recomputes its day window instead of
+  // showing yesterday's sessions until the next manual reload.
+  const dayKey = useDayKey({ live: true });
 
   // Pause the missed-block poll while this tab isn't on screen. Background
   // tabs in a native app don't keep hitting the network — this matches that
@@ -234,7 +197,8 @@ export default function Home() {
       .filter((r): r is NonNullable<typeof r> => r !== null)
       .sort((a, b) => b.sec - a.sec)
       .slice(0, 5);
-  }, [rollingEntries, allCatMap]);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [rollingEntries, allCatMap, dayKey]);
 
   return (
     <PullToRefresh onRefresh={onRefresh}>
@@ -254,6 +218,16 @@ export default function Home() {
             <HomeTrackerHero onOpenDetails={() => nav("/reports")} />
           </motion.div>
 
+          {/* In-context tip: the tracker's persistence is its killer, non-obvious trait. */}
+          <FeatureHint
+            id="tracker-persistence"
+            selector="[data-tour='hero-tracker']"
+            title="A timer that never loses count"
+            placement="bottom"
+          >
+            Start it, pick a category and rate, and it keeps running through locks and reboots — even on your Lock Screen — tallying earnings live.
+          </FeatureHint>
+
           {/* Morning look-back. Silently hides when there's no plan from
               yesterday, when the edge function isn't deployed, or when the
               user dismissed it for the day. */}
@@ -266,7 +240,7 @@ export default function Home() {
             <motion.div
               layout
               transition={{ type: "spring", bounce: 0.2, duration: 0.6 }}
-              className="mt-4 hero-glass border border-border/35 rounded-[28px] px-4 py-4 cursor-pointer tappable"
+              className="mt-4 hero-glass border border-border/65 rounded-[28px] px-4 py-4 cursor-pointer tappable"
               onClick={() => nav("/today?mode=timeline")}
               role="button"
               tabIndex={0}
@@ -309,7 +283,7 @@ export default function Home() {
             <motion.div
               layout
               transition={{ type: "spring", bounce: 0.2, duration: 0.6 }}
-              className="mt-3 hero-glass border border-border/35 rounded-[28px] px-4 py-4 cursor-pointer tappable"
+              className="mt-3 hero-glass border border-border/65 rounded-[28px] px-4 py-4 cursor-pointer tappable"
               onClick={() => nav("/today?mode=checklist")}
               role="button"
               tabIndex={0}
@@ -349,7 +323,7 @@ export default function Home() {
 
           {/* Today categories breakdown — minimal, only if data */}
           {breakdown.length > 0 && (
-            <motion.div layout transition={{ type: "spring", bounce: 0.2, duration: 0.6 }} className="mt-4 hero-glass border border-border/35 rounded-[28px] px-4 py-3.5">
+            <motion.div layout transition={{ type: "spring", bounce: 0.2, duration: 0.6 }} className="mt-4 hero-glass border border-border/65 rounded-[28px] px-4 py-3.5">
               <div className="flex items-center justify-between mb-3">
                 <span className="eyebrow">Time tracked today</span>
                 <span className="text-[11px] tabular-nums text-secondary-fg/55 font-medium">

@@ -97,7 +97,7 @@ export function CurrencyPickerSheet({
     <Sheet open={open} onOpenChange={onOpenChange}>
       <SheetContent
         side="bottom"
-        className="rounded-t-[28px] border-border/45 bg-popover max-h-[86vh] p-0 flex flex-col overflow-hidden"
+        className="rounded-t-[28px] border-border/75 bg-popover max-h-[86vh] p-0 flex flex-col overflow-hidden"
         style={swipe.sheetStyle ?? undefined}
         onOpenAutoFocus={(e) => e.preventDefault()}
         hideClose
@@ -166,7 +166,7 @@ export function CurrencyPickerSheet({
               placeholder="USD, Euro, Bitcoin…"
               value={query}
               onChange={(e) => setQuery(e.target.value)}
-              className="w-full h-11 pl-10 pr-3 rounded-2xl border border-border/45 bg-foreground/[0.035] text-[14px] placeholder:text-secondary-fg/45 focus:outline-none focus:border-primary/45 focus:bg-foreground/[0.06] transition-colors shadow-[inset_0_1px_0_hsl(0_0%_100%/0.06)] dark:shadow-[inset_0_1px_0_hsl(0_0%_100%/0.05)]"
+              className="w-full h-11 pl-10 pr-3 rounded-2xl border border-border/75 bg-foreground/[0.035] text-[14px] placeholder:text-secondary-fg/45 focus:outline-none focus:border-primary/45 focus:bg-foreground/[0.06] transition-colors shadow-[inset_0_1px_0_hsl(0_0%_100%/0.06)] dark:shadow-[inset_0_1px_0_hsl(0_0%_100%/0.05)]"
             />
           </div>
         </div>
@@ -257,7 +257,7 @@ const CurrencyRow = memo(function CurrencyRow({
         "group relative w-full flex items-center gap-3 rounded-2xl border px-3.5 py-3 pressable transition-[border-color,background-color,box-shadow,transform] duration-200",
         selected
           ? "border-primary/45 bg-primary/[0.10] shadow-[0_0_0_1px_hsl(var(--primary)/0.20),0_10px_28px_-14px_hsl(var(--primary)/0.55)] dark:shadow-[0_0_0_1px_hsl(var(--primary)/0.28),0_12px_30px_-14px_hsl(var(--primary)/0.65)]"
-          : "border-border/40 bg-surface/55 hover:border-border/65 hover:bg-surface/85 dark:bg-card/35 dark:hover:bg-card/55 shadow-[inset_0_1px_0_hsl(0_0%_100%/0.04)] dark:shadow-[inset_0_1px_0_hsl(0_0%_100%/0.03)]",
+          : "border-border/70 bg-surface/55 hover:border-border/95 hover:bg-surface/85 dark:bg-card/35 dark:hover:bg-card/55 shadow-[inset_0_1px_0_hsl(0_0%_100%/0.04)] dark:shadow-[inset_0_1px_0_hsl(0_0%_100%/0.03)]",
       ].join(" ")}
     >
       {/* 3D code chip — dimensional avatar that reads on both themes. */}

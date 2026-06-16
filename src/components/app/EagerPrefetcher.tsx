@@ -30,18 +30,56 @@ export function EagerPrefetcher() {
   const queryClient = useQueryClient();
   const seededForRef = useRef<string | null>(null);
 
-  // Preload every tab-route chunk the moment the module mounts (before auth
-  // even resolves). The browser is otherwise idle on the auth screen / first
-  // paint, so this is a pure win — by the time the user is on /home and taps
-  // a tab, the chunk for that tab is already in memory and the
-  // `Suspense fallback={null}` path renders the new page on the same frame
-  // with no perceived loading.
+  // Evaluate the tab-route chunks EARLY so React.lazy never SUSPENDS on a tab
+  // tap. This is the real fix for the "tap Plan → 1–2s freeze" bug:
+  //
+  //   If a chunk isn't evaluated yet when the user taps, the lazy import
+  //   resolves mid-navigation and the chunk's *synchronous module evaluation*
+  //   (DayView pulls in dnd-kit + the sheets) blocks the main thread — and every
+  //   paint — for a second or two. Even a route transition can't hide that,
+  //   because the block happens while React is suspended waiting on the module,
+  //   before it can commit anything (the tab indicator visibly lags behind it).
+  //
+  // Importing only EVALUATES the module (cheap — it just defines components);
+  // the expensive first RENDER is handled off the paint path by the idle
+  // pre-mount in PersistentTabs + the route transition in TabBar. So we want the
+  // eval done as soon as possible, even under the Face-ID overlay. We stagger
+  // one chunk per slot (so no single eval batches with the others) and lead with
+  // DayView — the Plan tab is the heaviest and most-visited. requestIdleCallback
+  // carries a short timeout so the warm-up still runs promptly on a busy thread.
   useEffect(() => {
-    void import("@/pages/app/Home");
-    void import("@/pages/app/DayView");
-    void import("@/pages/app/Reports");
-    void import("@/pages/app/Settings");
-    void import("@/pages/app/Focus");
+    const chunks = [
+      () => import("@/pages/app/DayView"),
+      () => import("@/pages/app/Reports"),
+      () => import("@/pages/app/Settings"),
+      () => import("@/pages/app/Focus"),
+      () => import("@/pages/app/Home"),
+    ];
+    let cancelled = false;
+    let idleHandle: ReturnType<typeof requestIdleCallback> | undefined;
+    let timerHandle: ReturnType<typeof setTimeout> | undefined;
+
+    const schedule = (cb: () => void) => {
+      if (typeof requestIdleCallback !== "undefined") {
+        idleHandle = requestIdleCallback(cb, { timeout: 600 });
+      } else {
+        timerHandle = setTimeout(cb, 60);
+      }
+    };
+    const warmNext = (i: number) => {
+      if (cancelled || i >= chunks.length) return;
+      void chunks[i]();
+      schedule(() => warmNext(i + 1));
+    };
+
+    warmNext(0); // start straight away — evaluation is cheap, paint stays free
+    return () => {
+      cancelled = true;
+      if (idleHandle !== undefined && typeof cancelIdleCallback !== "undefined") {
+        cancelIdleCallback(idleHandle);
+      }
+      if (timerHandle !== undefined) clearTimeout(timerHandle);
+    };
   }, []);
 
   useEffect(() => {

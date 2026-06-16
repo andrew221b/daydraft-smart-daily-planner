@@ -6,11 +6,12 @@
 //  Lock Screen and Dynamic Island expanded share ONE card (FocusCard).
 //
 //  Layout (inspired by Apple Fitness "active workout" cards):
-//    Row 1 — task title LEFT  ·  elapsed count-up RIGHT (large, tint)
-//    Row 2 — category pill (centered, own line)
-//    Row 3 — journey track (start → planned end, self-filling bar)
-//    Row 4 — start time LEFT  ·  remaining countdown RIGHT
-//    Row 5 — Mark Done button (full width)
+//    Row 1 — task title LEFT  ·  category pill + elapsed count-up RIGHT
+//    Row 2 — journey track (start → planned end, self-filling bar)
+//    Row 3 — start time LEFT  ·  remaining countdown RIGHT
+//    Row 4 — Mark Done button (full width)
+//  The category pill rides inline on Row 1 (not its own centered line) so the
+//  card stays short enough that Mark Done never clips in the Live Activity.
 //
 
 import ActivityKit
@@ -99,10 +100,11 @@ private struct FocusCard: View {
 
         VStack(alignment: .leading, spacing: 5) {
 
-            // ── Row 1: task name LEFT · elapsed count-up RIGHT ──────────────
-            // Mirrors TrackerCard's category+timer row: both read left-to-right,
-            // the eye lands on the task first, then the running clock.
-            HStack(alignment: .firstTextBaseline, spacing: 8) {
+            // ── Row 1: task name LEFT · category pill + count-up RIGHT ──────
+            // The category pill rides inline on the right (next to the timer)
+            // instead of taking its own centered line. That reclaims a full row
+            // of height so the Mark Done button never clips in the Live Activity.
+            HStack(alignment: .center, spacing: 8) {
                 Text(taskTitle)
                     .font(.system(size: 13, weight: .heavy, design: .rounded))
                     .tracking(0.2)
@@ -110,7 +112,11 @@ private struct FocusCard: View {
                     .lineLimit(1)
                     .minimumScaleFactor(0.55)
 
-                Spacer(minLength: 4)
+                Spacer(minLength: 6)
+
+                if let catName = categoryName {
+                    CategoryPill(name: catName, colorHex: categoryColorHex, expand: false)
+                }
 
                 Text(start, style: .timer)
                     .font(.system(size: 30, weight: .heavy, design: .rounded))
@@ -118,14 +124,12 @@ private struct FocusCard: View {
                     .foregroundStyle(tint)
                     .shadow(color: tint.opacity(0.4), radius: 6, y: 1)
                     .lineLimit(1)
+                    .layoutPriority(1)
             }
 
-            // ── Rows 2-4: category pill + journey track + endpoint times ────
+            // ── Rows 2-3: journey track + endpoint times (pill moved to Row 1) ─
             if let end = plannedEnd {
                 VStack(spacing: 4) {
-                    if let catName = categoryName {
-                        CategoryPill(name: catName, colorHex: categoryColorHex)
-                    }
                     JourneyTrack(start: start, end: end, tint: tint)
                     HStack {
                         Text(start, style: .time)       // left: started at
@@ -138,24 +142,19 @@ private struct FocusCard: View {
                 }
                 .padding(.horizontal, 2)
             } else {
-                VStack(spacing: 4) {
-                    if let catName = categoryName {
-                        CategoryPill(name: catName, colorHex: categoryColorHex)
-                    }
-                    HStack {
-                        Text("STARTED AT")
-                            .font(.system(size: 11, weight: .heavy, design: .rounded))
-                            .tracking(0.8)
-                            .foregroundStyle(DD.faint)
-                        Spacer()
-                        Text(start, style: .time)
-                            .font(.system(size: 11, weight: .bold, design: .rounded))
-                            .foregroundStyle(DD.dim)
-                    }
+                HStack {
+                    Text("STARTED AT")
+                        .font(.system(size: 11, weight: .heavy, design: .rounded))
+                        .tracking(0.8)
+                        .foregroundStyle(DD.faint)
+                    Spacer()
+                    Text(start, style: .time)
+                        .font(.system(size: 11, weight: .bold, design: .rounded))
+                        .foregroundStyle(DD.dim)
                 }
             }
 
-            // ── Row 5: Mark Done button ──────────────────────────────────────
+            // ── Row 4: Mark Done button ──────────────────────────────────────
             if let url = ddFocusDoneURL(blockId) {
                 Link(destination: url) {
                     LiveActionLabel(title: "Mark Done", icon: "checkmark.circle.fill", fill: DD.brandGradient)

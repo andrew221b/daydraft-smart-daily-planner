@@ -353,6 +353,7 @@ export type Database = {
           active_hours_end: string
           active_hours_start: string
           ai_context_custom: string | null
+          ai_personalization_enabled: boolean
           ai_planning_rules: string | null
           ai_tone: string
           ai_tone_custom: string | null
@@ -378,6 +379,7 @@ export type Database = {
           active_hours_end?: string
           active_hours_start?: string
           ai_context_custom?: string | null
+          ai_personalization_enabled?: boolean
           ai_planning_rules?: string | null
           ai_tone?: string
           ai_tone_custom?: string | null
@@ -403,6 +405,7 @@ export type Database = {
           active_hours_end?: string
           active_hours_start?: string
           ai_context_custom?: string | null
+          ai_personalization_enabled?: boolean
           ai_planning_rules?: string | null
           ai_tone?: string
           ai_tone_custom?: string | null
@@ -662,6 +665,8 @@ export type Database = {
       }
       time_entries: {
         Row: {
+          adjustment_reason: string | null
+          adjustment_seconds: number
           block_id: string | null
           category_id: string | null
           created_at: string
@@ -676,6 +681,8 @@ export type Database = {
           user_id: string
         }
         Insert: {
+          adjustment_reason?: string | null
+          adjustment_seconds?: number
           block_id?: string | null
           category_id?: string | null
           created_at?: string
@@ -690,6 +697,8 @@ export type Database = {
           user_id: string
         }
         Update: {
+          adjustment_reason?: string | null
+          adjustment_seconds?: number
           block_id?: string | null
           category_id?: string | null
           created_at?: string

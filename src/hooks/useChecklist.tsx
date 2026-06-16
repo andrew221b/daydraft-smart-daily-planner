@@ -592,6 +592,7 @@ export function useChecklist(
         plan_date: targetDate,
         title: group.title,
         position: 0,
+        pinned: false,
         created_at: nowIso(),
         updated_at: nowIso(),
       };

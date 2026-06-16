@@ -5,7 +5,7 @@ import { Shield, Check, Lock, RotateCcw } from "lucide-react";
 import { startCheckout } from "@/hooks/useEntitlement";
 import { toast } from "sonner";
 import { haptics } from "@/lib/haptics";
-import { PRO_FEATURES, PRO_PLANS, ProFeatureCard, ProPlanRow, type ProPlanId } from "@/components/app/proPaywall";
+import { PRO_FEATURES, PRO_PLANS, ProFeatureCard, ProPlanRow, PaywallTerms, type ProPlanId } from "@/components/app/proPaywall";
 import { usePlanPrices } from "@/hooks/usePlanPrices";
 import { useAuth } from "@/hooks/useAuth";
 import { useProfile } from "@/hooks/useProfile";
@@ -98,7 +98,7 @@ export const UpgradeSheet = ({
         side="bottom"
         // 88vh keeps the rounded top well below the Dynamic Island / status bar
         // on every modern iPhone (96vh was reaching behind the system UI).
-        className="rounded-t-[28px] border-border/20 bg-background max-h-[88vh] flex flex-col p-0 overflow-hidden"
+        className="rounded-t-[28px] border-border/50 bg-background max-h-[88vh] flex flex-col p-0 overflow-hidden"
         onOpenAutoFocus={(e) => e.preventDefault()}
       >
         <SheetTitle className="sr-only">Upgrade to Pro</SheetTitle>
@@ -189,6 +189,8 @@ export const UpgradeSheet = ({
                 </button>
               ))}
             </div>
+
+            <PaywallTerms planId={plan} priceInfo={prices[plan]} />
 
             <div style={{ height: "max(16px, env(safe-area-inset-bottom, 0px))" }} />
           </div>

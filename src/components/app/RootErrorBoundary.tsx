@@ -46,7 +46,7 @@ export class RootErrorBoundary extends Component<Props, State> {
     if (this.state.error) {
       return (
         <div className="min-h-screen w-full bg-background text-foreground flex items-center justify-center px-5">
-          <div className="relative max-w-sm w-full text-center px-6 py-10 rounded-[28px] hero-glass border border-border/35 overflow-hidden">
+          <div className="relative max-w-sm w-full text-center px-6 py-10 rounded-[28px] hero-glass border border-border/65 overflow-hidden">
             <div
               aria-hidden
               className="pointer-events-none absolute inset-x-0 -top-20 h-48 blur-3xl opacity-70"
@@ -85,7 +85,7 @@ export class RootErrorBoundary extends Component<Props, State> {
                   } catch { /* ignore */ }
                   window.location.href = "/auth";
                 }}
-                className="w-full h-10 rounded-2xl border border-border/35 text-[12.5px] font-medium text-secondary-fg/85 hover:text-foreground pressable"
+                className="w-full h-10 rounded-2xl border border-border/65 text-[12.5px] font-medium text-secondary-fg/85 hover:text-foreground pressable"
               >
                 Sign out and start fresh
               </button>

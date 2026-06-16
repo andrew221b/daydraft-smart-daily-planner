@@ -859,7 +859,7 @@ export default function Focus() {
                     )}
                   </div>
                   <form
-                    className="mt-3 flex flex-col gap-2 border-t border-border/40 pt-3"
+                    className="mt-3 flex flex-col gap-2 border-t border-border/70 pt-3"
                     onSubmit={async (e) => {
                       e.preventDefault();
                       const name = newFocusCatName.trim();
@@ -904,7 +904,7 @@ export default function Focus() {
         {!trackingThisBlock && armed && !assignedCatIdForBlock && trackerSkipped && (
           <Popover open={catPickerOpen} onOpenChange={(o) => { setCatPickerOpen(o); if (!o) setNewFocusCatName(""); }}>
             <PopoverTrigger asChild>
-              <button className="mt-5 inline-flex items-center gap-1.5 px-4 py-2 rounded-full border border-border/45 bg-card/60 text-[12px] font-medium text-secondary-fg hover:text-foreground hover:border-border/65 pressable transition-colors">
+              <button className="mt-5 inline-flex items-center gap-1.5 px-4 py-2 rounded-full border border-border/75 bg-card/60 text-[12px] font-medium text-secondary-fg hover:text-foreground hover:border-border/95 pressable transition-colors">
                 <Timer className="h-3.5 w-3.5" /> Start tracking
               </button>
             </PopoverTrigger>
@@ -931,7 +931,7 @@ export default function Focus() {
                 )}
               </div>
               <form
-                className="mt-3 flex flex-col gap-2 border-t border-border/40 pt-3"
+                className="mt-3 flex flex-col gap-2 border-t border-border/70 pt-3"
                 onSubmit={async (e) => {
                   e.preventDefault();
                   const name = newFocusCatName.trim();

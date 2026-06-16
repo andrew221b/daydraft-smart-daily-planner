@@ -241,6 +241,9 @@ function TrackerInner({ embedded = false, onClose }: { embedded?: boolean; onClo
       endedAtMs: raw.ended_at ? new Date(raw.ended_at).getTime() : null,
       categoryName: cat?.name ?? null,
       categoryColor: cat?.color ?? null,
+      note: raw.note ?? null,
+      adjustmentSeconds: raw.adjustment_seconds ?? 0,
+      adjustmentReason: raw.adjustment_reason ?? null,
     };
   };
   const openEditEntry = (id: string) => { const e = buildEditableEntry(id); if (e) { haptics.tap(); setEditEntry(e); } };
@@ -999,7 +1002,7 @@ function TrackerInner({ embedded = false, onClose }: { embedded?: boolean; onClo
                           >
                             Save
                           </button>
-                          <button type="button" onClick={() => setRenamingCat(null)} className="h-9 w-9 rounded-xl border border-border/40 text-secondary-fg pressable" aria-label="Cancel">
+                          <button type="button" onClick={() => setRenamingCat(null)} className="h-9 w-9 rounded-xl border border-border/70 text-secondary-fg pressable" aria-label="Cancel">
                             <X className="mx-auto h-4 w-4" />
                           </button>
                         </div>
@@ -1052,7 +1055,7 @@ function TrackerInner({ embedded = false, onClose }: { embedded?: boolean; onClo
                         </div>
 
                         {/* ② Rate row */}
-                        <div className="flex items-center gap-2 rounded-xl border border-border/40 bg-background/50 shadow-sm px-2.5 py-2 mb-2">
+                        <div className="flex items-center gap-2 rounded-xl border border-border/70 bg-background/50 shadow-sm px-2.5 py-2 mb-2">
                           {isPro ? (
                             <>
                               <span className="text-[11px] font-semibold text-primary/80 shrink-0">Rate / h</span>
@@ -1123,7 +1126,7 @@ function TrackerInner({ embedded = false, onClose }: { embedded?: boolean; onClo
                         </AnimatePresence>
 
                         {/* ③ Billing section */}
-                        <div className="rounded-xl border border-border/40 bg-muted/20 px-2.5 py-2.5 mb-2">
+                        <div className="rounded-xl border border-border/70 bg-muted/20 px-2.5 py-2.5 mb-2">
                           <div className="mb-2 flex items-center gap-2">
                             <span
                               className="flex h-5 w-5 shrink-0 items-center justify-center rounded-md text-primary bg-primary/10 border border-primary/20"
@@ -1137,7 +1140,7 @@ function TrackerInner({ embedded = false, onClose }: { embedded?: boolean; onClo
                             <button
                               type="button"
                               onClick={() => setUpgradeOpen(true)}
-                              className="h-8 w-full rounded-lg border border-border/50 text-[11px] font-semibold text-primary pressable"
+                              className="h-8 w-full rounded-lg border border-border/80 text-[11px] font-semibold text-primary pressable"
                             >
                               Unlock payment details
                             </button>
@@ -1200,7 +1203,7 @@ function TrackerInner({ embedded = false, onClose }: { embedded?: boolean; onClo
                           >
                             {paymentDetailsSaving ? "Saving..." : "Save"}
                           </button>
-                          <button type="button" onClick={() => setEditingCat(null)} className="h-9 w-9 rounded-xl border border-border/40 text-secondary-fg pressable" aria-label="Cancel">
+                          <button type="button" onClick={() => setEditingCat(null)} className="h-9 w-9 rounded-xl border border-border/70 text-secondary-fg pressable" aria-label="Cancel">
                             <X className="mx-auto h-4 w-4" />
                           </button>
                         </div>
@@ -1360,7 +1363,7 @@ function TrackerInner({ embedded = false, onClose }: { embedded?: boolean; onClo
                   const c = await addCategory(newName);
                   if (c) setNewName("");
                 }}
-                className="flex items-center gap-2 rounded-[14px] border border-dashed border-border/60 surface-soft backdrop-blur-sm px-3 py-2"
+                className="flex items-center gap-2 rounded-[14px] border border-dashed border-border/90 surface-soft backdrop-blur-sm px-3 py-2"
               >
                 <Plus className="h-4 w-4 text-secondary-fg shrink-0" />
                 <Input
@@ -1598,7 +1601,7 @@ function TrackerInner({ embedded = false, onClose }: { embedded?: boolean; onClo
                   <div className="flex items-center gap-1">
                     <span className="text-faint">0m</span>
                     {[0.2, 0.45, 0.7, 1].map((o, idx) => (
-                      <span key={idx} className="h-3 w-3 rounded-sm border border-border/50" style={{ backgroundColor: `hsl(var(--primary) / ${o})` }} />
+                      <span key={idx} className="h-3 w-3 rounded-sm border border-border/80" style={{ backgroundColor: `hsl(var(--primary) / ${o})` }} />
                     ))}
                     <span className="text-faint">{monthPeakSec > 0 ? fmtHM(monthPeakSec) : "0m"}</span>
                   </div>
@@ -1676,7 +1679,11 @@ function TrackerInner({ embedded = false, onClose }: { embedded?: boolean; onClo
       open={!!editEntry}
       entry={editEntry}
       onClose={() => setEditEntry(null)}
-      onCommit={(d) => { if (editEntry) void updateEntryStart(editEntry.id, d); }}
+      onCommit={(d, reason) => {
+        if (!editEntry) return;
+        // Reason becomes an immutable audit field — not merged into the note.
+        void updateEntryStart(editEntry.id, d, reason);
+      }}
     />
     <EntryDeleteDialog
       open={!!deleteEntryTarget}

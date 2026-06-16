@@ -77,7 +77,7 @@ private struct TrackerCard: View {
     let currency: String
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 5) {
+        VStack(alignment: .leading, spacing: 4) {
 
             // ── Row 1: category LEFT · live count-up RIGHT ───────────────────
             HStack(alignment: .firstTextBaseline, spacing: 8) {
@@ -91,42 +91,36 @@ private struct TrackerCard: View {
                 Spacer(minLength: 4)
 
                 Text(start, style: .timer)
-                    .font(.system(size: 30, weight: .heavy, design: .rounded))
+                    .font(.system(size: 28, weight: .heavy, design: .rounded))
                     .monospacedDigit()
                     .foregroundStyle(accent)
                     .shadow(color: accent.opacity(0.4), radius: 6, y: 1)
                     .lineLimit(1)
             }
 
-            // ── Row 2: stat columns ──────────────────────────────────────────
-            if hasRate {
-                // Two stats side by side: start time (left) + billable rate (right)
-                HStack(spacing: 0) {
-                    StatColumn(label: "STARTED", hAlign: .leading) {
-                        Text(start, style: .time)
-                            .font(.system(size: 13, weight: .bold, design: .rounded))
-                            .monospacedDigit()
-                            .foregroundStyle(DD.dim)
-                    }
-                    StatColumn(label: "RATE", hAlign: .trailing) {
-                        Text(ddRate(rate, currency))
-                            .font(.system(size: 13, weight: .bold, design: .rounded))
-                            .foregroundStyle(DD.green)
-                            .lineLimit(1)
-                            .minimumScaleFactor(0.7)
-                    }
-                }
-            } else {
-                // No rate — show start time only
-                HStack {
-                    Text("STARTED AT")
-                        .font(.system(size: 11, weight: .heavy, design: .rounded))
-                        .tracking(0.8)
+            // ── Row 2: ONE compact line — STARTED time (left) + RATE (right) ──
+            // Single line in both states so adding a billing rate never grows
+            // the card past the Live Activity height budget (which clipped it).
+            HStack(spacing: 6) {
+                Text("STARTED")
+                    .font(.system(size: 9.5, weight: .heavy, design: .rounded))
+                    .tracking(0.7)
+                    .foregroundStyle(DD.faint)
+                Text(start, style: .time)
+                    .font(.system(size: 13, weight: .bold, design: .rounded))
+                    .monospacedDigit()
+                    .foregroundStyle(DD.dim)
+                Spacer(minLength: 8)
+                if hasRate {
+                    Text("RATE")
+                        .font(.system(size: 9.5, weight: .heavy, design: .rounded))
+                        .tracking(0.7)
                         .foregroundStyle(DD.faint)
-                    Spacer()
-                    Text(start, style: .time)
-                        .font(.system(size: 11, weight: .bold, design: .rounded))
-                        .foregroundStyle(DD.dim)
+                    Text(ddRate(rate, currency))
+                        .font(.system(size: 13, weight: .bold, design: .rounded))
+                        .foregroundStyle(DD.green)
+                        .lineLimit(1)
+                        .minimumScaleFactor(0.7)
                 }
             }
 

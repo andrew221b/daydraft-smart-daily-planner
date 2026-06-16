@@ -164,7 +164,7 @@ export function TimerRescheduleSheet() {
     <Sheet open={open} onOpenChange={setOpen}>
       <SheetContent
         side="bottom"
-        className="rounded-t-[28px] border-border/45 bg-popover px-5 pt-5 pb-7 max-h-[92vh] overflow-y-auto"
+        className="rounded-t-[28px] border-border/75 bg-popover px-5 pt-5 pb-7 max-h-[92vh] overflow-y-auto"
       >
         <SheetHeader className="text-left mb-1 space-y-1.5">
           <div className="inline-flex items-center gap-1.5 text-[10px] font-semibold uppercase tracking-[0.14em] text-primary/85">
@@ -186,7 +186,7 @@ export function TimerRescheduleSheet() {
                 key={i}
                 type="button"
                 onClick={() => { haptics.selection(); void applyOption(opt); }}
-                className="group w-full text-left flex items-start gap-3 rounded-[18px] border border-border/40 bg-surface-card/70 hover:border-primary/35 hover:bg-primary/[0.04] pressable px-4 py-3.5 transition-colors"
+                className="group w-full text-left flex items-start gap-3 rounded-[18px] border border-border/70 bg-surface-card/70 hover:border-primary/35 hover:bg-primary/[0.04] pressable px-4 py-3.5 transition-colors"
               >
                 <span className="mt-0.5 grid place-items-center h-9 w-9 rounded-full bg-primary/10 text-primary shrink-0">
                   <Icon className="h-4 w-4" />

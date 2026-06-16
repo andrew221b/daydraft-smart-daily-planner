@@ -46,6 +46,7 @@ export const SortableBlock = memo(({
   trackingActive,
   assignedCategory,
   tourSpotlight,
+  hintAnchor,
   onCarryForward,
   onEditDuration,
   onEditReminders,
@@ -71,6 +72,8 @@ export const SortableBlock = memo(({
   trackingActive?: boolean;
   assignedCategory?: { id: string; name: string; color: string } | null;
   tourSpotlight?: boolean;
+  /** Marks this card as the anchor target for the in-context timeline hint. */
+  hintAnchor?: boolean;
   onCarryForward?: (b: Block) => void;
   onEditDuration?: (b: Block) => void;
   onEditReminders?: (b: Block) => void;
@@ -211,8 +214,8 @@ export const SortableBlock = memo(({
           isDragging ? "is-dragging opacity-50" : "opacity-60 hover:opacity-100 transition-opacity",
         ].filter(Boolean).join(" ")}
       >
-        <div className="absolute inset-x-0 h-px border-t border-dashed border-border/40" />
-        <div className="relative z-10 flex items-center gap-2 px-3 py-1 bg-background rounded-full border border-border/40 text-[11px] font-medium text-secondary-fg">
+        <div className="absolute inset-x-0 h-px border-t border-dashed border-border/70" />
+        <div className="relative z-10 flex items-center gap-2 px-3 py-1 bg-background rounded-full border border-border/70 text-[11px] font-medium text-secondary-fg">
           <span>{durStr} free time</span>
           <button
             onClick={(e) => {
@@ -238,6 +241,7 @@ export const SortableBlock = memo(({
           : style
       }
       data-tour={tourSpotlight ? "dayview-block" : undefined}
+      data-hint={hintAnchor ? "timeline-task" : undefined}
       {...(sortableDisabled ? {} : attributes)}
       {...(sortableDisabled ? {} : listeners)}
       className={[
@@ -246,20 +250,21 @@ export const SortableBlock = memo(({
         // for a glassy lift. Tracking adds the primary glow on top of that base.
         isDragging ? "is-dragging" : "",
         trackingActive
-          ? "ring-[1.5px] ring-primary/40 bg-primary/[0.04] shadow-[0_8px_30px_rgba(0,0,0,0.12),inset_0_1px_1px_rgba(255,255,255,0.2),0_0_32px_hsl(var(--primary)/0.12)] dark:shadow-[0_8px_30px_rgba(0,0,0,0.5),inset_0_1px_1px_rgba(255,255,255,0.05),0_0_32px_hsl(var(--primary)/0.12)]"
-          : "shadow-[0_8px_30px_rgba(0,0,0,0.12),inset_0_1px_1px_rgba(255,255,255,0.2)] dark:shadow-[0_8px_30px_rgba(0,0,0,0.5),inset_0_1px_1px_rgba(255,255,255,0.05)]",
+          ? "ring-[1.5px] ring-primary/40 bg-primary/[0.04] shadow-[0_12px_40px_rgba(0,0,0,0.2),inset_0_1px_1px_rgba(255,255,255,0.2),0_0_32px_hsl(var(--primary)/0.12)] dark:shadow-[0_12px_40px_rgba(0,0,0,0.7),inset_0_1px_1px_rgba(255,255,255,0.05),0_0_32px_hsl(var(--primary)/0.12)]"
+          : "shadow-[0_12px_40px_rgba(0,0,0,0.2),inset_0_1px_1px_rgba(255,255,255,0.2)] dark:shadow-[0_12px_40px_rgba(0,0,0,0.7),inset_0_1px_1px_rgba(255,255,255,0.05)]",
         isDone && block.kind === "task" ? "opacity-80" : "",
+        "border-[1.5px]",
         isCal
-          ? "!border-border/35"
+          ? "!border-border/65"
           : rhythmType === "rest"
-            ? "bg-muted/25 !border-border/35 hover:border-border/50"
+            ? "bg-muted/25 !border-border/65 hover:border-border/80"
             : rhythmType === "personal"
-              ? "bg-[linear-gradient(165deg,hsl(278_72%_62%/.08)_0%,hsl(var(--surface)/.72)_58%,hsl(var(--surface-elevated)/.65)_100%)] border-[hsl(270_70%_66%/.28)] hover:border-[hsl(270_72%_70%/.44)]"
+              ? "bg-[linear-gradient(165deg,hsl(278_72%_62%/.08)_0%,hsl(var(--surface)/.72)_58%,hsl(var(--surface-elevated)/.65)_100%)] !border-[hsl(270_70%_66%/.55)] hover:!border-[hsl(270_72%_70%/.70)]"
               : blockSubtype === "communication"
-                ? "bg-[linear-gradient(165deg,hsl(26_92%_67%/.06)_0%,hsl(var(--surface)/.72)_58%,hsl(var(--surface-elevated)/.65)_100%)] !border-[hsl(26_92%_67%/.22)] hover:!border-[hsl(26_92%_67%/.38)]"
+                ? "bg-[linear-gradient(165deg,hsl(26_92%_67%/.06)_0%,hsl(var(--surface)/.72)_58%,hsl(var(--surface-elevated)/.65)_100%)] !border-[hsl(26_92%_67%/.45)] hover:!border-[hsl(26_92%_67%/.60)]"
                 : blockSubtype === "routine"
-                  ? "bg-[linear-gradient(165deg,hsl(262_46%_68%/.06)_0%,hsl(var(--surface)/.72)_58%,hsl(var(--surface-elevated)/.65)_100%)] !border-[hsl(262_46%_68%/.22)] hover:!border-[hsl(262_46%_68%/.38)]"
-                  : "bg-[linear-gradient(165deg,hsl(200_89%_68%/.06)_0%,hsl(var(--surface)/.72)_58%,hsl(var(--surface-elevated)/.65)_100%)] !border-[hsl(200_89%_68%/.22)] hover:!border-[hsl(200_89%_68%/.38)]",
+                  ? "bg-[linear-gradient(165deg,hsl(262_46%_68%/.06)_0%,hsl(var(--surface)/.72)_58%,hsl(var(--surface-elevated)/.65)_100%)] !border-[hsl(262_46%_68%/.45)] hover:!border-[hsl(262_46%_68%/.60)]"
+                  : "bg-[linear-gradient(165deg,hsl(200_89%_68%/.06)_0%,hsl(var(--surface)/.72)_58%,hsl(var(--surface-elevated)/.65)_100%)] !border-[hsl(200_89%_68%/.45)] hover:!border-[hsl(200_89%_68%/.60)]",
       ].filter(Boolean).join(" ")}
       onClick={() => {
         if (renaming) return;
@@ -514,7 +519,7 @@ export const SortableBlock = memo(({
       {/* ── Delete confirmation ── */}
       <AlertDialog open={confirmDelete} onOpenChange={setConfirmDelete}>
         <AlertDialogContent
-          className="w-[calc(100vw-48px)] max-w-[340px] rounded-3xl border-border/40 bg-surface/95 p-0 backdrop-blur-2xl"
+          className="w-[calc(100vw-48px)] max-w-[340px] rounded-3xl border-border/70 bg-surface/95 p-0 backdrop-blur-2xl"
         >
           <AlertDialogHeader className="px-6 pt-6 pb-0 text-center">
             <div className="mx-auto mb-3 flex h-11 w-11 items-center justify-center rounded-full bg-destructive/12 border border-destructive/20">
@@ -534,7 +539,7 @@ export const SortableBlock = memo(({
             >
               Delete
             </AlertDialogAction>
-            <AlertDialogCancel className="h-11 w-full rounded-2xl border-border/35 bg-foreground/[0.05] text-foreground font-semibold text-[15px] hover:bg-foreground/[0.09] mt-0 pressable">
+            <AlertDialogCancel className="h-11 w-full rounded-2xl border-border/65 bg-foreground/[0.05] text-foreground font-semibold text-[15px] hover:bg-foreground/[0.09] mt-0 pressable">
               Cancel
             </AlertDialogCancel>
           </AlertDialogFooter>
@@ -555,71 +560,86 @@ export const SortableBlock = memo(({
           >
             <div className="mt-3 pt-3 border-t border-border/[0.15] space-y-2">
 
-              {/* ── Rename: tapping the Rename tile expands this field in place;
-                   the rest of the actions stay put below, so the panel never
-                   jumps. ── */}
-              <AnimatePresence initial={false}>
-                {renaming && (
-                  <motion.div
-                    key="rename-field"
-                    initial={{ height: 0, opacity: 0 }}
-                    animate={{ height: "auto", opacity: 1 }}
-                    exit={{ height: 0, opacity: 0 }}
-                    transition={{ type: "tween", duration: 0.2, ease: [0.4, 0, 0.2, 1] }}
-                    style={{ overflow: "hidden" }}
-                    onPointerDown={(e) => e.stopPropagation()}
-                    onClick={(e) => e.stopPropagation()}
-                  >
-                    <div className="flex items-center gap-1.5 pb-0.5">
-                      <input
-                        autoFocus
-                        value={renameDraft}
-                        onChange={(e) => setRenameDraft(e.target.value)}
-                        onKeyDown={(e) => {
-                          if (e.key === "Enter") {
+              {/* ── Rename: full-width strip at rest; inline input when active.
+                   Both states share a propagation-stopping wrapper so neither
+                   triggers the card's collapse handler. ── */}
+              <div onPointerDown={(e) => e.stopPropagation()} onClick={(e) => e.stopPropagation()}>
+                <AnimatePresence initial={false}>
+                  {renaming ? (
+                    <motion.div
+                      key="rename-field"
+                      initial={{ opacity: 0 }}
+                      animate={{ opacity: 1 }}
+                      exit={{ opacity: 0 }}
+                      transition={{ duration: 0.13 }}
+                    >
+                      <div className="flex items-center gap-1.5">
+                        <input
+                          autoFocus
+                          value={renameDraft}
+                          onChange={(e) => setRenameDraft(e.target.value)}
+                          onKeyDown={(e) => {
+                            if (e.key === "Enter") {
+                              const t = renameDraft.trim();
+                              if (t && t !== block.title) onRename?.(block, t);
+                              setRenaming(false);
+                              setExpanded(false);
+                            }
+                            if (e.key === "Escape") {
+                              setRenaming(false);
+                            }
+                          }}
+                          onBlur={() => {
+                            const t = renameDraft.trim();
+                            if (t && t !== block.title) onRename?.(block, t);
+                            setRenaming(false);
+                          }}
+                          className="flex-1 min-w-0 h-9 rounded-xl border border-primary/40 bg-card/60 px-3 text-[13.5px] font-medium outline-none focus:border-primary/70 transition-colors"
+                          style={{ fontSize: 16 }}
+                          aria-label="Task name"
+                        />
+                        <button
+                          type="button"
+                          onClick={() => {
                             const t = renameDraft.trim();
                             if (t && t !== block.title) onRename?.(block, t);
                             setRenaming(false);
                             setExpanded(false);
-                          }
-                          if (e.key === "Escape") {
-                            setRenaming(false);
-                          }
-                        }}
-                        onBlur={() => {
-                          const t = renameDraft.trim();
-                          if (t && t !== block.title) onRename?.(block, t);
-                          setRenaming(false);
-                        }}
-                        className="flex-1 min-w-0 h-9 rounded-xl border border-primary/40 bg-card/60 px-3 text-[13.5px] font-medium outline-none focus:border-primary/70 transition-colors"
-                        style={{ fontSize: 16 }}
-                        aria-label="Task name"
-                      />
-                      <button
-                        type="button"
-                        onClick={() => {
-                          const t = renameDraft.trim();
-                          if (t && t !== block.title) onRename?.(block, t);
-                          setRenaming(false);
-                          setExpanded(false);
-                        }}
-                        className="h-9 w-9 rounded-xl bg-primary/90 flex items-center justify-center text-primary-foreground pressable shrink-0"
-                        aria-label="Save rename"
-                      >
-                        <Check className="h-4 w-4" strokeWidth={2.5} />
-                      </button>
-                      <button
-                        type="button"
-                        onClick={() => setRenaming(false)}
-                        className="h-9 w-9 rounded-xl border border-border/40 bg-card/40 flex items-center justify-center text-secondary-fg pressable shrink-0"
-                        aria-label="Cancel rename"
-                      >
-                        <XIcon className="h-3.5 w-3.5" />
-                      </button>
-                    </div>
-                  </motion.div>
-                )}
-              </AnimatePresence>
+                          }}
+                          className="h-9 w-9 rounded-xl bg-primary/90 flex items-center justify-center text-primary-foreground pressable shrink-0"
+                          aria-label="Save rename"
+                        >
+                          <Check className="h-4 w-4" strokeWidth={2.5} />
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => setRenaming(false)}
+                          className="h-9 w-9 rounded-xl border border-border/70 bg-card/40 flex items-center justify-center text-secondary-fg pressable shrink-0"
+                          aria-label="Cancel rename"
+                        >
+                          <XIcon className="h-3.5 w-3.5" />
+                        </button>
+                      </div>
+                    </motion.div>
+                  ) : (
+                    <motion.button
+                      key="rename-strip"
+                      initial={{ opacity: 0 }}
+                      animate={{ opacity: 1 }}
+                      exit={{ opacity: 0 }}
+                      transition={{ duration: 0.13 }}
+                      type="button"
+                      onClick={() => { setRenameDraft(block.title); setRenaming(true); }}
+                      aria-label="Rename task"
+                      className="w-full flex items-center gap-2.5 px-3 py-2 rounded-xl border border-black/[0.08] bg-black/[0.05] dark:border-white/[0.09] dark:bg-white/[0.04] hover:bg-black/[0.08] dark:hover:bg-white/[0.08] hover:border-black/[0.14] dark:hover:border-white/[0.14] shadow-sm pressable transition-[border-color,background-color] duration-200"
+                    >
+                      <Pencil className="h-3.5 w-3.5 shrink-0 text-secondary-fg/55" />
+                      <span className="flex-1 min-w-0 text-left text-[12.5px] font-medium text-foreground/70 truncate">{block.title}</span>
+                      <span className="text-[9.5px] font-semibold text-secondary-fg/40 shrink-0 uppercase tracking-[0.12em]">Rename</span>
+                    </motion.button>
+                  )}
+                </AnimatePresence>
+              </div>
 
               {/* ── Compact action grid ──
                    Every action is a uniform icon+label tile (4 per row) so the
@@ -640,16 +660,6 @@ export const SortableBlock = memo(({
                 };
                 const tiles: Tile[] = [];
 
-                // Rename — always available on an expandable card.
-                tiles.push({
-                  id: "rename",
-                  icon: <Pencil className="h-3.5 w-3.5" />,
-                  label: "Rename",
-                  iconColor: "text-secondary-fg/70",
-                  ariaLabel: "Rename task",
-                  onClick: () => { setRenameDraft(block.title); setRenaming(true); },
-                });
-
                 // Track / category — opens the category picker.
                 if (!isFinished && onStartTrack && !isCal && block.kind === "task") {
                   tiles.push({
@@ -666,8 +676,8 @@ export const SortableBlock = memo(({
                   });
                 }
 
-                // Priority flag.
-                if (!readOnly && onTogglePriority && !isCal && block.kind === "task") {
+                // Priority flag — only on active tasks; resolved tasks show Rename only.
+                if (!isFinished && !readOnly && onTogglePriority && !isCal && block.kind === "task") {
                   tiles.push({
                     id: "priority",
                     icon: <Flag className="h-3.5 w-3.5" fill={isPriority ? "currentColor" : "none"} />,
@@ -863,7 +873,7 @@ function CompleteCircleEmpty({
         requestAnimationFrame(() => setRippling(true));
         onToggle();
       }}
-      className="relative h-8 w-8 rounded-full border-[1.5px] border-border/60 shrink-0 pressable hover:border-primary/60 hover:bg-primary/10 shadow-[inset_0_2px_6px_rgba(0,0,0,0.06)] transition-[border-color,background-color,box-shadow,transform]"
+      className="relative h-8 w-8 rounded-full border-[1.5px] border-border/90 shrink-0 pressable hover:border-primary/60 hover:bg-primary/10 shadow-[inset_0_2px_6px_rgba(0,0,0,0.06)] transition-[border-color,background-color,box-shadow,transform]"
       aria-label="Mark done"
     >
       {rippling && (

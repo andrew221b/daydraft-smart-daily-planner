@@ -231,7 +231,7 @@ export function PaymentMethodFields({
                   initial="initial"
                   animate="animate"
                   exit="exit"
-                  className="relative overflow-hidden rounded-2xl p-3.5 space-y-2.5 border border-border/20 shadow-sm"
+                  className="relative overflow-hidden rounded-2xl p-3.5 space-y-2.5 border border-border/50 shadow-sm"
                   style={{
                     background: "linear-gradient(180deg, hsl(var(--m-accent) / 0.14) 0%, hsl(var(--m-accent) / 0.04) 100%)",
                     boxShadow: "inset 0 1px 0 hsl(0 0% 100% / 0.18), 0 0 0 1px hsl(var(--m-accent) / 0.22)",
@@ -328,7 +328,7 @@ function KindToggle({
             feel alive on every switch. */}
         <motion.span
           aria-hidden
-          className="pointer-events-none absolute top-1 bottom-1 left-1 w-[calc(50%-4px)] rounded-xl border border-border/20 shadow-sm"
+          className="pointer-events-none absolute top-1 bottom-1 left-1 w-[calc(50%-4px)] rounded-xl border border-border/50 shadow-sm"
           animate={{
             x: kind === "crypto" ? "calc(100% + 4px)" : "0%",
             backgroundColor: `hsl(${tintHsl} / 0.28)`,
@@ -428,7 +428,7 @@ function CurrencyPickerInline({
         aria-expanded={open}
         className={[
           "w-full h-11 inline-flex items-center justify-between gap-2.5 rounded-2xl px-3.5 text-left transition-[transform,box-shadow,background-color] duration-150 ease-[cubic-bezier(0.32,0.72,0,1)] active:scale-[0.99]",
-          displayValue ? "border border-border/20 shadow-sm" : "pebble-idle",
+          displayValue ? "border border-border/50 shadow-sm" : "pebble-idle",
         ].join(" ")}
         style={
           displayValue
@@ -465,7 +465,7 @@ function CurrencyPickerInline({
             transition={{ type: "spring", stiffness: 400, damping: 36, mass: 0.7 }}
             className="overflow-hidden"
           >
-            <div className="mt-2 rounded-2xl border border-border/60 bg-foreground/[0.025] p-2">
+            <div className="mt-2 rounded-2xl border border-border/90 bg-foreground/[0.025] p-2">
 
               <div className="grid grid-cols-3 sm:grid-cols-4 gap-1.5 max-h-[200px] overflow-y-auto pt-1 pl-1 pb-1 pr-1">
                 {filtered.map((code) => {
@@ -480,7 +480,7 @@ function CurrencyPickerInline({
                         "h-9 inline-flex items-center justify-center rounded-xl text-[12px] font-semibold tabular-nums tracking-[0.02em]",
                         "transition-[transform,box-shadow,background-color] duration-150 ease-[cubic-bezier(0.32,0.72,0,1)]",
                         "active:scale-[0.96]",
-                        selected ? "border border-border/20 shadow-sm text-foreground" : "text-foreground/85 pebble-idle",
+                        selected ? "border border-border/50 shadow-sm text-foreground" : "text-foreground/85 pebble-idle",
                       ].join(" ")}
                       style={
                         selected
@@ -620,7 +620,7 @@ function MethodChip({
         "group relative flex items-center gap-2 rounded-2xl px-2.5 py-2 text-left",
         "transition-[transform,box-shadow,background-color] duration-150 ease-[cubic-bezier(0.32,0.72,0,1)]",
         "active:scale-[0.97]",
-        selected ? "border border-border/20 shadow-sm text-foreground" : "text-foreground/85 pebble-idle border border-transparent",
+        selected ? "border border-border/50 shadow-sm text-foreground" : "text-foreground/85 pebble-idle border border-transparent",
       ].join(" ")}
       style={
         selected
@@ -636,7 +636,7 @@ function MethodChip({
       <span
         className={[
           "relative z-[1] flex h-7 w-7 shrink-0 items-center justify-center rounded-xl transition-colors duration-150",
-          selected ? "border border-border/10" : "pebble-icon text-foreground/70",
+          selected ? "border border-border/40" : "pebble-icon text-foreground/70",
         ].join(" ")}
         style={
           selected
@@ -684,7 +684,7 @@ function FieldRow({
           <select
             value={value}
             onChange={(e) => onChange(e.target.value)}
-            className="h-10 w-full appearance-none rounded-xl border border-border/40 bg-background shadow-sm pl-3 pr-8 text-[13px] text-foreground outline-none transition-colors focus-visible:ring-1 focus-visible:ring-primary/30"
+            className="h-10 w-full appearance-none rounded-xl border border-border/70 bg-background shadow-sm pl-3 pr-8 text-[13px] text-foreground outline-none transition-colors focus-visible:ring-1 focus-visible:ring-primary/30"
           >
             <option value="">{field.placeholder}</option>
             {field.options.map((opt) => (
@@ -709,7 +709,7 @@ function FieldRow({
           autoCorrect="off"
           autoCapitalize="off"
           spellCheck={false}
-          className="min-h-[96px] rounded-xl border border-border/40 bg-background shadow-sm text-[13px] text-foreground leading-snug placeholder:text-secondary-fg/45 focus-visible:ring-1 focus-visible:ring-primary/30"
+          className="min-h-[96px] rounded-xl border border-border/70 bg-background shadow-sm text-[13px] text-foreground leading-snug placeholder:text-secondary-fg/45 focus-visible:ring-1 focus-visible:ring-primary/30"
           style={{ fontSize: 16 }}
         />
       </label>
@@ -727,7 +727,7 @@ function FieldRow({
         autoCorrect="off"
         autoCapitalize="off"
         spellCheck={false}
-        className="h-10 rounded-xl border border-border/40 bg-background shadow-sm text-[13px] text-foreground placeholder:text-secondary-fg/45 focus-visible:ring-1 focus-visible:ring-primary/30"
+        className="h-10 rounded-xl border border-border/70 bg-background shadow-sm text-[13px] text-foreground placeholder:text-secondary-fg/45 focus-visible:ring-1 focus-visible:ring-primary/30"
         style={{ fontSize: 16 }}
       />
     </label>

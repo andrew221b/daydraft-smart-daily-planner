@@ -96,7 +96,7 @@ export function UncompleteTaskSheet({ block, onCancel, onConfirm, minTime }: Pro
       <Sheet open={open} onOpenChange={(val) => !val && onCancel()}>
         <SheetContent
           side="bottom"
-          className="rounded-t-[28px] border-border/45 bg-popover p-0 flex flex-col"
+          className="rounded-t-[28px] border-border/75 bg-popover p-0 flex flex-col"
           hideClose
         >
           <SheetTitle className="sr-only">Return to timeline</SheetTitle>
@@ -206,7 +206,7 @@ export function UncompleteTaskSheet({ block, onCancel, onConfirm, minTime }: Pro
             <button
               type="button"
               onClick={() => { haptics.selection(); onCancel(); }}
-              className="flex-1 h-[52px] rounded-[16px] border border-border/40 bg-card/30 text-[14px] font-medium text-secondary-fg/85 hover:text-foreground hover:bg-card/50 pressable transition-colors"
+              className="flex-1 h-[52px] rounded-[16px] border border-border/70 bg-card/30 text-[14px] font-medium text-secondary-fg/85 hover:text-foreground hover:bg-card/50 pressable transition-colors"
             >
               Cancel
             </button>

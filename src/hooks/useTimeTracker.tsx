@@ -21,6 +21,7 @@ import {
   type RollingEntry,
 } from "@/lib/timeEntriesQuery";
 import { useAuth } from "./useAuth";
+import { useDayKey } from "./useDayKey";
 import { toast } from "sonner";
 import { recordTimerDrift } from "@/lib/perfMonitor";
 import { liveActivity } from "@/lib/liveActivity";
@@ -61,6 +62,33 @@ function emitElapsed(sec: number): void {
   // doesn't mutate the live Set we're iterating.
   for (const l of Array.from(elapsedListeners)) {
     try { l(sec); } catch { /* listener failures must not crash the tick */ }
+  }
+}
+
+// ── Widget-stop note prompt pub/sub ───────────────────────────────────────────
+// When the tracker is stopped via the Live Activity widget (not the in-app
+// button), HomeTrackerHero has no way to intercept the stop and offer a note.
+// A tiny module-level store bridges the gap: stop() deposits the meta here,
+// HomeTrackerHero consumes it and opens the note dialog.
+export type WidgetStopMeta = { entryId: string; note: string; categoryId: string | null };
+let _widgetStopMeta: WidgetStopMeta | null = null;
+const _widgetStopListeners = new Set<() => void>();
+
+export function consumeWidgetStopMeta(): WidgetStopMeta | null {
+  const m = _widgetStopMeta;
+  _widgetStopMeta = null;
+  return m;
+}
+
+export function subscribeWidgetStop(fn: () => void): () => void {
+  _widgetStopListeners.add(fn);
+  return () => { _widgetStopListeners.delete(fn); };
+}
+
+function emitWidgetStop(meta: WidgetStopMeta): void {
+  _widgetStopMeta = meta;
+  for (const fn of Array.from(_widgetStopListeners)) {
+    try { fn(); } catch { /* ignore */ }
   }
 }
 
@@ -110,10 +138,13 @@ export type TimeEntry = {
   started_at: string;
   ended_at: string | null;
   note: string | null;
+  task_title: string | null;
   source: string;
   block_id: string | null;
   snapshot_hourly_rate: number | null;
   snapshot_currency: string | null;
+  adjustment_seconds?: number | null;
+  adjustment_reason?: string | null;
 };
 
 type Ctx = {
@@ -122,8 +153,8 @@ type Ctx = {
   allCatMap: Map<string, TimeCategory>;
   active: TimeEntry | null;
   loading: boolean;
-  start: (categoryId?: string, opts?: { source?: string; note?: string; blockId?: string }) => Promise<void>;
-  stop: () => Promise<boolean>;
+  start: (categoryId?: string, opts?: { source?: string; taskTitle?: string; note?: string; blockId?: string }) => Promise<void>;
+  stop: (opts?: { fromWidget?: boolean }) => Promise<boolean>;
   switchCategory: (categoryId: string) => Promise<void>;
   addCategory: (name: string, color?: string) => Promise<TimeCategory | null>;
   deleteCategory: (id: string) => Promise<void>;
@@ -149,8 +180,17 @@ type Ctx = {
   /** Move a tracked entry's start time (e.g. you forgot to start the timer on
    *  time). For completed entries the end stays fixed, so this changes the
    *  duration; for the running entry it re-bases the live timer. Keeps the
-   *  linked task's actual_minutes in sync. */
-  updateEntryStart: (id: string, newStartedAt: Date) => Promise<void>;
+   *  linked task's actual_minutes in sync.
+   *
+   *  When `reason` is supplied, the change is recorded as an immutable audit
+   *  entry: the signed delta accumulates into `adjustment_seconds` and a
+   *  "+30m — reason" line is appended to `adjustment_reason`. This is separate
+   *  from the user-editable `note` so the justification can never be deleted
+   *  while the added time stays. */
+  updateEntryStart: (id: string, newStartedAt: Date, reason?: string) => Promise<void>;
+  updateEntryTaskTitle: (id: string, taskTitle: string | null) => Promise<void>;
+  /** Set / clear the free-text note for a tracked session. */
+  updateEntryNote: (id: string, note: string) => Promise<void>;
   entries: RollingEntry[];
   todayTotalSec: number;
   weekTotalSec: number;
@@ -247,6 +287,15 @@ export function TimeTrackerProvider({ children }: { children: ReactNode }) {
   // The per-second tick lives outside React (see emitElapsed above) so the
   // running timer never causes a re-render.
   const [elapsedMin, setElapsedMin] = useState(0);
+  // Local calendar-day key. The minute heartbeat that recomputes today/week
+  // totals is frozen by iOS while the app is suspended, so an app left idle
+  // across midnight would keep showing yesterday's "Tracked today". useDayKey
+  // re-checks the day on the native resume signal (Capacitor appStateChange,
+  // reliable in WKWebView where DOM focus/visibility are not) plus a foreground
+  // interval (`live`), so the totals memo re-evaluates against the correct
+  // midnight the instant the app returns — not up to 30s later or only on a
+  // full relaunch.
+  const dayKey = useDayKey({ live: true });
   const workerRef = useRef<Worker | null>(null);
   const fallbackTickRef = useRef<number | null>(null);
   const alignmentRef = useRef<ReturnType<typeof setTimeout> | null>(null);
@@ -319,8 +368,9 @@ export function TimeTrackerProvider({ children }: { children: ReactNode }) {
       todayTotalSec: sumEntryDurations(entries, startOfToday.getTime(), now, now),
       weekTotalSec: sumEntryDurations(entries, startOfWeek.getTime(), now, now),
     };
+    // dayKey forces a recompute at midnight even when the heartbeat is frozen.
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [entries, elapsedMin]);
+  }, [entries, elapsedMin, dayKey]);
 
   // Timer tick. Runs in a Web Worker so the cadence survives tab throttling /
   // background phone screen, and so it never schedules React work on the main
@@ -552,7 +602,7 @@ export function TimeTrackerProvider({ children }: { children: ReactNode }) {
   const startingRef = useRef(false);
   const startSession = async (
     categoryId?: string,
-    opts?: { source?: string; note?: string; blockId?: string },
+    opts?: { source?: string; taskTitle?: string; note?: string; blockId?: string },
   ) => {
     if (!user || startingRef.current) return;
     startingRef.current = true;
@@ -567,8 +617,8 @@ export function TimeTrackerProvider({ children }: { children: ReactNode }) {
       }
       
       // Snapshot the task title so it survives later block deletion.
-      let taskTitle: string | null = null;
-      if (opts?.blockId) {
+      let taskTitle: string | null = opts?.taskTitle || null;
+      if (opts?.blockId && !taskTitle) {
         const { data: blk } = await supabase
           .from("blocks").select("title").eq("id", opts.blockId).maybeSingle();
         taskTitle = (blk as { title?: string | null } | null)?.title ?? null;
@@ -619,6 +669,8 @@ export function TimeTrackerProvider({ children }: { children: ReactNode }) {
           task_title: payload.task_title,
           snapshot_hourly_rate: payload.snapshot_hourly_rate,
           snapshot_currency: payload.snapshot_currency,
+          adjustment_seconds: 0,
+          adjustment_reason: null,
         };
         return [next, ...(prev ?? [])];
       },
@@ -658,7 +710,7 @@ export function TimeTrackerProvider({ children }: { children: ReactNode }) {
     await startSession(categoryId, opts);
   };
 
-  const stop: Ctx["stop"] = async () => {
+  const stop: Ctx["stop"] = async (opts) => {
     if (!active || !user) return false;
     const current = active;
     // Floor to whole seconds — worker display uses Math.floor too, so stored
@@ -738,6 +790,9 @@ export function TimeTrackerProvider({ children }: { children: ReactNode }) {
     void invalidateRollingEntries(queryClient, user.id);
     const m = Math.floor(dur / 60);
     toast.success(`Tracked ${m < 60 ? `${m}m` : `${Math.floor(m / 60)}h ${m % 60}m`}`);
+    if (opts?.fromWidget) {
+      emitWidgetStop({ entryId: current.id, note: current.note ?? "", categoryId: current.category_id });
+    }
     return true;
   };
   stopRef.current = stop;
@@ -965,6 +1020,8 @@ export function TimeTrackerProvider({ children }: { children: ReactNode }) {
           task_title: inserted.task_title ?? null,
           snapshot_hourly_rate: inserted.snapshot_hourly_rate ?? null,
           snapshot_currency: inserted.snapshot_currency ?? null,
+          adjustment_seconds: inserted.adjustment_seconds ?? 0,
+          adjustment_reason: inserted.adjustment_reason ?? null,
         };
         return [row, ...(prev ?? [])];
       },
@@ -1037,12 +1094,13 @@ export function TimeTrackerProvider({ children }: { children: ReactNode }) {
     if (blockId) void recomputeBlockActual(blockId);
   };
 
-  const updateEntryStart: Ctx["updateEntryStart"] = async (id, newStartedAt) => {
+  const updateEntryStart: Ctx["updateEntryStart"] = async (id, newStartedAt, reason) => {
     if (!user?.id) return;
     const startedISO = newStartedAt.toISOString();
     const cached = queryClient.getQueryData<RollingEntry[]>(rollingEntriesQueryKey(user.id)) ?? [];
     const target = cached.find((e) => e.id === id);
     const endedMs = target?.ended_at ? new Date(target.ended_at).getTime() : null;
+    const oldStartMs = target ? new Date(target.started_at).getTime() : newStartedAt.getTime();
     // Guard: a completed entry's start must stay before its end.
     if (endedMs != null && newStartedAt.getTime() >= endedMs) {
       toast.error("Start time must be before the end time");
@@ -1053,14 +1111,38 @@ export function TimeTrackerProvider({ children }: { children: ReactNode }) {
       toast.error("Start time can't be in the future");
       return;
     }
+
+    // ── Immutable adjustment audit ──────────────────────────────────────────
+    // Moving the start earlier (newStart < oldStart) ADDS time → positive delta.
+    const addedSec = Math.round((oldStartMs - newStartedAt.getTime()) / 1000);
+    const cleanReason = (reason ?? "").trim();
+    const recordAudit = cleanReason.length > 0 && Math.abs(addedSec) >= 60;
+
+    const patch: { started_at: string; adjustment_seconds?: number; adjustment_reason?: string } = {
+      started_at: startedISO,
+    };
+    let nextSeconds = target?.adjustment_seconds ?? 0;
+    let nextReason = target?.adjustment_reason ?? null;
+    if (recordAudit) {
+      nextSeconds = (target?.adjustment_seconds ?? 0) + addedSec;
+      const mins = Math.round(Math.abs(addedSec) / 60);
+      const deltaLabel = `${addedSec >= 0 ? "+" : "−"}${mins < 60 ? `${mins}m` : `${Math.floor(mins / 60)}h${mins % 60 ? ` ${mins % 60}m` : ""}`}`;
+      const line = `${deltaLabel} — ${cleanReason}`;
+      nextReason = nextReason ? `${nextReason}\n${line}` : line;
+      patch.adjustment_seconds = nextSeconds;
+      patch.adjustment_reason = nextReason;
+    }
+
     // Optimistic cache patch.
     queryClient.setQueryData<RollingEntry[]>(
       rollingEntriesQueryKey(user.id),
-      (prev) => (prev ?? []).map((e) => (e.id === id ? { ...e, started_at: startedISO } : e)),
+      (prev) => (prev ?? []).map((e) => (e.id === id
+        ? { ...e, started_at: startedISO, adjustment_seconds: nextSeconds, adjustment_reason: nextReason }
+        : e)),
     );
     const { error } = await supabase
       .from("time_entries")
-      .update({ started_at: startedISO })
+      .update(patch)
       .eq("id", id);
     if (error) {
       toast.error(error.message);
@@ -1069,9 +1151,57 @@ export function TimeTrackerProvider({ children }: { children: ReactNode }) {
     }
     // Re-base the live timer if the running entry was the one edited.
     if (active?.id === id) {
-      setActiveData({ ...(active as TimeEntry), started_at: startedISO });
+      setActiveData({ ...(active as TimeEntry), started_at: startedISO, adjustment_seconds: nextSeconds, adjustment_reason: nextReason });
     }
     if (target?.block_id) await recomputeBlockActual(target.block_id);
+    void invalidateRollingEntries(queryClient, user.id);
+  };
+
+  const updateEntryTaskTitle: Ctx["updateEntryTaskTitle"] = async (id, taskTitle) => {
+    if (!user?.id) return;
+    const clean = taskTitle?.trim() || null;
+    
+    // Optimistic cache patch
+    queryClient.setQueryData<RollingEntry[]>(
+      rollingEntriesQueryKey(user.id),
+      (prev) => (prev ?? []).map((e) => (e.id === id ? { ...e, task_title: clean } : e)),
+    );
+    const { error } = await supabase
+      .from("time_entries")
+      .update({ task_title: clean })
+      .eq("id", id);
+    if (error) {
+      toast.error(error.message);
+      void invalidateRollingEntries(queryClient, user.id);
+      return;
+    }
+    if (active?.id === id) {
+      setActiveData({ ...(active as TimeEntry), task_title: clean });
+    }
+  };
+
+  const updateEntryNote: Ctx["updateEntryNote"] = async (id, note) => {
+    if (!user?.id) return;
+    const clean = note.trim();
+    const value = clean.length ? clean : null;
+    // Optimistic cache patch so the label updates instantly everywhere it shows.
+    queryClient.setQueryData<RollingEntry[]>(
+      rollingEntriesQueryKey(user.id),
+      (prev) => (prev ?? []).map((e) => (e.id === id ? { ...e, note: value } : e)),
+    );
+    const { error } = await supabase
+      .from("time_entries")
+      .update({ note: value })
+      .eq("id", id);
+    if (error) {
+      toast.error(error.message);
+      void invalidateRollingEntries(queryClient, user.id);
+      return;
+    }
+    // Keep the live running session in sync if it was the one renamed.
+    if (active?.id === id) {
+      setActiveData({ ...(active as TimeEntry), note: value });
+    }
     void invalidateRollingEntries(queryClient, user.id);
   };
 
@@ -1093,6 +1223,8 @@ export function TimeTrackerProvider({ children }: { children: ReactNode }) {
       addManualEntry,
       deleteEntry,
       updateEntryStart,
+      updateEntryTaskTitle,
+      updateEntryNote,
       entries,
       todayTotalSec,
       weekTotalSec,

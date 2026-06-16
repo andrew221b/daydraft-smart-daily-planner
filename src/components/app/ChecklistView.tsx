@@ -12,7 +12,7 @@ import {
   type DragStartEvent,
 } from "@dnd-kit/core";
 import { SortableContext, verticalListSortingStrategy, arrayMove } from "@dnd-kit/sortable";
-import { GripVertical, FolderPlus, ListChecks, Trash2, Pencil, X, CalendarDays, Copy, Pin, PinOff, Flag } from "lucide-react";
+import { GripVertical, FolderPlus, Folder, ListChecks, Trash2, Pencil, X, CalendarDays, Copy, Pin, PinOff, Flag } from "lucide-react";
 import { Sheet, SheetContent, SheetHeader, SheetTitle } from "@/components/ui/sheet";
 import { DayPickerSheet } from "@/components/app/DayPickerSheet";
 import { ChecklistGroup, ChecklistItemRow, AddItemRow, CheckCircleAccent } from "@/components/app/ChecklistGroup";
@@ -96,6 +96,7 @@ export const ChecklistView = forwardRef<ChecklistApi, ChecklistViewProps>(({
   const [selectMode, setSelectMode] = useState(false);
   const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
   const [selectMoveOpen, setSelectMoveOpen] = useState(false);
+  const [selectGroupOpen, setSelectGroupOpen] = useState(false);
 
   const exitSelect = useCallback(() => {
     setSelectMode(false);
@@ -133,6 +134,7 @@ export const ChecklistView = forwardRef<ChecklistApi, ChecklistViewProps>(({
   const [datePickGroup, setDatePickGroup] = useState<{ id: string; mode: "unfinished" | "all" } | null>(null);
   const [groupMenu, setGroupMenu] = useState<Group | null>(null);
   const [addingGroup, setAddingGroup] = useState(false);
+  const [autoFocusGroupId, setAutoFocusGroupId] = useState<string | null>(null);
   const [groupDraft, setGroupDraft] = useState("");
   const groupInputRef = useRef<HTMLInputElement>(null);
 
@@ -247,6 +249,23 @@ export const ChecklistView = forwardRef<ChecklistApi, ChecklistViewProps>(({
     exitSelect();
   };
 
+  const moveSelectedToGroup = (targetGroupId: string | null) => {
+    if (selectedIds.size === 0) return;
+    const idsSet = selectedIds;
+    const siblings = items.filter(
+      (i) => !idsSet.has(i.id) && (i.group_id ?? null) === targetGroupId,
+    );
+    const basePos = siblings.length > 0 ? Math.max(...siblings.map((i) => i.position)) + 1 : 0;
+    let offset = 0;
+    const nextItems = items.map((i) =>
+      idsSet.has(i.id) ? { ...i, group_id: targetGroupId, position: basePos + offset++ } : i,
+    );
+    reorder(nextItems);
+    haptics.notify("success");
+    setSelectGroupOpen(false);
+    exitSelect();
+  };
+
   const selectAll = () => {
     haptics.tap();
     setSelectedIds(new Set(items.map((i) => i.id)));
@@ -349,12 +368,12 @@ export const ChecklistView = forwardRef<ChecklistApi, ChecklistViewProps>(({
       setAddingGroup(false);
       return;
     }
-    addGroup(t);
+    const created = addGroup(t);
     setGroupDraft("");
-    requestAnimationFrame(() => {
-      groupInputRef.current?.focus();
-      revealGroupInput();
-    });
+    setAddingGroup(false);
+    if (created) {
+      setAutoFocusGroupId(created.id);
+    }
   };
 
   return (
@@ -385,14 +404,15 @@ export const ChecklistView = forwardRef<ChecklistApi, ChecklistViewProps>(({
         total > 0 && (
           <div className="relative app-card checklist-surface no-chrome-border rounded-[18px] px-4 py-3.5">
             <div className="relative z-10">
-              <div className="flex items-center justify-between gap-2 mb-2.5">
-                <div className="text-[13.5px] text-foreground/95 tabular-nums">
+              <div className="flex items-center gap-2 mb-2.5">
+                <div className="text-[13.5px] text-foreground/95 tabular-nums shrink-0">
                   <span className="font-bold text-[15px]">{done}</span>
                   <span className="text-secondary-fg/60 font-normal"> / {total} done</span>
                 </div>
+                <div className="flex-1 min-w-0" />
                 {done > 0 && (
-                  <span className="text-[12px] font-semibold" style={{ color: "hsl(var(--accent))" }}>
-                    {done === total ? "All done! Nice work." : "Nice, keep going!"}
+                  <span className="text-[12px] font-semibold shrink-0" style={{ color: "hsl(var(--accent))" }}>
+                    {done === total ? "All done!" : "Keep going!"}
                   </span>
                 )}
               </div>
@@ -456,17 +476,15 @@ export const ChecklistView = forwardRef<ChecklistApi, ChecklistViewProps>(({
       >
         {/* Flat / ungrouped section — quick to-dos with no category. One lifted
             3D card, flat divided rows, ending in the quiet add row. */}
+        {ungrouped.length > 0 && (
+          <div className="flex items-center gap-2 px-1 mt-6 mb-2">
+            <ListChecks className="h-3 w-3 text-secondary-fg/50" strokeWidth={2.5} />
+            <span className="text-[11px] font-bold uppercase tracking-[0.14em] text-secondary-fg/50">No category</span>
+            <div className="flex-1 h-px bg-border/40" />
+          </div>
+        )}
+
         <div className="relative app-card checklist-surface rounded-[20px] overflow-hidden">
-          {/* "No category" label — only visible when categories exist so the user
-              can distinguish the uncategorized section from the named lists below. */}
-          {groups.length > 0 && (
-            <div className="relative z-10 flex items-center gap-2 px-3 pt-2.5 pb-0.5">
-              <div className="h-[22px] w-[22px] flex items-center justify-center rounded-[7px] bg-foreground/[0.08] border border-border/50 shrink-0">
-                <ListChecks className="h-3 w-3 text-secondary-fg/55" strokeWidth={2.75} />
-              </div>
-              <span className="text-[13px] font-semibold text-secondary-fg/60">No category</span>
-            </div>
-          )}
           <Droppable id={UNGROUPED} isActive={!!activeId}>
             <SortableContext items={ungrouped.map((i) => i.id)} strategy={verticalListSortingStrategy}>
               {ungrouped.map((i) => (
@@ -490,6 +508,15 @@ export const ChecklistView = forwardRef<ChecklistApi, ChecklistViewProps>(({
           </Droppable>
         </div>
 
+        {/* Categories separator — same thin-label style as "No category" */}
+        {dayGroups.length > 0 && (
+          <div className="flex items-center gap-2 px-1 mt-6 mb-1">
+            <Folder className="h-3 w-3 text-secondary-fg/50" strokeWidth={2.5} />
+            <span className="text-[11px] font-bold uppercase tracking-[0.14em] text-secondary-fg/50">Categories</span>
+            <div className="flex-1 h-px bg-border/40" />
+          </div>
+        )}
+
         {/* Categories (day workspace — pinned ones render in the section above) */}
         {dayGroups.map((g) => (
           <ChecklistGroup
@@ -510,6 +537,7 @@ export const ChecklistView = forwardRef<ChecklistApi, ChecklistViewProps>(({
             onToggleItem={handleToggle}
             onOpenItemSheet={setSheetItem}
             onAddItem={(t, gid) => addItem(t, gid)}
+            autoFocusAdd={autoFocusGroupId === g.id}
             selectMode={selectMode}
             selectedIds={selectedIds}
             onToggleSelect={toggleSelect}
@@ -692,6 +720,34 @@ export const ChecklistView = forwardRef<ChecklistApi, ChecklistViewProps>(({
         }}
       />
 
+      {/* Move selected items to a category (group) */}
+      <Sheet open={selectGroupOpen} onOpenChange={(v) => !v && setSelectGroupOpen(false)}>
+        <SheetContent side="bottom" className="rounded-t-[28px] border-border/75 bg-popover">
+          <SheetHeader className="text-left mb-3">
+            <SheetTitle className="text-[16px]">Move to category</SheetTitle>
+          </SheetHeader>
+          <div className="space-y-1 pb-2">
+            <button
+              onClick={() => moveSelectedToGroup(null)}
+              className="w-full flex items-center gap-3 px-3 py-3 rounded-xl pressable transition-colors text-[14px] text-foreground hover:bg-muted/40"
+            >
+              <ListChecks className="h-4 w-4 text-secondary-fg shrink-0" />
+              <span className="flex-1 text-left">No category</span>
+            </button>
+            {dayGroups.map((g) => (
+              <button
+                key={g.id}
+                onClick={() => moveSelectedToGroup(g.id)}
+                className="w-full flex items-center gap-3 px-3 py-3 rounded-xl pressable transition-colors text-[14px] text-foreground hover:bg-muted/40"
+              >
+                <Folder className="h-4 w-4 text-secondary-fg shrink-0" />
+                <span className="flex-1 text-left">{g.title}</span>
+              </button>
+            ))}
+          </div>
+        </SheetContent>
+      </Sheet>
+
       {/* Move-to-date picker for the multi-selection */}
       <DayPickerSheet
         open={selectMoveOpen}
@@ -714,15 +770,25 @@ export const ChecklistView = forwardRef<ChecklistApi, ChecklistViewProps>(({
               <button
                 onClick={() => { if (selectedCount) { haptics.tap(); setSelectMoveOpen(true); } }}
                 disabled={selectedCount === 0}
-                className="flex-1 h-11 rounded-2xl inline-flex items-center justify-center gap-2 text-[14px] font-semibold pressable transition-all disabled:opacity-40 disabled:pointer-events-none"
+                className="flex-1 h-11 rounded-2xl inline-flex items-center justify-center gap-1.5 text-[13px] font-semibold pressable transition-all disabled:opacity-40 disabled:pointer-events-none"
                 style={{ color: "hsl(var(--accent))", background: "hsl(var(--accent) / 0.12)" }}
               >
                 <CalendarDays className="h-4 w-4" strokeWidth={2.25} /> Move
               </button>
+              {dayGroups.length > 0 && (
+                <button
+                  onClick={() => { if (selectedCount) { haptics.tap(); setSelectGroupOpen(true); } }}
+                  disabled={selectedCount === 0}
+                  className="flex-1 h-11 rounded-2xl inline-flex items-center justify-center gap-1.5 text-[13px] font-semibold pressable transition-all disabled:opacity-40 disabled:pointer-events-none"
+                  style={{ color: "hsl(var(--accent))", background: "hsl(var(--accent) / 0.10)" }}
+                >
+                  <Folder className="h-4 w-4" strokeWidth={2.25} /> Category
+                </button>
+              )}
               <button
                 onClick={deleteSelected}
                 disabled={selectedCount === 0}
-                className="flex-1 h-11 rounded-2xl inline-flex items-center justify-center gap-2 text-[14px] font-semibold text-destructive bg-destructive/[0.12] pressable transition-all disabled:opacity-40 disabled:pointer-events-none active:scale-[0.98]"
+                className="flex-1 h-11 rounded-2xl inline-flex items-center justify-center gap-1.5 text-[13px] font-semibold text-destructive bg-destructive/[0.12] pressable transition-all disabled:opacity-40 disabled:pointer-events-none active:scale-[0.98]"
               >
                 <Trash2 className="h-4 w-4" strokeWidth={2.25} /> Delete
               </button>
@@ -749,7 +815,7 @@ function PinnedRow({
 }) {
   const showPriority = !!item.priority && !item.done;
   return (
-    <div className={`flex items-center gap-3 px-3.5 py-2.5 border-b border-border/25 last:border-b-0 ${showPriority ? "bg-amber-400/[0.07]" : ""}`}>
+    <div className={`flex items-center gap-3 px-3.5 py-2.5 border-b border-border/55 last:border-b-0 ${showPriority ? "bg-amber-400/[0.07]" : ""}`}>
       <button type="button" onClick={onOpen} className="flex-1 min-w-0 text-left pressable flex items-center gap-1.5">
         {showPriority && (
           <Flag className="h-3 w-3 shrink-0 text-amber-500 dark:text-amber-400" fill="currentColor" aria-label="Priority" />
@@ -796,25 +862,31 @@ function PinnedGroupCard({
   onOpenItem: (i: ChecklistItem) => void;
 }) {
   return (
-    <div className="app-card checklist-surface rounded-[20px] overflow-hidden">
-      <div className="flex items-center gap-2 px-3.5 pt-3 pb-1.5">
-        <span className="flex-1 min-w-0 text-[14px] font-semibold text-foreground truncate">{group.title}</span>
+    <div className="mt-4">
+      <div className="flex items-center gap-2 px-1 mb-2">
+        <Folder className="h-3 w-3 text-secondary-fg/50" strokeWidth={2.5} />
+        <span className="text-[11px] font-bold uppercase tracking-[0.14em] text-secondary-fg/50 truncate max-w-[120px] sm:max-w-[200px]">
+          {group.title}
+        </span>
+        <div className="flex-1 h-px bg-border/40" />
         <button
           type="button"
           onClick={() => { haptics.tap(); onUnpin(); }}
-          className="shrink-0 p-1.5 -mr-1 text-secondary-fg/45 hover:text-foreground pressable"
+          className="shrink-0 text-secondary-fg/40 hover:text-secondary-fg/70 pressable transition-colors ml-1"
           aria-label="Unpin category"
         >
-          <PinOff className="h-4 w-4" />
+          <PinOff className="h-3.5 w-3.5" />
         </button>
       </div>
-      {items.length === 0 ? (
-        <div className="px-3.5 pb-3 text-[12.5px] text-secondary-fg/45">No items yet</div>
-      ) : (
-        items.map((i) => (
-          <PinnedRow key={i.id} item={i} onToggle={onToggle} onOpen={() => onOpenItem(i)} />
-        ))
-      )}
+      <div className="app-card checklist-surface rounded-[20px] overflow-hidden">
+        {items.length === 0 ? (
+          <div className="px-3.5 py-3 text-[12.5px] text-secondary-fg/45">No items yet</div>
+        ) : (
+          items.map((i) => (
+            <PinnedRow key={i.id} item={i} onToggle={onToggle} onOpen={() => onOpenItem(i)} />
+          ))
+        )}
+      </div>
     </div>
   );
 }
@@ -862,7 +934,7 @@ function GroupMenuSheet({
 
   return (
     <Sheet open={!!group} onOpenChange={(v) => !v && onClose()}>
-      <SheetContent side="bottom" className="rounded-t-[28px] border-border/45 bg-popover">
+      <SheetContent side="bottom" className="rounded-t-[28px] border-border/75 bg-popover">
         {group && (
           <div className="space-y-1">
             <SheetHeader className="text-left mb-2">

@@ -143,6 +143,10 @@ struct PulseBadge: View {
 struct CategoryPill: View {
     let name: String
     var colorHex: String? = nil
+    /// When true the pill stretches to fill its row (centered, own line).
+    /// When false it hugs its content so it can sit inline on the right of
+    /// another row — used by the Focus card to reclaim vertical space.
+    var expand: Bool = true
 
     var body: some View {
         let c = Color(hex: colorHex ?? "0A84FF")
@@ -162,7 +166,8 @@ struct CategoryPill: View {
         .padding(.vertical, 3)
         .background(Capsule().fill(c.opacity(0.12)))
         .overlay(Capsule().strokeBorder(c.opacity(0.22), lineWidth: 0.7))
-        .frame(maxWidth: .infinity)
+        .frame(maxWidth: expand ? .infinity : nil)
+        .fixedSize(horizontal: !expand, vertical: false)
     }
 }
 

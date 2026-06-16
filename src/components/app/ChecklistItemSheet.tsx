@@ -100,7 +100,7 @@ export function ChecklistItemSheet({
 
   return (
     <Sheet open={open} onOpenChange={(v) => !v && onClose()}>
-      <SheetContent side="bottom" className="rounded-t-[28px] border-border/45 bg-popover">
+      <SheetContent side="bottom" className="rounded-t-[28px] border-border/75 bg-popover" onOpenAutoFocus={(e) => e.preventDefault()}>
         {item && (
           <div className="max-h-[75vh] overflow-y-auto overflow-x-hidden no-scrollbar space-y-1 pb-4">
             <SheetHeader className="text-left mb-2">
