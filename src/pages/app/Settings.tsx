@@ -5,7 +5,9 @@ import { Input, DebouncedInput } from "@/components/ui/input";
 import { DebouncedTextarea } from "@/components/ui/textarea";
 import { Button } from "@/components/ui/button";
 import { useEffect, useState } from "react";
+import { motion, AnimatePresence } from "framer-motion";
 import { ThemeToggle } from "@/components/app/ThemeToggle";
+import { BiometricAura } from "@/components/app/BiometricAura";
 import { Sparkles, AlarmClock, FileText, Shield, Trash2, Download, Loader2, ScanFace, Fingerprint, Lock, Vibrate, Lightbulb, LifeBuoy, ChevronRight } from "lucide-react";
 import { Link, useLocation } from "react-router-dom";
 import { Capacitor } from "@capacitor/core";
@@ -94,6 +96,8 @@ export default function Settings() {
     if (bioTogglingLock) return;
     if (enable) {
       setBioTogglingLock(true);
+      // Wait for the gorgeous custom overlay to animate in before native UI takes over
+      await new Promise((r) => setTimeout(r, 450));
       try {
         await NativeBiometric.verifyIdentity({
           reason: "Enable Biometric Lock",
@@ -218,6 +222,32 @@ export default function Settings() {
 
   return (
     <>
+      <AnimatePresence>
+        {bioTogglingLock && (
+          <motion.div
+            key="bio-overlay"
+            className="fixed inset-0 z-[9999] flex flex-col items-center justify-center bg-background px-6"
+            initial={{ opacity: 0, scale: 0.96 }}
+            animate={{ opacity: 1, scale: 1 }}
+            exit={{ opacity: 0, scale: 0.96 }}
+            transition={{ duration: 0.2 }}
+          >
+            <div className="mb-8 opacity-90">
+              <BiometricAura
+                variant={bioInfo?.isFace ? "face" : "fingerprint"}
+                size={150}
+                subtle
+              />
+            </div>
+            <h2 className="text-2xl font-display font-semibold mb-2 text-foreground text-balance text-center">
+              Confirm Identity
+            </h2>
+            <p className="text-[14px] text-secondary-fg text-center max-w-xs leading-relaxed">
+              Verify to enable Biometric Lock.
+            </p>
+          </motion.div>
+        )}
+      </AnimatePresence>
       <div className="w-full md:max-w-[720px] md:mx-auto px-5 md:px-8 pt-[var(--content-inset-top)]">
         <header className="shrink-0 pb-5">
           <p className="eyebrow">Account</p>

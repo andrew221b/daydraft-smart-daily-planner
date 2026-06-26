@@ -73,8 +73,8 @@ export function SupportDialog({
         description: "Thank you for helping us improve DayDraft!",
       });
       onOpenChange(false);
-    } catch (e: any) {
-      toast.error(e.message || "Unable to send message");
+    } catch (e: unknown) {
+      toast.error(e instanceof Error ? e.message : "Unable to send message");
     } finally {
       setSending(false);
     }
