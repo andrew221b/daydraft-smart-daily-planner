@@ -144,7 +144,19 @@ Deno.serve(async (req) => {
             sent += 1;
             scheduled += 1;
           } catch (e) {
-            console.error(e);
+            // 404/410 = the browser dropped this subscription. Delete the dead
+            // row so it doesn't accumulate and get retried forever. (web-push
+            // throws a WebPushError carrying the HTTP statusCode.)
+            const code = (e as { statusCode?: number })?.statusCode;
+            if (code === 404 || code === 410) {
+              await supabase
+                .from("push_subscriptions")
+                .delete()
+                .eq("user_id", p.id as string)
+                .eq("endpoint", s.endpoint);
+            } else {
+              console.error(e);
+            }
             failed += 1;
           }
         }

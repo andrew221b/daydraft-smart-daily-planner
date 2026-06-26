@@ -114,8 +114,19 @@ export function attachVisualViewportInset(): () => void {
   let capCleanup: Array<() => void> = [];
   void (async () => {
     try {
-      const w = window as unknown as { Capacitor?: { isNativePlatform?: () => boolean } };
+      const w = window as unknown as { Capacitor?: { isNativePlatform?: () => boolean; getPlatform?: () => string } };
       if (!w.Capacitor?.isNativePlatform?.()) return;
+      // Android: the manifest now sets windowSoftInputMode="adjustNothing"
+      // (NOT adjustResize) because EdgeToEdge.enable() in MainActivity calls
+      // setDecorFitsSystemWindows(false), under which adjustResize fights the
+      // JS inset and double-shifts the layout — a big empty gap above the
+      // keyboard. With adjustNothing the OS leaves the window alone; instead
+      // `interactive-widget=resizes-visual` (index.html) shrinks ONLY the
+      // visual viewport, so window.visualViewport (Source 2 below) reports the
+      // exact keyboard overlap and is the single source of truth. So we let
+      // the plugin drive ONLY on iOS, where WKWebView never resizes either and
+      // its keyboardHeight is the authoritative signal.
+      if (w.Capacitor?.getPlatform?.() !== "ios") return;
       const { Keyboard } = await import("@capacitor/keyboard");
       // Single listener per show/hide. keyboardWillShow gives the same
       // height earlier than keyboardDidShow; the Did* counterparts would

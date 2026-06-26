@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { keepPreviousData, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useLocation, useNavigate, useSearchParams } from "react-router-dom";
 import { HomeTrackerHero } from "@/components/app/HomeTrackerHero";
@@ -69,6 +69,21 @@ export default function Home() {
       if (nativeListener) void nativeListener.then((l) => l.remove());
     };
   }, []);
+
+  // When the local day rolls over (viewDate just changed), the plan-dashboard
+  // query refetches via its viewDate key and the insight card via its own
+  // dayKey — but the shared rolling-entries cache is keyed only on the user, and
+  // native builds disable refetch-on-focus. Nudge the day-scoped caches so
+  // "tracked today" and the calendar markers reflect the NEW day on resume
+  // instead of silently showing yesterday's until the next manual refresh.
+  const dayRolloverRef = useRef(true);
+  useEffect(() => {
+    if (dayRolloverRef.current) { dayRolloverRef.current = false; return; }
+    if (!user?.id) return;
+    void queryClient.invalidateQueries({ queryKey: rollingEntriesQueryKey(user.id) });
+    void queryClient.invalidateQueries({ queryKey: ["plan-dates-markers", user.id] });
+  }, [viewDate, user?.id, queryClient]);
+
   const { allCatMap } = useTimeTracker();
   // Rolls over at local midnight (live: matches the hero counter) so the
   // "Time tracked today" breakdown below recomputes its day window instead of
@@ -202,7 +217,7 @@ export default function Home() {
 
   return (
     <PullToRefresh onRefresh={onRefresh}>
-        <div className="w-full flex flex-col px-5 pt-[var(--content-inset-top)] pb-6">
+        <div className="w-full md:max-w-[680px] lg:max-w-[760px] md:mx-auto flex flex-col px-5 md:px-8 pt-[var(--content-inset-top)] pb-6">
           {/* Greeting */}
           <header className="mb-5 shrink-0">
             <p className="text-[10px] font-semibold tracking-[0.18em] uppercase text-secondary-fg/50 mb-1">
@@ -213,8 +228,15 @@ export default function Home() {
             </h1>
           </header>
 
+          {/* Morning look-back / daily surprise. Silently hides when there's no plan from
+              yesterday, when the edge function isn't deployed, or when the
+              user dismissed it for the day. */}
+          <motion.div layout transition={{ type: "spring", bounce: 0.2, duration: 0.6 }} className="mt-4">
+            <YesterdayDebriefCard timezone={profile?.timezone} />
+          </motion.div>
+
           {/* THE HERO — tracker */}
-          <motion.div layout transition={{ type: "spring", bounce: 0.2, duration: 0.6 }}>
+          <motion.div layout transition={{ type: "spring", bounce: 0.2, duration: 0.6 }} className="mt-4">
             <HomeTrackerHero onOpenDetails={() => nav("/reports")} />
           </motion.div>
 
@@ -227,13 +249,6 @@ export default function Home() {
           >
             Start it, pick a category and rate, and it keeps running through locks and reboots — even on your Lock Screen — tallying earnings live.
           </FeatureHint>
-
-          {/* Morning look-back. Silently hides when there's no plan from
-              yesterday, when the edge function isn't deployed, or when the
-              user dismissed it for the day. */}
-          <motion.div layout transition={{ type: "spring", bounce: 0.2, duration: 0.6 }}>
-            <YesterdayDebriefCard timezone={profile?.timezone} />
-          </motion.div>
 
           {/* Today's plan progress */}
           {userTasks.length > 0 && (

@@ -3,7 +3,7 @@ import { keepPreviousData, useQuery, useQueryClient } from "@tanstack/react-quer
 import { useAuth } from "@/hooks/useAuth";
 import { supabase } from "@/integrations/supabase/client";
 
-import { BarChart3, ChevronDown, Download, FileText, ListFilter, ChevronRight, Timer, Pencil, Check, X, TrendingUp, MoreHorizontal, Clock } from "lucide-react";
+import { BarChart3, ChevronDown, Download, FileText, ListFilter, ChevronRight, Timer, Pencil, Check, X, MoreHorizontal, Clock } from "lucide-react";
 import { useNavigate } from "react-router-dom";
 import { EmptyState } from "@/components/app/EmptyState";
 import { FeatureHint } from "@/components/app/FeatureHint";
@@ -86,7 +86,11 @@ function periodRange(period: Period, customFromStr?: string, customToStr?: strin
     from.setHours(0, 0, 0, 0);
   }
   const fmt = (d: Date) => d.toLocaleDateString(undefined, { month: "short", day: "numeric" });
-  const label = period === "day" ? fmt(from) : `${fmt(from)} – ${fmt(to)}`;
+  // "Week"/"Month" are period-to-date (start of period → today), so early in
+  // the period (e.g. a Monday, or the 1st of the month) from === to — show a
+  // single date instead of the same date twice.
+  const sameDay = from.toDateString() === to.toDateString();
+  const label = period === "day" || sameDay ? fmt(from) : `${fmt(from)} – ${fmt(to)}`;
   const periodLabel = period === "day" ? "Day" : period === "week" ? "Week" : "Month";
   return { from, to, label, periodLabel };
 }
@@ -444,50 +448,55 @@ export default function Reports() {
     };
   }, [periodEntries, catMap, getReportCurrency]);
 
-  // ── Earnings insight (week + month, Pro only) ────────────────────────────
-  // Day 1: shows "Today so far" — no projection until there's a meaningful
-  // baseline. Day 2+: daily average + projected period total, always adapting
-  // to whatever was actually tracked (no stale minimum-day gate).
+  // ── Previous period earnings (Pro only) ────────────────────────────────
+  // Each tab shows what was earned in the matching prior period so the current
+  // total has a reference point. Derived from the existing 60-day rolling
+  // window — no extra query needed.
   const insight = useMemo(() => {
-    if (period !== "month" && period !== "week") return null;
+    if (period === "custom") return null;
     if (!isPro) return null;
-    if (earningsByCurrency.size === 0) return null;
     const hasRates = Object.keys(rates).length > 1;
-    const earnedSoFar = Array.from(earningsByCurrency.entries()).reduce(
+
+    const prevTo = new Date(range.from.getTime() - 1);
+    let prevFrom: Date;
+    let prevLabel: string;
+    if (period === "day") {
+      prevFrom = new Date(range.from.getTime() - 86_400_000);
+      prevLabel = "Earned yesterday";
+    } else if (period === "week") {
+      prevFrom = new Date(range.from.getTime() - 7 * 86_400_000);
+      prevLabel = "Earned last week";
+    } else {
+      prevFrom = new Date(range.from.getFullYear(), range.from.getMonth() - 1, 1);
+      prevLabel = "Earned last month";
+    }
+
+    const prevEntries = filterEntriesByRange(rollingEntries, { from: prevFrom, to: prevTo }).filter(
+      (e) => appliedCatIds.size === 0 || appliedCatIds.has(e.category_id || "uncategorized")
+    );
+
+    const prevByCur = new Map<string, number>();
+    for (const e of prevEntries) {
+      if (!e.snapshot_hourly_rate || !e.ended_at) continue;
+      const s = Math.max(new Date(e.started_at).getTime(), prevFrom.getTime());
+      const en = Math.min(new Date(e.ended_at).getTime(), prevTo.getTime());
+      const sec = Math.max(0, (en - s) / 1000);
+      if (sec <= 0) continue;
+      const earned = (e.snapshot_hourly_rate * sec) / 3600;
+      if (earned <= 0) continue;
+      const cur = (e.snapshot_currency ?? "USD").toUpperCase();
+      prevByCur.set(cur, (prevByCur.get(cur) ?? 0) + earned);
+    }
+
+    const prevEarned = Array.from(prevByCur.entries()).reduce(
       (sum, [from, amount]) =>
         sum + (hasRates ? convertCurrency(amount, from, displayCurrency, rates) : amount),
-      0,
+      0
     );
-    if (earnedSoFar <= 0) return null;
-    const now = new Date();
-    const today = new Date(now.getFullYear(), now.getMonth(), now.getDate());
-    const fromDay = new Date(range.from.getFullYear(), range.from.getMonth(), range.from.getDate());
-    // Fully completed days before today (today is still in progress).
-    const completedDays = Math.max(0, Math.floor((today.getTime() - fromDay.getTime()) / 86_400_000));
-    const periodDays = period === "week"
-      ? 7
-      : new Date(now.getFullYear(), now.getMonth() + 1, 0).getDate();
-    const remainingDays = Math.max(0, periodDays - completedDays - 1);
-    if (completedDays === 0) {
-      // First day of the period — show earnings to date, no projection yet.
-      return { type: "today" as const, earnedSoFar, remainingDays, periodDays, isWeek: period === "week" };
-    }
-    const elapsedDays = completedDays + 1; // completed days + today
-    const dailyAvg = earnedSoFar / elapsedDays;
-    const projectedTotal = earnedSoFar + dailyAvg * remainingDays;
-    return {
-      type: "trend" as const,
-      earnedSoFar,
-      dailyAvg,
-      projectedTotal,
-      remainingDays,
-      periodDays,
-      isWeek: period === "week",
-      totalSec,
-    };
-  // range.from is a new Date object every render — use its timestamp to avoid
-  // spurious recomputes of insight when the date hasn't actually changed.
-  }, [period, isPro, earningsByCurrency, displayCurrency, rates, range.from.getTime(), totalSec]);
+
+    if (prevEarned <= 0) return null;
+    return { prevLabel, prevEarned };
+  }, [period, isPro, rollingEntries, appliedCatIds, displayCurrency, rates, range.from.getTime()]);
 
   const toggleCategoryExpanded = (id: string) => {
     setExpandedCategoryIds((prev) => {
@@ -742,8 +751,11 @@ export default function Reports() {
     advanceEditFlow();
   };
 
-  const exportAsIs = async () => {
+  const exportInOriginalCurrency = async () => {
     setMismatchDialogOpen(false);
+    // Revert report-currency overrides so the export uses the original tracker
+    // currency for each mismatched category (e.g. EUR sessions export as EUR).
+    for (const m of mismatchList) clearCatOverride(m.catId);
     const pe = pendingExport;
     setPendingExport(null);
     setMismatchList([]);
@@ -758,7 +770,7 @@ export default function Reports() {
 
   return (
     <>
-      <div className="flex w-full flex-col px-5 pt-[var(--content-inset-top)] pb-5">
+      <div className="flex w-full md:max-w-[820px] lg:max-w-[880px] md:mx-auto flex-col px-5 md:px-8 pt-[var(--content-inset-top)] pb-8">
         <header className="shrink-0 pb-6">
           <p className="eyebrow">
             Reports
@@ -924,6 +936,7 @@ export default function Reports() {
                     {hasPay && (
                       <button
                         type="button"
+                        data-hint="reports-currency"
                         onClick={() => setCurrencyPickerOpen(true)}
                         aria-label="Change display currency"
                         className="inline-flex items-center gap-0.5 rounded-full bg-success/15 px-2.5 py-1 text-[11px] font-bold text-success border border-success/30 pressable shrink-0"
@@ -934,68 +947,21 @@ export default function Reports() {
                     )}
                   </div>
 
-                  {/* ── Earnings insight ── day 1 = "Today so far"; day 2+ = daily
-                       average + period projection. Amber keeps it visually distinct
-                       from the green "Estimated pay" total above. */}
+                  {/* ── Previous period earned ── reference total for the matching
+                       prior day / week / month. Amber keeps it distinct from the
+                       green "Estimated pay" total above. */}
                   {insight && (
                     <div className="mt-3.5 pt-3.5" style={{ borderTop: "1px solid hsl(38 92% 52% / 0.18)" }}>
                       <div className="flex items-center gap-2.5">
                         <div className="h-8 w-8 rounded-[9px] flex items-center justify-center shrink-0" style={{ background: "hsl(38 92% 52% / 0.13)", border: "1px solid hsl(38 92% 52% / 0.26)" }}>
-                          <TrendingUp style={{ width: 14, height: 14, color: "hsl(38 92% 52%)" }} strokeWidth={2.5} />
+                          <Clock style={{ width: 14, height: 14, color: "hsl(38 92% 52%)" }} strokeWidth={2.5} />
                         </div>
-                        {insight.type === "today" ? (
-                          <div className="min-w-0 flex-1">
-                            <p className="text-[10px] font-semibold uppercase tracking-[0.12em] text-secondary-fg/55">Today so far</p>
-                            <FitText max={18} min={13} className="mt-0.5 font-display font-semibold tabular-nums" style={{ color: "hsl(38 92% 52%)" }} watch={fmtMoney(insight.earnedSoFar, displayCurrency)}>
-                              {fmtMoney(insight.earnedSoFar, displayCurrency)}
-                            </FitText>
-                          </div>
-                        ) : insight.remainingDays === 0 ? (
-                          // Last day — show effective hourly rate for the period
-                          // (the only number not shown anywhere else).
-                          <div className="min-w-0 flex-1">
-                            <p className="text-[10px] font-semibold uppercase tracking-[0.12em] text-secondary-fg/55">
-                              Effective rate · {insight.isWeek ? "this week" : "this month"}
-                            </p>
-                            <FitText
-                              max={19}
-                              min={13}
-                              className="mt-0.5 font-display font-semibold tabular-nums"
-                              style={{ color: "hsl(38 92% 52%)" }}
-                              watch={insight.totalSec > 0 ? `${fmtMoney(insight.earnedSoFar / (insight.totalSec / 3600), displayCurrency)}/hr` : ""}
-                            >
-                              {insight.totalSec > 0
-                                ? `${fmtMoney(insight.earnedSoFar / (insight.totalSec / 3600), displayCurrency)}/hr`
-                                : "—"}
-                            </FitText>
-                            {insight.totalSec > 0 && (
-                              <p className="text-[10px] text-secondary-fg/50 tabular-nums mt-0.5">
-                                across {fmtHM(insight.totalSec)} tracked
-                              </p>
-                            )}
-                          </div>
-                        ) : (
-                          <>
-                            <div className="min-w-0 flex-1">
-                              <p className="text-[10px] font-semibold uppercase tracking-[0.12em] text-secondary-fg/55">
-                                avg {fmtMoney(insight.dailyAvg, displayCurrency)}/day · by {insight.isWeek ? "week" : "month"} end
-                              </p>
-                              <FitText
-                                max={19}
-                                min={13}
-                                className="mt-0.5 font-display font-semibold tabular-nums"
-                                style={{ color: "hsl(38 92% 52%)" }}
-                                watch={`≈ ${fmtMoney(insight.projectedTotal, displayCurrency)}`}
-                              >
-                                ≈ {fmtMoney(insight.projectedTotal, displayCurrency)}
-                              </FitText>
-                            </div>
-                            <div className="text-right shrink-0 pl-1">
-                              <p className="text-[10px] font-semibold uppercase tracking-[0.1em] text-secondary-fg/50">left</p>
-                              <p className="text-[13px] font-semibold tabular-nums text-foreground/80 mt-0.5">{insight.remainingDays}d</p>
-                            </div>
-                          </>
-                        )}
+                        <div className="min-w-0 flex-1">
+                          <p className="text-[10px] font-semibold uppercase tracking-[0.12em] text-secondary-fg/55">{insight.prevLabel}</p>
+                          <FitText max={18} min={13} className="mt-0.5 font-display font-semibold tabular-nums" style={{ color: "hsl(38 92% 52%)" }} watch={fmtMoney(insight.prevEarned, displayCurrency)}>
+                            {fmtMoney(insight.prevEarned, displayCurrency)}
+                          </FitText>
+                        </div>
                       </div>
                     </div>
                   )}
@@ -1450,15 +1416,26 @@ export default function Reports() {
             </section>
           )}
 
-          {/* In-context coachmark: session rows are tappable for editing — not
-              obvious. Anchors to the first session; auto-hidden when none exist. */}
+          {/* In-context coachmarks. autoScroll=false so they never yank this long
+              page to their anchor — each waits until the user scrolls it into view. */}
+          <FeatureHint
+            id="reports-currency"
+            selector="[data-hint='reports-currency']"
+            title="Your income, any currency"
+            placement="bottom"
+            autoScroll={false}
+          >
+            Switch the day, week, or month tabs to see what you earned in each period, and tap the currency chip to view it in any currency you like.
+          </FeatureHint>
+
           <FeatureHint
             id="reports-session-edit"
             selector="[data-hint='reports-session']"
             title="Sessions are editable"
             placement="top"
+            autoScroll={false}
           >
-            Tap any session to fix its start time, delete it, or move it to another category.
+            Tap the ⋯ on any session to fix its start time, delete it, or move it to another category.
           </FeatureHint>
 
           <FeatureHint
@@ -1466,6 +1443,7 @@ export default function Reports() {
             selector="[data-tour='reports-export']"
             title="Hand it to a client"
             placement="top"
+            autoScroll={false}
           >
             Export the period — or one category — as a billing-ready PDF or CSV, with rates and totals already worked out.
           </FeatureHint>
@@ -1584,7 +1562,7 @@ export default function Reports() {
         open={mismatchDialogOpen}
         mismatches={mismatchList}
         onCancel={cancelExport}
-        onExportAsIs={exportAsIs}
+        onExportOriginal={exportInOriginalCurrency}
         onUpdatePaymentDetails={beginEditFlow}
       />
       {/* Sequential PaymentMethodFields sheet — one mismatched category at a

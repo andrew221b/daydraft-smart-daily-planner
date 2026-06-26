@@ -305,7 +305,7 @@ export function DateRangePickerSheet({
                 animate={{ opacity: 1, x: 0 }}
                 exit={{ opacity: 0, x: -monthDirRef.current * 24 }}
                 transition={{ type: "spring", stiffness: 320, damping: 32, mass: 0.95 }}
-                className="grid grid-cols-7 gap-1"
+                className="grid grid-cols-7 gap-y-1"
               >
                 {grid.map((day, i) => {
                   const ymd = dateStr(day);
@@ -322,15 +322,32 @@ export function DateRangePickerSheet({
                   const isRangeStart = isFrom && draftFrom !== draftTo;
                   const isRangeEnd = isTo && draftFrom !== draftTo;
 
+                  const isRowStart = i % 7 === 0;
+                  const isRowEnd = i % 7 === 6;
+                  const roundLeft = isRangeStart || isRowStart;
+                  const roundRight = isRangeEnd || isRowEnd;
+
+                  // `text-secondary-fg/NN` compiles to nothing — "secondary-fg"
+                  // isn't a registered Tailwind color, so these dates rendered
+                  // at full inherited color instead of dimmed. Same bug/fix as
+                  // DayPickerSheet's month grid: alpha-blend via inline style.
+                  const dimAlpha = !isEndpoint && !isToday
+                    ? inMonth
+                      ? (isDisabled ? 0.32 : null)
+                      : (isInRange ? null : (isDisabled ? 0.16 : 0.3))
+                    : null;
+
                   return (
                     <div key={i} className="relative h-10 flex items-center justify-center">
                       {/* Range band — sits behind the day pill, only on
-                          in-range / endpoint cells. */}
+                          in-range / endpoint cells. Bridging gaps and wrapping rows. */}
                       {(isInRange || isRangeStart || isRangeEnd) && (
                         <div
-                          className={`absolute inset-y-1 left-0 right-0 bg-primary/15 ${
-                            isRangeStart ? "rounded-l-full ml-1" : ""
-                          } ${isRangeEnd ? "rounded-r-full mr-1" : ""}`}
+                          className={`absolute inset-y-1 bg-primary/15 ${
+                            roundLeft ? "left-1 rounded-l-full" : "left-0"
+                          } ${
+                            roundRight ? "right-1 rounded-r-full" : "right-0"
+                          }`}
                           aria-hidden
                         />
                       )}
@@ -344,16 +361,19 @@ export function DateRangePickerSheet({
                         onClick={() => tapDay(day)}
                         whileTap={!isDisabled ? { scale: 0.88 } : undefined}
                         transition={{ type: "spring", stiffness: 500, damping: 24 }}
+                        style={dimAlpha != null ? { color: `hsl(var(--muted-foreground) / ${dimAlpha})` } : undefined}
                         className={`relative z-[1] h-9 w-9 rounded-full text-[14px] font-semibold tabular-nums transition-colors duration-150 ${
                           isEndpoint
                             ? "bg-primary text-primary-foreground shadow-[0_4px_14px_-2px_hsl(var(--primary)/0.55)]"
                             : isToday
                               ? "ring-1 ring-primary/55 text-primary"
-                              : inMonth
-                                ? isDisabled
-                                  ? "text-secondary-fg/30 pointer-events-none"
-                                  : "text-foreground/90 hover:bg-foreground/[0.06]"
-                                : "text-secondary-fg/35 pointer-events-none"
+                                : inMonth
+                                  ? isDisabled
+                                    ? "pointer-events-none"
+                                    : "text-foreground/90 hover:bg-foreground/[0.06]"
+                                  : (isInRange || isEndpoint)
+                                    ? "text-foreground/90" // Keep visible if it's part of the selected range
+                                    : "pointer-events-none" // Heavily dim out-of-month dates
                         }`}
                         aria-label={DATE_LONG_FMT.format(day)}
                         aria-pressed={isEndpoint}

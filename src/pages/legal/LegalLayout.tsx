@@ -2,7 +2,7 @@ import { ReactNode } from "react";
 import { useNavigate } from "react-router-dom";
 import { ChevronLeft } from "lucide-react";
 
-export const LegalLayout = ({ title, children }: { title: string; children: ReactNode }) => {
+export const LegalLayout = ({ title, lastUpdated = "June 19, 2026", children }: { title: string; lastUpdated?: string; children: ReactNode }) => {
   const navigate = useNavigate();
   // Return to wherever the reader came from (paywall, onboarding, Auth, Settings)
   // instead of always dumping into Settings — the paywall now links here, and a
@@ -35,7 +35,7 @@ export const LegalLayout = ({ title, children }: { title: string; children: Reac
         style={{ paddingBottom: "calc(max(var(--safe-area-inset-bottom, env(safe-area-inset-bottom, 0px)), 20px) + 3rem + var(--keyboard-inset, 0px))" }}
       >
         <h1 className="font-display text-[26px] font-semibold mb-2 text-balance leading-tight">{title}</h1>
-        <p className="text-[11px] text-secondary-fg mb-10 tracking-wide">Last updated: June 16, 2026</p>
+        <p className="text-[11px] text-secondary-fg mb-10 tracking-wide">Last updated: {lastUpdated}</p>
         <article className="prose prose-invert prose-sm max-w-none space-y-4 text-[15px] leading-[1.6] text-foreground/88 [&_h2]:font-display [&_h2]:text-lg [&_h2]:font-semibold [&_h2]:mt-8 [&_h2]:mb-2 [&_a]:text-primary [&_a]:no-underline hover:[&_a]:underline">
           {children}
         </article>

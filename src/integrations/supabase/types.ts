@@ -14,6 +14,24 @@ export type Database = {
   }
   public: {
     Tables: {
+      ai_rate_limits: {
+        Row: {
+          request_count: number
+          user_id: string
+          window_start: string
+        }
+        Insert: {
+          request_count?: number
+          user_id: string
+          window_start?: string
+        }
+        Update: {
+          request_count?: number
+          user_id?: string
+          window_start?: string
+        }
+        Relationships: []
+      }
       billing_payment_details: {
         Row: {
           bank_name: string | null
@@ -179,6 +197,13 @@ export type Database = {
             referencedRelation: "plans"
             referencedColumns: ["id"]
           },
+          {
+            foreignKeyName: "blocks_source_block_id_fkey"
+            columns: ["source_block_id"]
+            isOneToOne: false
+            referencedRelation: "blocks"
+            referencedColumns: ["id"]
+          },
         ]
       }
       calendar_tokens: {
@@ -248,6 +273,7 @@ export type Database = {
         Row: {
           created_at: string
           done: boolean
+          failed: boolean
           group_id: string | null
           id: string
           pinned: boolean
@@ -261,6 +287,7 @@ export type Database = {
         Insert: {
           created_at?: string
           done?: boolean
+          failed?: boolean
           group_id?: string | null
           id?: string
           pinned?: boolean
@@ -274,6 +301,7 @@ export type Database = {
         Update: {
           created_at?: string
           done?: boolean
+          failed?: boolean
           group_id?: string | null
           id?: string
           pinned?: boolean
@@ -365,11 +393,11 @@ export type Database = {
           evening_nudge_local_time: string
           id: string
           install_prompted_at: string | null
+
           morning_nudge_local_time: string
           notifications_enabled: boolean
           onboarded: boolean
           passkey_enabled: boolean
-          is_developer: boolean | null
           theme: string
           timezone: string
           tour_seen: Json
@@ -391,11 +419,11 @@ export type Database = {
           evening_nudge_local_time?: string
           id: string
           install_prompted_at?: string | null
+
           morning_nudge_local_time?: string
           notifications_enabled?: boolean
           onboarded?: boolean
           passkey_enabled?: boolean
-          is_developer?: boolean | null
           theme?: string
           timezone?: string
           tour_seen?: Json
@@ -417,11 +445,11 @@ export type Database = {
           evening_nudge_local_time?: string
           id?: string
           install_prompted_at?: string | null
+
           morning_nudge_local_time?: string
           notifications_enabled?: boolean
           onboarded?: boolean
           passkey_enabled?: boolean
-          is_developer?: boolean | null
           theme?: string
           timezone?: string
           tour_seen?: Json
@@ -751,7 +779,10 @@ export type Database = {
       [_ in never]: never
     }
     Functions: {
-      [_ in never]: never
+      check_ai_rate_limit: {
+        Args: { p_max_requests: number; p_window_seconds: number }
+        Returns: boolean
+      }
     }
     Enums: {
       [_ in never]: never

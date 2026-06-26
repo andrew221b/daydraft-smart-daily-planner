@@ -4,28 +4,14 @@ import { memo,
   Suspense,
   useContext,
   useEffect,
-  useLayoutEffect,
   useMemo,
   useState,
   useRef,
   type ComponentType,
-  type ReactNode,
 } from "react";
 import { useLocation } from "react-router-dom";
 import { lazyWithReload } from "@/lib/lazyWithReload";
 import { RouteErrorBoundary } from "@/components/app/RouteErrorBoundary";
-import { ptMark } from "@/lib/perfTrace"; // TEMP perf trace
-
-// TEMP perf trace: logs when a tab's tree commits + paints for the first time.
-function MountTrace({ tabKey, children }: { tabKey: TabKey; children: ReactNode }) {
-  useLayoutEffect(() => {
-    ptMark(`MOUNT commit (layout) ${tabKey}`);
-  }, [tabKey]);
-  useEffect(() => {
-    ptMark(`MOUNT painted (effect) ${tabKey}`);
-  }, [tabKey]);
-  return <>{children}</>;
-}
 
 /**
  * Native-iOS-style tab persistence: every tab page mounts once on first visit
@@ -99,13 +85,11 @@ export function useTabVisible(): boolean {
 }
 
 
-const MemoizedTab = memo(({ Component, tabKey }: { Component: ComponentType<unknown>; tabKey: TabKey }) => {
+const MemoizedTab = memo(({ Component }: { Component: ComponentType<unknown> }) => {
   return (
     <RouteErrorBoundary>
       <Suspense fallback={null}>
-        <MountTrace tabKey={tabKey}>
-          <Component />
-        </MountTrace>
+        <Component />
       </Suspense>
     </RouteErrorBoundary>
   );
@@ -210,7 +194,6 @@ export function PersistentTabs() {
 
   useEffect(() => {
     if (!activeKey) return;
-    ptMark(`activeKey -> ${activeKey} (mounted=${mounted.has(activeKey)})`); // TEMP perf trace
     setMounted((prev) => {
       if (prev.has(activeKey)) return prev;
       const next = new Set(prev);
@@ -276,7 +259,7 @@ export function PersistentTabs() {
                 tabRefs.current.delete(tab.key);
               }
             }}
-            className={`absolute inset-0 overflow-y-auto overscroll-y-contain no-scrollbar ${isActive ? "" : "hidden"}`}
+            className={`absolute inset-0 overflow-y-auto overscroll-y-contain no-scrollbar [--tab-clearance:5rem] md:[--tab-clearance:1.5rem] ${isActive ? "" : "hidden"}`}
             aria-hidden={!isActive}
             // padding-bottom snaps (no transition). Animating padding on a
             // tall scroll container forces layout recalc for every frame of
@@ -285,12 +268,12 @@ export function PersistentTabs() {
             // visual smoothness; snapping the padding is invisible because
             // it happens before the keyboard physically arrives.
             style={{
-              paddingBottom: "calc(var(--safe-area-inset-bottom, env(safe-area-inset-bottom, 0px)) + 5rem + var(--keyboard-inset, 0px))",
+              paddingBottom: "calc(var(--safe-area-inset-bottom, env(safe-area-inset-bottom, 0px)) + var(--tab-clearance, 5rem) + var(--keyboard-inset, 0px))",
             }}
           >
             <TabVisibilityCtx.Provider value={isActive}>
               <div className="min-h-full flex flex-col">
-                <MemoizedTab Component={Component} tabKey={tab.key} />
+                <MemoizedTab Component={Component} />
               </div>
             </TabVisibilityCtx.Provider>
           </div>

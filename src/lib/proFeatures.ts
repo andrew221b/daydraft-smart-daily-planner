@@ -1,7 +1,7 @@
 import type { LucideIcon } from "lucide-react";
 import {
   Zap,
-  Compass,
+  Sparkles,
   Clock,
   FileDown,
   Wallet,
@@ -14,7 +14,7 @@ import {
  *  back when their entry points are live in the app. */
 export type ProFeatureId =
   | "unlimited"
-  | "drift"
+  | "insights"
   | "timer_reschedule"
   | "pdf_export"
   | "billing_reports";
@@ -39,11 +39,11 @@ export const PRO_FEATURE_CATALOG: ProCatalogItem[] = [
     sheetLine: "Unlimited planning days & AI",
   },
   {
-    id: "drift",
-    Icon: Compass,
-    headline: "Plan drift nudges",
-    tagline: "When the day slips, get a gentle nudge and a one-tap option to replan what’s left.",
-    sheetLine: "Smart day-drift nudges",
+    id: "insights",
+    Icon: Sparkles,
+    headline: "Daily AI Insights",
+    tagline: "A new riddle, quiz, or challenge every morning — plus a look back at yesterday’s plan.",
+    sheetLine: "Daily AI riddles, quizzes & recap",
   },
   {
     id: "timer_reschedule",

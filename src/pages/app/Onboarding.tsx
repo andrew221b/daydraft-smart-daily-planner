@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState, useRef, type CSSProperties } from "react";
+import { useCallback, useEffect, useMemo, useState, useRef, type CSSProperties } from "react";
 import { useNavigate } from "react-router-dom";
 import { Button } from "@/components/ui/button";
 import { DebouncedTextarea } from "@/components/ui/textarea";
@@ -165,15 +165,15 @@ export default function Onboarding() {
 
   return (
     <div className="h-[100dvh] w-full bg-background flex justify-center overflow-y-auto overscroll-y-contain no-scrollbar">
-      <div className="relative w-full max-w-[440px] min-h-full flex flex-col">
+      <div className="relative w-full max-w-[440px] md:max-w-[680px] lg:max-w-[760px] min-h-full flex flex-col">
         <div className="pointer-events-none absolute inset-x-0 top-0 h-[320px]" style={{ background: "var(--gradient-glow)" }} />
 
         <div 
           className="relative z-10 flex-1 flex flex-col px-6 pt-[max(env(safe-area-inset-top),14px)] transition-[padding-bottom] duration-[220ms] ease-[cubic-bezier(0.32,0.72,0,1)]"
-          style={{ paddingBottom: 'calc(env(safe-area-inset-bottom) + 1.25rem + var(--keyboard-inset, 0px))' }}
+          style={{ paddingBottom: 'calc(env(safe-area-inset-bottom) + 0.6rem + var(--keyboard-inset, 0px))' }}
         >
           {/* Nav bar */}
-          <div className="flex items-center justify-between h-9 -mx-1 mb-4">
+          <div className="flex items-center justify-between h-9 -mx-1 mb-2.5">
             {step === 1 ? (
               <button
                 type="button"
@@ -579,7 +579,7 @@ function WelcomeSetupStep({
         <Button
           disabled={disabled}
           onClick={onContinue}
-          className="w-full h-[54px] rounded-[18px] bg-primary text-primary-foreground hover:bg-primary/92 pressable text-[15px] font-semibold shadow-[0_12px_32px_-8px_hsl(var(--primary)/0.6)] mt-6"
+          className="w-full h-[54px] rounded-[18px] bg-primary text-primary-foreground hover:bg-primary/92 pressable text-[15px] font-semibold cta-glow mt-6"
         >
           Let's go <ArrowRight className="h-4 w-4 ml-1.5" />
         </Button>
@@ -1089,6 +1089,11 @@ function PaywallStep({
   const busy = busyCheckout || finishing;
   const [restoring, setRestoring] = useState(false);
   const prices = usePlanPrices();
+  // Stable handler so ProPlanRow's memo holds (see proPaywall.tsx).
+  const selectPlan = useCallback(
+    (id: "weekly" | "monthly" | "annual") => { haptics.selection(); onPlan(id); },
+    [onPlan],
+  );
   const restore = async () => {
     setRestoring(true);
     try {
@@ -1103,7 +1108,7 @@ function PaywallStep({
   const ctaLabel = busyCheckout
     ? "Opening checkout…"
     : plan === "annual"
-      ? "Start 7-day free trial"
+      ? "Start 3-day free trial"
       : "Continue with Pro";
 
   return (
@@ -1112,7 +1117,7 @@ function PaywallStep({
         type="button"
         onClick={onBack}
         disabled={busy}
-        className="self-start -mt-2 mb-1 h-9 px-2 inline-flex items-center gap-1 rounded-full text-[13px] text-secondary-fg hover:text-foreground pressable disabled:opacity-50 disabled:pointer-events-none transition-colors"
+        className="self-start -mt-1 mb-0 h-8 px-2 inline-flex items-center gap-1 rounded-full text-[13px] text-secondary-fg hover:text-foreground pressable disabled:opacity-50 disabled:pointer-events-none transition-colors"
       >
         <ChevronLeft className="h-4 w-4" strokeWidth={2.4} /> Back
       </button>
@@ -1126,47 +1131,47 @@ function PaywallStep({
         className="flex-1 flex flex-col"
       >
         {/* Hero */}
-        <div className="relative pt-2 pb-4 text-center flex flex-col items-center">
+        <div className="relative pt-0.5 pb-2 text-center flex flex-col items-center">
           <div
             aria-hidden
             className="pointer-events-none absolute inset-x-0 top-0 h-24"
             style={{ background: "radial-gradient(60% 100% at 50% 0%, hsl(var(--primary) / 0.09) 0%, transparent 80%)" }}
           />
-          <div className="inline-flex items-center gap-1.5 rounded-full border border-primary/25 bg-primary/[0.07] px-3 py-1 mb-3.5 relative z-10">
+          <div className="inline-flex items-center gap-1.5 rounded-full border border-primary/25 bg-primary/[0.07] px-3 py-1 mb-2.5 relative z-10">
             <Lock className="h-2.5 w-2.5 text-primary" strokeWidth={2.5} />
             <span className="text-[11px] font-semibold tracking-[0.08em] uppercase text-primary">DayDraft Pro</span>
           </div>
-          <h1 className="font-semibold text-[22px] leading-[1.2] tracking-tight text-foreground relative z-10 whitespace-nowrap">
+          <h1 className="font-semibold text-[20px] leading-[1.2] tracking-tight text-foreground relative z-10 whitespace-nowrap">
             Unlock the full DayDraft.
           </h1>
         </div>
 
         {/* Feature cards */}
-        <div className="flex flex-col gap-1.5 w-full">
+        <div className="flex flex-col gap-1 w-full">
           {PRO_FEATURES.map((feat) => (
             <ProFeatureCard key={feat.id} feat={feat} animate={false} />
           ))}
         </div>
 
         {/* Plan rows */}
-        <div className="flex flex-col gap-1.5 w-full mt-4">
+        <div className="flex flex-col gap-2 w-full mt-2.5">
           {PRO_PLANS.map((p) => (
             <ProPlanRow
               key={p.id}
               plan={p}
               active={plan === p.id}
               priceInfo={prices[p.id]}
-              onClick={() => { haptics.selection(); onPlan(p.id); }}
+              onSelect={selectPlan}
             />
           ))}
         </div>
 
         {/* CTAs */}
-        <div className="mt-4 flex flex-col gap-2.5">
+        <div className="mt-2 flex flex-col gap-1.5">
           <Button
             onClick={onCheckout}
             disabled={busy}
-            className="w-full h-[54px] rounded-[18px] bg-primary hover:bg-primary/92 text-primary-foreground text-[15px] font-semibold pressable"
+            className="w-full h-[48px] rounded-[16px] bg-primary hover:bg-primary/92 text-primary-foreground text-[15px] font-semibold pressable"
           >
             {busy ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : null}
             {ctaLabel}
@@ -1175,7 +1180,7 @@ function PaywallStep({
             type="button"
             onClick={onSkip}
             disabled={busy}
-            className="w-full h-[46px] rounded-[18px] text-[14px] font-medium text-secondary-fg/70 hover:text-foreground pressable disabled:opacity-50 disabled:pointer-events-none transition-colors"
+            className="w-full h-11 rounded-[16px] text-[14px] font-medium text-secondary-fg/70 hover:text-foreground pressable disabled:opacity-50 disabled:pointer-events-none transition-colors"
           >
             Continue with Free
           </button>

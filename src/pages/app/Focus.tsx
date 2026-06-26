@@ -80,6 +80,7 @@ export default function Focus() {
   const wasOverTimeRef = useRef(false);
   const [confirmSkipOpen, setConfirmSkipOpen] = useState(false);
   const [confirmCancelOpen, setConfirmCancelOpen] = useState(false);
+  const [confirmStopTrackOpen, setConfirmStopTrackOpen] = useState(false);
   // Wall-clock when the timer actually started ticking (after preflight).
   // Used to attribute REAL elapsed time to time_entries on complete().
   const actualStartMsRef = useRef<number | null>(null);
@@ -679,7 +680,7 @@ export default function Focus() {
         initial={{ opacity: 0, scale: 0.96, y: 16 }}
         animate={{ opacity: 1, scale: 1, y: 0 }}
         transition={{ type: "spring", bounce: 0.2, duration: 0.7 }}
-        className="relative w-full h-full max-w-[400px] flex flex-col items-center px-6 pt-8 pb-4 mx-auto"
+        className="relative w-full h-full max-w-[400px] md:max-w-[460px] flex flex-col items-center px-6 pt-8 pb-4 mx-auto"
       >
         {/* Cancel — top-left, returns to plan without altering anything */}
         <button
@@ -778,7 +779,7 @@ export default function Focus() {
           {armed && trackingThisBlock && trackingCat && !showCheck && (
             <button
               type="button"
-              onClick={() => { stopTracking(); startedHereRef.current = false; }}
+              onClick={() => setConfirmStopTrackOpen(true)}
               className="mt-4 flex items-center gap-1 mx-auto rounded-full border border-soft bg-background/70 px-3 py-1.5 text-[11px] font-medium text-secondary-fg pressable hover:text-foreground"
             >
               <Square className="h-3 w-3" /> Stop tracking
@@ -1089,6 +1090,34 @@ export default function Focus() {
           <AlertDialogFooter>
             <AlertDialogCancel>Stay</AlertDialogCancel>
             <AlertDialogAction onClick={() => { setConfirmCancelOpen(false); cancel(); }}>Leave</AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
+      <AlertDialog open={confirmStopTrackOpen} onOpenChange={setConfirmStopTrackOpen}>
+        <AlertDialogContent
+          className="w-[calc(100vw-48px)] max-w-[340px] rounded-3xl border-border/70 bg-surface/95 p-0 backdrop-blur-2xl"
+        >
+          <AlertDialogHeader className="px-6 pt-6 pb-0 text-center">
+            <div className="mx-auto mb-3 flex h-11 w-11 items-center justify-center rounded-full bg-primary/12 border border-primary/20">
+              <Timer className="h-5 w-5 text-primary" />
+            </div>
+            <AlertDialogTitle className="text-[17px] font-semibold">
+              Stop the timer?
+            </AlertDialogTitle>
+            <AlertDialogDescription className="text-[13px] text-secondary-fg/80 mt-1">
+              Your tracked time will be saved. Are you sure you want to stop?
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter className="flex flex-col gap-2 px-6 py-5 sm:flex-col sm:space-x-0">
+            <AlertDialogAction
+              onClick={() => { setConfirmStopTrackOpen(false); stopTracking(); startedHereRef.current = false; }}
+              className="h-11 w-full rounded-2xl bg-destructive text-destructive-foreground hover:bg-destructive/90 font-semibold text-[15px] border-0 pressable"
+            >
+              Stop timer
+            </AlertDialogAction>
+            <AlertDialogCancel className="h-11 w-full rounded-2xl border-border/65 bg-foreground/[0.05] text-foreground font-semibold text-[15px] hover:bg-foreground/[0.09] mt-0 pressable">
+              Continue
+            </AlertDialogCancel>
           </AlertDialogFooter>
         </AlertDialogContent>
       </AlertDialog>

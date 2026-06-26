@@ -1,5 +1,7 @@
 import { serve } from "https://deno.land/std@0.168.0/http/server.ts";
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2.95.0";
+import { ACTIVITY_DURATIONS, resolveProfessionalRef } from "../_shared/activityDurations.ts";
+import { callGeminiWithRetry } from "../_shared/geminiRetry.ts";
 
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
@@ -22,33 +24,49 @@ serve(async (req) => {
     const baseSystem = `You are an intelligent task parser and planning assistant for a daily planning app.
 The user will provide a raw, messy input text describing their tasks for the day. It might contain typos, run-on sentences, time estimates, and start-time hints.
 
+HOW YOU THINK (read the whole input semantically before you parse or ask):
+- Read for MEANING, not just words. Understand the day they're sketching and what each line actually IS — "a few emails" can be an hour of quiet dread, "sort out taxes" is heavier and longer than it sounds, "gym" means leaving the house. Size and treat each task by what it really involves, not its surface wording.
+- Be logically consistent. Hold the entire list in view at once and check it adds up: times that overlap, durations that can't fit the hours implied, a "relaxing evening" stacked with hard work, a fixed deadline that fights another commitment. A genuine clash is worth a question (rule C); a list that already fits is not.
+- Earn every question. Never ask what the text already answers (a stated time, a stated duration), never pad to a count, and don't ask two questions that resolve the same thing. One question that truly changes the plan beats three safe ones.
+
 PART 1 — Parse tasks:
 1. Extract each distinct task from the text.
-2. Fix any typos or spelling mistakes. Keep the original language (e.g. if Russian, output Russian).
-3. If the user specifies a duration (e.g., "for 8 hours", "30 mins", "около 8 часов", "буду работать 3 часа"), extract into \`duration_min\`. If no duration, output null.
+2. Fix any typos or spelling mistakes. Each \`title\` MUST be written in the SAME language the user wrote that task in — English input → English title, Russian input → Russian title. Translate nothing. The many example phrases in these instructions are illustrative only and MUST NOT influence your output language.
+3. If the user specifies a duration (e.g., "for 8 hours", "30 mins", "около 8 часов", "буду работать 3 часа"), extract it into \`duration_min\`. An explicit duration ALWAYS wins — never override it.
+3b. If NO duration is given, estimate a realistic \`duration_min\`. Order of preference: (1) if a "YOUR OWN MEASURED DURATIONS" section is present and the task matches one of its rows, use THAT — it's this user's real time and beats any average; (2) otherwise use the ACTIVITY DURATION REFERENCE — read what kind of task it is, anchor to the closest matching row. Either way, scale for any "quick"/"brief" (shorter) or "deep"/"full session" (longer) signal. Never a token 30-min block for something that obviously takes longer (a gym session, a movie, cooking dinner). Use null ONLY when the length is genuinely unknowable and nothing matches (e.g. "work on the report").
+3c. If (and only if) you anchored a task to a row in the PROFESSIONAL & WORK TASKS block specifically (rule 3b's option 2, the "[Role] Label:N,..." lines), set \`ref\` to that exact "Role.Label" pair, copied character-for-character (e.g. "Software Dev.Code", "UI/UX.Wireframe") — regardless of what language the task title is in. This lets the app verify your number against the table. If the task doesn't clearly match a row in THAT block (errands, personal life, generic/unlisted work, or anything from the other reference sections), leave \`ref\` null — never invent one that isn't written verbatim there.
 4. If the user specifies a start time (e.g., "at 9am", "в 6 утра", "начну в 14:30", "с 10 часов", "9:00", "after 6"), extract into \`start_time\` as "HH:MM" 24h format. If no start time, output null.
-5. The \`title\` should NOT include the time or duration — those go into the separate fields.
+4b. If the user gives a time RANGE for a task (e.g. "6-7pm", "10-11pm", "14:00-15:30", "с 14 до 15", "from 2 to 3pm"): the FIRST time is \`start_time\`, and \`duration_min\` is the difference between the two times in minutes (handle ranges that cross noon, e.g. "11-1pm" = 11am–1pm = 120 min). Neither number may remain in the title.
+5. The \`title\` should NOT include the time or duration — those go into the separate fields. Never leave a bare number (e.g. a stray hour from a time range) stuck in the title.
+
+LANGUAGE RULE (mandatory — apply to EVERYTHING you output):
+Detect the language of the user's input text. EVERY string you return — each task \`title\` AND every question, option, and word in the \`questions\` array — MUST be in that same language. English input → English output. Russian input → Russian output. Ukrainian → Ukrainian. Your output language is decided SOLELY by the user's input text, NEVER by the language of the examples in these instructions (which are deliberately multilingual). Never flip an English task into Russian or vice-versa. This is not optional.
 
 PART 2 — Clarification questions (return 0–5; a sharp friend who actually read the list):
 You are perceptive. Read between the lines and only ask what genuinely helps. Two kinds of question matter:
 
 SENSE-CHECKS — catch things that are off. ALWAYS ask at least one when any of these apply:
-A. Nonsense / gibberish — a "task" that is random characters, a stray word, or clearly not a task (e.g. "asdfgh", "ggg", "blah", "test"): ask if it's a real task or just a test. Never silently keep it.
-B. Venting / profanity — a line that is mostly swearing or frustration: answer with light humour, never a lecture. Ask what's really behind it so it can become a real task (or get dropped). Stay on their side.
+A. Nonsense / gibberish — input that is keyboard mashing, random characters, or completely meaningless in any language (e.g. "asdfgh", "ggg", "фывафыва", "йцуйцу"): do NOT include it as a task. Ask directly whether it's a real task or just a test — one short question. Never silently parse it.
+B. Profanity / insults / provocations — if the entire input (or a line) is swearing, insults, or aggression with no real task underneath it: name it plainly without moralizing — say there's no task here to plan, just a provocation — and ask once what they actually wanted. One question, no lecture. EXCEPTION: if profanity is mixed with a real task (e.g. "блин, надо в спортзал"), treat it as the task and skip the question.
 C. Contradictions / impossible plans — tasks that logically clash or can't fit (e.g. "sleep 9h" + "finish 30 tasks before noon"; two fixed things at the same time; a 6h task starting at 5pm with an 11pm bedtime): name the clash and ask how to resolve it.
+D. Fantasy / unreal tasks — a "task" that involves things that don't exist in reality (unicorns, fictional creatures, impossible physics, e.g. "поймать розового крокодила", "покормить единорога", "телепортироваться на луну"): do NOT plan it as a real task. Note lightly in one sentence that this isn't a real task (or is a test), and ask if they meant something else.
 
-SCHEDULING — only when it changes the plan:
-D. Travel — a task that means going somewhere (gym, office, doctor, store, client): ask how long travel takes.
-E. Fixed commitments — a call/meeting/appointment with no time: ask what time.
-F. Vague duration — a task with no obvious length: ask for a rough estimate.
-G. Priority — a heavy or mixed list: ask what matters most.
+SCHEDULING — the questions that actually shape WHEN and HOW LONG. Prefer these; they matter most:
+E. Timing of leisure / flexible tasks — MANDATORY when the list contains BOTH (a) any entertainment or relaxation item (movie, show, game, reading, hobby, walk, nap) AND (b) any work, call, or errand. You MUST generate this question. Ask when they want the downtime; leisure belongs AFTER work, so lead with evening. Example for Russian input: "Фильм — вечером или в свободное время?" → ["Вечером", "Днём", "Как получится"].
+F. Fixed commitments — a call/meeting/appointment with no time: ask roughly when. Offer parts of day, not clock times.
+G. Duration that really varies — a task whose length swings a lot: confirm a rough length. Skip ones already estimated by rule 3b.
+G2. Travel / commute time — a task that means leaving home (gym, office, doctor, store, class, errand, meeting elsewhere): you may ask how long the ONE-WAY trip there takes. This is separate from the activity's own length — never fold it into the task's duration.
+H. Day anchor — if NO task has a start time and nothing tells you when their day begins, ask when they want to start.
+I. Priority — a heavy or mixed list: ask what matters most.
 
 RULES for questions:
-- Max 5. Prefer the few that change the most. Return [] ONLY when every task is sensible, clear, AND already time-set — never pad with filler just to hit a count.
-- ALWAYS ask at least one question when A, B, or C applies. Nonsense, venting, and impossible plans must never pass unquestioned.
-- Each question MUST name the actual task it is about.
-- Write questions in the user's language. Question text under 12 words; options max 4 words; 2–4 options each.
-- Voice: plain, dry, a little witty. Never preachy, never shaming. For venting/profanity, be playful and warm.
+- Max 5. Spend them on TIMING and DURATION first — those build the plan. Return [] ONLY when every task is sensible, clear, time-set AND sensibly-lengthed.
+- ALWAYS ask at least one question when A, B, C, or D applies.
+- E (formerly D) is MANDATORY when entertainment + work/calls coexist in the list.
+- Each question MUST name the actual task it is about (in the user's language). LANGUAGE RULE: every question, option, and word MUST be in the same language as the user's input.
+- Every question MUST set \`kind\`, matching which rule produced it: "duration" for G, "travel" for G2, "timing" for E/F/H, "other" for A/B/C/D/I. This tells the app whether the answer is allowed to overwrite the task's own length (only "duration" may) — getting it wrong on a travel question will silently corrupt that task's duration, so be precise.
+- Question text under 12 words; options max 4 words; 2–4 options each.
+- Voice: plain, dry, a little witty. Never preachy, never shaming.
 - Option IDs are short snake_case strings.`;
 
     const schema = {
@@ -62,8 +80,9 @@ RULES for questions:
               title: { type: "STRING", description: "Cleaned and spell-checked task title (no time/duration in title)" },
               duration_min: { type: "INTEGER", nullable: true, description: "Duration in minutes if specified, else null" },
               start_time: { type: "STRING", nullable: true, description: "Start time as HH:MM (24h) if the user mentioned one, else null" },
+              ref: { type: "STRING", nullable: true, description: "Exact 'Role.Label' pair from the PROFESSIONAL & WORK TASKS block if duration_min was anchored to one of those rows (e.g. 'Software Dev.Code'), else null. Never invented." },
             },
-            required: ["title", "duration_min", "start_time"],
+            required: ["title", "duration_min", "start_time", "ref"],
           },
         },
         questions: {
@@ -74,8 +93,13 @@ RULES for questions:
               id: { type: "STRING", description: "Short snake_case id, e.g. 'gym_travel_time'" },
               text: { type: "STRING", description: "The question, referencing the actual task name, under 12 words" },
               options: { type: "ARRAY", items: { type: "STRING" }, description: "2–4 concise options (max 4 words each)" },
+              kind: {
+                type: "STRING",
+                enum: ["duration", "travel", "timing", "other"],
+                description: "'duration' = answer is the task's OWN length, safe to overwrite duration_min. 'travel' = one-way commute/trip time to the task's location — NEVER the task's own duration. 'timing' = when / what time of day. 'other' = sense-checks, priority, anything else.",
+              },
             },
-            required: ["id", "text", "options"],
+            required: ["id", "text", "options", "kind"],
           },
         },
       },
@@ -88,6 +112,7 @@ RULES for questions:
     // from the caller's JWT, best-effort and in parallel — any failure here just
     // means the questions fall back to non-personalized (it never blocks parsing).
     let personalBlock = "";
+    let personalDurations = "";
     const auth = req.headers.get("Authorization");
     if (auth) {
       try {
@@ -98,13 +123,23 @@ RULES for questions:
         );
         const { data: u } = await supabase.auth.getUser();
         if (u?.user) {
-          const [{ data: prof }, { data: pat }] = await Promise.all([
+          const [{ data: prof }, { data: pat }, { data: histBlocks }] = await Promise.all([
             supabase.from("profiles")
               .select("display_name, ai_context_custom, ai_planning_rules, ai_personalization_enabled, energy_preference, active_hours_start, active_hours_end")
               .eq("id", u.user.id).maybeSingle(),
             supabase.from("user_patterns")
               .select("deep_work_overrun_pct, abandoned_types, completion_by_hour")
               .eq("user_id", u.user.id).maybeSingle(),
+            // The user's OWN tracked task durations. actual_minutes is only ever
+            // set from real time-tracking (never invented), so a non-null value
+            // is an honest measured signal — the most accurate prior for THIS
+            // person. Recent-first; aggregation below caps the prompt cost.
+            supabase.from("blocks")
+              .select("title, actual_minutes")
+              .eq("user_id", u.user.id)
+              .not("actual_minutes", "is", null)
+              .order("created_at", { ascending: false })
+              .limit(400),
           ]);
           const name = String(prof?.display_name || "").trim();
           // User-authored fields are usually short; the cap is just a safety
@@ -135,6 +170,34 @@ RULES for questions:
             }
             habits = bits.join("; ");
           }
+          // Personal duration calibration — blend the population/profession
+          // reference with what THIS user actually measured. Group their tracked
+          // tasks by title, take the median (robust to a stray left-running
+          // timer) and the sample count so the model can weigh reliability.
+          if (prof?.ai_personalization_enabled !== false && Array.isArray(histBlocks) && histBlocks.length) {
+            const groups = new Map<string, { label: string; vals: number[] }>();
+            for (const b of histBlocks as any[]) {
+              const title = String(b?.title || "").trim();
+              const mins = Number(b?.actual_minutes || 0);
+              if (!title || !(mins > 0)) continue;
+              const key = title.toLowerCase().replace(/\s+/g, " ");
+              const g = groups.get(key) || { label: title, vals: [] };
+              g.vals.push(mins);
+              groups.set(key, g);
+            }
+            const median = (a: number[]): number => {
+              const s = [...a].sort((x, y) => x - y);
+              const mid = Math.floor(s.length / 2);
+              return s.length % 2 ? s[mid] : Math.round((s[mid - 1] + s[mid]) / 2);
+            };
+            const rows = [...groups.values()]
+              .sort((a, b) => b.vals.length - a.vals.length)
+              .slice(0, 20)
+              .map((g) => `- "${g.label}" → ~${median(g.vals)}m${g.vals.length > 1 ? ` (their avg across ${g.vals.length})` : ""}`);
+            if (rows.length) {
+              personalDurations = `\n\nYOUR OWN MEASURED DURATIONS (this user's REAL tracked time on past tasks — the single most accurate signal for THIS person). When a task you're estimating matches one of these (even with different wording or in another language), PREFER the user's own time below over the population/profession reference. More samples = more reliable:\n${rows.join("\n")}`;
+            }
+          }
           if (name || about || rules || habits || dayShape) {
             personalBlock = `\n\nABOUT THIS USER (quiet background — use ONLY to make a question sharper or more relevant; NEVER quote it back, and never turn the context itself into a question):\n${name ? `- Name: ${name}\n` : ""}${about ? `- About them: ${about}\n` : ""}${rules ? `- Their planning rules: ${rules}\n` : ""}${dayShape ? `- Day shape: ${dayShape}\n` : ""}${habits ? `- Learned habits: ${habits}\n` : ""}`;
           }
@@ -142,19 +205,12 @@ RULES for questions:
       } catch (_e) { /* non-fatal — questions just won't be personalized */ }
     }
 
-    const system = baseSystem + personalBlock;
+    const system = baseSystem + personalBlock + "\n\n" + ACTIVITY_DURATIONS + personalDurations;
 
     // gemini-2.5-flash = the app's current primary (same as the planner & chat);
     // 2.0-flash stays only as a resilience fallback. Thinking is forced off in
     // generationConfig so this stays flash-tier on cost — the task is structured
     // extraction plus short questions, no chain-of-thought needed.
-    const MODEL_CHAIN = ["gemini-2.5-flash", "gemini-2.0-flash"];
-    const isTransient = (s: number) => s === 500 || s === 502 || s === 503 || s === 504;
-    const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
-
-    let resp: Response | null = null;
-    let lastStatus = 0;
-
     const callModel = async (model: string): Promise<Response> => {
       const ctrl = new AbortController();
       const t = setTimeout(() => ctrl.abort(), 15_000);
@@ -181,23 +237,8 @@ RULES for questions:
       }
     };
 
-    outer:
-    for (const model of MODEL_CHAIN) {
-      for (let attempt = 0; attempt < 2; attempt++) {
-        let r: Response;
-        try {
-          r = await callModel(model);
-        } catch (err) {
-          lastStatus = 504;
-          break;
-        }
-        if (r.ok) { resp = r; break outer; }
-        lastStatus = r.status;
-        if (r.status === 429 || (r.status >= 400 && r.status < 500)) break; // try next model
-        if (isTransient(r.status) && attempt === 0) { await sleep(300); continue; }
-        break;
-      }
-    }
+    // Shared model-chain + transient-retry (incl 404/429). See _shared/geminiRetry.ts.
+    const { response: resp, lastStatus } = await callGeminiWithRetry((model) => callModel(model));
 
     if (!resp) {
       return new Response(JSON.stringify({ error: "AI failed to parse" }), { status: lastStatus || 500, headers: { ...corsHeaders, "Content-Type": "application/json" } });
@@ -209,7 +250,59 @@ RULES for questions:
     
     const args = JSON.parse(textOut);
 
-    return new Response(JSON.stringify({ tasks: args.tasks || [], questions: args.questions || [] }), {
+    // Verify each task's duration against the reference table it claims to be
+    // anchored to. The model names the row (language/phrasing-agnostic — it
+    // already did the hard part); minutes come from the table, not from
+    // trusting the model's own arithmetic. A reasonable scaling band ("quick"
+    // → shorter, "deep work" → longer, rule 3b) is still honored — only a
+    // genuine outlier gets pulled back to the table value.
+    const REF_CLAMP_LOW = 0.4;
+    const REF_CLAMP_HIGH = 2.5;
+    const tasksOut = (Array.isArray(args.tasks) ? args.tasks : []).map((t: any) => {
+      const anchorMin = resolveProfessionalRef(t?.ref);
+      let duration_min = t?.duration_min ?? null;
+      if (anchorMin != null) {
+        if (duration_min == null) {
+          duration_min = anchorMin;
+        } else if (duration_min < anchorMin * REF_CLAMP_LOW || duration_min > anchorMin * REF_CLAMP_HIGH) {
+          console.log(`[parse-tasks] clamped "${t?.title}" duration ${duration_min}m -> ${anchorMin}m (ref=${t.ref})`);
+          duration_min = anchorMin;
+        }
+        duration_min = Math.max(5, Math.round(duration_min / 5) * 5);
+      }
+      return { title: t?.title, duration_min, start_time: t?.start_time ?? null };
+    });
+
+    // Deterministic backstop for rule H (day anchor): the prompt already asks the
+    // model to ask when no task has a start time, but compliance is discretionary —
+    // the client (DayView's allTimesSet) silently auto-schedules with zero questions
+    // if the model returns none. Only fires when the model genuinely asked nothing
+    // AND no task carries any time signal; never overrides the model's own questions.
+    const questionsOut = args.questions || [];
+    const noTaskHasTime = tasksOut.length > 0 && !tasksOut.some((t: any) => t.start_time);
+    if (questionsOut.length === 0 && noTaskHasTime) {
+      const isCyrillic = /[Ѐ-ӿ]/.test(JSON.stringify(tasksOut));
+      questionsOut.push(isCyrillic
+        ? { id: "day_anchor", text: "Когда хочешь начать день?", options: ["Утром", "Днём", "Вечером", "Гибко"], kind: "timing" }
+        : { id: "day_anchor", text: "When do you want to start your day?", options: ["Morning", "Afternoon", "Evening", "Flexible"], kind: "timing" });
+    }
+
+    // The model occasionally drops the separator in a numeric range option
+    // ("3 4 часа" instead of "3-4 часа") — insert a dash between two bare
+    // numbers immediately followed by a duration unit so it reads as a range.
+    // Trailing \b doesn't work here — \w never includes Cyrillic, so a
+    // boundary check right after "часа" sees non-word-on-both-sides and
+    // never fires. A negative lookahead for any letter (either alphabet)
+    // does the same job without that gap.
+    const fixRangeSeparator = (s: string) =>
+      typeof s === "string"
+        ? s.replace(/(\b\d+)\s+(\d+)(\s*(?:h|hours?|hrs?|ч\.?|час(?:а|ов)?|m|min|minutes?|мин(?:ут\w*)?))(?![a-zA-Zа-яёА-ЯЁ])/giu, "$1-$2$3")
+        : s;
+    for (const q of questionsOut) {
+      if (Array.isArray(q?.options)) q.options = q.options.map(fixRangeSeparator);
+    }
+
+    return new Response(JSON.stringify({ tasks: tasksOut, questions: questionsOut }), {
       headers: { ...corsHeaders, "Content-Type": "application/json" },
     });
     

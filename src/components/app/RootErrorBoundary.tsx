@@ -72,7 +72,7 @@ export class RootErrorBoundary extends Component<Props, State> {
               <button
                 type="button"
                 onClick={() => window.location.reload()}
-                className="w-full h-11 rounded-2xl bg-primary text-primary-foreground text-[13px] font-semibold pressable shadow-[0_6px_18px_-8px_hsl(var(--primary)/0.55)]"
+                className="w-full h-11 rounded-2xl bg-primary text-primary-foreground text-[13px] font-semibold pressable cta-glow"
               >
                 Reload app
               </button>

@@ -5,6 +5,7 @@ import { Capacitor } from "@capacitor/core";
 import { keepPreviousData, QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { BrowserRouter, Navigate, Route, Routes, useLocation, useNavigate } from "react-router-dom";
 import { attachDeepLinkListener } from "@/lib/deepLinks";
+import { supabase } from "@/integrations/supabase/client";
 import { setPushDeepLinkHandler } from "@/lib/nativePush";
 import { Toaster as Sonner } from "@/components/ui/sonner";
 import { TooltipProvider } from "@/components/ui/tooltip";
@@ -104,7 +105,10 @@ const NavigationBridge = () => {
   // 1. Close orphaned sheets when the route changes (e.g. via iOS swipe-to-go-back).
   // Radix UI Dialogs listen to the Escape key.
   useEffect(() => {
-    const openModal = document.querySelector('[role="dialog"][data-state="open"]');
+    // Match BOTH role="dialog" (Radix Dialog/Sheet) AND role="alertdialog"
+    // (Radix AlertDialog — destructive confirms). The alertdialog role was
+    // previously missed, so a route change left those confirms orphaned.
+    const openModal = document.querySelector('[role="dialog"][data-state="open"], [role="alertdialog"][data-state="open"]');
     if (openModal) {
       document.dispatchEvent(new KeyboardEvent("keydown", { key: "Escape", bubbles: true }));
     }
@@ -118,8 +122,11 @@ const NavigationBridge = () => {
 
     void import("@capacitor/app").then(({ App }) => {
       listener = App.addListener("backButton", ({ canGoBack }) => {
-        // A) Close open modal/sheet first.
-        const openModal = document.querySelector('[role="dialog"][data-state="open"]');
+        // A) Close open modal/sheet first. Include role="alertdialog" (Radix
+        // AlertDialog — stop-timer / delete confirms) alongside role="dialog";
+        // it was previously missed, so hardware-back fell through to navigation
+        // or app-exit while a destructive confirm was on screen.
+        const openModal = document.querySelector('[role="dialog"][data-state="open"], [role="alertdialog"][data-state="open"]');
         if (openModal) {
           document.dispatchEvent(new KeyboardEvent("keydown", { key: "Escape", bubbles: true }));
           return;
@@ -195,6 +202,32 @@ const NavigationBridge = () => {
           };
           void tryStop();
         }
+        // Email confirmation / password recovery came back via the
+        // daydraft://auth-callback custom scheme (see authRedirectTo in
+        // deepLinks.ts) — establish the session GoTrue handed us. Signup
+        // confirmation lands on an explicit "you're verified" screen
+        // (state.justConfirmed) with a Continue button, rather than
+        // silently redirecting and hoping Auth.tsx's own auth-state effect
+        // notices in time — same deferred-navigate fix as the route case
+        // above, since this also fires during the same appUrlOpen resume
+        // window where synchronous navigation can freeze the visual layer.
+        if (action.type === "auth_session") {
+          void supabase.auth.setSession({ access_token: action.accessToken, refresh_token: action.refreshToken }).then(({ error }) => {
+            requestAnimationFrame(() => {
+              setTimeout(() => {
+                if (error) {
+                  toast.error(error.message || "Couldn't confirm — try signing in");
+                  navigate("/auth", { replace: true });
+                  return;
+                }
+                navigate(action.recovery ? "/reset-password" : "/auth", {
+                  replace: true,
+                  state: action.recovery ? undefined : { justConfirmed: true },
+                });
+              }, 50);
+            });
+          });
+        }
       },
     );
     setPushDeepLinkHandler((path) => navigate(path));
@@ -220,12 +253,12 @@ const ThemedToaster = () => {
       // Top-center, comfortably below the Dynamic Island / status bar. Uses the
       // safe-area-inset-top so toasts clear the notch on every device.
       position="top-center"
-      offset="calc(env(safe-area-inset-top, 44px) + 75px)"
+      offset="calc(env(safe-area-inset-top, 44px) + 26px)"
       // sonner applies `offset` ONLY above 600px wide. On every phone (≤600px) it
       // falls back to its DEFAULT `mobileOffset` (16px) — so we mirror the value
       // here or the toast lands under the notch on device. Side margins keep the
       // full-width mobile toast off the screen edges.
-      mobileOffset={{ top: "calc(env(safe-area-inset-top, 44px) + 75px)", left: "16px", right: "16px" }}
+      mobileOffset={{ top: "calc(env(safe-area-inset-top, 44px) + 26px)", left: "16px", right: "16px" }}
       // Above sheets/overlays (z-50) and the tab bar (z-40) so a toast is ALWAYS
       // on top — never dimmed behind a sheet's backdrop.
       style={{ zIndex: 2147483647 }}

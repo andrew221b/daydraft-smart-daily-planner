@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import { motion, AnimatePresence } from "framer-motion";
 import { keepPreviousData, useQuery } from "@tanstack/react-query";
-import { Play, Pause, Plus, Check, Trash2, ChevronLeft, ChevronRight, Download, ChevronDown, Lock, Pencil, X, Clock, ListTodo, Wallet } from "lucide-react";
+import { Play, Pause, Plus, Check, Trash2, ChevronLeft, ChevronRight, Download, ChevronDown, Lock, Pencil, X, Clock, ListTodo, Wallet, Timer } from "lucide-react";
 import { Callout } from "@/components/ui/callout";
 import { categoryBillingToDraft } from "@/lib/categoryBilling";
 import { useTimeTracker, getElapsedSec, fmtHMS, fmtHM, TimeCategory } from "@/hooks/useTimeTracker";
@@ -188,6 +188,7 @@ function TrackerInner({ embedded = false, onClose }: { embedded?: boolean; onClo
   // Rename-only mode for non-Pro: same visual as editingCat but no rate/billing.
   const [renamingCat, setRenamingCat] = useState<string | null>(null);
   const [stopBusy, setStopBusy] = useState(false);
+  const [confirmStopOpen, setConfirmStopOpen] = useState(false);
   const [categoryBusyId, setCategoryBusyId] = useState<string | null>(null);
   const [paymentDetails, setPaymentDetails] = useState<PaymentDetailsDraft>(emptyPaymentDetails);
   const [paymentDetailsSaving, setPaymentDetailsSaving] = useState(false);
@@ -541,15 +542,9 @@ function TrackerInner({ embedded = false, onClose }: { embedded?: boolean; onClo
     return first;
   }, [categories, todayPlanBlocks, simpleMode, showAllCategories, active?.category_id]);
 
-  // Smart stop: if running session is < 60s, confirm (likely accidental tap).
+  // Handle the actual stop after confirmation.
   const handleStop = async () => {
     if (stopBusy) return;
-    // Read the live (un-rendered) elapsed seconds directly from the store —
-    // bypassing the minute-resolution React state.
-    if (active && getElapsedSec() < 60) {
-      const ok = window.confirm("Stop after less than a minute? This session will still be saved.");
-      if (!ok) return;
-    }
     setStopBusy(true);
     try {
       await stop();
@@ -874,7 +869,7 @@ function TrackerInner({ embedded = false, onClose }: { embedded?: boolean; onClo
                       {activeCat.name}
                     </div>
                     <button
-                      onClick={handleStop}
+                      onClick={() => setConfirmStopOpen(true)}
                       className="tracker-stop-btn mt-1 btn-volumetric-danger inline-flex items-center justify-center gap-2 h-11 px-6 rounded-full text-white text-[14px] font-semibold pressable shadow-card"
                       aria-label="Stop"
                     >
@@ -1278,7 +1273,7 @@ function TrackerInner({ embedded = false, onClose }: { embedded?: boolean; onClo
                           {isPro ? <Pencil className="h-3.5 w-3.5" /> : <Lock className="h-3.5 w-3.5" />}
                         </button>
                         {isActive ? (
-                          <button disabled={stopBusy} onClick={handleStop} className="tracker-stop-btn inline-flex items-center gap-1 h-9 px-3 rounded-lg bg-destructive text-destructive-foreground text-xs font-medium pressable disabled:opacity-50 disabled:pointer-events-none">
+                          <button disabled={stopBusy} onClick={() => setConfirmStopOpen(true)} className="tracker-stop-btn inline-flex items-center gap-1 h-9 px-3 rounded-lg bg-destructive text-destructive-foreground text-xs font-medium pressable disabled:opacity-50 disabled:pointer-events-none">
                             <Pause className="h-3 w-3" fill="currentColor" /> Stop
                           </button>
                         ) : (
@@ -1633,6 +1628,37 @@ function TrackerInner({ embedded = false, onClose }: { embedded?: boolean; onClo
           Tracking runs in the background — close the app and it keeps counting.
         </div>
       </Wrapper>
+
+      {/* Confirm stop — prevents accidental stop of a running tracker */}
+      <AlertDialog open={confirmStopOpen} onOpenChange={setConfirmStopOpen}>
+        <AlertDialogContent
+          className="w-[calc(100vw-48px)] max-w-[340px] rounded-3xl border-border/70 bg-surface/95 p-0 backdrop-blur-2xl"
+        >
+          <AlertDialogHeader className="px-6 pt-6 pb-0 text-center">
+            <div className="mx-auto mb-3 flex h-11 w-11 items-center justify-center rounded-full bg-primary/12 border border-primary/20">
+              <Timer className="h-5 w-5 text-primary" />
+            </div>
+            <AlertDialogTitle className="text-[17px] font-semibold">
+              Stop the timer?
+            </AlertDialogTitle>
+            <AlertDialogDescription className="text-[13px] text-secondary-fg/80 mt-1">
+              Your tracked time will be saved. Are you sure you want to stop?
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter className="flex flex-col gap-2 px-6 py-5 sm:flex-col sm:space-x-0">
+            <AlertDialogAction
+              onClick={() => { setConfirmStopOpen(false); void handleStop(); }}
+              className="h-11 w-full rounded-2xl bg-destructive text-destructive-foreground hover:bg-destructive/90 font-semibold text-[15px] border-0 pressable"
+            >
+              Stop timer
+            </AlertDialogAction>
+            <AlertDialogCancel className="h-11 w-full rounded-2xl border border-foreground/30 bg-foreground/[0.08] text-foreground font-semibold text-[15px] hover:bg-foreground/[0.14] mt-0 pressable">
+              Continue
+            </AlertDialogCancel>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
+
     {/* Biometric gate sheets — shown once on first access to protected features */}
     <BiometricGateSheet
       open={billingGateOpen}

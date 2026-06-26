@@ -1,12 +1,13 @@
--- Wipe ALL preview data including auth users (cascades to profiles, plans, blocks, etc. via user_id matching).
-DELETE FROM public.blocks;
-DELETE FROM public.plans;
-DELETE FROM public.block_templates;
-DELETE FROM public.quick_captures;
-DELETE FROM public.streaks;
-DELETE FROM public.subscriptions;
-DELETE FROM public.user_patterns;
-DELETE FROM public.push_subscriptions;
-DELETE FROM public.calendar_tokens;
-DELETE FROM public.profiles;
-DELETE FROM auth.users;
+-- NEUTRALIZED 2026-06-19 (release-readiness audit).
+--
+-- This migration originally DELETEd every row from all user tables and from
+-- auth.users — a one-shot "wipe preview data" reset. Left live in /migrations it
+-- was a data-loss footgun: on any fresh environment (staging, a new prod, or a
+-- restored backup) `supabase db push` would replay it and erase everything.
+--
+-- It is already recorded as applied on the current production DB, so removing its
+-- body has no effect there (db push never re-runs an applied migration). Emptied
+-- to a no-op so it can never wipe a fresh/restored database.
+--
+-- A real factory reset is now an out-of-band admin script, not an auto-migration.
+SELECT 1;

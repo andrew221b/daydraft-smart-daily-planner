@@ -53,7 +53,13 @@ export function applyNativeDocumentHints(): void {
       // If env() resolved to 0 after the first frame, leave at 0 — the nav
       // bar is likely not overlapping (non-edge-to-edge or no nav bar).
       const bottomVal = bottomMeasured > 0 ? bottomMeasured : (isIOS ? 21 : 0);
-      document.documentElement.style.setProperty("--safe-area-inset-bottom", `${bottomVal}px`);
+      
+      // On Android, MainActivity injects the exact WindowInsetsCompat bottom height.
+      // Make sure we don't accidentally overwrite that valid height with 0 here.
+      const currentVal = parseInt(document.documentElement.style.getPropertyValue("--safe-area-inset-bottom") || "0", 10);
+      if (isIOS || (isAndroid && currentVal === 0)) {
+        document.documentElement.style.setProperty("--safe-area-inset-bottom", `${bottomVal}px`);
+      }
     });
   }
 }
@@ -61,9 +67,15 @@ export function applyNativeDocumentHints(): void {
 /** Safe-area-friendly status bar when running inside Capacitor (iOS/Android). */
 export async function initCapacitor(): Promise<void> {
   if (!Capacitor.isNativePlatform()) return;
-  const { StatusBar, Style } = await import("@capacitor/status-bar");
-  await StatusBar.setOverlaysWebView({ overlay: true });
-  await StatusBar.setStyle({ style: Style.Dark });
+  const { StatusBar } = await import("@capacitor/status-bar");
+  if (Capacitor.getPlatform() === "ios") {
+    await StatusBar.setOverlaysWebView({ overlay: true });
+  }
+  // Style (light text vs dark text) is theme-dependent — set from theme.tsx,
+  // which runs on mount and on every theme change, so this only owns the
+  // overlay behaviour. Setting a hardcoded style here raced theme.tsx: this
+  // call is deferred via requestIdleCallback and could fire AFTER theme.tsx's
+  // correct value, clobbering it back to the wrong style on a light theme.
 
   // Keyboard: kill the two big sources of first-tap input lag on iOS WKWebView.
   //

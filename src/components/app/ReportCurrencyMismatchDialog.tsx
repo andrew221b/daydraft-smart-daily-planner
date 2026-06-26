@@ -20,37 +20,41 @@ export type CurrencyMismatch = {
  * Two outcomes:
  *   • [Update payment details] → caller opens a PaymentMethodFields sheet
  *     pre-filled with each mismatched category in turn.
- *   • [Export as-is] → caller proceeds with export, accepting the mismatch.
+ *   • [Export in original currency] → caller reverts overrides to tracker
+ *     currencies and proceeds with export using the original tracked currency.
  */
 export function ReportCurrencyMismatchDialog({
   open,
   mismatches,
   onCancel,
-  onExportAsIs,
+  onExportOriginal,
   onUpdatePaymentDetails,
 }: {
   open: boolean;
   mismatches: CurrencyMismatch[];
   onCancel: () => void;
-  onExportAsIs: () => void;
+  onExportOriginal: () => void;
   onUpdatePaymentDetails: () => void;
 }) {
   const count = mismatches.length;
+
+  const uniqueTrackerCurrencies = [...new Set(mismatches.map((m) => m.trackerCurrency))];
+  const exportOriginalLabel =
+    uniqueTrackerCurrencies.length === 1
+      ? `Export in ${uniqueTrackerCurrencies[0]}`
+      : "Export in original currencies";
 
   const handleUpdatePaymentDetails = () => {
     haptics.notify("warning");
     onUpdatePaymentDetails();
   };
 
-  const handleExportAsIs = () => {
+  const handleExportOriginal = () => {
     haptics.tap();
-    onExportAsIs();
+    onExportOriginal();
   };
 
   const handleCancel = () => {
-    // No haptic on pure dismiss — closing has no consequence and the button
-    // press already gives visual feedback. Haptics are reserved for committed
-    // actions (export / update) in this dialog.
     onCancel();
   };
 
@@ -120,16 +124,16 @@ export function ReportCurrencyMismatchDialog({
           <button
             type="button"
             onClick={handleUpdatePaymentDetails}
-            className="w-full h-[52px] rounded-[16px] bg-primary text-primary-foreground hover:bg-primary/92 pressable font-semibold text-[15px] shadow-[0_10px_28px_-6px_hsl(var(--primary)/0.55)] transition-opacity mb-2"
+            className="w-full h-[52px] rounded-[16px] bg-primary text-primary-foreground hover:bg-primary/92 pressable font-semibold text-[15px] cta-glow transition-opacity mb-2"
           >
             Update payment details
           </button>
           <button
             type="button"
-            onClick={handleExportAsIs}
+            onClick={handleExportOriginal}
             className="w-full h-[46px] rounded-[16px] border border-border/70 bg-card/30 text-[14px] font-medium text-foreground/75 hover:text-foreground hover:bg-card/60 pressable transition-colors mb-1"
           >
-            Export as-is
+            {exportOriginalLabel}
           </button>
           <button
             type="button"

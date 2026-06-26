@@ -1,11 +1,8 @@
--- Wipe user data
-TRUNCATE TABLE public.blocks, public.plans, public.time_entries, public.time_categories,
-  public.block_templates, public.streaks, public.subscriptions, public.push_subscriptions,
-  public.quick_captures, public.user_patterns, public.calendar_tokens, public.profiles
-  RESTART IDENTITY CASCADE;
-
--- Remove all auth users so user can sign up fresh
-DELETE FROM auth.users;
+-- NOTE: the original TRUNCATE of all user tables + `DELETE FROM auth.users` was
+-- removed 2026-06-19 (release-readiness audit). It was a data-loss footgun on any
+-- fresh/restored environment via `supabase db push`. Already applied on prod, so
+-- stripping it has no effect there. The RLS policy (re)creation below is the only
+-- part worth keeping — it must still run on a fresh DB, so it stays.
 
 -- Re-create RLS policies on time_entries (defensive)
 DROP POLICY IF EXISTS "own entries select" ON public.time_entries;

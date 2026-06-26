@@ -34,6 +34,10 @@ export type PaymentField = {
   multiline?: boolean;
   /** Renders a <select> instead of <input>. */
   options?: string[];
+  /** Field that commonly holds an email — opts it into the soft email-typo
+   *  check (advisory only; the field may also legitimately hold a handle,
+   *  link, or phone, so the check stays silent unless it looks like an email). */
+  emailish?: boolean;
 };
 
 /** Rail kind — drives the high-level Fiat/Crypto toggle and currency filter. */
@@ -165,7 +169,7 @@ export const PAYMENT_METHODS: PaymentMethod[] = [
     kind: "fiat",
     fields: [
       { key: "display_name", label: "Payee name", placeholder: "Name on Wise account" },
-      { key: "payment_link", label: "Wise email or wisetag", placeholder: "name@example.com or @wisetag" },
+      { key: "payment_link", label: "Wise email or wisetag", placeholder: "name@example.com or @wisetag", emailish: true },
       { key: "notes", label: "Notes", placeholder: "Preferred receiving currency, etc.", multiline: true },
     ],
   },
@@ -178,7 +182,7 @@ export const PAYMENT_METHODS: PaymentMethod[] = [
     accent: "215 85% 50%",
     kind: "fiat",
     fields: [
-      { key: "payment_link", label: "PayPal email or paypal.me link", placeholder: "name@example.com or paypal.me/handle" },
+      { key: "payment_link", label: "PayPal email or paypal.me link", placeholder: "name@example.com or paypal.me/handle", emailish: true },
       { key: "notes", label: "Notes", placeholder: "Friends & family or goods & services?", multiline: true },
     ],
   },
@@ -235,7 +239,7 @@ export const PAYMENT_METHODS: PaymentMethod[] = [
     kind: "fiat",
     fields: [
       { key: "display_name", label: "Payee name", placeholder: "Full legal name" },
-      { key: "payment_link", label: "Email or phone", placeholder: "name@example.com or +1 416…" },
+      { key: "payment_link", label: "Email or phone", placeholder: "name@example.com or +1 416…", emailish: true },
       {
         key: "notes",
         label: "Security Q & A",

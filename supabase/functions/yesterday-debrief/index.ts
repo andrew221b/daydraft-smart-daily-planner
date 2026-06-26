@@ -6,49 +6,21 @@ const corsHeaders = {
   "Access-Control-Allow-Headers": "authorization, x-client-info, apikey, content-type, x-dd-dev-pro",
 };
 
-// ── Curated "fact of the day" pool ──────────────────────────────────────────
-// Rotates daily by date seed. Genuine intellectual facts, no productivity fluff.
-const PHRASES = [
-  "Zeigarnik effect: unfinished tasks occupy more mental space than finished ones — closure is a real cognitive event.",
-  "The word 'deadline' originated in Civil War prisoner-of-war camps — a line drawn in the dirt: cross it and guards would shoot.",
-  "Parkinson's Law (1955): work expands to fill the time available for its completion.",
-  "The average adult makes roughly 35,000 decisions per day, most of them unconscious.",
-  "Forgetting is not memory failure — it's an active process. The brain deletes to prevent interference and save energy.",
-  "The word 'focus' comes from Latin for 'hearth' — the point around which a household organises itself.",
-  "Flow state was first described by Csikszentmihalyi studying chess players and rock climbers, not office workers.",
-  "When you remember something, you're actually remembering the last time you remembered it — not the original event.",
-  "The Baader-Meinhof phenomenon: once you notice something new, you see it everywhere. Selective attention, not coincidence.",
-  "A jiffy is a real unit: 1/100th of a second in computing; the time light takes to travel 1 cm in physics.",
-  "The word 'salary' comes from Latin 'salarium' — payment in salt. Salt was once so valuable it was used as currency.",
-  "Oxford University is older than the Aztec Empire. Teaching began ~1096; the Aztecs founded Tenochtitlan in 1325.",
+// ── Fact-of-the-day fallback pool ───────────────────────────────────────────
+// Used only when the AI call doesn't return a phrase_of_day. The main path
+// generates the fact fresh each day via AI (added to the mode tool-call schema)
+// so it never repeats — this pool is just a safety net.
+const PHRASE_FALLBACKS = [
   "Cleopatra lived closer in time to the Moon landing than to the construction of the Great Pyramid.",
-  "The Eiffel Tower grows ~15 cm taller in summer — iron expands as it heats.",
-  "Honey never spoils. Archaeologists found 3,000-year-old honey in Egyptian tombs that was still edible.",
-  "Crows can recognise individual human faces and hold grudges for years — and teach their offspring to avoid specific people.",
-  "The word 'silly' originally meant 'blessed' in Old English. It drifted through 'happy' → 'naive' → 'foolish' over 500 years.",
+  "Oxford University is older than the Aztec Empire. Teaching began ~1096; the Aztecs founded Tenochtitlan in 1325.",
   "There are more possible games of chess than there are atoms in the observable universe.",
-  "Nintendo was founded in 1889 — as a playing card company in Kyoto, Japan.",
-  "Marie Curie is the only person to win Nobel Prizes in two different sciences. Her notebooks are still too radioactive to handle safely.",
+  "The first computer bug was a real bug — a moth found in a relay of the Harvard Mark II in 1947.",
+  "Honey never spoils. Archaeologists found 3,000-year-old honey in Egyptian tombs that was still edible.",
   "A day on Venus is longer than its year: 243 Earth days to rotate once, but only 225 to orbit the sun.",
-  "Bananas are technically berries. Strawberries are not.",
-  "The shortest war in history lasted 38–45 minutes: the Anglo-Zanzibar War, August 1896.",
   "The number zero didn't reach Europe until the 12th century, arriving from India via Arab mathematicians.",
-  "A flea can jump 200 times its own body height. The human equivalent would be clearing a 60-storey building.",
-  "In 1905, Einstein worked 48-hour weeks as a patent clerk and wrote 4 papers that changed physics — in his spare time.",
-  "The Great Wall of China is not visible from space with the naked eye. At the Moon's distance it would look thinner than a hair.",
-  "Average cloud weight: ~500,000 kg (equivalent to 100 elephants). It floats because the droplets are so widely dispersed.",
-  "Humans are the only animals that blush. Darwin called it 'the most peculiar and most human of all expressions.'",
-  "The fingerprints of a koala are so similar to human fingerprints they've been mistaken at crime scenes.",
-  "The first computer bug was a real bug — a moth found trapped in a relay of the Harvard Mark II in 1947.",
-  "In ancient Rome, 'vacation' (vacatio) meant exemption from military service — not leisure or travel.",
-  "The human brain uses 20% of the body's total energy despite being only 2% of its mass.",
-  "A group of flamingos is called a flamboyance. A group of ravens: an unkindness. A group of owls: a parliament.",
-  "The Mpemba effect: hot water can freeze faster than cold water under certain conditions, first noted by a Tanzanian student in 1963.",
-  "Nikola Tesla claimed to sleep 2 hours a night, supplemented by 20-minute naps. He died alone and in debt.",
-  "Glass is an amorphous solid, not a liquid. Old windows appear thicker at the bottom due to manufacturing, not flow.",
-  "When you learn a new word, you'll hear it within 24 hours. Not magic — your reticular activating system filters it in.",
-  "The word 'robot' was coined in 1920 by Czech playwright Karel Capek, from the Czech 'robota' meaning forced labour.",
-  "Wristwatches were considered feminine until World War I, when soldiers found pocket watches impractical in the trenches.",
+  "Crows can recognise individual human faces and hold grudges for years — teaching their offspring to do the same.",
+  "The total number of possible shuffles of a 52-card deck exceeds the number of seconds since the Big Bang.",
+  "Sea otters hold hands while sleeping so they don't drift apart. The behaviour is called 'rafting.'",
 ];
 
 // ── Gemini tool-call helper ──────────────────────────────────────────────────
@@ -117,11 +89,7 @@ function fmtHrMin(sec: number): string {
 serve(async (req) => {
   if (req.method === "OPTIONS") return new Response(null, { headers: corsHeaders });
   try {
-    const { timezone, now_iso, force_mode, variation } = await req.json().catch(() => ({}));
-    // Dev "Refresh Insights" sends a bumping nonce so each refresh rotates the
-    // theme + fallback and re-samples the model — proving generation is live.
-    // Absent for normal users → daily output stays deterministic as before.
-    const varSeed = Number.isFinite(Number(variation)) ? (Number(variation) >>> 0) : 0;
+    const { timezone, now_iso } = await req.json().catch(() => ({}));
     const auth = req.headers.get("Authorization");
     if (!auth) {
       return new Response(JSON.stringify({ error: "Unauthorized" }), {
@@ -157,29 +125,46 @@ serve(async (req) => {
     y.setUTCDate(y.getUTCDate() - 1);
     const yesterday = y.toISOString().slice(0, 10);
 
+    // Resolve the profile + the day's mode UP FRONT — before deciding whether
+    // recap has the data it needs.
+    const { data: debProf } = await supabase
+      .from("profiles")
+      .select("ai_planning_rules, ai_context_custom, ai_personalization_enabled")
+      .eq("id", user.id)
+      .maybeSingle();
+
+    const modeSeed = yesterday.split("-").reduce((acc, p) => acc + parseInt(p, 10) * 13, 3) >>> 0;
+    const MODES = ["recap", "riddle", "quiz", "challenge"] as const;
+    type Mode = typeof MODES[number];
+    const mode: Mode = MODES[modeSeed % MODES.length];
+
+    // Recap is the ONLY mode that needs yesterday's plan + a completed task.
+    // riddle / quiz / challenge are evergreen. Pull the recap data; if it isn't
+    // there, gracefully fall back to a (deterministic) evergreen mode so Insights
+    // ALWAYS appear — an empty yesterday must never blank the whole card.
     const { data: plan } = await supabase
       .from("plans")
       .select("id")
       .eq("user_id", user.id)
       .eq("date", yesterday)
       .maybeSingle();
-    if (!plan?.id) {
-      return new Response(JSON.stringify({ show: false }), {
-        headers: { ...corsHeaders, "Content-Type": "application/json" },
-      });
-    }
 
-    const { data: blocks } = await supabase
-      .from("blocks")
-      .select("id,title,type,kind,completed,is_calendar_event,estimated_minutes,actual_minutes,duration_min,start_time,completed_at")
-      .eq("plan_id", plan.id)
-      .order("position");
-    const tasks = (blocks || []).filter((b: any) => b.kind === "task" && !b.is_calendar_event);
+    let blocks: any[] = [];
+    if (plan?.id) {
+      const { data: b } = await supabase
+        .from("blocks")
+        .select("id,title,type,kind,completed,is_calendar_event,estimated_minutes,actual_minutes,duration_min,start_time,completed_at")
+        .eq("plan_id", plan.id)
+        .order("position");
+      blocks = b || [];
+    }
+    const tasks = blocks.filter((b: any) => b.kind === "task" && !b.is_calendar_event);
     const done = tasks.filter((b: any) => b.completed);
-    if (!tasks.length || done.length === 0) {
-      return new Response(JSON.stringify({ show: false }), {
-        headers: { ...corsHeaders, "Content-Type": "application/json" },
-      });
+    const hasRecapData = !!plan?.id && tasks.length > 0 && done.length > 0;
+    if (mode === "recap" && !hasRecapData) {
+      const EVERGREEN = ["riddle", "quiz", "challenge"] as const;
+      // Shift seed by /4 so the evergreen pick doesn't sync with the main mode cycle
+      mode = EVERGREEN[Math.floor(modeSeed / 4) % EVERGREEN.length];
     }
 
     const doneCount = done.length;
@@ -283,19 +268,15 @@ serve(async (req) => {
       }
     }
 
-    // Fallback to yesterday-only stat if week data unavailable
-    if (!weekStat) {
+    // Fallback to yesterday-only stat if week data unavailable — but only on a
+    // real recap day; on an evergreen fallback day there's no "0/0" to surface.
+    if (!weekStat && hasRecapData) {
       weekStat = `${doneCount}/${totalCount} done yesterday${lastCompletedLocal ? ` · finished ${lastCompletedLocal}` : ""}`;
     }
 
     const GEMINI_API_KEY = Deno.env.get("GEMINI_API_KEY");
     if (!GEMINI_API_KEY) throw new Error("GEMINI_API_KEY missing");
 
-    const { data: debProf } = await supabase
-      .from("profiles")
-      .select("ai_planning_rules, ai_context_custom, is_developer, ai_personalization_enabled")
-      .eq("id", user.id)
-      .maybeSingle();
     const debPrefs = typeof debProf?.ai_planning_rules === "string" && debProf.ai_planning_rules.trim()
       ? `\nHonor these recurring user planning preferences:\n${String(debProf.ai_planning_rules).trim().slice(0, 800)}`
       : "";
@@ -316,22 +297,13 @@ serve(async (req) => {
       if (pat) debPattern = pat as any;
     }
 
-    // Date-based seeds
-    const modeSeed = yesterday.split("-").reduce((acc, p) => acc + parseInt(p, 10) * 13, 3) >>> 0;
-    const phraseSeed = (yesterday.split("-").reduce((acc, p) => acc * 7 + parseInt(p, 10), 11) >>> 0) + varSeed;
-    const themeSeed = ((modeSeed >>> 2) + varSeed) % 6;
+    // Date-based seeds (modeSeed + mode are already resolved above the gates).
+    const phraseSeed = (yesterday.split("-").reduce((acc, p) => acc * 7 + parseInt(p, 10), 11) >>> 0);
+    const themeSeed = ((modeSeed >>> 2)) % 6;
 
-    const MODES = ["recap", "riddle", "quiz", "challenge"] as const;
-    type Mode = typeof MODES[number];
-    const VALID_MODES = new Set<string>(MODES);
-    // Developer force_mode override: only honored for is_developer accounts
-    const mode: Mode =
-      debProf?.is_developer && typeof force_mode === "string" && VALID_MODES.has(force_mode)
-        ? (force_mode as Mode)
-        : MODES[modeSeed % MODES.length];
-
-    // "Fact of the day" — always shown in non-recap modes, rotates daily
-    const phraseOfDay = PHRASES[phraseSeed % PHRASES.length];
+    // phrase_of_day is now AI-generated as part of each mode's tool call.
+    // This fallback is used when the AI doesn't return the field.
+    const phraseFallback = PHRASE_FALLBACKS[phraseSeed % PHRASE_FALLBACKS.length];
 
     const RIDDLE_THEMES = [
       "wordplay or a linguistic paradox",
@@ -458,6 +430,8 @@ serve(async (req) => {
       const recapSystem = `You are DayDraft's morning Insights writer. Tone: thoughtful colleague, observant, plain, never cheerful.${debPrefs}${debPersonal}
 
 You get four layers of data: yesterday's planned-vs-actual, the week trend, learned multi-day patterns, and (when present) money earned from tracked focus. Use whichever yields the SHARPEST, most interesting observation — don't just restate yesterday.
+
+Read the data for the STORY it tells, not just the biggest number: a turning point, a streak forming or breaking, a task type that keeps slipping, an hour where everything lands. Then say the one thing they wouldn't have noticed themselves — not the obvious tally. Be logically strict: every claim must follow from the numbers actually in the payload; if a layer is null or thin, ignore it and never imply a pattern the data doesn't show. Two different days must never get the same observation.
 - If earnings data is present, make ONE bullet a striking time→money fact: how tracked focus converted to money, e.g. "$1,060 from 1h 46m of focus — that's $600/hr." Make it feel concrete and valuable, never braggy.
 - Otherwise prefer a real cross-day signal: a streak ("third day finishing everything"), week momentum, a strong hour ("you finish most around 9am"), or a recurring skip pattern.
 - Never invent a number or a pattern the data doesn't support. If a layer is null or thin, ignore it.
@@ -538,7 +512,7 @@ Output ONLY the structured tool call.`;
         show: true, date: yesterday, mode: "recap", title: "Insights",
         yesterday: yesterdayClean, today_tip: tipClean, spark: sparkClean, bullets: yesterdayClean,
         week_stat: weekStat,
-        phrase_of_day: phraseOfDay,
+        phrase_of_day: phraseFallback,
       }), { headers: { ...corsHeaders, "Content-Type": "application/json" } });
     }
 
@@ -554,6 +528,7 @@ Rules:
 - Misdirect: the obvious answer is wrong; the real one makes them grin.
 - Answer: a word or two.
 - fun_fact: the punchline that makes it click — witty, light, one short line.
+- phrase_of_day: a COMPLETELY DIFFERENT surprising intellectual fact unrelated to the riddle. Any topic: science, history, language, biology, physics, psychology. One vivid sentence, genuinely surprising, nothing about productivity or planning.
 - NO productivity, planning, or motivational fluff. Just a fun brain-tickle.
 
 Vibe to match (don't copy): "What gets wetter the more it dries?" → A towel.
@@ -563,7 +538,7 @@ Output ONLY the structured tool call.`;
       const aiArgs = await callGeminiTool(
         GEMINI_API_KEY,
         riddleSystem,
-        `Write a riddle in the category: ${theme}.`,
+        `Write a riddle in the category: ${theme}. Seed: ${todayLocal}.`,
         "build_riddle",
         {
           type: "object",
@@ -571,8 +546,9 @@ Output ONLY the structured tool call.`;
             riddle: { type: "string", description: "The riddle — ONE short sentence (two max, the second tiny). Punchy, playful, no preamble. Under 25 words." },
             riddle_answer: { type: "string", description: "The answer. ≤4 words." },
             fun_fact: { type: "string", description: "The witty payoff that makes it click — one light line, ≤16 words." },
+            phrase_of_day: { type: "string", description: "A surprising intellectual fact on ANY topic unrelated to the riddle. One vivid sentence, ≤22 words." },
           },
-          required: ["riddle", "riddle_answer", "fun_fact"],
+          required: ["riddle", "riddle_answer", "fun_fact", "phrase_of_day"],
           additionalProperties: false,
         },
         0.95,
@@ -581,6 +557,7 @@ Output ONLY the structured tool call.`;
       let riddleText = cleanLine(aiArgs.riddle || "");
       let riddleAnswer = cleanLine(aiArgs.riddle_answer || "");
       let funFact = cleanLine(aiArgs.fun_fact || "");
+      const riddlePhrase = cleanLine(aiArgs.phrase_of_day || "") || phraseFallback;
 
       if (!riddleText || !riddleAnswer) {
         const FALLBACKS = [
@@ -591,7 +568,7 @@ Output ONLY the structured tool call.`;
           { riddle: "What can you catch but never throw?", answer: "A cold", fact: "Your immune system would love it if you could throw this one back." },
           { riddle: "The more you take, the more you leave behind. What am I?", answer: "Footsteps", fact: "Every step you 'take' is one you leave right where you stood." },
         ];
-        const fb = FALLBACKS[(modeSeed + varSeed) % FALLBACKS.length];
+        const fb = FALLBACKS[(modeSeed) % FALLBACKS.length];
         riddleText = fb.riddle; riddleAnswer = fb.answer; funFact = fb.fact;
       }
 
@@ -600,7 +577,7 @@ Output ONLY the structured tool call.`;
         riddle: trim(riddleText, 220),
         riddle_answer: trim(riddleAnswer, 50),
         fun_fact: funFact ? trim(funFact, 140) : undefined,
-        phrase_of_day: phraseOfDay,
+        phrase_of_day: trim(riddlePhrase, 200),
         week_stat: weekStat,
         yesterday: [], today_tip: "", spark: "", bullets: [],
       }), { headers: { ...corsHeaders, "Content-Type": "application/json" } });
@@ -611,31 +588,32 @@ Output ONLY the structured tool call.`;
       const theme = QUIZ_THEMES[themeSeed];
       const quizSystem = `You are a quiz writer for a daily app. Style: British QI — questions where the obvious answer is wrong and the real answer is genuinely surprising.
 
-Today's category: ${theme}.
+Today's category: ${theme}. Today's date seed: ${todayLocal}.
 
-Write 2 multiple-choice questions (3 options each):
+Write 3 multiple-choice questions (3 options each). Make every question different from classic trivia:
 - The "obvious" or "expected" answer should be one of the wrong options (to set up the QI surprise)
 - The correct answer should make people say "really?!"
 - The explanation is the payoff — make it genuinely interesting, not just "correct because..."
 - NO productivity tips, NO planning, NO motivational content
+- Also include a phrase_of_day: a COMPLETELY DIFFERENT surprising intellectual fact unrelated to the quiz. Any topic: history, biology, physics, language, psychology. One vivid sentence, ≤22 words, nothing about productivity.
 
 Output ONLY the structured tool call.`;
 
       const aiArgs = await callGeminiTool(
         GEMINI_API_KEY,
         quizSystem,
-        `Write 2 QI-style questions in the category: ${theme}.`,
+        `Write 3 fresh QI-style questions in the category: ${theme}. Seed: ${todayLocal}.`,
         "build_quiz",
         {
           type: "object",
           properties: {
             quiz: {
-              type: "array", minItems: 2, maxItems: 2,
+              type: "array",
               items: {
                 type: "object",
                 properties: {
                   q: { type: "string", description: "The question. ≤20 words." },
-                  options: { type: "array", minItems: 3, maxItems: 3, items: { type: "string" } },
+                  options: { type: "array", items: { type: "string" } },
                   correct: { type: "integer", description: "0-based index of the correct option." },
                   explanation: { type: "string", description: "The surprising payoff. ≤25 words." },
                 },
@@ -643,21 +621,23 @@ Output ONLY the structured tool call.`;
                 additionalProperties: false,
               },
             },
+            phrase_of_day: { type: "string", description: "A surprising intellectual fact unrelated to the quiz. Any topic — history, biology, physics, language. One vivid sentence, ≤22 words." },
           },
-          required: ["quiz"],
+          required: ["quiz", "phrase_of_day"],
           additionalProperties: false,
         },
         0.95,
       ) ?? {};
 
+      const quizPhrase = cleanLine(aiArgs.phrase_of_day || "") || phraseFallback;
       const rawQuiz = Array.isArray(aiArgs.quiz) ? aiArgs.quiz : [];
       const validQuiz = rawQuiz
         .filter((q: any) => typeof q?.q === "string" && Array.isArray(q?.options) && q.options.length >= 2 && typeof q?.correct === "number")
-        .slice(0, 2);
+        .slice(0, 3);
 
       const finalQuiz = validQuiz.length >= 1 ? validQuiz.map((q: any) => ({
         q: trim(cleanLine(q.q), 120),
-        options: (q.options as string[]).slice(0, 3).map((o: string) => trim(cleanLine(o), 80)),
+        options: (q.options as string[]).slice(0, 4).map((o: string) => trim(cleanLine(o), 80)),
         correct: Math.max(0, Math.min(q.correct, (q.options as string[]).length - 1)),
         explanation: q.explanation ? trim(cleanLine(q.explanation), 200) : undefined,
       })) : [
@@ -671,13 +651,13 @@ Output ONLY the structured tool call.`;
             { q: "What colour is a perfect mirror?", options: ["Silver", "White", "Very pale green"], correct: 2, explanation: "Real mirrors reflect green wavelengths slightly more than others, giving them a faint green tint — visible when two mirrors face each other." },
             { q: "How long can a cockroach survive without its head?", options: ["A few seconds", "About a day", "Several weeks"], correct: 2, explanation: "Cockroaches breathe through spiracles in their body segments, not their head — they only die because they can no longer drink water." },
           ],
-        ][(Math.floor(modeSeed / 4) + varSeed) % 2],
+        ][(Math.floor(modeSeed / 4)) % 2],
       ];
 
       return new Response(JSON.stringify({
         show: true, date: yesterday, mode: "quiz",
         quiz: finalQuiz,
-        phrase_of_day: phraseOfDay,
+        phrase_of_day: trim(quizPhrase, 200),
         week_stat: weekStat,
         yesterday: [], today_tip: "", spark: "", bullets: [],
       }), { headers: { ...corsHeaders, "Content-Type": "application/json" } });
@@ -696,22 +676,24 @@ Write ONE challenge that:
 - Is NOT about productivity, planning, tasks, or time management
 - Has a satisfying "aha" payoff when completed
 
-challenge_context: the surprising thing the challenge reveals (≤20 words — make it the payoff, not an instruction).
+challenge_context: the surprising payoff reveal. For math or logic puzzles, ALWAYS lead with the correct answer (e.g. "The answer is $0.05 — the ball costs just 5 cents, not 10"), then the insight. For perceptual/memory challenges, state the surprising result. ≤25 words.
+phrase_of_day: a COMPLETELY DIFFERENT surprising intellectual fact unrelated to the challenge. Any topic: science, history, language, biology, physics. One vivid sentence, ≤22 words, nothing about productivity.
 
 Output ONLY the structured tool call.`;
 
       const aiArgs = await callGeminiTool(
         GEMINI_API_KEY,
         challengeSystem,
-        `Write a challenge of type: ${theme}.`,
+        `Write a challenge of type: ${theme}. Seed: ${todayLocal}.`,
         "build_challenge",
         {
           type: "object",
           properties: {
             challenge: { type: "string", description: "The challenge. Specific, doable right now. ≤30 words." },
-            challenge_context: { type: "string", description: "The surprising reveal. ≤20 words." },
+            challenge_context: { type: "string", description: "The reveal. For math/logic: state the correct answer first (e.g. 'Answer: $0.05 — just 5 cents'), then the insight. For other types: the surprising result. ≤25 words." },
+            phrase_of_day: { type: "string", description: "A surprising intellectual fact on ANY topic unrelated to the challenge. One vivid sentence, ≤22 words." },
           },
-          required: ["challenge", "challenge_context"],
+          required: ["challenge", "challenge_context", "phrase_of_day"],
           additionalProperties: false,
         },
         0.95,
@@ -719,17 +701,18 @@ Output ONLY the structured tool call.`;
 
       let challengeText = cleanLine(aiArgs.challenge || "");
       let challengeContext = cleanLine(aiArgs.challenge_context || "");
+      const challengePhrase = cleanLine(aiArgs.phrase_of_day || "") || phraseFallback;
 
       if (!challengeText) {
         const FALLBACKS = [
-          { challenge: "Say the word 'shop' ten times fast, then answer instantly: what do you do at a green light?", context: "Most people say 'stop' — the Stroop-like repetition primes the wrong word and hijacks your automatic answer." },
-          { challenge: "Without looking, write down the exact icons in the bottom row of your phone's home screen.", context: "We see these icons hundreds of times a day yet rarely consciously encode them — familiarity is not the same as memory." },
-          { challenge: "Count how many F's appear in: 'FINISHED FILES ARE THE RESULT OF YEARS OF SCIENTIFIC STUDY.'", context: "Most people count 3. The real answer is 6 — the brain silently skips 'of' because it's processed as a function word." },
-          { challenge: "Close your eyes and try to point to exactly where your nose is, without touching your face first.", context: "Your brain models your entire body in 3D space continuously — proprioception works even without touch or vision." },
+          { challenge: "Say the word 'shop' ten times fast, then answer instantly: what do you do at a green light?", context: "Most people say 'stop' — the Stroop-like priming hijacks your automatic answer, even though you know better." },
+          { challenge: "Without looking, write down the exact icons in the bottom row of your phone's home screen.", context: "Most people get it wrong — we see them hundreds of times a day yet barely consciously encode them. Familiarity isn't memory." },
+          { challenge: "Count how many F's appear in: 'FINISHED FILES ARE THE RESULT OF YEARS OF SCIENTIFIC STUDY.'", context: "Answer: 6. Most people count 3 — the brain silently skips 'of' because short function words are processed invisibly." },
+          { challenge: "Close your eyes and try to point to exactly where your nose is, without touching your face first.", context: "You'll land within a centimetre — your brain continuously maps your entire body in 3D space without touch or vision." },
           { challenge: "Rub your hands together fast for 10 seconds, then hold them 2 cm apart and slowly pull them away.", context: "You'll feel a subtle resistance — heat and static electricity create a detectable field between your palms." },
-          { challenge: "Stare at the centre of a bright red object for 30 seconds, then look at a white wall.", context: "You'll see a cyan afterimage — your retinal cones for red fatigue, and the opponent colour takes over." },
+          { challenge: "Stare at the centre of a bright red object for 30 seconds, then look at a white wall.", context: "You'll see a cyan afterimage — your red-sensitive cones tire out, so the opponent colour takes over temporarily." },
         ];
-        const fb = FALLBACKS[(modeSeed + varSeed) % FALLBACKS.length];
+        const fb = FALLBACKS[(modeSeed) % FALLBACKS.length];
         challengeText = fb.challenge;
         challengeContext = fb.context;
       }
@@ -737,8 +720,8 @@ Output ONLY the structured tool call.`;
       return new Response(JSON.stringify({
         show: true, date: yesterday, mode: "challenge",
         challenge: trim(challengeText, 250),
-        challenge_context: challengeContext ? trim(challengeContext, 160) : "",
-        phrase_of_day: phraseOfDay,
+        challenge_context: challengeContext ? trim(challengeContext, 200) : "",
+        phrase_of_day: trim(challengePhrase, 200),
         week_stat: weekStat,
         yesterday: [], today_tip: "", spark: "", bullets: [],
       }), { headers: { ...corsHeaders, "Content-Type": "application/json" } });

@@ -25,7 +25,7 @@ export interface Profile {
   ai_planning_rules?: string | null;
   /** Behavioural-learning opt-out. Default true (undefined treated as true). */
   ai_personalization_enabled?: boolean;
-  is_developer?: boolean | null;
+
 }
 
 type ProfileData = {

@@ -2,6 +2,9 @@ import { serve } from "https://deno.land/std@0.168.0/http/server.ts";
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2.95.0";
 import { extractTaskTimeAnchors } from "../_shared/taskTimeAnchors.ts";
 import { DAYDRAFT_PERSONA } from "../_shared/persona.ts";
+import { ACTIVITY_DURATIONS } from "../_shared/activityDurations.ts";
+import { callGeminiWithRetry } from "../_shared/geminiRetry.ts";
+import { resolveLocalDuration } from "../_shared/durationLookup.ts";
 
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
@@ -128,6 +131,43 @@ serve(async (req) => {
     }
 
     const mergedClarified = clarifiedList.map((t: any) => ({ ...t }));
+
+    // Resolve durations locally (real-world dataset) before ever asking Gemini to guess.
+    // Only fills in tasks left blank; never overrides a given estimate. Kept for when
+    // clarified_tasks is populated (no current client sends it, but it's a free win if one does).
+    let localResolvedCount = 0;
+    for (const t of mergedClarified) {
+      if (t.estimate_min != null) continue;
+      const local = resolveLocalDuration(String(t?.title || ""));
+      if (local) {
+        t.estimate_min = local.min;
+        t._localMatch = true;
+        localResolvedCount++;
+      }
+    }
+
+    // The actual live path: every client sends plain `raw_input` text lines, not
+    // `clarified_tasks`. Resolve durations locally per line and inject the same
+    // `[Xmin]` annotation the client already uses for explicit durations — the
+    // prompt already treats that as authoritative (see "[Xmin]" rules below), so
+    // a locally-resolved task needs no new prompt instructions to be respected.
+    // Skip lines that already carry an explicit duration; never override those.
+    const explicitDurationRe = /[(\[]\s*\d+(?:\.\d+)?\s*(?:min|m)\.?\s*[)\]]/i;
+    raw_input = splitTaskLines(raw_input)
+      .map((line) => {
+        if (explicitDurationRe.test(line)) return line;
+        const { cleanedTitle } = extractTaskTimeAnchors(line);
+        const local = resolveLocalDuration(cleanedTitle || line);
+        if (!local) return line;
+        localResolvedCount++;
+        return `${line} [${local.min}min]`;
+      })
+      .join("\n");
+
+    if (localResolvedCount > 0) {
+      console.log(`[generate-plan] resolved ${localResolvedCount} task duration(s) locally (no AI guess needed)`);
+    }
+
     const anchorSplitLines = splitTaskLines(raw_input);
     for (let i = 0; i < mergedClarified.length; i++) {
       const lineSource = anchorSplitLines[i] || String(mergedClarified[i]?.title || "");
@@ -175,7 +215,7 @@ serve(async (req) => {
           authedUserId = u.user.id;
           const { data: profRow } = await supabase
             .from("profiles")
-            .select("ai_planning_rules, ai_context_custom, is_developer")
+            .select("ai_planning_rules, ai_context_custom")
             .eq("id", u.user.id)
             .maybeSingle();
           if (profRow?.ai_planning_rules) profilePlanningRules = String(profRow.ai_planning_rules).trim();
@@ -186,8 +226,8 @@ serve(async (req) => {
           pattern = p;
           // Pro: pull today's calendar events if connected
           const { data: sub } = await supabase.from("subscriptions").select("status").eq("user_id", u.user.id).maybeSingle();
-          const isPro = sub?.status === "active" || sub?.status === "trialing" || profRow?.is_developer === true;
-          tier = (sub?.status === "active" || profRow?.is_developer === true)
+          const isPro = sub?.status === "active" || sub?.status === "trialing";
+          tier = (sub?.status === "active")
             ? "pro"
             : sub?.status === "trialing"
               ? "trial"
@@ -259,27 +299,35 @@ serve(async (req) => {
     let overshootSamples = 0;
     let learningActive = false;
     let chronicTaskTitles: string[] = [];
+    let personalDurationsHints = "";
     if (personalizationEnabled && authedSupabase && authedUserId) {
       try {
-        const since14 = new Date(nowDate);
-        since14.setDate(since14.getDate() - 13);
+        // Lookback window is 30 days (matches update-user-patterns' own convention),
+        // but the "is this user established enough to trust learned signals" bar
+        // stays at 14 ACTIVE days. Deliberately NOT a 14-day window: a 14-day
+        // window made activeDays.size >= 14 mean "active literally every single
+        // day for two straight weeks" (one skipped day permanently reset it) —
+        // 14-of-30 keeps the same ~2-week bar while tolerating normal gaps
+        // (weekends, a sick day, a slow week).
+        const lookbackStart = new Date(nowDate);
+        lookbackStart.setDate(lookbackStart.getDate() - 29);
         const { data: histBlocks } = await authedSupabase
           .from("blocks")
           .select("id,title,estimated_minutes,actual_minutes,block_type,kind,type,completed,created_at")
           .eq("user_id", authedUserId)
-          .gte("created_at", since14.toISOString())
+          .gte("created_at", lookbackStart.toISOString())
         const { data: histEntries } = await authedSupabase
           .from("time_entries")
           .select("started_at,ended_at,block_id")
           .eq("user_id", authedUserId)
-          .gte("started_at", since14.toISOString())
+          .gte("started_at", lookbackStart.toISOString())
           .not("block_id", "is", null)
           .not("ended_at", "is", null);
         const { data: histPlans } = await authedSupabase
           .from("plans")
           .select("date")
           .eq("user_id", authedUserId)
-          .gte("date", since14.toISOString().slice(0, 10));
+          .gte("date", lookbackStart.toISOString().slice(0, 10));
         const activeDays = new Set<string>();
         for (const p of (histPlans || []) as any[]) {
           if (typeof p?.date === "string" && /^\d{4}-\d{2}-\d{2}$/.test(p.date)) activeDays.add(p.date);
@@ -363,6 +411,44 @@ serve(async (req) => {
           .sort((a, b) => b.seen - a.seen)
           .map((r) => r.title)
           .slice(0, 3);
+
+        // Personal duration calibration — the single most accurate signal for
+        // THIS user: their OWN tracked task times (actual_minutes is only ever
+        // set from real tracking, never invented). Group by title, take the
+        // median (robust to a stray left-running timer) + sample count, and
+        // feed it so the planner PREFERS it over the population/profession ref.
+        // Mirrors parse-tasks; fetched broader than the 14d overshoot window.
+        const { data: durBlocks } = await authedSupabase
+          .from("blocks")
+          .select("title, actual_minutes")
+          .eq("user_id", authedUserId)
+          .not("actual_minutes", "is", null)
+          .order("created_at", { ascending: false })
+          .limit(400);
+        if (Array.isArray(durBlocks) && durBlocks.length) {
+          const groups = new Map<string, { label: string; vals: number[] }>();
+          for (const b of durBlocks as any[]) {
+            const title = String(b?.title || "").trim();
+            const mins = Number(b?.actual_minutes || 0);
+            if (!title || !(mins > 0)) continue;
+            const key = title.toLowerCase().replace(/\s+/g, " ");
+            const g = groups.get(key) || { label: title, vals: [] };
+            g.vals.push(mins);
+            groups.set(key, g);
+          }
+          const med = (a: number[]): number => {
+            const s = [...a].sort((x, y) => x - y);
+            const mid = Math.floor(s.length / 2);
+            return s.length % 2 ? s[mid] : Math.round((s[mid - 1] + s[mid]) / 2);
+          };
+          const rows = [...groups.values()]
+            .sort((a, b) => b.vals.length - a.vals.length)
+            .slice(0, 20)
+            .map((g) => `- "${g.label}" → ~${med(g.vals)}m${g.vals.length > 1 ? ` (their avg across ${g.vals.length})` : ""}`);
+          if (rows.length) {
+            personalDurationsHints = `\n\nYOUR OWN MEASURED DURATIONS (this user's REAL tracked time on past tasks — the single most accurate signal for THIS person). When a task matches one of these (even with different wording or in another language), PREFER the user's own time here over the ACTIVITY DURATION REFERENCE and over any [Xmin] estimate in the task list. More samples = more reliable:\n${rows.join("\n")}`;
+          }
+        }
       } catch {
         // no-op: fallback to default buffer behavior
       }
@@ -435,7 +521,8 @@ ${mergedClarified.map((t: any, i: number) => {
   const fixed = t.fixed_time ? ` — FIXED at ${t.fixed_time} (must start exactly here)` : "";
   const prio = t.priority ? ` [${t.priority} priority]` : "";
   const n = t.notes ? ` — Note: ${String(t.notes).slice(0, 280)}` : "";
-  return `${i + 1}. "${t.title}" — ${t.estimate_min}m${prio}${fixed}${n}`;
+  const dur = typeof t.estimate_min === "number" ? `${t.estimate_min}m` : "duration unknown — estimate from reference data below";
+  return `${i + 1}. "${t.title}" — ${dur}${prio}${fixed}${n}`;
 }).join("\n")}
 ${rawParsedAnchorSection}
 Rules for clarified tasks:
@@ -492,7 +579,7 @@ Use these as defaults unless they conflict with fixed commitments.` : "";
     const chronicHints = chronicTaskTitles.length ? `
 
 PROACTIVE NUDGE — these tasks were planned 3+ times and never finished: ${JSON.stringify(chronicTaskTitles)}.
-If any appears in today's input, lower its activation energy: schedule it EARLY and shrink that one block to a tiny 10–15 min FIRST STEP (keep the user's title; you may append " — just the first step"). Put the smallest possible start on the calendar so momentum can take over. Carry the gentle intent in that block's reasoning — never shame, never say "you keep skipping this".` : "";
+If any appears in today's input, lower its activation energy: schedule it EARLY and shrink that one block to a tiny 10–15 min FIRST STEP (keep the user's title on ONE line, no line break; you may append a single space then "— just the first step" on that same line). Put the smallest possible start on the calendar so momentum can take over. Carry the gentle intent in that block's reasoning — never shame, never say "you keep skipping this".` : "";
     const emotionalContext = typeof planning_context === "string" ? planning_context.trim() : "";
     // Detect whether planning_context contains structured clarification answers
     // (added by the client as "User Clarifications:\n- Q: ...\n  A: ...").
@@ -500,19 +587,19 @@ If any appears in today's input, lower its activation energy: schedule it EARLY 
     const isClarificationAnswers = emotionalContext.startsWith("User Clarifications:");
     const emotionalHints = emotionalContext ? (isClarificationAnswers ? `
 
-USER SCHEDULING CONSTRAINTS (collected from a pre-planning questionnaire — treat each answer as a HARD rule that overrides defaults):
+USER SCHEDULING CONSTRAINTS (the user just answered these about their OWN day — each answer is their correction and OVERRIDES everything else: your estimates, the bracketed [Xmin] durations in the list, the written order, and every default heuristic. This is the single most trustworthy signal you have. Apply each answer to the SPECIFIC task it names):
 ${emotionalContext
   .replace("User Clarifications:\n", "")
   .replace(/- Q: /g, "Constraint: ")
   .replace(/\n  A: /g, " → ")}
 Rules:
-- If the answer mentions "morning" for any task type → schedule ALL tasks of that type before 12:00.
-- If the answer mentions "afternoon" → schedule them 12:00–17:00.
-- If the answer mentions "evening" → schedule them after 17:00.
-- If the answer mentions a hard deadline → treat the referenced task as FIXED with preparation before it.
-- If the answer says "hardest first" → place the highest-effort deep_work task first in the schedule.
-- If the answer says "easiest first" → place the lowest-effort task first.
-- Do NOT let the peak-window heuristic override these explicit user preferences.` : `
+- DURATION AND TIME answers are ABSOLUTE. If the user answered with a specific duration (e.g. "2 hours") or time (e.g. "14:30"), you MUST use EXACTLY that \`duration_min\` and \`start_time\` for the block. NEVER ignore their explicit answer.
+- DURATION answers win absolutely: if an answer gives a length ("2.5 hours", "два часа", "90 min", "an hour and a half"), set that task's duration to EXACTLY that and IGNORE any [Xmin] estimate in the list for it. A "2.5 hours" answer for a movie means a 150-minute block, not 53.
+- EXCEPTION — TRAVEL TIME is not duration: an answer tagged "[TRAVEL TIME — ONE-WAY...]" names the task only to identify its location, NOT to set its duration. NEVER write that number into the named task's own duration_min. Instead use it for that task's "Travel to [place]" and "Return from [place]" blocks (see TRAVEL — ROUND TRIP rule) — same number, both directions.
+- TIME-OF-DAY answers win, in ANY language — map the MEANING, not the literal word: morning / утром → before 12:00; midday / noon / "середина дня" / "в обед" → 12:00–14:00; afternoon / днём / "после обеда" → STRICTLY after 13:00 (NEVER in the morning); evening / вечером / tonight / "после работы" → after 17:00 (or after the day's work and calls end). If a task says "after lunch" or "после обеда", YOU MUST schedule a Lunch break first if one isn't scheduled, and place the task AFTER it. A "midday" or "после обеда" answer must NOT land at 10:00 AM.
+- A deadline answer → that task is FIXED, with preparation before it.
+- "Hardest first" → highest-effort deep_work first; "easiest first" → lowest-effort first.
+- These answers OUTRANK the peak-window heuristic and the user's written order. If a placement would contradict an answer, the answer wins. Never silently drop one.` : `
 
 Optional context (emotional / deadline signal):
 - ${emotionalContext}
@@ -547,11 +634,21 @@ WHAT ORDER (follow exactly, highest priority first):
 4. PART-OF-DAY HINTS — "утром / morning / вечером / evening / first thing / tonight" → schedule in that window.
 5. USER'S WRITTEN ORDER — treat the list roughly as the user's intended day order. Only re-order to honor rules 1–4 above or to fit a clearly mentioned meal/break.
 
-IMPLICIT COMMON SENSE (apply automatically without asking):
-- Physical activity away from home (gym, pool, run outside, store, pharmacy, appointment) → add a travel block before AND after (15–30 min each depending on context). Title it "Travel to [place]" / "Return from [place]", kind="break", block_type="rest".
+IMPLICIT COMMON SENSE (apply automatically without asking — this is where you act less like a parser and more like someone who actually understands a day):
+- BE A REAL PREDICTOR, NOT A PACKER. Spread tasks out organically. Do not just cram all tasks back-to-back starting at 9 AM without breaks. If shifting a task by 15-30 minutes creates a more realistic flow, do it.
+- MANDATORY LUNCH: If the plan spans past 13:00 and no lunch/meal block exists, YOU MUST insert a 45-60m "Lunch" block (kind="lunch", block_type="rest") between 12:00 and 14:00. No exceptions — real humans eat.
+- LEISURE vs WORK is the big one. Entertainment and downtime (a movie / film, a show, a game, hanging out, relaxing, a hobby) on a day that ALSO has work, calls, or errands belongs in FREE time — normally the evening — and NEVER before the day's work and fixed commitments. Productive daytime goes to work and calls; rest wraps around them. A 2.5-hour movie does not go at 11:00 before a workday; it goes after the work is done.
+- REALISTIC DURATIONS: estimate task lengths when the user doesn't specify a duration. Order of preference: (1) if a "YOUR OWN MEASURED DURATIONS" section is present and the task matches a row, use THAT — it's this user's real measured time and beats every average; (2) otherwise use the ACTIVITY DURATION REFERENCE table below, anchoring each task to the closest matching row. If the user's context indicates a profession listed in the reference, PREFER that profession's per-task durations (a developer's "review" ≈ 45m, a lawyer's ≈ 120m). For example, "gym" = 60 min + travel, "cook dinner" = 60-90 min, "watch a movie" = 120-150 min. NEVER assign a 15-min block to something that takes an hour in real life.
+- Match energy to the clock: deep focus in the productive peak, light/admin in the dips, leisure once the work is behind them.
+- TRAVEL — ROUND TRIP: Any task that involves leaving home (gym, store, pharmacy, doctor, school, office, meeting, appointment) MUST get TWO travel blocks — NEVER just one, and NEVER folded into the activity's own duration or left as a silent unlabeled gap:
+  1. "Travel to [place]" BEFORE the activity (kind="break", block_type="rest", 15-25 min default)
+  2. "Return from [place]" AFTER the activity (kind="break", block_type="rest", 15-25 min default)
+  Write "Travel to"/"Return from" and "[place]" in the SAME language as the user's own input for that task — never mix languages within one title.
+  If the user mentioned a travel time (clarification answer or in the text), it is ONE-WAY — use that SAME number for BOTH blocks, not just the outbound one. That number is travel time only; it is NEVER the activity's own duration_min. Before finishing, check every out-of-home task has both legs — a "Travel to" with no matching "Return from" is an incomplete plan. If two consecutive out-of-home tasks are at the SAME location, skip the return+departure pair and add a single transition. The activity duration does NOT include travel — it's separate, explicitly titled blocks so the user can see exactly where the time went.
+- ROUTINES & PREP (THE "NOSTRADAMUS" RULE) — AT-HOME tasks only: When scheduling tasks that require setup, prep, or cleanup WITHOUT leaving the house (cooking, morning start, packing, cleaning), use the ROUTINES & PREP durations from the reference table. Do NOT create explicitly named blocks for these. Instead, either expand the task's duration to absorb it, or leave a natural, empty gap (15-30m) before/after the task so the user has realistic time to transition. This rule does NOT apply to anything that leaves the house — those are owned entirely by the TRAVEL — ROUND TRIP rule above (explicit, titled travel blocks, never absorbed into duration and never a silent gap). Act like you truly know how human days work.
 - Important meeting, call, or presentation → add 10–15 min "Prep for [meeting]" block just before it.
-- Two locations in different parts of the city back-to-back → add a 20–30 min travel buffer between them.
-- Task clearly implying cooking or food prep → budget realistic time (dinner ≠ 10 min).
+- Two locations in different parts of the city back-to-back → add a 20–30 min travel buffer between them (kind="break", block_type="rest", titled "Travel to [next place]" — same language-matching rule as above).
+- Task clearly implying cooking or food prep → budget realistic time (dinner ≠ 10 min, use the reference table).
 - If user mentions they're tired, low energy, sick, or it's late → prefer shorter blocks, lighter tasks first, don't pack the day.
 
 TASK RULES:
@@ -563,7 +660,7 @@ TASK RULES:
 - Classify type: deep_work (focused solo work), communication (calls/meetings/messages), or routine (errands, admin, chores).
 - block_type: "rest" for breaks/travel/transitions, "personal" for errands/family/appointments, "work" for everything else.
 - If location mentioned in raw text, extract a short location string.
-- For EVERY block include one-sentence reasoning explaining the placement.
+- For EVERY block include one-sentence reasoning explaining the placement. When the personalization sections below (user patterns / recent behavior signals / 14-day history / AI weekly memory) are present and actually relevant to THIS block, prefer reasoning that names the specific signal (e.g. "Placed early — you usually stall on this one" or "Kept short, matching your real average for this task") over a generic restatement of the time of day. If none of those sections are present for this user, give straightforward placement reasoning — never invent a pattern that wasn't given to you.
 - Splits for long tasks: ONLY when duration clearly exceeds 90 min. Don't split medium tasks to fill time.
 
 BREAKS & MEALS:
@@ -575,7 +672,9 @@ GIBBERISH GUARD: if input is completely unintelligible (random keys, "test", no 
 
 OUTPUT FORMAT:
 - Summary: short, e.g. "4 tasks · done by 6pm".
-- Subtext: one short sentence.${planningPrefsHints}${clarifiedHints}${patternHints}${behaviorHints}${overshootHints}${memoryHints}${emotionalHints}${calHints}${personalContextHints}${chronicHints}`;
+- Subtext: one short sentence.
+
+${ACTIVITY_DURATIONS}${personalDurationsHints}${planningPrefsHints}${clarifiedHints}${patternHints}${behaviorHints}${overshootHints}${memoryHints}${emotionalHints}${calHints}${personalContextHints}${chronicHints}`;
 
     const schema = {
       type: "OBJECT",
@@ -603,11 +702,6 @@ OUTPUT FORMAT:
       required: ["summary", "subtext", "blocks"],
     };
 
-    // Model fallback chain: pro for quality, flash as a faster fallback when
-    // pro is rate-limited or overloaded.
-    const MODEL_CHAIN = ["gemini-2.5-flash", "gemini-2.0-flash"];
-    const isTransient = (s: number) => s === 500 || s === 502 || s === 503 || s === 504;
-    const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
     const planSystem = system;
     const planUser = `Name: ${name || "User"}\nRaw tasks:\n${raw_input}${emotionalContext ? `\nOptional context:\n${emotionalContext}` : ""}`;
 
@@ -620,14 +714,14 @@ OUTPUT FORMAT:
     const planComplexity =
       (calendarEvents.length > 0 ? 2 : 0) +
       (isReplan ? 1 : 0) +
-      (mergedClarified.length > 0 ? 1 : 0) +
+      // Clarification answers mean the user is correcting the plan — give the
+      // model real room to reason so it actually honours every answer and the
+      // leisure-vs-work ordering, instead of reverting to a flat heuristic.
+      (mergedClarified.length > 0 ? 2 : 0) +
+      (emotionalContext && isClarificationAnswers ? 2 : 0) +
       (userPlanningRules ? 1 : 0) +
       (taskLineCount > 6 ? 2 : taskLineCount > 3 ? 1 : 0);
-    const thinkingBudget = planComplexity >= 4 ? 6144 : planComplexity >= 2 ? 2560 : 512;
-
-    let resp: Response | null = null;
-    let lastStatus = 0;
-    let lastBody = "";
+    const thinkingBudget = planComplexity >= 4 ? 4096 : planComplexity >= 2 ? 2048 : 1024;
 
     // Each upstream call is bounded by its own timeout, and the whole chain by
     // an overall budget kept well under the client's request timeout. Without
@@ -635,8 +729,8 @@ OUTPUT FORMAT:
     // CLIENT aborted — which it mis-reports as "couldn't reach the AI". Now we
     // always fall back to a faster model and, worst case, return a structured
     // error the client can show verbatim.
-    const DEADLINE = Date.now() + 48_000;
-    const PER_ATTEMPT_MS = 20_000;
+    const DEADLINE = Date.now() + 55_000;
+    const PER_ATTEMPT_MS = 45_000;
 
     const callModel = async (model: string, budgetMs: number): Promise<Response> => {
       const ctrl = new AbortController();
@@ -661,41 +755,31 @@ OUTPUT FORMAT:
       }
     };
 
-    outer:
-    for (const model of MODEL_CHAIN) {
-      for (let attempt = 0; attempt < 2; attempt++) {
-        const remaining = DEADLINE - Date.now();
-        if (remaining < 4_000) break outer; // out of budget — return structured error below
-        let r: Response;
-        try {
-          r = await callModel(model, Math.min(PER_ATTEMPT_MS, remaining - 1_000));
-        } catch (err) {
-          // Our timeout (abort) or a transient network blip to Gemini — don't
-          // retry the same (slow) model, jump straight to the faster fallback.
-          lastStatus = 504;
-          console.error("[generate-plan] upstream timeout/abort", { model, attempt, err: String(err) });
-          break;
-        }
-        if (r.ok) { resp = r; break outer; }
-        lastStatus = r.status;
-        try { lastBody = (await r.text()).slice(0, 1024); } catch { lastBody = ""; }
-        console.error("[generate-plan] upstream error", { model, attempt, status: r.status, body: lastBody });
-        if (r.status === 429 || (r.status >= 400 && r.status < 500)) break; // try next model
-        if (isTransient(r.status) && attempt === 0) { await sleep(300 + Math.floor(Math.random() * 200)); continue; }
-        break;
-      }
-    }
+    // Shared model-chain + transient-retry (incl 404/429), bounded by DEADLINE.
+    // Each attempt is capped at PER_ATTEMPT_MS or the remaining budget, whichever
+    // is smaller. See _shared/geminiRetry.ts.
+    const { response: resp, lastStatus, lastBody } = await callGeminiWithRetry(
+      (model, budgetMs) => callModel(model, Math.min(PER_ATTEMPT_MS, budgetMs)),
+      {
+        deadlineMs: DEADLINE,
+        onError: ({ model, attempt, status, body }) =>
+          console.error("[generate-plan] upstream error", { model, attempt, status, body }),
+      },
+    );
 
     if (!resp) {
       // NOTE: returned as HTTP 200 with an `error` field. supabase-js surfaces
       // a non-2xx as an opaque "Edge Function returned a non-2xx status code"
       // (body unreadable by our client), which would swallow these friendly
       // messages. 200 + { error } lets the client show them verbatim.
-      const msg =
-        lastStatus === 429 ? "Too many requests — give it a moment and try again." :
-        (lastStatus === 401 || lastStatus === 403) ? "AI is misconfigured on the server." :
-        (lastStatus === 400 && /safety|blocked|harm/i.test(lastBody)) ? "Your tasks hit a safety filter — try rephrasing." :
-        "AI is having a moment — please try again.";
+      let msg = "AI is having a moment — please try again.";
+      if (lastStatus === 429) msg = "Too many requests — give it a moment and try again.";
+      else if (lastStatus === 401 || lastStatus === 403) msg = "AI is misconfigured on the server.";
+      else if (lastStatus === 400 && /safety|blocked|harm/i.test(lastBody)) msg = "Your tasks hit a safety filter — try rephrasing.";
+      else if (lastStatus === 400) {
+        const detail = typeof lastBody === "string" ? lastBody.trim().slice(0, 150) : "";
+        msg = `AI rejected the request: ${detail || "Bad request"}.`;
+      }
       return new Response(JSON.stringify({ error: msg }), { headers: { ...corsHeaders, "Content-Type": "application/json" } });
     }
     const data = await resp.json();
@@ -750,8 +834,30 @@ OUTPUT FORMAT:
       const [h, m] = String(hhmm || "").split(":").map(Number);
       return (Number.isFinite(h) ? h : 0) * 60 + (Number.isFinite(m) ? m : 0);
     };
+    const minToTime = (mins: number) => `${String(Math.floor(mins / 60)).padStart(2, "0")}:${String(Math.max(0, mins % 60)).padStart(2, "0")}`;
     const normalizePlannerTitleKey = (t: string) =>
       String(t || "").replace(/\s*\(part\s+\d+\)$/i, "").trim().toLowerCase();
+
+    // Deterministic guarantee against a missing start_time — the schema marks it
+    // REQUIRED but the model can still omit/null it, and timeToMin() would silently
+    // read that as "00:00", a real-looking time nothing downstream ever questions.
+    // Runs BEFORE splitLongTask so a >90min untimed task's pieces all chain from one
+    // correct anchor instead of each computing their own (wrong) cursor. Forward-fill
+    // only — never invents a time earlier than the previous real block's end, or
+    // earlier than the day's own earliestStart.
+    let repairCursorEnd = 0;
+    args.blocks = (Array.isArray(args.blocks) ? args.blocks : []).map((b: any) => {
+      const dur = Number(b?.duration_min) || 0;
+      if (/^\d{2}:\d{2}$/.test(String(b?.start_time || ""))) {
+        repairCursorEnd = Math.max(repairCursorEnd, timeToMin(b.start_time) + dur);
+        return b;
+      }
+      const fallback = repairCursorEnd || timeToMin(earliestStart);
+      console.warn("[generate-plan] repaired missing start_time", { title: b?.title, fallback: minToTime(fallback) });
+      repairCursorEnd = fallback + dur;
+      return { ...b, start_time: minToTime(fallback) };
+    });
+
     let normalizedBlocks = Array.isArray(args.blocks)
       ? args.blocks
         .flatMap((b: any) => (b?.kind === "task" && Number(b?.duration_min || 0) > 90 ? splitLongTask(b) : [b]))
@@ -772,11 +878,110 @@ OUTPUT FORMAT:
       return { ...b, start_time: anchorMap.get(key) };
     });
     normalizedBlocks = [...normalizedBlocks].sort((a: any, b: any) => timeToMin(a.start_time) - timeToMin(b.start_time));
-    const minToTime = (mins: number) => `${String(Math.floor(mins / 60)).padStart(2, "0")}:${String(Math.max(0, mins % 60)).padStart(2, "0")}`;
-    normalizedBlocks = normalizedBlocks.map((b: any) => ({
-      ...b,
-      slot_end_time: minToTime(timeToMin(b.start_time) + Number(b.duration_min || 0)),
-    }));
+
+    // Deterministic guarantee — the prompt ASKS the model to avoid double-booking
+    // and to schedule around calendar holds, but asking isn't enforcing. Single
+    // forward pass over already-sorted blocks; only ever pushes a block LATER
+    // (never earlier), so it can't violate the "no past slots" constraint
+    // enforced elsewhere in the prompt — and one linear pass is provably
+    // sufficient because the occupied-until cursor is monotonic and earlier
+    // blocks are never revisited once finalized.
+    const resolveConflicts = (blocks: any[], events: any[]) => {
+      const locked = events
+        .map((e: any) => ({
+          start: timeToMin(e.start_time),
+          end: timeToMin(e.start_time) + Number(e.duration_min || 0),
+          consumed: false,
+        }))
+        .sort((a, b) => a.start - b.start);
+      let cursor = 0;
+      let shiftedCount = 0;
+      const out = blocks.map((b: any) => {
+        const origStart = timeToMin(b.start_time);
+        const dur = Number(b.duration_min || 0);
+        // The model's own faithful echo of a calendar event (start+duration
+        // within rounding tolerance) is a hold, not something to push around —
+        // trust it as-is and consume that interval so nothing else compares
+        // against it again.
+        const echoed = locked.find(
+          (L) => !L.consumed && Math.abs(L.start - origStart) <= 2 && Math.abs((L.end - L.start) - dur) <= 2
+        );
+        if (echoed) {
+          echoed.consumed = true;
+          cursor = Math.max(cursor, echoed.end);
+          return b;
+        }
+        let start = Math.max(origStart, cursor);
+        // Locked list is sorted ascending; once `start` jumps past lock i it can
+        // never re-conflict with an earlier lock, so a single ordered scan
+        // (no nested loop) correctly cascades through back-to-back holds.
+        for (const L of locked) {
+          if (!L.consumed && start < L.end && start + dur > L.start) start = L.end;
+        }
+        cursor = start + dur;
+        if (start === origStart) return b;
+        shiftedCount += 1;
+        return { ...b, start_time: minToTime(start) };
+      });
+      return {
+        blocks: out.map((b: any) => ({
+          ...b,
+          slot_end_time: minToTime(timeToMin(b.start_time) + Number(b.duration_min || 0)),
+        })),
+        shiftedCount,
+      };
+    };
+    const conflictResolved = resolveConflicts(normalizedBlocks, calendarEvents);
+    normalizedBlocks = conflictResolved.blocks;
+
+    // The prompt also says "MANDATORY LUNCH: insert a 45-60m Lunch block if the
+    // plan spans past 13:00" — same problem, a request rather than an
+    // enforcement. Backstop it for when the model simply forgets. Inserted
+    // strictly inside a real gap (computed AFTER conflict-resolution, so it can
+    // never overlap anything), and skipped silently if there's truly no slack
+    // near midday rather than forcing a cascading shift of every later block.
+    const ensureLunch = (blocks: any[]) => {
+      const hasLunch = blocks.some(
+        (b: any) => b?.kind === "lunch" || /\b(lunch|meal)\b/i.test(String(b?.title || ""))
+      );
+      if (hasLunch || !blocks.length) return { blocks, inserted: false };
+      const dayStart = timeToMin(blocks[0].start_time);
+      const dayEnd = Math.max(...blocks.map((b: any) => timeToMin(b.start_time) + Number(b.duration_min || 0)));
+      if (dayEnd <= 13 * 60 || dayStart >= 14 * 60) return { blocks, inserted: false };
+      let bestGapStart = -1;
+      let bestGapEnd = -1;
+      let bestOverlap = 0;
+      for (let i = 0; i < blocks.length - 1; i++) {
+        const curEnd = timeToMin(blocks[i].start_time) + Number(blocks[i].duration_min || 0);
+        const nextStart = timeToMin(blocks[i + 1].start_time);
+        if (nextStart - curEnd < 30) continue;
+        const overlap = Math.min(nextStart, 14 * 60 + 30) - Math.max(curEnd, 12 * 60);
+        if (overlap > bestOverlap) {
+          bestOverlap = overlap;
+          bestGapStart = curEnd;
+          bestGapEnd = nextStart;
+        }
+      }
+      if (bestGapStart < 0) return { blocks, inserted: false };
+      const lunchStart = Math.max(bestGapStart, 12 * 60);
+      const lunchDur = Math.min(60, bestGapEnd - lunchStart);
+      if (lunchDur < 30) return { blocks, inserted: false };
+      const lunchBlock = {
+        start_time: minToTime(lunchStart),
+        duration_min: lunchDur,
+        slot_end_time: minToTime(lunchStart + lunchDur),
+        title: "Lunch",
+        kind: "lunch",
+        type: "routine",
+        block_type: "rest",
+        reasoning: "Added so your day doesn't skip lunch.",
+      };
+      const out = [...blocks, lunchBlock].sort((a: any, b: any) => timeToMin(a.start_time) - timeToMin(b.start_time));
+      return { blocks: out, inserted: true };
+    };
+    const withLunch = ensureLunch(normalizedBlocks);
+    normalizedBlocks = withLunch.blocks;
+
     const addBuffers = (blocks: any[]) => {
       const out: any[] = [];
       let inserted = 0;
@@ -831,6 +1036,10 @@ OUTPUT FORMAT:
     const bufferNote = withBuffers.inserted > 0
       ? (patternBufferEnabled ? "Buffers added based on your patterns" : "Buffers added as default")
       : null;
+    const conflictNote = conflictResolved.shiftedCount > 0
+      ? `Adjusted ${conflictResolved.shiftedCount} task(s) to avoid a clash`
+      : null;
+    const lunchNote = withLunch.inserted ? "Added a lunch block so your day doesn't skip it" : null;
     const chronicNote = (() => {
       if (!learningActive || !chronicTaskTitles.length) return null;
       const rawLower = String(raw_input || "").toLowerCase();
@@ -840,7 +1049,7 @@ OUTPUT FORMAT:
     const learningNote = learningActive ? "Plan tuned to your patterns" : null;
     const finalSubtext = (() => {
       const base = String(args.subtext || "").trim();
-      const notes = [base, bufferNote, learningNote, chronicNote].filter(Boolean) as string[];
+      const notes = [base, conflictNote, lunchNote, bufferNote, learningNote, chronicNote].filter(Boolean) as string[];
       return notes.join(" ").trim();
     })();
     return new Response(

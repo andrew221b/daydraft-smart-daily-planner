@@ -216,8 +216,34 @@ export function useChecklist(
       const seen = new Set(base.map((r) => r.id));
       return [...base, ...extra.filter((r) => !seen.has(r.id))];
     };
-    const groups = mergeById((gRes.data ?? []) as ChecklistGroup[], gPin.error ? [] : (gPin.data ?? []) as ChecklistGroup[]);
-    const items = mergeById((iRes.data ?? []) as ChecklistItem[], iPin.error ? [] : (iPin.data ?? []) as ChecklistItem[]);
+    const serverGroups = mergeById((gRes.data ?? []) as ChecklistGroup[], gPin.error ? [] : (gPin.data ?? []) as ChecklistGroup[]);
+    const serverItems = mergeById((iRes.data ?? []) as ChecklistItem[], iPin.error ? [] : (iPin.data ?? []) as ChecklistItem[]);
+
+    // ── Last-write-wins reconcile with what's on screen ───────────────────
+    // A focus/resume reload must NOT clobber an edit the user just made when a
+    // read replica is still behind it — that was the "checkmark vanished, then
+    // came back, sometimes never" glitch. Every optimistic edit stamps a fresh
+    // `updated_at`, so we keep the local row whenever it's newer than the
+    // server's, and keep brand-new local-only rows (optimistic inserts the
+    // replica hasn't returned yet) for a short grace window. Old local-only
+    // rows are dropped, so genuine cross-device deletes still apply.
+    const RECONCILE_GRACE_MS = 20_000;
+    const ts = (s: string | null | undefined) => (s ? Date.parse(s) || 0 : 0);
+    const reconcileLww = <T extends { id: string; updated_at: string }>(server: T[], local: T[]): T[] => {
+      const localById = new Map(local.map((r) => [r.id, r]));
+      const serverIds = new Set(server.map((r) => r.id));
+      const now = Date.now();
+      const out = server.map((s) => {
+        const l = localById.get(s.id);
+        return l && ts(l.updated_at) > ts(s.updated_at) ? l : s;
+      });
+      for (const l of local) {
+        if (!serverIds.has(l.id) && now - ts(l.updated_at) < RECONCILE_GRACE_MS) out.push(l);
+      }
+      return out;
+    };
+    const groups = reconcileLww(serverGroups, groupsRef.current);
+    const items = reconcileLww(serverItems, itemsRef.current);
     commit(groups, items);
     setLoading(false);
   }, [userId, planDate, commit]);
@@ -301,6 +327,17 @@ export function useChecklist(
       await enqueueWrite({ table: "checklist_items", op: "delete", filter: { id } });
     }
   };
+  // Best-effort write for the `failed` column. It may not exist yet on a DB that
+  // hasn't run the failed migration — so we DON'T enqueue on error (that would
+  // clog the offline queue with a write that can never land); the optimistic
+  // local state just isn't persisted until the migration is applied. Same
+  // forward-safe spirit as the additive pinned query in `reload`. `done` is
+  // written separately via updateItem, so toggling done keeps working with or
+  // without the column.
+  const updateItemFailedSafe = async (id: string, failed: boolean) => {
+    try { await supabase.from("checklist_items").update({ failed }).eq("id", id); }
+    catch { /* column missing / offline — optimistic local only */ }
+  };
 
   // ── public CRUD ─────────────────────────────────────────────────────────
   const addGroup = useCallback(
@@ -329,7 +366,7 @@ export function useChecklist(
       const trimmed = title.trim();
       if (!trimmed) return;
       commit(
-        groupsRef.current.map((g) => (g.id === id ? { ...g, title: trimmed } : g)),
+        groupsRef.current.map((g) => (g.id === id ? { ...g, title: trimmed, updated_at: nowIso() } : g)),
         itemsRef.current,
       );
       void updateGroup(id, { title: trimmed });
@@ -364,6 +401,7 @@ export function useChecklist(
         position: maxPos(siblings) + 1,
         pinned: false,
         priority: false,
+        failed: false,
         created_at: nowIso(),
         updated_at: nowIso(),
       };
@@ -376,18 +414,61 @@ export function useChecklist(
 
   const toggleItem = useCallback(
     (id: string) => {
-      let nextDone = false;
+      const cur = itemsRef.current.find((i) => i.id === id);
+      if (!cur) return;
+      const nextDone = !cur.done;
+      const wasFailed = !!cur.failed;
+      // A pinned item recurs on every day off ONE shared row. A bare `done=true`
+      // would therefore read as "completed" on every future day forever (the bug
+      // where a finished pinned task hangs around, done, for days). So completing
+      // a pinned item SETTLES it onto the day it was finished: unpin it and stamp
+      // its plan_date to this day. It then shows done here and never reappears on
+      // a future day under any condition. (Unchecking just clears done; it won't
+      // start recurring again on its own — re-pin if you want that.)
+      const patch: Database["public"]["Tables"]["checklist_items"]["Update"] =
+        nextDone && cur.pinned
+          ? { done: true, pinned: false, plan_date: planDate }
+          : { done: nextDone };
+      // Done and failed are mutually exclusive — marking done clears any red ✗.
+      // `updated_at` is bumped so a focus/resume reload's last-write-wins merge
+      // keeps this check even while a read replica is still behind it.
       commit(
         groupsRef.current,
-        itemsRef.current.map((i) => {
-          if (i.id !== id) return i;
-          nextDone = !i.done;
-          return { ...i, done: nextDone };
-        }),
+        itemsRef.current.map((i) => (i.id === id ? { ...i, ...patch, failed: false, updated_at: nowIso() } : i)),
       );
-      void updateItem(id, { done: nextDone });
+      void updateItem(id, patch);
+      if (wasFailed) void updateItemFailedSafe(id, false);
     },
-    [commit],
+    [commit, planDate],
+  );
+
+  /**
+   * Double-tap → mark an item FAILED (red ✗), or clear a failed item back to
+   * open. Failed and done are mutually exclusive. Like completion, failing a
+   * PINNED item settles it onto this day (unpin + stamp date) so it doesn't recur
+   * as failed on every day. `failed` is written best-effort (forward-safe); the
+   * `done`/`pinned`/`plan_date` part goes through the normal queue-backed write.
+   */
+  const toggleItemFailed = useCallback(
+    (id: string) => {
+      const cur = itemsRef.current.find((i) => i.id === id);
+      if (!cur) return;
+      const nextFailed = !cur.failed;
+      const settle = nextFailed && cur.pinned; // mirror toggleItem's pinned-settle
+      const corePatch: Database["public"]["Tables"]["checklist_items"]["Update"] =
+        settle ? { done: false, pinned: false, plan_date: planDate } : { done: false };
+      commit(
+        groupsRef.current,
+        itemsRef.current.map((i) =>
+          i.id === id ? { ...i, ...corePatch, failed: nextFailed, updated_at: nowIso() } : i,
+        ),
+      );
+      // Only write the core patch when it actually changes something (settle, or
+      // the item was done) — otherwise just the best-effort failed flag.
+      if (settle || cur.done) void updateItem(id, corePatch);
+      void updateItemFailedSafe(id, nextFailed);
+    },
+    [commit, planDate],
   );
 
   const renameItem = useCallback(
@@ -396,7 +477,7 @@ export function useChecklist(
       if (!trimmed) return;
       commit(
         groupsRef.current,
-        itemsRef.current.map((i) => (i.id === id ? { ...i, title: trimmed } : i)),
+        itemsRef.current.map((i) => (i.id === id ? { ...i, title: trimmed, updated_at: nowIso() } : i)),
       );
       void updateItem(id, { title: trimmed });
     },
@@ -425,8 +506,8 @@ export function useChecklist(
       const patch = next ? { pinned: true } : { pinned: false, plan_date: planDate };
       const childIds = itemsRef.current.filter((x) => x.group_id === id).map((x) => x.id);
       commit(
-        groupsRef.current.map((x) => (x.id === id ? { ...x, ...patch } : x)),
-        itemsRef.current.map((x) => (x.group_id === id ? { ...x, ...patch } : x)),
+        groupsRef.current.map((x) => (x.id === id ? { ...x, ...patch, updated_at: nowIso() } : x)),
+        itemsRef.current.map((x) => (x.group_id === id ? { ...x, ...patch, updated_at: nowIso() } : x)),
       );
       void updateGroup(id, patch);
       for (const cid of childIds) void updateItem(cid, patch);
@@ -444,7 +525,7 @@ export function useChecklist(
         itemsRef.current.map((i) => {
           if (i.id !== id) return i;
           nextPriority = !i.priority;
-          return { ...i, priority: nextPriority };
+          return { ...i, priority: nextPriority, updated_at: nowIso() };
         }),
       );
       void updateItem(id, { priority: nextPriority });
@@ -461,7 +542,7 @@ export function useChecklist(
       const patch = next ? { pinned: true } : { pinned: false, plan_date: planDate };
       commit(
         groupsRef.current,
-        itemsRef.current.map((x) => (x.id === id ? { ...x, ...patch } : x)),
+        itemsRef.current.map((x) => (x.id === id ? { ...x, ...patch, updated_at: nowIso() } : x)),
       );
       void updateItem(id, patch);
     },
@@ -490,7 +571,7 @@ export function useChecklist(
         commit(
           groupsRef.current,
           itemsRef.current.map((i) =>
-            i.id === id ? { ...i, group_id: target.groupId ?? null, position } : i,
+            i.id === id ? { ...i, group_id: target.groupId ?? null, position, updated_at: nowIso() } : i,
           ),
         );
         void updateItem(id, { group_id: target.groupId ?? null, position });
@@ -564,11 +645,17 @@ export function useChecklist(
   }, [userId, commit]);
 
   /**
-   * Carry a whole category to another day, PRESERVING the grouping: find (or
-   * create) a same-named list on the target day and move the items into it.
+   * Carry a whole category to another day, PRESERVING the grouping.
    * `mode` "unfinished" carries only open items (the source list keeps its done
    * ones); "all" carries everything. Items are never orphaned — they always land
    * inside a real group on the target day.
+   *
+   * Architecture: when EVERY item leaves and the target day has no same-named
+   * list, this is a TRUE MOVE — we just repoint the existing group + its items
+   * to the target date. No create-then-delete, so there's never a leftover empty
+   * "плашка" on the source day and no create/delete reload race. Only a partial
+   * carry (some items stay) or a merge into an existing same-named list falls
+   * back to copy-items-then-remove-empty-source.
    */
   const moveGroupToDate = useCallback(
     (group: ChecklistGroup, targetDate: string, mode: "unfinished" | "all") => {
@@ -578,13 +665,18 @@ export function useChecklist(
       if (targets.length === 0) return;
       const ids = targets.map((i) => i.id);
       const idsSet = new Set(ids);
-      // Optimistically remove the carried items from this day.
-      commit(groupsRef.current, itemsRef.current.filter((i) => !idsSet.has(i.id)));
 
-      // Generate the fallback group id up-front so both the online and offline
-      // paths use THE SAME id — fixes a race where the offline fallback could
-      // enqueue items pointing at freshGroupId while the online path had already
-      // written them to a *different* (found) group id, leaving items orphaned.
+      // The source group is emptied by this carry → it should leave this day.
+      const sourceEmptied = groupItems.every((i) => idsSet.has(i.id));
+
+      // Optimistically remove the carried items (and the now-empty group) here.
+      const nextGroups = sourceEmptied
+        ? groupsRef.current.filter((g) => g.id !== group.id)
+        : groupsRef.current;
+      commit(nextGroups, itemsRef.current.filter((i) => !idsSet.has(i.id)));
+
+      // Fallback id used for the online-insert and offline-queue paths alike, so
+      // a failed online write and its queued retry never reference different ids.
       const freshGroupId = newId();
       const groupRow: ChecklistGroup = {
         id: freshGroupId,
@@ -597,23 +689,56 @@ export function useChecklist(
         updated_at: nowIso(),
       };
       (async () => {
-        // Resolve the target group id FIRST — we need it before we can write
-        // items, so the online and offline paths both finish with the same id.
-        let targetGroupId: string;
-        let groupResolved = false;
+        // Is there already a same-named list on the target day? (Exclude the
+        // group we're carrying so a pinned group can't match itself.)
+        let existingId: string | null = null;
+        let lookupOk = false;
         try {
-          // Reuse a same-named list on the target day if present, so repeated
-          // carries don't pile up duplicate categories.
           const { data: existing } = await supabase
             .from("checklist_groups")
             .select("id")
             .eq("user_id", userId)
             .eq("plan_date", targetDate)
             .eq("title", group.title)
+            .neq("id", group.id)
             .limit(1)
             .maybeSingle();
-          if (existing?.id) {
-            targetGroupId = existing.id;
+          existingId = existing?.id ?? null;
+          lookupOk = true;
+        } catch {
+          // Offline — fall through; we'll repoint or queue with freshGroupId.
+        }
+
+        // ── TRUE MOVE: whole group leaves AND nothing to merge into ──────────
+        // Repoint the group row + its items onto the target day. No orphan.
+        if (sourceEmptied && lookupOk && !existingId) {
+          try {
+            const { error: gErr } = await supabase
+              .from("checklist_groups")
+              .update({ plan_date: targetDate })
+              .eq("id", group.id);
+            if (gErr) throw gErr;
+            const { error: iErr } = await supabase
+              .from("checklist_items")
+              .update({ plan_date: targetDate })
+              .in("id", ids);
+            if (iErr) throw iErr;
+          } catch {
+            await enqueueWrite({ table: "checklist_groups", op: "update", filter: { id: group.id }, payload: { plan_date: targetDate } });
+            for (const id of ids) {
+              await enqueueWrite({ table: "checklist_items", op: "update", filter: { id }, payload: { plan_date: targetDate } });
+            }
+          }
+          return;
+        }
+
+        // ── SPLIT / MERGE: resolve a target group, move items into it, then
+        // remove the source group if this carry emptied it. ─────────────────
+        let targetGroupId: string;
+        let groupResolved = false;
+        try {
+          if (existingId) {
+            targetGroupId = existingId;
           } else {
             const { error: gErr } = await supabase.from("checklist_groups").insert(groupRow);
             if (gErr) throw gErr;
@@ -621,11 +746,9 @@ export function useChecklist(
           }
           groupResolved = true;
         } catch {
-          // Offline — fall through with freshGroupId; queue the insert below.
           targetGroupId = freshGroupId;
         }
 
-        // Now update the items to the resolved group.
         let itemsWritten = false;
         if (groupResolved) {
           try {
@@ -640,8 +763,7 @@ export function useChecklist(
           }
         }
 
-        // Queue anything that didn't make it online. FIFO order: group first,
-        // then items, so the list exists before the items reference it.
+        // Queue anything that didn't make it online. FIFO: group then items.
         if (!groupResolved) {
           await enqueueWrite({ table: "checklist_groups", op: "insert", payload: groupRow });
         }
@@ -654,6 +776,11 @@ export function useChecklist(
               payload: { plan_date: targetDate, group_id: targetGroupId },
             });
           }
+        }
+
+        // Source group is now empty → delete it so no blank plate is left behind.
+        if (sourceEmptied) {
+          await deleteGroupRow(group.id);
         }
       })();
     },
@@ -726,6 +853,7 @@ export function useChecklist(
     deleteGroup,
     addItem,
     toggleItem,
+    toggleItemFailed,
     renameItem,
     deleteItem,
     togglePinGroup,

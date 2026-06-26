@@ -2,6 +2,7 @@
  * Shared Pro-paywall building blocks — used by BOTH the in-app UpgradeSheet
  * and the onboarding paywall step so the two never drift apart visually.
  */
+import { memo } from "react";
 import { motion } from "framer-motion";
 import { Link } from "react-router-dom";
 import { type LucideIcon } from "lucide-react";
@@ -9,7 +10,7 @@ import { type PlanPrice } from "@/lib/revenueCat";
 
 /* ─── Feature data ─────────────────────────────────────────────── */
 export type ProFeature = {
-  id: "unlimited" | "drift" | "pdf_export" | "billing_reports";
+  id: "unlimited" | "insights" | "pdf_export" | "billing_reports";
   Icon: LucideIcon;
   accent: string; // raw HSL triplet
   title: string;
@@ -25,11 +26,11 @@ export const PRO_FEATURES: readonly ProFeature[] = [
     desc: "Generate full schedules and chat with the AI assistant any day, no caps.",
   },
   {
-    id: "drift",
+    id: "insights",
     Icon: (() => null) as unknown as LucideIcon,
     accent: "38 90% 54%",
-    title: "No daily planning cap",
-    desc: "Free plan allows 5 planning days. Go Pro and plan every day — no cap, ever.",
+    title: "Daily AI Insights",
+    desc: "A fresh riddle, quiz, or challenge every morning — plus a recap of yesterday.",
   },
   {
     id: "pdf_export",
@@ -82,28 +83,22 @@ function IconUnlimited({ accent }: { accent: string }) {
   );
 }
 
-function IconNoLimit({ accent }: { accent: string }) {
-  // Calendar grid with an open padlock top-right — "plan any day, no cap".
+function IconInsights({ accent }: { accent: string }) {
+  // Exact Lucide Sparkles paths (24×24 viewBox scaled to 32×32 by the SVG).
   return (
-    <svg width="32" height="32" viewBox="0 0 32 32" fill="none" aria-hidden>
-      {/* Calendar body */}
-      <rect x="4" y="10" width="18" height="16" rx="2.5" stroke={`hsl(${accent})`} strokeWidth="2.2" opacity="0.45" />
-      {/* Calendar top tabs */}
-      <line x1="9" y1="7" x2="9" y2="12" stroke={`hsl(${accent})`} strokeWidth="2.2" strokeLinecap="round" />
-      <line x1="17" y1="7" x2="17" y2="12" stroke={`hsl(${accent})`} strokeWidth="2.2" strokeLinecap="round" />
-      {/* Header divider */}
-      <line x1="4" y1="15" x2="22" y2="15" stroke={`hsl(${accent})`} strokeWidth="1.5" opacity="0.4" />
-      {/* Day dots — a mini grid */}
-      <g fill={`hsl(${accent})`} opacity="0.7">
-        <circle cx="9" cy="19.5" r="1.3" />
-        <circle cx="13" cy="19.5" r="1.3" />
-        <circle cx="17" cy="19.5" r="1.3" />
-        <circle cx="9" cy="23.5" r="1.3" />
-        <circle cx="13" cy="23.5" r="1.3" />
-      </g>
-      {/* Open padlock top-right — shackle open (rotated) */}
-      <rect x="22" y="18" width="7" height="6" rx="1.5" stroke={`hsl(${accent})`} strokeWidth="1.8" />
-      <path d="M 23.5 18 L 23.5 15.5 C 23.5 13.8 28.5 13.8 28.5 15.5" stroke={`hsl(${accent})`} strokeWidth="1.8" strokeLinecap="round" fill="none" />
+    <svg width="32" height="32" viewBox="0 0 24 24" fill="none" aria-hidden>
+      {/* Main 4-pointed star */}
+      <path
+        d="M9.937 15.5A2 2 0 0 0 8.5 14.063l-6.135-1.582a.5.5 0 0 1 0-.962L8.5 9.936A2 2 0 0 0 9.937 8.5l1.582-6.135a.5.5 0 0 1 .963 0L14.063 8.5A2 2 0 0 0 15.5 9.937l6.135 1.581a.5.5 0 0 1 0 .964L15.5 14.063a2 2 0 0 0-1.437 1.437l-1.582 6.135a.5.5 0 0 1-.963 0z"
+        stroke={`hsl(${accent})`} strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round"
+        fill={`hsl(${accent} / 0.18)`}
+      />
+      {/* Small sparkle top-right */}
+      <path d="M20 3v4" stroke={`hsl(${accent})`} strokeWidth="1.8" strokeLinecap="round" />
+      <path d="M22 5h-4" stroke={`hsl(${accent})`} strokeWidth="1.8" strokeLinecap="round" />
+      {/* Tiny sparkle bottom-left */}
+      <path d="M4 17v2" stroke={`hsl(${accent})`} strokeWidth="1.8" strokeLinecap="round" opacity="0.55" />
+      <path d="M5 18H3" stroke={`hsl(${accent})`} strokeWidth="1.8" strokeLinecap="round" opacity="0.55" />
     </svg>
   );
 }
@@ -146,13 +141,13 @@ function IconBilling({ accent }: { accent: string }) {
 
 const ICONS: Record<ProFeature["id"], (p: { accent: string }) => JSX.Element> = {
   unlimited: IconUnlimited,
-  drift: IconNoLimit,
+  insights: IconInsights,
   pdf_export: IconReport,
   billing_reports: IconBilling,
 };
 
 /* ─── Feature card ─────────────────────────────────────────────── */
-export function ProFeatureCard({
+export const ProFeatureCard = memo(function ProFeatureCard({
   feat,
   index = 0,
   animate = true,
@@ -165,17 +160,17 @@ export function ProFeatureCard({
   const IconGlyph = ICONS[id];
 
   const inner = (
-    <div className="px-3.5 py-3 flex items-center gap-3">
+    <div className="px-3.5 py-1.5 flex items-center gap-2.5">
       {/* Icon box — tinted background, custom glyph */}
       <span
-        className="flex h-10 w-10 shrink-0 items-center justify-center rounded-[11px]"
+        className="flex h-9 w-9 shrink-0 items-center justify-center rounded-[10px]"
         style={{ background: `hsl(${accent} / 0.28)` }}
       >
         <IconGlyph accent={accent} />
       </span>
       <div className="min-w-0 flex-1">
-        <p className="text-[13.5px] font-semibold text-foreground leading-snug">{title}</p>
-        <p className="text-[11.5px] text-secondary-fg/70 mt-0.5 leading-snug">{desc}</p>
+        <p className="text-[13.5px] font-semibold text-foreground leading-tight">{title}</p>
+        <p className="text-[11.5px] text-secondary-fg/70 mt-0.5 leading-[1.25]">{desc}</p>
       </div>
     </div>
   );
@@ -184,7 +179,11 @@ export function ProFeatureCard({
     background: `linear-gradient(135deg, hsl(${accent} / 0.10) 0%, hsl(var(--card) / 0.72) 55%)`,
     borderColor: `hsl(${accent} / 0.30)`,
   };
-  const className = "rounded-[16px] border backdrop-blur-sm overflow-hidden";
+  // NOTE: no backdrop-blur here. The card sits on the sheet's opaque
+  // bg-background, so blur was visually a no-op — but on iOS WKWebView each of
+  // the 4 cards forced a full GPU re-composite on every repaint/animation frame,
+  // which is what froze the paywall (1.5s+) on open and on plan-switch.
+  const className = "rounded-[16px] border overflow-hidden";
 
   if (!animate) return <div className={className} style={cardStyle}>{inner}</div>;
 
@@ -199,31 +198,49 @@ export function ProFeatureCard({
       {inner}
     </motion.div>
   );
-}
+});
 
 /* ─── Plan row ─────────────────────────────────────────────────── */
+
+// StoreKit (iOS) returns "US$59.99" instead of "$59.99" on non-US device
+// locales for USD prices. Strip the two-letter country prefix so prices
+// always show as "$59.99" regardless of locale.
+function cleanPrice(s: string): string {
+  return s.replace(/^[A-Z]{2}(\$|€|£|¥|₩|₹|₽|CHF\s*|AUD\s*|CAD\s*)/, "$1");
+}
+
+// Intl.NumberFormat construction is expensive on iOS JSCore (first call
+// initialises ICU locale data). Cache by currency so we pay the cost once.
+const fmtCache = new Map<string, Intl.NumberFormat>();
 function fmtPlanMoney(amount: number, currency: string): string {
   try {
-    return new Intl.NumberFormat(undefined, {
-      style: "currency",
-      currency,
-      minimumFractionDigits: 2,
-      maximumFractionDigits: 2,
-    }).format(amount);
+    let fmt = fmtCache.get(currency);
+    if (!fmt) {
+      fmt = new Intl.NumberFormat(undefined, {
+        style: "currency",
+        currency,
+        minimumFractionDigits: 2,
+        maximumFractionDigits: 2,
+      });
+      fmtCache.set(currency, fmt);
+    }
+    return cleanPrice(fmt.format(amount));
   } catch {
     return amount.toFixed(2);
   }
 }
 
-export function ProPlanRow({
+export const ProPlanRow = memo(function ProPlanRow({
   plan,
   active,
-  onClick,
+  onSelect,
   priceInfo,
 }: {
   plan: ProPlan;
   active: boolean;
-  onClick: () => void;
+  // Receives the plan id. Pass a STABLE handler (useCallback) so the row's memo
+  // holds — otherwise every plan-switch re-renders all three rows.
+  onSelect: (id: ProPlanId) => void;
   priceInfo?: PlanPrice;
 }) {
   const isAnnual = plan.id === "annual";
@@ -231,51 +248,51 @@ export function ProPlanRow({
   return (
     <button
       type="button"
-      onClick={onClick}
-      className={`relative w-full text-left rounded-[14px] px-4 py-3 pressable transition-all duration-200 border ${
-        active ? "ring-2 ring-primary/60 bg-primary/[0.08] border-primary/20" : "bg-card/40 border-border/60"
+      onClick={() => onSelect(plan.id)}
+      className={`relative w-full text-left rounded-[16px] px-4 py-3 pressable transition-all duration-200 border ${
+        active ? "ring-2 ring-primary/60 bg-primary/[0.08] border-primary/30 shadow-md shadow-primary/5" : "bg-card/40 border-border/60 hover:bg-card/60"
       }`}
     >
-      <div className="flex items-center gap-3">
+      <div className="flex items-center gap-4">
         <span
-          className={`flex h-5 w-5 shrink-0 items-center justify-center rounded-full border-2 transition-colors duration-300 ${
+          className={`flex h-[22px] w-[22px] shrink-0 items-center justify-center rounded-full border-2 transition-colors duration-300 ${
             active ? "border-primary" : "border-border/90"
           }`}
         >
           <span
-            className={`h-2.5 w-2.5 rounded-full bg-primary transition-all duration-300 ease-out origin-center ${
+            className={`h-3 w-3 rounded-full bg-primary transition-all duration-300 ease-out origin-center ${
               active ? "scale-100 opacity-100" : "scale-0 opacity-0"
             }`}
           />
         </span>
 
-        <div className="flex items-center gap-2 flex-1 min-w-0">
-          <span className="text-[13.5px] font-semibold text-foreground">{plan.label}</span>
-          {isAnnual && <span className="text-[11px] font-semibold text-amber-500">Save 50%</span>}
+        <div className="flex items-center gap-2.5 flex-1 min-w-0">
+          <span className="text-[15px] font-semibold text-foreground">{plan.label}</span>
+          {isAnnual && <span className="text-[11.5px] font-bold text-amber-500 bg-amber-500/10 px-2 py-0.5 rounded-full uppercase tracking-wide">Save 50%</span>}
         </div>
 
-        <div className="text-left shrink-0 min-w-[96px]">
+        <div className="text-right shrink-0 min-w-[96px]">
           {isAnnual ? (
             <>
-              <p className="text-[13.5px] font-semibold text-foreground tabular-nums">
-                {priceInfo ? fmtPlanMoney(priceInfo.price / 12, priceInfo.currencyCode) : "$4.99"}
-                <span className="text-[11.5px] font-normal text-secondary-fg">/mo</span>
+              <p className="text-[15px] font-semibold text-foreground tabular-nums">
+                {priceInfo ? fmtPlanMoney(Math.floor(priceInfo.price / 12 * 100) / 100, priceInfo.currencyCode) : "$4.99"}
+                <span className="text-[12px] font-normal text-secondary-fg/80">/mo</span>
               </p>
-              <p className="text-[11px] text-secondary-fg/60 tabular-nums">
-                billed {priceInfo ? priceInfo.priceString : "$59.99"}/yr
+              <p className="text-[11px] text-secondary-fg/60 mt-0.5">
+                Billed annually at {priceInfo ? fmtPlanMoney(priceInfo.price, priceInfo.currencyCode) : "$59.99"}
               </p>
             </>
           ) : (
-            <p className="text-[13.5px] font-semibold text-foreground tabular-nums">
-              {priceInfo ? priceInfo.priceString : plan.price}
-              <span className="text-[11.5px] font-normal text-secondary-fg">{plan.period}</span>
+            <p className="text-[15px] font-semibold text-foreground tabular-nums">
+              {priceInfo ? cleanPrice(priceInfo.priceString) : plan.price}
+              <span className="text-[12px] font-normal text-secondary-fg/80"> {plan.period}</span>
             </p>
           )}
         </div>
       </div>
     </button>
   );
-}
+});
 
 /* ─── Subscription terms + legal links ─────────────────────────────
    Apple Guideline 3.1.2 requires the auto-renew terms AND functional
@@ -293,15 +310,14 @@ export function PaywallTerms({
   priceInfo?: PlanPrice;
 }) {
   const plan = PRO_PLANS.find((p) => p.id === planId) ?? PRO_PLANS[0];
-  const priceStr = priceInfo ? priceInfo.priceString : plan.price;
+  const priceStr = priceInfo ? cleanPrice(priceInfo.priceString) : plan.price;
   const periodWord = plan.id === "annual" ? "year" : plan.id === "monthly" ? "month" : "week";
-  const lead = plan.id === "annual" ? `7 days free, then ${priceStr}/${periodWord}.` : `${priceStr}/${periodWord}.`;
+  const lead = plan.id === "annual" ? `3 days free, then ${priceStr}/${periodWord}.` : `${priceStr}/${periodWord}.`;
 
   return (
-    <div className="mt-3 px-3 text-center">
-      <p className="text-[10.5px] leading-[1.5] text-secondary-fg/45">
-        {lead} Auto-renews until cancelled; your App Store or Google Play account is charged on
-        confirmation and again at each renewal. Cancel anytime in your store subscription settings.
+    <div className="mt-2 px-3 text-center">
+      <p className="text-[10.5px] leading-[1.45] text-secondary-fg/45">
+        {lead} Auto-renews. Cancel anytime in settings.
       </p>
       <p className="text-[10.5px] leading-[1.5] text-secondary-fg/55 mt-1">
         <Link to="/terms" className="underline underline-offset-2 hover:text-foreground">Terms of Use</Link>

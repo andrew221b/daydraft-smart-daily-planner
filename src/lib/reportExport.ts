@@ -652,15 +652,24 @@ export async function downloadReportPdf(report: ReportPayload) {
 
   // Emphasised block: an accent banner header, a tinted body, an accent strip
   // down the left edge, and the payment-method value called out in accent +
-  // underline — so the "how do I get paid" details are the first thing the eye
-  // lands on (this is the part an invoice recipient actually needs).
+  // a tag-style outline — so the "how do I get paid" details are the first
+  // thing the eye lands on (this is the part an invoice recipient actually
+  // needs). A plain underline read as a dead hyperlink on a static PDF, so
+  // the value gets a pill outline instead — same call-out, no link styling.
   const payTint: RGB = [243, 244, 255];      // very light indigo body fill
   const payTintAlt: RGB = [235, 236, 252];   // alternating row
   for (let si = 0; si < sections.length; si++) {
     const sec = sections[si];
     const paymentRows = paymentDetailRows(sec.details);
     if (!paymentRows.length) continue;
-    cursorY = ensureRoom(cursorY, 120);
+    // A payment card is a small, cohesive unit (banner + a handful of
+    // key/value rows) — letting autoTable split it mid-card across a page
+    // boundary re-prints the banner and looks broken. Size the room check to
+    // this card's actual row count so it lands on a fresh page as a whole
+    // when it won't fully fit, instead of using a flat guess that only
+    // covers ~3 rows.
+    const notesAllowance = paymentRows.some(([label]) => /notes/i.test(label)) ? 14 : 0;
+    cursorY = ensureRoom(cursorY, 34 + paymentRows.length * 34 + notesAllowance + 24);
 
     // Scope label (strip the "Payment — " prefix the caller adds). Folded into
     // the accent banner so long / Cyrillic names never collapse the layout.
@@ -716,22 +725,33 @@ export async function downloadReportPdf(report: ReportPayload) {
           doc.setFillColor(...accent);
           doc.rect(margin, data.cell.y, 3, data.cell.height, "F");
         }
-        // Underline the payment-method value to make it pop.
+        // Pill outline around the payment-method value to make it pop,
+        // without the underline's dead-hyperlink look on a static PDF.
         if (data.section === "body" && data.column.index === 1 && data.row.index === methodIdx) {
           const v = String(paymentRows[methodIdx]?.[1] ?? "");
           if (v) {
             doc.setFont(FONT, "bold");
             doc.setFontSize(9.5);
-            const ux = data.cell.x + 18;
-            const uy = data.cell.y + data.cell.height / 2 + 5.5;
+            const tw = doc.getTextWidth(v);
+            const padX = 6;
+            const boxH = 16;
+            const rx = data.cell.x + 18 - padX;
+            const ry = data.cell.y + data.cell.height / 2 - boxH / 2;
             doc.setDrawColor(...accent);
-            doc.setLineWidth(0.8);
-            doc.line(ux, uy, ux + doc.getTextWidth(v), uy);
+            doc.setLineWidth(0.9);
+            doc.roundedRect(rx, ry, tw + padX * 2, boxH, 5, 5, "S");
           }
         }
       },
     });
-    cursorY = ((doc as { lastAutoTable?: { finalY: number } }).lastAutoTable?.finalY || cursorY) + 24;
+    const cardEndY = (doc as { lastAutoTable?: { finalY: number } }).lastAutoTable?.finalY || cursorY;
+    // Mask the table's sharp corners into the card's rounded silhouette —
+    // same white-stroke-over-the-edge trick the distribution bar uses below,
+    // so this block matches the rounded-card language used everywhere else.
+    doc.setDrawColor(255, 255, 255);
+    doc.setLineWidth(3);
+    doc.roundedRect(margin - 1.5, cursorY - 1.5, usableW + 3, cardEndY - cursorY + 3, 7.5, 7.5, "S");
+    cursorY = cardEndY + 24;
   }
 
   // ── Column-sizing helpers ────────────────────────────────
@@ -983,7 +1003,7 @@ export async function downloadReportPdf(report: ReportPayload) {
           const rec: Record<string, string> = { mark: "", ...rowOf(e) };
           return cols.map((c) => rec[c.key]);
         }),
-        margin: { left: margin, right: margin, bottom: 56 },
+        margin: { top: 70, left: margin, right: margin, bottom: 56 },
         tableWidth: usableW,
         styles: {
           font: FONT,
@@ -1032,6 +1052,20 @@ export async function downloadReportPdf(report: ReportPayload) {
               doc.setTextColor(...white);
               doc.text(String(ref.n), bx + bw / 2, by + bh / 2 + 2.5, { align: "center" });
             }
+          }
+        },
+        didDrawPage: (data) => {
+          // A page break mid-category otherwise resumes with a bare
+          // Date/Time/Session… head row and zero indication which category
+          // the orphaned rows belong to — repeat a compact name+dot label.
+          if (data.pageNumber > 1) {
+            const cy = margin + 13;
+            doc.setFillColor(cr, cg, cb);
+            doc.circle(margin + 4, cy - 3, 3, "F");
+            doc.setFont(FONT, "bold");
+            doc.setFontSize(9);
+            doc.setTextColor(...sub);
+            doc.text(`${nm} · continued`, margin + 12, cy);
           }
         },
       });

@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useRef, useState, type CSSProperties } from "react";
 import { Clock, AlertTriangle, Trash2, Tag, FileText } from "lucide-react";
 import { motion } from "framer-motion";
+import { toast } from "sonner";
 import { Sheet, SheetContent, SheetTitle } from "@/components/ui/sheet";
 import {
   AlertDialog,
@@ -438,7 +439,7 @@ export function SessionTaskSheet({
           <button
             type="button"
             onClick={commit}
-            className="flex-[1.6] h-[52px] rounded-[16px] bg-primary text-primary-foreground text-[14px] font-semibold pressable shadow-[0_10px_28px_-8px_hsl(var(--primary)/0.55)] transition-opacity"
+            className="flex-[1.6] h-[52px] rounded-[16px] bg-primary text-primary-foreground text-[14px] font-semibold pressable cta-glow transition-opacity"
           >
             {draft.trim() ? "Save name" : initialTitle ? "Clear name" : "Save"}
           </button>
@@ -481,7 +482,16 @@ export function SessionNoteSheet({
   }, [open, initialNote]);
 
   const commit = () => {
-    onSave(draft.trim());
+    const trimmed = draft.trim();
+    // Nothing to write: no prior note, and the user typed nothing (or only
+    // whitespace). Saving that would silently persist an empty value — tell
+    // them instead of writing a no-op.
+    if (!trimmed && !initialNote.trim()) {
+      toast("Note was empty", { description: "Nothing was saved" });
+      onClose();
+      return;
+    }
+    onSave(trimmed);
     haptics.notify("success");
     onClose();
   };

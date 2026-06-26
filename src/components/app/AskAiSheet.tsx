@@ -35,7 +35,7 @@ const hourLabel = (h: number): string => {
  * Explicit fields (time, name, rhythm, rules, about) are always included.
  * Learned patterns are gated on the personalization toggle.
  */
-function buildUserFacts(profile: Profile | null, patterns: UserPatterns | null): string {
+export function buildUserFacts(profile: Profile | null, patterns: UserPatterns | null): string {
   const lines: string[] = [];
 
   const tz = profile?.timezone || Intl.DateTimeFormat().resolvedOptions().timeZone;
@@ -286,7 +286,8 @@ export function AskAiSheet({
 
     try {
       const { data: { session } } = await supabase.auth.getSession();
-      const token = session?.access_token ?? (import.meta.env.VITE_SUPABASE_ANON_KEY as string);
+      if (!session?.access_token) throw new Error("Sign in to use AI chat.");
+      const token = session.access_token;
 
       // Context goes in dedicated fields — the function folds them into the
       // system prompt. Sending them as fake "user" messages caused two
@@ -391,9 +392,9 @@ export function AskAiSheet({
     if (taskTitle) {
       const t = taskTitle.length > 30 ? taskTitle.slice(0, 30) + "…" : taskTitle;
       return [
-        { label: "How long will this take?", hint: "Realistic estimate with one-line reasoning", prompt: `How long will "${t}" realistically take? One-line reasoning.`, send: true },
         { label: "Break it into steps", hint: "3–5 concrete sub-tasks to check off", prompt: `Break "${t}" into 3–5 concrete, ordered steps I can check off.`, send: true },
-        { label: "Best time of day for it", hint: "When this type of work fits best", prompt: `When in the day is "${t}" best done, and why?`, send: true },
+        { label: "Tips to do it well", hint: "Practical advice for this exact task", prompt: `Give me 2–3 concrete, practical tips to do "${t}" well and efficiently.`, send: true },
+        { label: "Help me start", hint: "Smallest first move, for when you're stalling", prompt: `What's the smallest possible first action to start "${t}" right now? I'm putting it off.`, send: true },
       ];
     }
     // Empty day
@@ -402,12 +403,15 @@ export function AskAiSheet({
       { label: "Suggest a balanced day structure", hint: "Deep work, breaks & admin in proportion", prompt: "Suggest a balanced shape for a productive day (deep work, breaks, admin) without scheduling anything for me.", send: true },
       { label: "How do I avoid overcommitting?", hint: "Practical tips for a realistic task count", prompt: "How do I pick a realistic number of tasks for one day without overcommitting?", send: true },
     ];
-    // Day with tasks
+    // Day with tasks — every suggestion reads the user's real plan and answers
+    // in one tap, so they all behave identically. (Previously two of these were
+    // half-filled "type the rest yourself" prompts mixed in with one-tap ones,
+    // which read as inconsistent and confusing.)
     return [
-      { label: "Spot one weak spot in my day", hint: "Reads your plan — advice only, no changes", prompt: "Look at my current day and point out one weak spot or risk — just advice, don't change anything.", send: true },
-      { label: "Where should I add a break?", hint: "Finds the best gap in your current schedule", prompt: "Where in my current day would a short break help most, and why?", send: true },
-      { label: "Estimate time for a task", hint: "Type the task name and I'll estimate it", prompt: "Estimate time for: " },
-      { label: "Break a task into steps", hint: "Type the task name and I'll break it down", prompt: "Break this task into steps: " },
+      { label: "What should I start with?", hint: "Reads your plan and picks the best first move", prompt: "Looking at my current day, what's the single best thing to start with right now, and why?", send: true },
+      { label: "Spot a weak point in my day", hint: "One honest risk — advice only, no changes", prompt: "Look at my current day and point out the one biggest weak spot or risk. Just advice — don't change anything.", send: true },
+      { label: "Where should I add a break?", hint: "Finds the best gap to rest", prompt: "Where in my current day would a short break help most, and why?", send: true },
+      { label: "Is my day realistic?", hint: "Honest read on today's workload", prompt: "Be honest — does my current day look realistic, or am I overcommitting? What would you move or cut?", send: true },
     ];
   }, [seedContext, taskTitle]);
 
@@ -571,7 +575,7 @@ export function AskAiSheet({
  * Sells what they'd get (three concrete bullets, each with an icon),
  * leaves the divider line so the sheet still has its three-row rhythm.
  */
-function AskAiPaywall({ onUpgrade }: { onUpgrade: () => void }) {
+export function AskAiPaywall({ onUpgrade }: { onUpgrade: () => void }) {
   const PERKS = [
     { Icon: Brain,    label: "Conversational AI",      blurb: "Ask anything — about your day or the world." },
     { Icon: Compass,  label: "Smart, contextual help", blurb: "Time estimates, breakdowns, and grounded takes." },
@@ -612,7 +616,7 @@ function AskAiPaywall({ onUpgrade }: { onUpgrade: () => void }) {
       <button
         type="button"
         onClick={onUpgrade}
-        className="mt-6 w-full h-12 rounded-2xl bg-gradient-to-br from-primary to-primary-glow text-primary-foreground text-[14px] font-semibold pressable shadow-[0_8px_28px_-8px_hsl(var(--primary)/0.55)]"
+        className="mt-6 w-full h-12 rounded-2xl bg-gradient-to-br from-primary to-primary-glow text-primary-foreground text-[14px] font-semibold pressable cta-glow"
       >
         <span className="inline-flex items-center justify-center gap-2">
           <Sparkles className="h-4 w-4" />
@@ -620,7 +624,7 @@ function AskAiPaywall({ onUpgrade }: { onUpgrade: () => void }) {
         </span>
       </button>
       <p className="mt-2.5 text-[11px] text-secondary-fg/60 text-center">
-        Cancel anytime · 7-day free trial
+        Cancel anytime · 3-day free trial
       </p>
     </div>
   );

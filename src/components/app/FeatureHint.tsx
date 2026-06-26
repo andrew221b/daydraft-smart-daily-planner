@@ -1,4 +1,4 @@
-import { useEffect, useState, type ReactNode, type RefObject } from "react";
+import { useEffect, useLayoutEffect, useRef, useState, type ReactNode, type RefObject } from "react";
 import { createPortal } from "react-dom";
 import { motion } from "framer-motion";
 import { X } from "lucide-react";
@@ -12,6 +12,8 @@ const GAP = 12; // distance between anchor and card
 const CARD_MAX = 320;
 const ARROW = 9; // half-size of the little diamond
 const RING_PAD = 6; // how far the spotlight ring sits outside the anchor
+const TABBAR_KEEPOUT = 92; // bottom tab bar + home indicator — never place the card under it
+const TOPBAR_KEEPOUT = 52; // status / header zone at the top
 
 // The hint's own identity colour: emerald, deliberately distinct from the app's
 // blue --primary, echoing the old green tutorial spotlight the user liked.
@@ -38,7 +40,8 @@ export function FeatureHint({
   children,
   placement = "auto",
   badge,
-  delayMs = 380,
+  delayMs = 220,
+  autoScroll = true,
 }: {
   id: string;
   selector?: string;
@@ -50,10 +53,22 @@ export function FeatureHint({
   /** Optional eyebrow tag, e.g. "New". Defaults to "Tip". */
   badge?: string;
   delayMs?: number;
+  /** When false, the hint never scrolls the page to its anchor — it stays hidden
+   *  until the user scrolls the anchor into view on their own, then appears.
+   *  Use for hints on a long page where yanking the viewport is jarring. */
+  autoScroll?: boolean;
 }) {
   const { enabled, isSeen, markSeen, setEnabled, register, unregister, isActive } = useHints();
 
-  const eligible = enabled && active && !isSeen(id);
+  // "Explicitly dismissed" (Got it / X / Turn off) is tracked locally and is
+  // what actually hides the card. It's deliberately separate from "seen": we
+  // persist seen the moment the hint is displayed (so it never returns on the
+  // next launch), while `persistedRef` latches eligibility so persisting doesn't
+  // yank the card out from under someone still reading it.
+  const [dismissed, setDismissed] = useState(false);
+  const persistedRef = useRef(false);
+
+  const eligible = enabled && active && !dismissed && (!isSeen(id) || persistedRef.current);
 
   // Settle delay — let the screen finish entering before a tip pops, so we don't
   // measure mid-transition. Kept short; the rAF loop below corrects any drift.
@@ -69,6 +84,10 @@ export function FeatureHint({
   // on the element through animations/scroll — and drops it to null the moment
   // the anchor is gone, which is what makes teardown instant on navigation.
   const [rect, setRect] = useState<DOMRect | null>(null);
+  // Scroll the anchor into a comfortable spot exactly once per showing. Reset
+  // whenever this hint (re)becomes eligible so a re-armed tip scrolls again.
+  const scrolledRef = useRef(false);
+  useEffect(() => { scrolledRef.current = false; }, [id, eligible, ready]);
   useEffect(() => {
     if (!eligible || !ready) { setRect(null); return; }
     let raf = 0;
@@ -78,6 +97,29 @@ export function FeatureHint({
     const tick = () => {
       if (!alive) return;
       const el = getEl();
+      const uTop = TOPBAR_KEEPOUT + MARGIN;
+      const uBottom = window.innerHeight - TABBAR_KEEPOUT - MARGIN;
+      if (el) {
+        const r0 = el.getBoundingClientRect();
+        const outOfBand = r0.height > 0 && (r0.top < uTop + 8 || r0.bottom > uBottom - 8);
+        if (autoScroll) {
+          // "Hints at the bottom don't scroll me there": once, if the anchor sits
+          // outside the usable band, bring it toward centre. Instant scroll keeps
+          // it snappy; we re-measure next frame so the card lands settled.
+          if (!scrolledRef.current && outOfBand) {
+            scrolledRef.current = true;
+            try { el.scrollIntoView({ block: "center", behavior: "auto" }); } catch { /* old webview */ }
+            raf = requestAnimationFrame(tick);
+            return;
+          }
+        } else if (outOfBand) {
+          // Never yank the viewport — stay hidden until the user scrolls the
+          // anchor into view themselves, then reveal on the next in-band frame.
+          setRect((prev) => (prev === null ? prev : null));
+          raf = requestAnimationFrame(tick);
+          return;
+        }
+      }
       const r = el ? el.getBoundingClientRect() : null;
       setRect((prev) => {
         if (!r || (r.width === 0 && r.height === 0)) return prev === null ? prev : null;
@@ -92,7 +134,7 @@ export function FeatureHint({
     };
     tick();
     return () => { alive = false; cancelAnimationFrame(raf); };
-  }, [eligible, ready, selector, anchorRef]);
+  }, [eligible, ready, selector, anchorRef, autoScroll]);
 
   // Claim the single on-screen slot only once we can actually paint; release it
   // the moment we can't (and on unmount).
@@ -107,28 +149,61 @@ export function FeatureHint({
 
   useEffect(() => { if (shown) haptics.selection?.(); }, [shown]);
 
+  // The fix for "tips replay on every launch": persist `seen` as soon as the
+  // hint has actually been on screen for a short dwell (the dwell guards against
+  // a transient one-frame flash during a page transition burning the tip). The
+  // card stays visible — `persistedRef` keeps it eligible despite seen=true — so
+  // this only changes the next-launch behaviour, not the current reading.
+  useEffect(() => {
+    if (!shown) return;
+    const t = window.setTimeout(() => {
+      persistedRef.current = true;
+      markSeen(id);
+    }, 800);
+    return () => window.clearTimeout(t);
+  }, [shown, id, markSeen]);
+
+  // Measured card height — used to clamp the card into the usable band so it
+  // never spills behind the tab bar / top bar. useLayoutEffect corrects the
+  // estimate before paint, so there's no visible jump.
+  const cardRef = useRef<HTMLDivElement>(null);
+  const [cardH, setCardH] = useState(150);
+  useLayoutEffect(() => {
+    const h = cardRef.current?.offsetHeight ?? 0;
+    if (h && Math.abs(h - cardH) > 1) setCardH(h);
+  });
+
   if (!shown || !rect) return null;
 
   const vw = window.innerWidth;
   const vh = window.innerHeight;
+  const usableTop = TOPBAR_KEEPOUT + MARGIN;
+  const usableBottom = vh - TABBAR_KEEPOUT - MARGIN;
 
-  const spaceBelow = vh - rect.bottom;
-  const spaceAbove = rect.top;
+  const spaceBelow = usableBottom - rect.bottom;
+  const spaceAbove = rect.top - usableTop;
   const place: "top" | "bottom" =
     placement === "top" ? "top"
     : placement === "bottom" ? "bottom"
-    : (spaceBelow >= 180 || spaceBelow >= spaceAbove) ? "bottom" : "top";
+    : (spaceBelow >= spaceAbove ? "bottom" : "top");
 
   const cardW = Math.min(CARD_MAX, vw - MARGIN * 2);
   const anchorCx = rect.left + rect.width / 2;
   let left = anchorCx - cardW / 2;
   left = Math.max(MARGIN, Math.min(left, vw - cardW - MARGIN));
 
-  const top = place === "bottom" ? rect.bottom + GAP : rect.top - GAP;
+  // Place against the chosen side, then clamp into the usable band. Because the
+  // anchor was scrolled toward centre there's room either way; the clamp is the
+  // safety net for short/edge layouts.
+  let top = place === "bottom" ? rect.bottom + GAP : rect.top - GAP - cardH;
+  top = Math.max(usableTop, Math.min(top, usableBottom - cardH));
+
   const arrowX = Math.max(18, Math.min(anchorCx - left, cardW - 18));
 
   const dismiss = (turnOff: boolean) => {
     haptics.selection?.();
+    persistedRef.current = true;
+    setDismissed(true);
     markSeen(id);
     unregister(id);
     if (turnOff) setEnabled(false);
@@ -173,6 +248,7 @@ export function FeatureHint({
       />
 
       <motion.div
+        ref={cardRef}
         role="dialog"
         initial={{ opacity: 0, scale: 0.94, y: place === "bottom" ? -6 : 6 }}
         animate={{ opacity: 1, scale: 1, y: 0 }}
@@ -183,7 +259,6 @@ export function FeatureHint({
           top,
           width: cardW,
           pointerEvents: "auto",
-          transform: place === "top" ? "translateY(-100%)" : undefined,
         }}
       >
         {/* Arrow */}

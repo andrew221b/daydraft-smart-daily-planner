@@ -53,10 +53,13 @@ export function extractDurationFromTitle(rawTitle: string): { title: string; dur
   let minutes = 0;
   let matched = false;
 
-  // Pattern: <num> h/hr/hrs/hour/hours/ч/час/часа/часов (+ optional decimals)
-  const hourRe = /(\d+(?:[.,]\d+)?)\s*(?:hours?|hrs?|h|часов|часа|час|ч)\b/gi;
+  // Pattern: <num> h/hr/hrs/hour/hours/ч/час/часа/часов (+ optional decimals).
+  // Negative lookahead instead of a trailing \b: \w never includes Cyrillic,
+  // so a boundary check right after "час(а/ов)" sees non-word on both sides
+  // and never fires — \b there silently kills every Russian match.
+  const hourRe = /(\d+(?:[.,]\d+)?)\s*(?:hours?|hrs?|h|часов|часа|час|ч)(?![a-zA-Zа-яёА-ЯЁ])/gi;
   // Pattern: <num> m/min/mins/minute/minutes/мин/минут
-  const minuteRe = /(\d+)\s*(?:minutes?|mins?|minute|m|минут[ауы]?|мин)\b/gi;
+  const minuteRe = /(\d+)\s*(?:minutes?|mins?|minute|m|минут[ауы]?|мин)(?![a-zA-Zа-яёА-ЯЁ])/gi;
 
   let m: RegExpExecArray | null;
   while ((m = hourRe.exec(original)) !== null) {
@@ -101,6 +104,34 @@ export function extractDurationFromTitle(rawTitle: string): { title: string; dur
   // Sanity cap (24h) — protect downstream packers from absurd values.
   const capped = Math.min(minutes, 24 * 60);
   return { title: cleanedTitle || cleanupTitle(original), duration: capped };
+}
+
+/**
+ * Pull a duration out of a short clarification-quiz ANSWER ("3-4 hours",
+ * "3 4 часа", "2 hours") rather than a task title. Ranges (with or without
+ * a dash — the model doesn't always include one) resolve to the upper
+ * bound, since under-allocating is the failure mode this exists to prevent:
+ * a task whose real length the user just confirmed should never end up
+ * shorter than what they said.
+ */
+export function parseDurationAnswer(text: string): number | null {
+  const t = text.trim();
+  // Negative lookahead, not \b — \w never includes Cyrillic, so a boundary
+  // check right after "часа"/"часов" never fires (see extractDurationFromTitle).
+  const noLetterAfter = "(?![a-zA-Zа-яёА-ЯЁ])";
+  const hourUnit = "(?:hours?|hrs?|h|часов|часа|час|ч)";
+  const minUnit = "(?:minutes?|mins?|min|m|минут\\w*|мин)";
+  const rangeHour = new RegExp(`(\\d+(?:[.,]\\d+)?)\\s*(?:[-–—]\\s*|\\s+)(\\d+(?:[.,]\\d+)?)\\s*${hourUnit}${noLetterAfter}`, "i").exec(t);
+  if (rangeHour) {
+    const hi = Math.max(parseFloat(rangeHour[1].replace(",", ".")), parseFloat(rangeHour[2].replace(",", ".")));
+    if (Number.isFinite(hi) && hi > 0 && hi <= 24) return Math.round(hi * 60);
+  }
+  const rangeMin = new RegExp(`(\\d+)\\s*(?:[-–—]\\s*|\\s+)(\\d+)\\s*${minUnit}${noLetterAfter}`, "i").exec(t);
+  if (rangeMin) {
+    const hi = Math.max(parseInt(rangeMin[1], 10), parseInt(rangeMin[2], 10));
+    if (Number.isFinite(hi) && hi > 0 && hi <= 600) return hi;
+  }
+  return extractDurationFromTitle(t).duration;
 }
 
 export function extractStartTimeFromTitle(rawTitle: string): { title: string; start_time: string | null } {

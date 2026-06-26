@@ -23,6 +23,11 @@ function isPermanentError(error: unknown): boolean {
     if (e.code.startsWith("23") || e.code.startsWith("42") || e.code.startsWith("PGRST")) return true;
   }
   if (typeof e.status === "number" && e.status >= 400 && e.status < 500) {
+    // 401/403 may be a transiently-expired session: the user went offline, the
+    // JWT lapsed, and Supabase hasn't refreshed it yet at drain time. Treating
+    // those as "permanent" silently deletes the user's queued offline edits.
+    // Keep them queued so they replay after the token refreshes on reconnect.
+    if (e.status === 401 || e.status === 403) return false;
     return true;
   }
   return false;

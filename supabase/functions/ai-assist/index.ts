@@ -1,28 +1,29 @@
+import { createClient } from "https://esm.sh/@supabase/supabase-js@2.95.0";
 import { corsHeaders } from "../_shared/cors.ts";
 import { DAYDRAFT_PERSONA } from "../_shared/persona.ts";
+import { callGeminiWithRetry, isTransientStatus } from "../_shared/geminiRetry.ts";
+
+// Burst guard, not a daily cap — see migration 20260625223726. Generous
+// enough that no real chat session ever brushes it; tight enough to choke a
+// script hammering the endpoint.
+const RATE_LIMIT_MAX_REQUESTS = 10;
+const RATE_LIMIT_WINDOW_SECONDS = 60;
 
 const SYSTEM = `${DAYDRAFT_PERSONA}
 
 You are in open conversation with the user right now — they may ask anything.
 
-When context prefixed "Context (not shown to user):" is present, use it to personalise your answer naturally. Never quote it back, never say "I see that you…" or "Based on your context". Just know it and talk accordingly — that quiet familiarity is what makes you feel close.
+When a context block (e.g. "ABOUT THE USER" or "CURRENT MOMENT") is present, use it to personalise your answer naturally. Never quote it back, never say "I see that you…" or "Based on your context". Just talk as if you know it. But personalising means using what is ACTUALLY in that block — not inventing more. If the context doesn't contain a fact, you don't have it: don't name a person, place, or past event the user never gave you, and never imply you remember an earlier chat (you don't — see GROUNDING in your persona). When you'd need a detail you don't have, ask one short question instead of fabricating one.
 
 Answer any question the user asks — planning, general, creative, personal. If it's not about planning, answer it fully and only tie it back to time/focus if it fits naturally. Don't force the connection.
 
-Keep replies short by default: 2–4 sentences for most things. Use bullet points only for actual lists of steps or options. No headers, no padded summaries. Give honest opinions — say plainly when something sounds hard or unrealistic; pretending everything is easy is a quiet form of disrespect. End without a follow-up question unless it genuinely moves the conversation forward.
+When they ask you to look at their day — what to start with, where it's weak, whether it's realistic, where a break fits — actually read the schedule in the context block and answer about THAT specific day: name the real tasks and times, point at the actual pressure point, and commit to one concrete recommendation. "Your two deep-work blocks are stacked back-to-back before lunch with no buffer — move the second to 2pm" is the job. Generic planning wisdom that ignores what's actually on their plate is the failure mode to avoid; if two people with different days could get the same answer from you, you didn't look hard enough.
 
-If the user's input is completely unintelligible gibberish or random letters (e.g., "asdfasdf"), do not invent a meaning. Just gently ask if their keyboard slipped or tell them you didn't quite catch that.`;
+Not every message is a real question. If the input is gibberish or random letters ("asdfgh", "фывафыва"), makes no logical sense, or is purely insults, swearing, or a provocation aimed at you — do NOT invent a meaning for it, and do NOT get defensive, offended, or preachy. Read it for what it most likely is — a slipped keyboard, a test, or someone blowing off steam — name that in one light, unbothered line, and offer to actually help with their day. Stay calm and a little dry; never lecture or moralize. Exception: when swearing is just the emotional colour on a real request ("блин, помоги уже спланировать день"), ignore the heat and answer the real thing.
 
-/** Models to try, in order. Falls back to a cheaper/older model when the
- *  preferred one is overloaded or rate-limited so the user still gets an answer
- *  instead of an error toast. */
-const MODEL_CHAIN = ["gemini-2.5-flash", "gemini-2.0-flash"];
+Keep replies short by default: 2–4 sentences for most things. Use bullet points only for actual lists of steps or options. No headers, no padded summaries. Give honest opinions — say plainly when something sounds hard or unrealistic; pretending everything is easy is a quiet form of disrespect. End without a follow-up question unless it genuinely moves the conversation forward.`;
 
-/** Errors worth a quick retry. Gemini sometimes 503s / 500s transiently. */
-const isTransient = (status: number) => status === 500 || status === 502 || status === 503 || status === 504;
-
-/** Sleep helper for backoff. */
-const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
+// Model chain + transient-retry now live in _shared/geminiRetry.ts.
 
 /** Call Gemini once. Returns the raw Response (caller decides retry / fallback). */
 async function callGemini(model: string, payloadMessages: unknown, apiKey: string, signal: AbortSignal): Promise<Response> {
@@ -53,9 +54,10 @@ function explainError(status: number, body: string): { msg: string; clientStatus
     return { msg: "That question hit a safety filter — try rephrasing.", clientStatus: 400 };
   }
   if (status === 400) {
-    return { msg: "AI didn't understand the request. Try rephrasing.", clientStatus: 400 };
+    const detail = typeof body === "string" ? body.trim().slice(0, 150) : "";
+    return { msg: `AI rejected the request: ${detail || "Bad request"}.`, clientStatus: 400 };
   }
-  if (isTransient(status)) {
+  if (isTransientStatus(status)) {
     return { msg: "AI is having a moment. Please try again.", clientStatus: 503 };
   }
   return { msg: "AI couldn't respond. Please try again.", clientStatus: 500 };
@@ -79,6 +81,45 @@ Deno.serve(async (req) => {
       console.error("[ai-assist] GEMINI_API_KEY missing");
       return new Response(JSON.stringify({ error: "AI is misconfigured on the server. Please contact support." }), {
         status: 500,
+        headers: { ...corsHeaders, "Content-Type": "application/json" },
+      });
+    }
+
+    // Require a real signed-in user — no falling back to the public anon
+    // key, which ships inside the app bundle and would otherwise let anyone
+    // hit this (now Pro-model) endpoint with zero attribution.
+    const authHeader = req.headers.get("Authorization");
+    if (!authHeader) {
+      return new Response(JSON.stringify({ error: "Sign in to use AI chat." }), {
+        status: 401,
+        headers: { ...corsHeaders, "Content-Type": "application/json" },
+      });
+    }
+    const supabase = createClient(
+      Deno.env.get("SUPABASE_URL")!,
+      Deno.env.get("SUPABASE_ANON_KEY")!,
+      { global: { headers: { Authorization: authHeader } } },
+    );
+    const { data: authData } = await supabase.auth.getUser();
+    if (!authData?.user) {
+      return new Response(JSON.stringify({ error: "Sign in to use AI chat." }), {
+        status: 401,
+        headers: { ...corsHeaders, "Content-Type": "application/json" },
+      });
+    }
+
+    // Burst guard (see RATE_LIMIT_* above + migration 20260625223726). Fail
+    // OPEN on an infra error so a Postgres hiccup never blocks a real user —
+    // only a confirmed "too many requests" verdict returns 429.
+    const { data: withinLimit, error: rateLimitError } = await supabase.rpc("check_ai_rate_limit", {
+      p_max_requests: RATE_LIMIT_MAX_REQUESTS,
+      p_window_seconds: RATE_LIMIT_WINDOW_SECONDS,
+    });
+    if (rateLimitError) {
+      console.error("[ai-assist] rate-limit check failed", rateLimitError.message);
+    } else if (withinLimit === false) {
+      return new Response(JSON.stringify({ error: "Slow down a bit — too many messages in a short time. Try again shortly." }), {
+        status: 429,
         headers: { ...corsHeaders, "Content-Type": "application/json" },
       });
     }
@@ -115,58 +156,42 @@ Deno.serve(async (req) => {
 
     const payloadMessages = [{ role: "system", content: systemPrompt }, ...safeMessages];
 
-    // Try each model with one retry per transient error. Total worst case is
-    // 2 models × 2 attempts = 4 calls, capped by the 55s outer timeout above.
-    let lastStatus = 0;
-    let lastBody = "";
-    for (const model of MODEL_CHAIN) {
-      for (let attempt = 0; attempt < 2; attempt++) {
-        // Abort-aware: if the user already disconnected, bail.
-        if (controller.signal.aborted) {
-          throw new Error("Request cancelled");
-        }
-        const resp = await callGemini(model, payloadMessages, GEMINI_API_KEY, controller.signal);
+    // Chat/Coach is the one surface where deeper reasoning is actually felt —
+    // unlike the high-volume structured calls (parse-tasks, generate-plan),
+    // so it runs on Pro first. Flash/Flash-lite stay as fallback if Pro errors
+    // or quota-limits, so this never trades reliability for the upgrade.
+    const CHAT_MODEL_CHAIN = ["gemini-2.5-pro", "gemini-2.5-flash", "gemini-2.5-flash-lite"];
 
-        if (resp.ok) {
-          // Successful stream — pipe straight through. Clear the timeout: once
-          // streaming starts, the platform's response lifetime takes over.
-          clearTimeout(requestTimeout);
-          return new Response(resp.body, {
-            headers: {
-              ...corsHeaders,
-              "Content-Type": "text/event-stream",
-              "Cache-Control": "no-cache",
-              "Connection": "keep-alive",
-              "X-Ai-Model": model,
-            },
-          });
-        }
+    // Shared model-chain + transient-retry (incl 404/429), abort-aware. Streams
+    // the OK response straight through; see _shared/geminiRetry.ts.
+    const { response: resp, model: usedModel, lastStatus, lastBody } = await callGeminiWithRetry(
+      (model) => callGemini(model, payloadMessages, GEMINI_API_KEY, controller.signal),
+      {
+        models: CHAT_MODEL_CHAIN,
+        baseBackoffMs: 400,
+        signal: controller.signal,
+        onError: ({ model, attempt, status, body }) =>
+          console.error("[ai-assist] upstream error", { model, attempt, status, body }),
+      },
+    );
 
-        // Drain body for log + diagnostics. Up to 1KB is plenty.
-        lastStatus = resp.status;
-        try {
-          const txt = await resp.text();
-          lastBody = txt.slice(0, 1024);
-        } catch {
-          lastBody = "";
-        }
-        console.error("[ai-assist] upstream error", { model, attempt, status: resp.status, body: lastBody });
-
-        // Rate limit → don't retry same model, but try next model.
-        if (resp.status === 429) break;
-        // Auth/config errors → fail fast.
-        if (resp.status === 401 || resp.status === 403) break;
-        // 4xx (other than 429) → user input issue, retrying won't help.
-        if (resp.status >= 400 && resp.status < 500) break;
-        // 5xx transient → quick backoff then retry once.
-        if (isTransient(resp.status) && attempt === 0) {
-          await sleep(400 + Math.floor(Math.random() * 300));
-          continue;
-        }
-        // Otherwise stop attempting this model.
-        break;
-      }
+    if (resp) {
+      // Successful stream — pipe straight through. Clear the timeout: once
+      // streaming starts, the platform's response lifetime takes over.
+      clearTimeout(requestTimeout);
+      return new Response(resp.body, {
+        headers: {
+          ...corsHeaders,
+          "Content-Type": "text/event-stream",
+          "Cache-Control": "no-cache",
+          "Connection": "keep-alive",
+          "X-Ai-Model": usedModel ?? "",
+        },
+      });
     }
+
+    // No model succeeded. If the client disconnected mid-flight, surface that.
+    if (controller.signal.aborted) throw new Error("Request cancelled");
 
     const { msg, clientStatus } = explainError(lastStatus, lastBody);
     return new Response(JSON.stringify({ error: msg }), {

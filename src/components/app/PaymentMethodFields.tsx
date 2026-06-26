@@ -1,8 +1,9 @@
 import { AnimatePresence, motion } from "framer-motion";
-import { Banknote, Check, ChevronDown, Coins, Search, Trash2 } from "lucide-react";
+import { AlertCircle, Banknote, Check, ChevronDown, Coins, Search, Trash2 } from "lucide-react";
 import { useEffect, useMemo, useRef, useState, type CSSProperties } from "react";
 import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
+import { checkEmailish, type EmailCheck } from "@/lib/emailValidation";
 import {
   CRYPTO_CURRENCY_CODES,
   FIAT_CURRENCY_CODES,
@@ -33,8 +34,19 @@ export type PaymentFieldsValue = {
 
 type FieldKey = keyof Omit<PaymentFieldsValue, "payment_method" | "currency">;
 
+/** The method-specific fields, reused across rails (e.g. `payment_link` means
+ *  "Wise email" for Wise but "PayPal email" for PayPal). Snapshotting these
+ *  by method id is what keeps Wise's details from bleeding into PayPal's. */
+const ALL_FIELD_KEYS: FieldKey[] = [
+  "display_name", "bank_name", "iban", "crypto_network", "crypto_wallet", "payment_link", "notes",
+];
+
 const FIAT_LIST = FIAT_CURRENCY_CODES as readonly string[];
 const CRYPTO_LIST = CRYPTO_CURRENCY_CODES as readonly string[];
+
+/** Stable "all good" result for non-email fields — avoids re-running the check
+ *  (and avoids a fresh object identity) on every keystroke in those rows. */
+const OK_EMAIL: EmailCheck = { status: "ok" };
 
 /** Detail-card swap motion. The card itself crossfades (mode="wait"); its
  *  header + fields cascade in via staggerChildren so the panel feels like it
@@ -102,6 +114,32 @@ export function PaymentMethodFields({
   // on the right tab when reopening an existing entry.
   const [kind, setKind] = useState<PaymentKind>(() => inferKind(value));
 
+  // Per-method field snapshots, isolated by payment_method id, so switching
+  // rails never shows the previous rail's leftover values (e.g. Wise's
+  // "email" bleeding into Other's "handle" because both physically share the
+  // `payment_link` column). Lives for the editor's mount lifetime — long
+  // enough to fix switching back and forth in one sitting; whatever's
+  // selected when the user saves is what persists to the DB as before.
+  const snapshotsRef = useRef<Partial<Record<string, Record<FieldKey, string>>>>({});
+
+  /** Snapshot the OLD method's field values, then either restore the NEW
+   *  method's own snapshot or start it blank — never the old method's values. */
+  const switchToMethod = (newId: string) => {
+    const oldId = value.payment_method;
+    if (oldId) {
+      snapshotsRef.current[oldId] = ALL_FIELD_KEYS.reduce((acc, k) => {
+        acc[k] = value[k] ?? "";
+        return acc;
+      }, {} as Record<FieldKey, string>);
+    }
+    onChange("payment_method", newId);
+    if (!newId) return;
+    const snap = snapshotsRef.current[newId];
+    for (const k of ALL_FIELD_KEYS) {
+      onChange(k, snap?.[k] ?? "");
+    }
+  };
+
   // Keep kind in sync if the parent swaps to a completely different draft
   // (e.g. user opened a different category). We compare *what the data
   // implies* to avoid fighting the user mid-edit: only re-derive if the
@@ -128,7 +166,7 @@ export function PaymentMethodFields({
     if (methods.length !== 1) return;
     const only = methods[0];
     if (value.payment_method === only.id) return;
-    onChange("payment_method", only.id);
+    switchToMethod(only.id);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [methods.length, kind]);
 
@@ -147,13 +185,8 @@ export function PaymentMethodFields({
   })();
 
   const setMethod = (id: string) => {
-    if (id === value.payment_method) {
-      haptics.selection();
-      onChange("payment_method", "");
-      return;
-    }
     haptics.selection();
-    onChange("payment_method", id);
+    switchToMethod(id === value.payment_method ? "" : id);
   };
 
   const switchKind = (next: PaymentKind) => {
@@ -169,9 +202,9 @@ export function PaymentMethodFields({
     const nextMethods = PAYMENT_METHODS.filter((m) => m.kind === next);
     const currentMethod = getPaymentMethod(value.payment_method);
     if (currentMethod && currentMethod.kind !== next) {
-      onChange("payment_method", nextMethods.length === 1 ? nextMethods[0].id : "");
+      switchToMethod(nextMethods.length === 1 ? nextMethods[0].id : "");
     } else if (!value.payment_method && nextMethods.length === 1) {
-      onChange("payment_method", nextMethods[0].id);
+      switchToMethod(nextMethods[0].id);
     }
 
     const curKind = currencyKind(value.currency);
@@ -218,7 +251,7 @@ export function PaymentMethodFields({
                 onPick={setMethod}
                 compact={compact}
                 legacy={legacy}
-                onClearLegacy={() => onChange("payment_method", "")}
+                onClearLegacy={() => switchToMethod("")}
               />
             )}
 
@@ -716,6 +749,12 @@ function FieldRow({
     );
   }
 
+  // Soft email-typo check for fields that commonly hold an address (PayPal /
+  // Wise / Interac). Advisory only — it stays silent unless the value clearly
+  // looks like a botched email, and never blocks saving.
+  const emailCheck = field.emailish ? checkEmailish(value) : OK_EMAIL;
+  const warn = emailCheck.status === "warn";
+
   return (
     <label className="block space-y-1">
       <span className="text-[10px] font-medium text-secondary-fg/75 px-0.5">{field.label}</span>
@@ -727,9 +766,33 @@ function FieldRow({
         autoCorrect="off"
         autoCapitalize="off"
         spellCheck={false}
-        className="h-10 rounded-xl border border-border/70 bg-background shadow-sm text-[13px] text-foreground placeholder:text-secondary-fg/45 focus-visible:ring-1 focus-visible:ring-primary/30"
+        inputMode={field.emailish ? "email" : undefined}
+        aria-invalid={warn || undefined}
+        className={[
+          "h-10 rounded-xl border bg-background shadow-sm text-[13px] text-foreground placeholder:text-secondary-fg/45 focus-visible:ring-1",
+          warn
+            ? "border-amber-500/60 focus-visible:ring-amber-500/40"
+            : "border-border/70 focus-visible:ring-primary/30",
+        ].join(" ")}
         style={{ fontSize: 16 }}
       />
+      {warn && (
+        <p className="flex items-start gap-1.5 px-0.5 pt-0.5 text-[11px] leading-snug text-amber-500">
+          <AlertCircle className="h-3 w-3 shrink-0 mt-[1px]" strokeWidth={2.4} />
+          <span>
+            {emailCheck.message}
+            {emailCheck.suggestion && (
+              <button
+                type="button"
+                onClick={() => { haptics.tap(); onChange(emailCheck.suggestion!); }}
+                className="ml-1.5 font-semibold text-amber-400 underline underline-offset-2 pressable"
+              >
+                Fix
+              </button>
+            )}
+          </span>
+        </p>
+      )}
     </label>
   );
 }

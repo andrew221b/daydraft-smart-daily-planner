@@ -1,80 +1,68 @@
 /**
- * Daily nudge copy — the morning/evening pings.
+ * Daily nudge copy — two on-device pings a day: a morning brief and an evening
+ * recap, each fired at a user-set time (Settings → Daily nudges).
  *
- * These replaced the old server-side nudge stack (the `send-daily-nudges` cron +
- * push dispatch). They're now plain on-device local notifications scheduled by
- * `syncDailyNudges` in `localNotifications.ts`, so there's no Supabase function,
- * no cron, and no push tokens to feed.
+ * On-device only: scheduled by `syncDailyNudges` in `localNotifications.ts`.
+ * No Supabase function, no cron, no push.
  *
- * Two layers:
- *   1. Evergreen templates (below) — never reference live data, so they're safe
- *      to schedule days in advance as a buffer. Picked deterministically by date
- *      (same day reads the same, varies day to day).
+ * Two layers per slot:
+ *   1. Evergreen pools (`MORNING_TEMPLATES` / `EVENING_TEMPLATES`) — never
+ *      reference live data, so they're safe to schedule days ahead as a buffer.
+ *      Picked deterministically by date.
  *   2. Fresh builders (`buildMorningFresh` / `buildEveningFresh`) — fold in the
- *      user's real numbers for TODAY's slot, computed when the app is opened.
- *      Return `null` when there's nothing meaningful to say, so the caller falls
- *      back to an evergreen template.
+ *      user's real numbers for TODAY's slot. Return `null` when there's nothing
+ *      to say, so the caller falls back to an evergreen line.
  *
- * Voice: plain, specific, a little dry. No hype, no shame, no exclamation spam.
- * English only.
+ * Voice: a calm, encouraging friend who quietly trusts you'll handle your day,
+ * not a productivity guru and not a hype machine. The job is gentle motivation
+ * and a small lift, never pressure. Plain, warm, human. Steer clear of self-help
+ * and AI clichés (eat the frog, small wins, future self, level up, take a moment,
+ * you've got this, unlock, dive in, and the rest) and the usual AI tells: no
+ * em-dashes, no "X: Y" colon pauses, no robotic "fragment. fragment." cadence.
+ * Contractions, plain words, the odd soft question. No hype, no shame, no
+ * exclamation spam. English only.
  */
 
 export type NudgeCopy = { title: string; body: string };
 
-// ── Evergreen pools ─────────────────────────────────────────────────────────
-
+// ── Morning pool — forward-looking, sets up the day ─────────────────────────
 export const MORNING_TEMPLATES: NudgeCopy[] = [
-  { title: "Plan your day", body: "Two minutes now beats a scattered afternoon." },
-  { title: "Good morning", body: "What's the one task that would make today a win?" },
-  { title: "First move", body: "Pick what you'll start with before the day picks for you." },
-  { title: "Set the tone", body: "A planned morning tends to run itself." },
-  { title: "Before the noise", body: "Block out your focus time while it's still quiet." },
-  { title: "Today's shape", body: "Rough out the day — you can always adjust later." },
-  { title: "One big rock", body: "Schedule the hard thing first. The rest fits around it." },
-  { title: "Morning check-in", body: "What does 'done' look like for today?" },
-  { title: "Get ahead", body: "Five minutes of planning, fewer surprises by 3pm." },
-  { title: "Fresh start", body: "Yesterday's closed. What matters today?" },
-  { title: "Draft the day", body: "A loose plan beats a perfect one you never make." },
-  { title: "Protect your focus", body: "Give your best hours to the work that needs them." },
-  { title: "Name it", body: "Vague plans slip. Give each block a clear task." },
-  { title: "Quick setup", body: "Line up the day so you're not deciding on the fly." },
-  { title: "Top of the morning", body: "Start with intent, not your inbox." },
-  { title: "The 80/20", body: "Which task moves the needle most? Do that one." },
-  { title: "Ready, set", body: "A few taps now and you're set to just execute." },
-  { title: "Morning momentum", body: "Knock out something small to get rolling." },
-  { title: "Map it out", body: "Know your day's edges: when you start, when you stop." },
-  { title: "Choose your hard thing", body: "Pick the task you'd avoid. Schedule it early." },
-  { title: "Clear runway", body: "Plan the morning; let the afternoon flex." },
-  { title: "Today, on purpose", body: "Decide how today goes before it decides for you." },
-  { title: "Warm up", body: "Open the plan, set three things, go." },
-  { title: "The day ahead", body: "What would make tonight feel like a good day?" },
+  { title: "Morning", body: "You don't have to do everything today. Just the one thing that matters most." },
+  { title: "Start small", body: "If getting going feels hard, shrink the first step until it doesn't." },
+  { title: "First slot", body: "Pick the task you'd be glad to have behind you tonight, and give it the morning." },
+  { title: "Ease in", body: "There's no prize for rushing. Choose one real thing and start it gently." },
+  { title: "Your calm hours", body: "Mornings tend to be your steadiest. Spend them on what you actually care about." },
+  { title: "You've done harder", body: "You've gotten through tougher mornings than this one. Begin wherever feels doable." },
+  { title: "Make it smaller", body: "If today feels like a lot, keep what's essential and let the rest wait." },
+  { title: "Readiness follows", body: "Waiting to feel ready can take all day. Starting usually brings it along." },
+  { title: "One thing well", body: "One task done properly beats five left half-finished. Decide which one." },
+  { title: "Your call", body: "You get to decide the shape of today before it decides for you." },
+  { title: "Almost too easy", body: "Make the first step so small it feels almost too easy. Those are the ones that stick." },
+  { title: "One at a time", body: "Give a single task your full attention this morning. The rest can take turns." },
+  { title: "Honest and steady", body: "Today doesn't have to be impressive. Honest and steady will carry you far enough." },
+  { title: "What it needs", body: "Be honest about what today really needs from you, then protect the time for it." },
+  { title: "Enough", body: "Whatever you manage today is enough, as long as it's the part that counts." },
+  { title: "Quiet start", body: "A calm start usually goes further than a frantic one. Take the calm one." },
 ];
 
+// ── Evening pool — reflective, winds the day down ───────────────────────────
 export const EVENING_TEMPLATES: NudgeCopy[] = [
-  { title: "How'd today go?", body: "Take 30 seconds to close the loop." },
-  { title: "Wind down", body: "Check off what you finished — take the credit." },
-  { title: "Tomorrow's easier", body: "Set up tomorrow now, thank yourself in the morning." },
-  { title: "Day's end", body: "Anything unfinished worth moving to tomorrow?" },
-  { title: "Look back", body: "What went well today? Worth repeating." },
-  { title: "Close the day", body: "Review, tidy the plan, and switch off." },
-  { title: "Quick recap", body: "A minute now turns today into a head start." },
-  { title: "Reset", body: "Clear the open tasks so they don't follow you to bed." },
-  { title: "Evening check-in", body: "Did today match the plan? Just notice — no judgment." },
-  { title: "Carry forward", body: "Move what's left to tomorrow before you forget." },
-  { title: "One good thing", body: "Name one win from today. A small one counts." },
-  { title: "Wrap up", body: "Mark what's done. Park the rest for tomorrow." },
-  { title: "Tomorrow you", body: "Leave a clear plan for the you who wakes up." },
-  { title: "Settle the day", body: "Loose ends? Decide now, rest easier." },
-  { title: "The honest look", body: "What ate your time today? Plan around it tomorrow." },
-  { title: "Last call", body: "Anything you can finish in two minutes before you stop?" },
-  { title: "Day in review", body: "Done is done. Note it, then let go." },
-  { title: "Set up the morning", body: "Future-you starts faster with a plan waiting." },
-  { title: "Take stock", body: "Progress over perfection — what moved forward today?" },
-  { title: "Power down", body: "Plan tomorrow, then actually unplug." },
-  { title: "Tidy up", body: "A clean plan tonight, a calm start tomorrow." },
-  { title: "Reflect", body: "What would you do differently tomorrow?" },
-  { title: "Good stopping point", body: "Close out today so it doesn't leak into tonight." },
-  { title: "Before bed", body: "Two minutes of planning buys a smoother morning." },
+  { title: "Evening", body: "However today went, you were in it. That's worth more than the final tally." },
+  { title: "What you did", body: "Look at what you finished before you count what you didn't." },
+  { title: "It just moves", body: "Whatever's left isn't a failure. It simply moves to tomorrow." },
+  { title: "One clear thing", body: "Leave one clear first step for tomorrow. You'll be glad it's waiting." },
+  { title: "Rest counts", body: "Rest is part of it, not a reward for finishing. You're allowed to stop now." },
+  { title: "One good thing", body: "Notice one thing that went right today, even a small one. It still mattered." },
+  { title: "No perfect plan", body: "Tomorrow doesn't need a full plan tonight. Just a first step you can pick up easily." },
+  { title: "Fair measure", body: "You spent today with the energy you actually had. That's a fair way to judge it." },
+  { title: "Close it gently", body: "End the day on purpose, instead of letting it quietly trail off." },
+  { title: "Worth repeating", body: "What's one thing from today you'd happily do again tomorrow?" },
+  { title: "Set it down", body: "You don't have to take the unfinished list to bed. Set it down for now." },
+  { title: "Easier morning", body: "A few quiet minutes now make tomorrow morning noticeably easier on you." },
+  { title: "It can wait", body: "Today's done. Whatever comes next can wait until you've actually rested." },
+  { title: "Give yourself credit", body: "Give yourself some credit for the hard parts you got through today." },
+  { title: "Leave it tidy", body: "Whatever you tidy tonight, you won't have to face first thing tomorrow." },
+  { title: "Let it be enough", body: "Let today be enough. You can pick it back up when you're ready." },
 ];
 
 // ── Deterministic per-day pick ──────────────────────────────────────────────
@@ -88,42 +76,25 @@ function hashStr(s: string): number {
   return h >>> 0;
 }
 
-/** Stable choice for a given day (salt separates morning vs evening streams). */
+/** Stable choice for a given day (same day reads the same, varies day to day). */
 function pickByDate<T>(arr: T[], dateStr: string, salt: string): T {
   return arr[hashStr(dateStr + salt) % arr.length];
 }
 
 export const pickMorningTemplate = (dateStr: string): NudgeCopy =>
   pickByDate(MORNING_TEMPLATES, dateStr, "morning");
-
 export const pickEveningTemplate = (dateStr: string): NudgeCopy =>
   pickByDate(EVENING_TEMPLATES, dateStr, "evening");
 
-// ── Smart re-engagement (pattern-timed) ─────────────────────────────────────
-// One extra ping at the user's learned productive hour. Habit-based copy ONLY —
-// it never cites live task counts, so a notification scheduled hours in advance
-// can't go stale by the time it fires.
-
-export const SMART_TEMPLATES: NudgeCopy[] = [
-  { title: "Your productive window", body: "This is usually when you follow through. Line up your next task?" },
-  { title: "Good hour to make progress", body: "Around now is when you tend to get things done." },
-  { title: "Momentum time", body: "You're often at your most consistent right about now." },
-  { title: "Pick one thing", body: "This is a strong stretch for you — knock something out?" },
-  { title: "Keep it rolling", body: "Now's usually a productive window. What's next on your plan?" },
-];
-
-export const pickSmartTemplate = (dateStr: string): NudgeCopy =>
-  pickByDate(SMART_TEMPLATES, dateStr, "smart");
-
-// ── Fresh, data-aware copy for TODAY's slot ─────────────────────────────────
+// ── Fresh, data-aware copy for TODAY's slots ────────────────────────────────
 
 const firstName = (name?: string): string => (name ? name.trim().split(/\s+/)[0] : "");
 const plural = (n: number, one: string, many: string) => `${n} ${n === 1 ? one : many}`;
 
 /**
- * Morning ping with real numbers. Leads with yesterday's result (the strongest
- * "nudge" signal) and today's load. Returns null when there's nothing to report
- * (brand-new user / empty days) so the caller uses an evergreen template.
+ * Morning brief with real numbers: yesterday's result (the strongest signal)
+ * plus today's load. Returns null when there's nothing to report (brand-new
+ * user / empty days) so the caller uses an evergreen line instead.
  */
 export function buildMorningFresh(p: {
   yesterdayDone: number;
@@ -134,24 +105,41 @@ export function buildMorningFresh(p: {
   if (p.yesterdayTotal === 0 && p.todayTotal === 0) return null;
 
   const who = firstName(p.name);
-  const title = who ? `Good morning, ${who}` : "Good morning";
+  const title = who ? `Morning, ${who}` : "Morning";
 
   const parts: string[] = [];
-  if (p.yesterdayTotal > 0) parts.push(`Yesterday: ${p.yesterdayDone}/${p.yesterdayTotal} done.`);
-  if (p.todayTotal > 0) parts.push(`${plural(p.todayTotal, "task", "tasks")} planned today.`);
-  else parts.push("Nothing planned yet — rough out your day.");
+  if (p.yesterdayTotal > 0) {
+    if (p.yesterdayDone >= p.yesterdayTotal) parts.push("You finished everything yesterday. No need to top it, just begin.");
+    else if (p.yesterdayDone === 0) parts.push("Yesterday didn't go your way. Today gets to be different.");
+    else parts.push(`You got ${p.yesterdayDone} of ${p.yesterdayTotal} done yesterday. That counts.`);
+  }
+  if (p.todayTotal > 0) parts.push(`${plural(p.todayTotal, "task", "tasks")} today. Start with the one you'd be glad to have done.`);
+  else parts.push("Nothing planned yet. Want to note what actually matters today?");
 
   return { title, body: parts.join(" ") };
 }
 
 /**
- * Evening ping with today's score. Returns null when nothing was planned, so the
- * evening still gets a (reflective) evergreen template rather than "0/0".
+ * Evening recap with real numbers: how today actually went, with a gentle look
+ * to tomorrow. Returns null on an empty day so the caller uses an evergreen line.
  */
-export function buildEveningFresh(p: { done: number; total: number }): NudgeCopy | null {
-  if (p.total === 0) return null;
-  if (p.done >= p.total) {
-    return { title: "How'd today go?", body: `All ${p.total} done — nice. Set up tomorrow?` };
-  }
-  return { title: "How'd today go?", body: `${p.done}/${p.total} done. Move the rest to tomorrow?` };
+export function buildEveningFresh(p: {
+  todayDone: number;
+  todayTotal: number;
+  name?: string;
+}): NudgeCopy | null {
+  if (p.todayTotal === 0) return null;
+
+  const who = firstName(p.name);
+  const title = who ? `Evening, ${who}` : "Evening";
+
+  const left = p.todayTotal - p.todayDone;
+  const body =
+    left <= 0
+      ? `All ${plural(p.todayTotal, "task", "tasks")} done today. That's a good place to stop.`
+      : p.todayDone === 0
+        ? "Nothing checked off today. Some days go like that. Tomorrow's open."
+        : `${p.todayDone} of ${p.todayTotal} done today. That's a fair day's work. Let the rest wait.`;
+
+  return { title, body };
 }

@@ -65,6 +65,9 @@ export function BiometricAura({
   const glow = subtle ? 0.32 : 0.5;
   const beamH = emblem * 0.34;
 
+  // Green accent — matches Apple Pay / Face ID chrome
+  const c = "145 73% 52%";
+
   return (
     <div
       className="relative flex items-center justify-center"
@@ -76,7 +79,7 @@ export function BiometricAura({
         className="absolute rounded-full"
         style={{
           width: size * 0.82, height: size * 0.82,
-          background: "radial-gradient(circle, hsl(var(--primary) / 0.55) 0%, transparent 68%)",
+          background: `radial-gradient(circle, hsl(${c} / 0.55) 0%, transparent 68%)`,
           filter: "blur(16px)",
         }}
         animate={{ opacity: [glow * 0.55, glow, glow * 0.55], scale: [0.95, 1.04, 0.95] }}
@@ -91,14 +94,14 @@ export function BiometricAura({
       >
         <circle
           cx={cx} cy={cx} r={ringR}
-          fill="none" stroke="hsl(var(--primary) / 0.5)" strokeWidth={2.5}
+          fill="none" stroke={`hsl(${c} / 0.5)`} strokeWidth={2.5}
           strokeLinecap="round" strokeDasharray="3 11"
-          style={{ filter: "drop-shadow(0 0 4px hsl(var(--primary) / 0.5))" }}
+          style={{ filter: `drop-shadow(0 0 4px hsl(${c} / 0.5))` }}
         />
       </motion.svg>
       {/* Faint static guide ring just inside the dashes */}
       <svg className="absolute" width={size} height={size} viewBox={`0 0 ${size} ${size}`}>
-        <circle cx={cx} cy={cx} r={ringR - 6} fill="none" stroke="hsl(var(--primary) / 0.12)" strokeWidth={1} />
+        <circle cx={cx} cy={cx} r={ringR - 6} fill="none" stroke={`hsl(${c} / 0.12)`} strokeWidth={1} />
       </svg>
 
       {/* ── Glass emblem: holds the glyph and clips the scan beam ────────── */}
@@ -121,11 +124,11 @@ export function BiometricAura({
             <motion.path
               key={i}
               d={d}
-              stroke="hsl(var(--primary))"
+              stroke={`hsl(${c})`}
               strokeWidth={5}
               strokeLinecap="round"
               strokeLinejoin="round"
-              style={{ filter: "drop-shadow(0 0 5px hsl(var(--primary) / 0.45))" }}
+              style={{ filter: `drop-shadow(0 0 5px hsl(${c} / 0.45))` }}
               initial={{ pathLength: 0, opacity: 0 }}
               animate={{ pathLength: 1, opacity: 0.9 }}
               transition={{
@@ -141,8 +144,7 @@ export function BiometricAura({
           className="absolute left-0 right-0 pointer-events-none"
           style={{
             top: 0, height: beamH,
-            background:
-              "linear-gradient(to bottom, transparent 0%, hsl(var(--primary) / 0) 16%, hsl(var(--primary) / 0.85) 50%, hsl(var(--primary) / 0) 84%, transparent 100%)",
+            background: `linear-gradient(to bottom, transparent 0%, hsl(${c} / 0) 16%, hsl(${c} / 0.85) 50%, hsl(${c} / 0) 84%, transparent 100%)`,
             mixBlendMode: "screen",
             filter: "blur(0.5px)",
           }}
@@ -155,8 +157,8 @@ export function BiometricAura({
             className="absolute left-[12%] right-[12%]"
             style={{
               top: "50%", height: 2, borderRadius: 2,
-              background: "hsl(var(--primary))",
-              boxShadow: "0 0 10px 1px hsl(var(--primary) / 0.9)",
+              background: `hsl(${c})`,
+              boxShadow: `0 0 10px 1px hsl(${c} / 0.9)`,
             }}
           />
         </motion.div>

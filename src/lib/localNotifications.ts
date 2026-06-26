@@ -3,7 +3,11 @@ import { LocalNotifications } from "@capacitor/local-notifications";
 import { Block, isUserTask, planBlockInstants } from "./daydraft";
 import { getReminderConfig } from "./blockReminders";
 import { getAssignedCategoryId } from "./blockCategory";
-import { pickMorningTemplate, pickEveningTemplate, pickSmartTemplate, type NudgeCopy } from "./nudgeTemplates";
+import {
+  pickMorningTemplate,
+  pickEveningTemplate,
+  type NudgeCopy,
+} from "./nudgeTemplates";
 
 /**
  * Native scheduled notifications (Capacitor LocalNotifications).
@@ -530,19 +534,21 @@ export async function cancelFocusOvertimeReminder(): Promise<void> {
   }
 }
 
-// ── Daily nudges (morning / evening brief) ─────────────────────────────────
-// Two on-device pings a day, scheduled in advance from a template pool. This
-// fully replaced the server-side `send-daily-nudges` cron — no Supabase
-// function, no push tokens, fires even when the app is closed.
-//
-// TODAY's slots can carry the user's real numbers (passed in `todayFresh`);
-// future days use evergreen templates as a buffer so the user keeps getting
-// pinged even without opening the app. Re-run on every app open to refresh the
-// fresh copy and roll the horizon forward. Own reserved id space + an
-// `extra.dailyNudge` tag so the block resync never touches them.
+// ── Daily nudges (morning brief + evening recap) ───────────────────────────
+// TWO on-device pings per day, scheduled in advance across a horizon, each at a
+// user-set local time (Settings → Daily nudges; defaults 08:00 / 20:00). The
+// morning brief deep-links to the plan, the evening recap to reports. TODAY's
+// slots can carry real numbers (`morningFresh` / `eveningFresh`); future days
+// use the evergreen pools as a buffer so pings keep landing without opening the
+// app. Re-run on every app open to refresh copy and roll the horizon forward.
+// Own reserved id space (morning = base+offset*2, evening = base+offset*2+1) +
+// an `extra.dailyNudge` tag so the block resync never touches them.
 
-const DAILY_NUDGE_ID_BASE = 921000; // +offset*2 (morning), +offset*2+1 (evening)
+const DAILY_NUDGE_ID_BASE = 921000;
 const DAILY_NUDGE_HORIZON_DAYS = 5;
+// Legacy id from the old three-stream version (a separate smart nudge). Cancelled
+// alongside the daily ids so devices upgrading don't keep a stale ping.
+const LEGACY_SMART_NUDGE_ID = 922000;
 
 const parseHHMM = (s: string | undefined, fallback: [number, number]): [number, number] => {
   if (s && /^\d{2}:\d{2}$/.test(s)) {
@@ -556,21 +562,22 @@ const localDateStr = (d: Date): string =>
   `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
 
 export type DailyNudgeOptions = {
-  /** "HH:MM" local; default 07:00. */
+  /** "HH:MM" local — morning brief time (default 08:00). */
   morningTime?: string;
-  /** "HH:MM" local; default 21:00. */
+  /** "HH:MM" local — evening recap time (default 20:00). */
   eveningTime?: string;
-  /** Real-number copy for TODAY only. null/undefined ⇒ use an evergreen template. */
-  todayFresh?: { morning?: NudgeCopy | null; evening?: NudgeCopy | null };
+  /** Real-number morning copy for TODAY only. null/undefined ⇒ evergreen line. */
+  morningFresh?: NudgeCopy | null;
+  /** Real-number evening copy for TODAY only. null/undefined ⇒ evergreen line. */
+  eveningFresh?: NudgeCopy | null;
 };
 
 export async function cancelDailyNudges(): Promise<void> {
   if (!isNative()) return;
-  const ids: { id: number }[] = [];
-  for (let o = 0; o < DAILY_NUDGE_HORIZON_DAYS; o++) {
-    ids.push({ id: DAILY_NUDGE_ID_BASE + o * 2 });
-    ids.push({ id: DAILY_NUDGE_ID_BASE + o * 2 + 1 });
-  }
+  const ids: { id: number }[] = [{ id: LEGACY_SMART_NUDGE_ID }];
+  // Morning + evening ids span base..base+HORIZON*2-1 — clear the whole range so
+  // a re-sync never stacks up and upgrading devices drop any stale ping.
+  for (let i = 0; i < DAILY_NUDGE_HORIZON_DAYS * 2; i++) ids.push({ id: DAILY_NUDGE_ID_BASE + i });
   try {
     await LocalNotifications.cancel({ notifications: ids });
   } catch {
@@ -580,7 +587,7 @@ export async function cancelDailyNudges(): Promise<void> {
 
 export async function syncDailyNudges(opts: DailyNudgeOptions = {}): Promise<void> {
   if (!isNative()) return;
-  // Always clear the prior horizon first so we never stack duplicates.
+  // Always clear the prior horizon (and legacy ids) first so we never stack up.
   await cancelDailyNudges();
   if (!getDailyNudgesEnabled()) return;
 
@@ -588,8 +595,8 @@ export async function syncDailyNudges(opts: DailyNudgeOptions = {}): Promise<voi
   if (display !== "granted") return;
   await ensureNotificationChannel();
 
-  const [mh, mm] = parseHHMM(opts.morningTime, [7, 0]);
-  const [eh, em] = parseHHMM(opts.eveningTime, [21, 0]);
+  const [mh, mm] = parseHHMM(opts.morningTime, [8, 0]);
+  const [eh, em] = parseHHMM(opts.eveningTime, [20, 0]);
   const now = Date.now();
 
   type Pending = { id: number; at: Date; copy: NudgeCopy; path: string };
@@ -598,28 +605,30 @@ export async function syncDailyNudges(opts: DailyNudgeOptions = {}): Promise<voi
   for (let offset = 0; offset < DAILY_NUDGE_HORIZON_DAYS; offset++) {
     const day = new Date();
     day.setDate(day.getDate() + offset);
-    const dateStr = localDateStr(day);
+    const ds = localDateStr(day);
 
+    // Morning brief → the plan.
     const mAt = new Date(day);
     mAt.setHours(mh, mm, 0, 0);
     if (mAt.getTime() > now) {
-      const fresh = offset === 0 ? opts.todayFresh?.morning : null;
+      const fresh = offset === 0 ? opts.morningFresh : null;
       pending.push({
         id: DAILY_NUDGE_ID_BASE + offset * 2,
         at: mAt,
-        copy: fresh ?? pickMorningTemplate(dateStr),
+        copy: fresh ?? pickMorningTemplate(ds),
         path: "/today/plan",
       });
     }
 
+    // Evening recap → reports.
     const eAt = new Date(day);
     eAt.setHours(eh, em, 0, 0);
     if (eAt.getTime() > now) {
-      const fresh = offset === 0 ? opts.todayFresh?.evening : null;
+      const fresh = offset === 0 ? opts.eveningFresh : null;
       pending.push({
         id: DAILY_NUDGE_ID_BASE + offset * 2 + 1,
         at: eAt,
-        copy: fresh ?? pickEveningTemplate(dateStr),
+        copy: fresh ?? pickEveningTemplate(ds),
         path: "/reports",
       });
     }
@@ -641,81 +650,5 @@ export async function syncDailyNudges(opts: DailyNudgeOptions = {}): Promise<voi
     await LocalNotifications.schedule({ notifications });
   } catch (e) {
     console.error("[localNotifications] daily nudge schedule failed", e);
-  }
-}
-
-// ── Smart re-engagement nudge (pattern-timed) ──────────────────────────────
-// One extra ping a day, timed to the hour the user is most likely to follow
-// through — their peak completion hour from `user_patterns` (computed by the
-// caller; stored as local wall-clock hours). This is the achievable version of
-// "nudge me when I'm on my phone": iOS gives third-party apps no way to detect
-// device unlock from the background, so instead we land a local notification in
-// the user's own productive window. Copy is habit-based and evergreen — it never
-// references live task counts, so scheduling it hours ahead can't make it stale.
-//
-// Fully independent of the morning/evening brief: its own reserved id and an
-// `extra.smartNudge` tag, gated by the SAME daily-nudges switch, so existing
-// nudge behaviour is untouched. Only the soonest occurrence is scheduled (+1
-// pending notification), re-synced on every app open so it rolls forward.
-const SMART_NUDGE_ID = 922000;
-
-export async function cancelSmartNudge(): Promise<void> {
-  if (!isNative()) return;
-  try {
-    await LocalNotifications.cancel({ notifications: [{ id: SMART_NUDGE_ID }] });
-  } catch {
-    /* ignore */
-  }
-}
-
-export type SmartNudgeOptions = {
-  /** Local hour (0–23) the user is most likely to follow through; null ⇒ skip. */
-  peakHour: number | null;
-  /** Fixed morning/evening times to stay clear of, so the day never clusters. */
-  morningTime?: string;
-  eveningTime?: string;
-};
-
-export async function syncSmartNudge(opts: SmartNudgeOptions): Promise<void> {
-  if (!isNative()) return;
-  // Always clear the previous one first so we never stack duplicates.
-  await cancelSmartNudge();
-  if (!getDailyNudgesEnabled()) return;
-
-  const { peakHour } = opts;
-  if (peakHour == null || !Number.isInteger(peakHour) || peakHour < 0 || peakHour > 23) return;
-  // Only inside a sane awake window.
-  if (peakHour < 8 || peakHour > 22) return;
-  // Keep ≥2h clear of the fixed morning/evening pings so we never double-ping.
-  const [mh] = parseHHMM(opts.morningTime, [7, 0]);
-  const [eh] = parseHHMM(opts.eveningTime, [21, 0]);
-  if (Math.abs(peakHour - mh) < 2 || Math.abs(peakHour - eh) < 2) return;
-
-  const { display } = await LocalNotifications.checkPermissions();
-  if (display !== "granted") return;
-  await ensureNotificationChannel();
-
-  // Next occurrence of the peak hour: today if it's still ahead, else tomorrow.
-  const at = new Date();
-  at.setHours(peakHour, 0, 0, 0);
-  if (at.getTime() <= Date.now()) at.setDate(at.getDate() + 1);
-
-  const copy = pickSmartTemplate(localDateStr(at));
-  try {
-    await LocalNotifications.schedule({
-      notifications: [
-        {
-          id: SMART_NUDGE_ID,
-          title: copy.title,
-          body: copy.body,
-          sound: "default",
-          channelId: ANDROID_CHANNEL_ID,
-          schedule: { at },
-          extra: { smartNudge: true, path: "/today/plan" },
-        },
-      ],
-    });
-  } catch (e) {
-    console.error("[localNotifications] smart nudge schedule failed", e);
   }
 }

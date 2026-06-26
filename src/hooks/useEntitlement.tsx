@@ -28,7 +28,6 @@ export const entitlementQueryKey = (userId: string | undefined) =>
 type EntitlementSnapshot = {
   ent: Entitlement | null;
   planQuotaUsed: number;
-  isDeveloper: boolean;
 };
 
 /**
@@ -39,10 +38,9 @@ type EntitlementSnapshot = {
  * the tree.
  */
 async function fetchEntitlement(userId: string): Promise<EntitlementSnapshot> {
-  const [subRes, plansRes, profileRes] = await Promise.all([
+  const [subRes, plansRes] = await Promise.all([
     supabase.from("subscriptions").select("*").eq("user_id", userId).maybeSingle(),
     supabase.from("plans").select("date, blocks(id)").eq("user_id", userId),
-    supabase.from("profiles").select("is_developer").eq("id", userId).maybeSingle(),
   ]);
   const sub = subRes.data;
   const status = sub?.status ?? "free";
@@ -64,7 +62,7 @@ async function fetchEntitlement(userId: string): Promise<EntitlementSnapshot> {
       .filter((p: { blocks?: { id: string }[] | null }) => Array.isArray(p.blocks) && p.blocks.length > 0)
       .map((p: { date: string }) => p.date),
   );
-  return { ent, planQuotaUsed: uniq.size, isDeveloper: profileRes.data?.is_developer ?? false };
+  return { ent, planQuotaUsed: uniq.size };
 }
 
 export const useEntitlement = () => {
@@ -100,8 +98,7 @@ export const useEntitlement = () => {
   const ent = data?.ent ?? null;
   const planQuotaUsed = data?.planQuotaUsed ?? 0;
   const subscriptionPro = ent?.tier === "pro" || ent?.tier === "trial";
-  const isDeveloper = data?.isDeveloper ?? false;
-  const isPro = subscriptionPro || rcPro || isDeveloper;
+  const isPro = subscriptionPro || rcPro;
   const planQuotaLimit = isPro ? Infinity : FREE_PLAN_QUOTA;
   const planQuotaRemaining = isPro ? Infinity : Math.max(0, FREE_PLAN_QUOTA - planQuotaUsed);
   const overQuota = !isPro && planQuotaUsed >= FREE_PLAN_QUOTA;
@@ -110,7 +107,7 @@ export const useEntitlement = () => {
     entitlement: ent,
     loading: !!user?.id && isLoading,
     isPro,
-    isDeveloper,
+
     subscriptionPro,
     planQuotaUsed,
     planQuotaLimit,

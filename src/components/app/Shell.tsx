@@ -1,6 +1,7 @@
 import { ReactNode, useEffect } from "react";
 import { useLocation, useNavigationType } from "react-router-dom";
 import { TabBar } from "./TabBar";
+import { SideNav } from "./SideNav";
 import { TimerRescheduleSheet } from "./TimerRescheduleSheet";
 import { OfflineBanner } from "./OfflineBanner";
 
@@ -40,30 +41,34 @@ export const Shell = ({
 
 
   return (
-  <div className="h-[100dvh] w-full bg-background flex justify-center overflow-hidden">
+  <div className="h-[100dvh] w-full bg-background flex overflow-hidden">
     {/* Ambient glow — top only; floor glow removed per user feedback */}
     <div
       className="pointer-events-none fixed inset-x-0 top-0 h-[min(220px,38vh)] z-0 shell-glow-top shell-glow-breathe"
       aria-hidden
     />
 
-    <div className="relative z-10 w-full max-w-[440px] h-full flex flex-col px-1.5">
-      {/* Progressive edge blur — Moved inside z-10 wrapper so TabBar (z-40) renders OVER it */}
-      <div className="edge-fade edge-fade-top"    aria-hidden />
-      <div className="edge-fade edge-fade-bottom" aria-hidden />
+    {!hideTabBar && <SideNav />}
 
-      <div
-        className="pointer-events-none absolute inset-x-0 top-2 h-32 rounded-[28px] opacity-55"
-        style={{ background: "radial-gradient(70% 70% at 50% 0%, hsl(var(--primary) / 0.11), transparent 72%)" }}
-        aria-hidden
-      />
-      <main
-        className={`relative min-h-0 flex-1 w-full ${pageTransitionClass}`}
-      >
-        {children}
-      </main>
-      {!hideTabBar && <TabBar />}
-      <TimerRescheduleSheet />
+    <div className="relative z-10 flex-1 flex justify-center overflow-hidden">
+      <div className="relative w-full max-w-[440px] md:max-w-[680px] lg:max-w-[760px] h-full flex flex-col px-1.5">
+        {/* Progressive edge blur — Moved inside z-10 wrapper so TabBar (z-40) renders OVER it */}
+        <div className="edge-fade edge-fade-top"    aria-hidden />
+        <div className="edge-fade edge-fade-bottom" aria-hidden />
+
+        <div
+          className="pointer-events-none absolute inset-x-0 top-2 h-32 rounded-[28px] opacity-55"
+          style={{ background: "radial-gradient(70% 70% at 50% 0%, hsl(var(--primary) / 0.11), transparent 72%)" }}
+          aria-hidden
+        />
+        <main
+          className={`relative min-h-0 flex-1 w-full ${pageTransitionClass}`}
+        >
+          {children}
+        </main>
+        {!hideTabBar && <TabBar />}
+        <TimerRescheduleSheet />
+      </div>
     </div>
     <OfflineBanner />
   </div>

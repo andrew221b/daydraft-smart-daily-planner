@@ -59,7 +59,7 @@ export default function DeleteAccount() {
 
   return (
     <div
-      className="h-full w-full bg-background flex flex-col"
+      className="h-full w-full md:max-w-[560px] md:mx-auto bg-background flex flex-col"
       style={{ paddingTop: "var(--content-inset-top)" }}
     >
       {/* ── Scrollable content ── */}

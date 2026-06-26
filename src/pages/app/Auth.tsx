@@ -2,6 +2,7 @@ import { Capacitor } from "@capacitor/core";
 import { forwardRef, useEffect, useState } from "react";
 import { supabase } from "@/integrations/supabase/client";
 import { lovable } from "@/integrations/lovable";
+import { authRedirectTo } from "@/lib/deepLinks";
 import {
   isNativeAuthAvailable,
   isNativeGoogleConfigured,
@@ -12,12 +13,14 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { PageFallback } from "@/components/app/PageFallback";
 import { toast } from "sonner";
-import { Link, useNavigate } from "react-router-dom";
+import { Link, useNavigate, useLocation } from "react-router-dom";
+import { CheckCircle2 } from "lucide-react";
 import { useAuth } from "@/hooks/useAuth";
 import { useProfile } from "@/hooks/useProfile";
 export default function Auth() {
   const { user, loading } = useAuth();
   const { profile, loading: profileLoading } = useProfile();
+  const location = useLocation();
   const [mode, setMode] = useState<"signin" | "signup">("signup");
   const [email, setEmail] = useState("");
   const [pw, setPw] = useState("");
@@ -27,11 +30,17 @@ export default function Auth() {
   const [awaitingConfirmation, setAwaitingConfirmation] = useState(false);
   const [confirmedFor, setConfirmedFor] = useState<string>("");
   const [resending, setResending] = useState(false);
+  // Set when the daydraft://auth-callback deep link just confirmed a signup
+  // (see App.tsx's auth_session handler). Holds the user here on an explicit
+  // "you're verified" screen instead of auto-redirecting — the user taps
+  // Continue themselves, so there's no race with auth-state propagation to
+  // silently get stuck on.
+  const [justConfirmed, setJustConfirmed] = useState(
+    () => Boolean((location.state as { justConfirmed?: boolean } | null)?.justConfirmed),
+  );
   const nav = useNavigate();
 
-  useEffect(() => {
-    if (loading || (user && profileLoading)) return;
-    if (!user) return;
+  const goPastAuth = () => {
     // Only send the user straight to /today when we're confident they're
     // already onboarded. For fresh sign-ups the profile row might not have
     // propagated yet (trigger race or Lovable preview slowness) — onboarding
@@ -40,11 +49,19 @@ export default function Auth() {
     // fetch can't re-route a returning user through onboarding.
     let stickyOnboarded = false;
     try {
-      stickyOnboarded = localStorage.getItem(`dd_onboarded_uid_${user.id}`) === "1";
+      stickyOnboarded = localStorage.getItem(`dd_onboarded_uid_${user?.id}`) === "1";
     } catch { /* ignore */ }
     const onboarded = profile?.onboarded === true || stickyOnboarded;
     nav(onboarded ? "/today" : "/onboarding", { replace: true });
-  }, [loading, nav, profile?.onboarded, profileLoading, user]);
+  };
+
+  useEffect(() => {
+    if (justConfirmed) return; // wait for the explicit Continue tap below
+    if (loading || (user && profileLoading)) return;
+    if (!user) return;
+    goPastAuth();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [loading, profile?.onboarded, profileLoading, user, justConfirmed]);
 
   const getErrorMessage = (message: string) => {
     if (/(leaked|breach|pwned|compromised)/i.test(message)) {
@@ -60,7 +77,7 @@ export default function Auth() {
       if (mode === "signup") {
         const { data, error } = await supabase.auth.signUp({
           email, password: pw,
-          options: { emailRedirectTo: window.location.origin, data: { display_name: name || email.split("@")[0] } },
+          options: { emailRedirectTo: authRedirectTo(), data: { display_name: name || email.split("@")[0] } },
         });
         if (error) throw error;
         if (data.session) {
@@ -88,7 +105,7 @@ export default function Auth() {
       const { error } = await supabase.auth.resend({
         type: "signup",
         email,
-        options: { emailRedirectTo: window.location.origin },
+        options: { emailRedirectTo: authRedirectTo() },
       });
       if (error) throw error;
       toast.success("Confirmation email sent again");
@@ -190,26 +207,38 @@ export default function Auth() {
 
   return (
     <div className="h-[100dvh] w-full bg-background flex justify-center overflow-y-auto overscroll-y-contain no-scrollbar">
-      <div className="relative w-full max-w-[400px] min-h-full flex flex-col">
+      <div className="relative w-full max-w-[400px] md:max-w-[680px] lg:max-w-[760px] min-h-full flex flex-col">
         <div className="pointer-events-none absolute inset-x-0 top-0 h-[200px]" style={{ background: "var(--gradient-glow)" }} />
-        <div className="relative z-10 flex-1 flex flex-col px-6 pt-16 pb-[calc(env(safe-area-inset-bottom)+2.5rem)]">
+        <div className="relative z-10 flex-1 flex flex-col px-6 pt-[max(env(safe-area-inset-top),64px)] pb-[calc(env(safe-area-inset-bottom)+2.5rem)]">
           <p className="eyebrow">DayDraft</p>
           <h1 className="font-display text-[28px] font-semibold mt-3 leading-[1.1] tracking-tight text-balance">
-            {awaitingConfirmation ? "Check your email." : mode === "signup" ? "Design your days." : "Welcome back."}
+            {justConfirmed ? "You're verified." : awaitingConfirmation ? "Check your email." : mode === "signup" ? "Design your days." : "Welcome back."}
           </h1>
           <p className="text-secondary-fg mt-2.5 text-[13px] leading-[1.55]">
-            {awaitingConfirmation
-              ? `We sent a confirmation link to ${confirmedFor || email}. Open it to finish creating your account.`
-              : mode === "signup"
-                ? "Turn raw lists into focused, intelligent schedules."
-                : "Pick up where you left off."}
+            {justConfirmed
+              ? "Your email is confirmed and your account is ready to go."
+              : awaitingConfirmation
+                ? `We sent a confirmation link to ${confirmedFor || email}. Open it to finish creating your account.`
+                : mode === "signup"
+                  ? "Turn raw lists into focused, intelligent schedules."
+                  : "Pick up where you left off."}
           </p>
 
-          {!awaitingConfirmation ? (
+          {justConfirmed ? (
+            <div className="mt-10 flex flex-col items-center text-center">
+              <div className="h-14 w-14 rounded-full bg-success/15 flex items-center justify-center mb-1">
+                <CheckCircle2 className="h-7 w-7 text-success" />
+              </div>
+              <Button
+                type="button"
+                onClick={() => { setJustConfirmed(false); goPastAuth(); }}
+                className="w-full h-13 mt-8 rounded-[16px] bg-primary text-primary-foreground hover:bg-primary/90 pressable text-[16px] font-semibold shadow-glow"
+              >
+                Continue
+              </Button>
+            </div>
+          ) : !awaitingConfirmation ? (
             <>
-              {/* space-y-2 (8px) was tight enough that iOS WebView's fuzzy
-                  hit-test could deliver a tap on Google to Apple. Bumped to
-                  space-y-3 (12px) to clear the fuzziness window. */}
               <div className="mt-8 space-y-3">
                 {/* Google — white background, colorful logo, high contrast on dark bg */}
                 <button onClick={(e) => { if (busy || oauthBusy || oauthBlockedReason) return; oauth("google"); }}
@@ -248,16 +277,14 @@ export default function Auth() {
                   onChange={e => {
                     setEmail(e.target.value);
                     // If the user changes the email after a pending confirmation,
-                    // hide the stale "Check your email at <old>" panel.
-                    if (awaitingConfirmation && e.target.value !== confirmedFor) {
-                      setAwaitingConfirmation(false);
-                    }
+                    // we immediately take them back to the signup state.
+                    if (awaitingConfirmation) setAwaitingConfirmation(false);
                   }}
                   placeholder="Email"
                   className="h-12 surface-card border-soft rounded-[14px]"
                 />
                 <Input type="password" required minLength={6} value={pw} onChange={e => setPw(e.target.value)} placeholder="Password" className="h-12 surface-card border-soft rounded-[14px]" />
-                <Button type="submit" disabled={busy || !!oauthBusy} className="w-full h-12 rounded-[14px] bg-primary text-primary-foreground hover:bg-primary/90 btn-volumetric pressable pressable-instant text-base font-medium shadow-card">
+                <Button type="submit" disabled={busy} className="w-full h-13 mt-2 rounded-[16px] bg-primary text-primary-foreground hover:bg-primary/90 pressable text-[16px] font-semibold shadow-glow">
                   {busy ? "..." : mode === "signup" ? "Create account" : "Sign in"}
                 </Button>
               </form>

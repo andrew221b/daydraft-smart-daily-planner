@@ -96,7 +96,7 @@ export function EmptyState({
             <button
               type="button"
               onClick={primaryAction.onClick}
-              className="inline-flex items-center gap-2 rounded-2xl bg-primary px-5 py-2.5 text-[13px] font-semibold text-primary-foreground pressable shadow-[0_6px_18px_-8px_hsl(var(--primary)/0.55)]"
+              className="inline-flex items-center gap-2 rounded-2xl bg-primary px-5 py-2.5 text-[13px] font-semibold text-primary-foreground pressable cta-glow"
             >
               {primaryAction.icon && <primaryAction.icon className="h-3.5 w-3.5" strokeWidth={2.4} />}
               {primaryAction.label}

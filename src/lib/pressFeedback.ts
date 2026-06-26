@@ -7,8 +7,13 @@ let pressStartX = 0;
 let pressStartY = 0;
 let lastTouchTime = 0;
 let pressStartTime = 0;
+let watchdogTimer: ReturnType<typeof setTimeout> | null = null;
 
 function clearPress(e?: Event): void {
+  if (watchdogTimer !== null) {
+    clearTimeout(watchdogTimer);
+    watchdogTimer = null;
+  }
   if (!pressedEl) return;
   const el = pressedEl;
   pressedEl = null;
@@ -57,6 +62,13 @@ function onPointerDown(e: PointerEvent): void {
   
   // IMMEDIATELY show the pressed state so the UI feels instantly responsive
   pressedEl.setAttribute("data-pressed", "true");
+
+  // Safety net: if the element gets disabled or removed mid-press (e.g. its
+  // onClick synchronously flips a `disabled` flag to kick off an async action),
+  // browsers can swallow the matching pointerup/pointercancel entirely, leaving
+  // the press state stuck forever. Force-release it after a generous window —
+  // well past any real tap, never past a deliberate long-press.
+  watchdogTimer = setTimeout(() => clearPress(), 900);
 }
 
 function onPointerMove(e: PointerEvent): void {

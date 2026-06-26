@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useRef, useState, forwardRef, useImperativeHandle } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState, forwardRef, useImperativeHandle, type CSSProperties } from "react";
 import {
   DndContext,
   DragOverlay,
@@ -12,15 +12,25 @@ import {
   type DragStartEvent,
 } from "@dnd-kit/core";
 import { SortableContext, verticalListSortingStrategy, arrayMove } from "@dnd-kit/sortable";
-import { GripVertical, FolderPlus, Folder, ListChecks, Trash2, Pencil, X, CalendarDays, Copy, Pin, PinOff, Flag } from "lucide-react";
+import { GripVertical, FolderPlus, Folder, ListChecks, Trash2, Pencil, X, CalendarDays, Copy, Pin, PinOff, Flag, ChevronDown, Palette, Check } from "lucide-react";
 import { Sheet, SheetContent, SheetHeader, SheetTitle } from "@/components/ui/sheet";
 import { DayPickerSheet } from "@/components/app/DayPickerSheet";
-import { ChecklistGroup, ChecklistItemRow, AddItemRow, CheckCircleAccent } from "@/components/app/ChecklistGroup";
+import { ChecklistGroup, ChecklistItemRow, AddItemRow, CheckCircleAccent, ProgressRing, useRowGestures } from "@/components/app/ChecklistGroup";
 import { ChecklistItemSheet } from "@/components/app/ChecklistItemSheet";
 import { useChecklist, type ChecklistGroup as Group, type ChecklistItem } from "@/hooks/useChecklist";
 import { haptics } from "@/lib/haptics";
 import { todayDateStr } from "@/lib/daydraft";
-import { checklistCategoryTint, checklistTintVars } from "@/lib/checklistColors";
+import {
+  checklistCategoryTint,
+  checklistTintVars,
+  resolveChecklistTints,
+  tintAt,
+  setColorOverride,
+  getColorOverrides,
+  swatchGradient,
+  CHECKLIST_CATEGORY_PALETTE,
+  type ChecklistTint,
+} from "@/lib/checklistColors";
 
 const UNGROUPED = "ungrouped";
 
@@ -79,6 +89,7 @@ export const ChecklistView = forwardRef<ChecklistApi, ChecklistViewProps>(({
     deleteGroup,
     addItem,
     toggleItem,
+    toggleItemFailed,
     renameItem,
     deleteItem,
     togglePinGroup,
@@ -113,6 +124,8 @@ export const ChecklistView = forwardRef<ChecklistApi, ChecklistViewProps>(({
   }, []);
 
   const [activeId, setActiveId] = useState<string | null>(null);
+  // Bumped whenever a category colour override changes so the tint map recomputes.
+  const [colorTick, setColorTick] = useState(0);
   const [collapsed, setCollapsed] = useState<Set<string>>(() => {
     try {
       const stored = localStorage.getItem("dd_checklist_collapsed");
@@ -177,8 +190,41 @@ export const ChecklistView = forwardRef<ChecklistApi, ChecklistViewProps>(({
     return m;
   }, [items, groups]);
 
-  const total = items.length;
-  const done = items.filter((i) => i.done).length;
+  // Resolve each category's colour: user override → pinned hash → least-used (so
+  // colours don't repeat within the day). Stable order (created_at) means adding
+  // a list appends a fresh colour without reshuffling the others. `colorTick`
+  // forces a recompute after an override changes.
+  const colorMap = useMemo(() => {
+    void colorTick; // recompute after an override changes (overrides live outside React state)
+    const ordered = [...groups].sort((a, b) => a.created_at.localeCompare(b.created_at));
+    return resolveChecklistTints(ordered);
+  }, [groups, colorTick]);
+  const tintOf = useCallback(
+    (groupId: string): ChecklistTint =>
+      colorMap.has(groupId) ? tintAt(colorMap.get(groupId)!) : checklistCategoryTint(groupId),
+    [colorMap],
+  );
+  const setCategoryColor = useCallback((groupId: string, index: number | null) => {
+    setColorOverride(groupId, index);
+    setColorTick((t) => t + 1);
+    haptics.tap();
+  }, []);
+
+  // Progress must reflect what's ACTUALLY on screen, not the raw item set. On a
+  // future day the display hides pinned items that are already done (both
+  // pinnedUngrouped and each PinnedGroupCard apply `!isFutureDay || !i.done`),
+  // so counting raw `items` showed "1 / 1 done" with an empty list. Mirror the
+  // exact visible buckets so the count and the list can never disagree.
+  const visibleItems = useMemo(() => {
+    const out: ChecklistItem[] = [...ungrouped, ...pinnedUngrouped];
+    for (const g of dayGroups) out.push(...(itemsByGroup.get(g.id) ?? []));
+    for (const g of pinnedGroups) {
+      out.push(...(itemsByGroup.get(g.id) ?? []).filter((i) => !isFutureDay || !i.done));
+    }
+    return out;
+  }, [ungrouped, pinnedUngrouped, dayGroups, pinnedGroups, itemsByGroup, isFutureDay]);
+  const total = visibleItems.length;
+  const done = visibleItems.filter((i) => i.done).length;
   const activeItem = activeId ? items.find((i) => i.id === activeId) ?? null : null;
   const isEmpty = !loading && groups.length === 0 && items.length === 0;
 
@@ -341,9 +387,13 @@ export const ChecklistView = forwardRef<ChecklistApi, ChecklistViewProps>(({
     reorder(renumbered);
   };
 
+  // The row gestures own their own haptics (impact on tap/double/long), so these
+  // wrappers stay thin — no extra buzz.
   const handleToggle = (id: string) => {
-    haptics.tap();
     toggleItem(id);
+  };
+  const handleFailed = (id: string) => {
+    toggleItemFailed(id);
   };
 
   // Keep the inline "Add list" field above the soft keyboard. It sits at the
@@ -448,6 +498,7 @@ export const ChecklistView = forwardRef<ChecklistApi, ChecklistViewProps>(({
                   key={i.id}
                   item={i}
                   onToggle={toggleItem}
+                  onFailed={toggleItemFailed}
                   onUnpin={() => togglePinItem(i.id)}
                   onOpen={() => setSheetItem(i)}
                 />
@@ -459,7 +510,15 @@ export const ChecklistView = forwardRef<ChecklistApi, ChecklistViewProps>(({
               key={g.id}
               group={g}
               items={(itemsByGroup.get(g.id) ?? []).filter((i) => !isFutureDay || !i.done)}
+              collapsed={collapsed.has(g.id)}
+              tint={tintOf(g.id)}
+              onToggleCollapse={() => setCollapsed((prev) => {
+                const next = new Set(prev);
+                if (next.has(g.id)) next.delete(g.id); else next.add(g.id);
+                return next;
+              })}
               onToggle={toggleItem}
+              onFailed={toggleItemFailed}
               onUnpin={() => togglePinGroup(g.id)}
               onOpenItem={(i) => setSheetItem(i)}
             />
@@ -492,6 +551,7 @@ export const ChecklistView = forwardRef<ChecklistApi, ChecklistViewProps>(({
                   key={i.id}
                   item={i}
                   onToggle={handleToggle}
+                  onFailed={handleFailed}
                   onOpenSheet={setSheetItem}
                   selectMode={selectMode}
                   selected={selectedIds.has(i.id)}
@@ -525,6 +585,7 @@ export const ChecklistView = forwardRef<ChecklistApi, ChecklistViewProps>(({
             items={itemsByGroup.get(g.id) ?? []}
             collapsed={collapsed.has(g.id)}
             dragging={!!activeId}
+            tint={tintOf(g.id)}
             onToggleCollapse={() =>
               setCollapsed((prev) => {
                 const next = new Set(prev);
@@ -535,6 +596,7 @@ export const ChecklistView = forwardRef<ChecklistApi, ChecklistViewProps>(({
             }
             onOpenGroupMenu={setGroupMenu}
             onToggleItem={handleToggle}
+            onFailedItem={handleFailed}
             onOpenItemSheet={setSheetItem}
             onAddItem={(t, gid) => addItem(t, gid)}
             autoFocusAdd={autoFocusGroupId === g.id}
@@ -551,7 +613,7 @@ export const ChecklistView = forwardRef<ChecklistApi, ChecklistViewProps>(({
               style={{
                 boxShadow: "0 18px 40px -10px rgba(0,0,0,0.6), 0 0 0 0.5px hsl(var(--accent) / 0.3)",
                 // Keep the dragged ghost in its category's colour (ungrouped → page accent).
-                ...(activeItem.group_id ? checklistTintVars(checklistCategoryTint(activeItem.group_id)) : {}),
+                ...(activeItem.group_id ? checklistTintVars(tintOf(activeItem.group_id)) : {}),
               }}
             >
               <span className="relative z-10 shrink-0 flex h-7 w-6 items-center justify-center" style={{ color: "hsl(var(--accent))" }}>
@@ -692,6 +754,9 @@ export const ChecklistView = forwardRef<ChecklistApi, ChecklistViewProps>(({
       <GroupMenuSheet
         group={groupMenu}
         itemCount={groupMenu ? itemsByGroup.get(groupMenu.id)?.length ?? 0 : 0}
+        colorIndex={groupMenu ? colorMap.get(groupMenu.id) ?? 0 : 0}
+        colorIsAuto={groupMenu ? !(groupMenu.id in getColorOverrides()) : true}
+        onSetColor={(idx) => { if (groupMenu) setCategoryColor(groupMenu.id, idx); }}
         onClose={() => setGroupMenu(null)}
         onRename={renameGroup}
         onDelete={deleteGroup}
@@ -726,23 +791,10 @@ export const ChecklistView = forwardRef<ChecklistApi, ChecklistViewProps>(({
           <SheetHeader className="text-left mb-3">
             <SheetTitle className="text-[16px]">Move to category</SheetTitle>
           </SheetHeader>
-          <div className="space-y-1 pb-2">
-            <button
-              onClick={() => moveSelectedToGroup(null)}
-              className="w-full flex items-center gap-3 px-3 py-3 rounded-xl pressable transition-colors text-[14px] text-foreground hover:bg-muted/40"
-            >
-              <ListChecks className="h-4 w-4 text-secondary-fg shrink-0" />
-              <span className="flex-1 text-left">No category</span>
-            </button>
+          <div className="app-card px-2 py-1.5 divide-y divide-border/25 pb-2">
+            <GroupMenuRow onClick={() => moveSelectedToGroup(null)} icon={<ListChecks className="h-4 w-4" />} label="No category" />
             {dayGroups.map((g) => (
-              <button
-                key={g.id}
-                onClick={() => moveSelectedToGroup(g.id)}
-                className="w-full flex items-center gap-3 px-3 py-3 rounded-xl pressable transition-colors text-[14px] text-foreground hover:bg-muted/40"
-              >
-                <Folder className="h-4 w-4 text-secondary-fg shrink-0" />
-                <span className="flex-1 text-left">{g.title}</span>
-              </button>
+              <GroupMenuRow key={g.id} onClick={() => moveSelectedToGroup(g.id)} icon={<Folder className="h-4 w-4" />} label={g.title} />
             ))}
           </div>
         </SheetContent>
@@ -800,30 +852,44 @@ export const ChecklistView = forwardRef<ChecklistApi, ChecklistViewProps>(({
   );
 });
 
-/** A standing (pinned) item row — non-sortable; check/uncheck, tap to edit,
- *  and (for loose items) an unpin affordance. */
+/** A standing (pinned) item row — non-sortable. Same gestures as a normal row:
+ *  tap → done, double-tap → failed (red ✗), hold → menu; plus (for loose items)
+ *  an unpin affordance. */
 function PinnedRow({
   item,
   onToggle,
+  onFailed,
   onUnpin,
   onOpen,
 }: {
   item: ChecklistItem;
   onToggle: (id: string) => void;
+  onFailed?: (id: string) => void;
   onUnpin?: () => void;
   onOpen?: () => void;
 }) {
-  const showPriority = !!item.priority && !item.done;
+  const showFailed = !!item.failed && !item.done;
+  const showPriority = !!item.priority && !item.done && !showFailed;
+  const gestures = useRowGestures({
+    onTap: () => { haptics.impact("light"); onToggle(item.id); },
+    onDoubleTap: () => { haptics.impact("medium"); onFailed?.(item.id); },
+    onLongPress: () => onOpen?.(),
+  });
   return (
-    <div className={`flex items-center gap-3 px-3.5 py-2.5 border-b border-border/55 last:border-b-0 ${showPriority ? "bg-amber-400/[0.07]" : ""}`}>
-      <button type="button" onClick={onOpen} className="flex-1 min-w-0 text-left pressable flex items-center gap-1.5">
+    <div className={`checklist-item-row flex items-center gap-3 px-3.5 py-2.5 border-b border-border/55 last:border-b-0 ${showFailed ? "bg-red-500/[0.06]" : showPriority ? "bg-amber-400/[0.07]" : ""}`}>
+      <div
+        {...gestures}
+        role="button"
+        aria-label={item.done ? "Done. Tap to reopen, double-tap to fail, hold for options" : "Tap to complete, double-tap to fail, hold for options"}
+        className="flex-1 min-w-0 flex items-center gap-1.5 cursor-pointer select-none touch-pan-y"
+      >
         {showPriority && (
           <Flag className="h-3 w-3 shrink-0 text-amber-500 dark:text-amber-400" fill="currentColor" aria-label="Priority" />
         )}
-        <span className={`min-w-0 truncate text-[15px] ${item.done ? "line-through text-secondary-fg/45" : "text-foreground"}`}>
+        <span className={`min-w-0 truncate text-[15px] ${item.done ? "line-through text-secondary-fg/45" : showFailed ? "text-foreground/55" : "text-foreground"}`}>
           {item.title}
         </span>
-      </button>
+      </div>
       {onUnpin && (
         <button
           type="button"
@@ -834,67 +900,149 @@ function PinnedRow({
           <PinOff className="h-4 w-4" />
         </button>
       )}
-      <button
-        type="button"
-        onClick={() => { haptics.tap(); onToggle(item.id); }}
-        className="shrink-0 h-9 w-9 -mr-1 flex items-center justify-center pressable active:scale-90 transition-transform"
-        aria-label={item.done ? "Mark not done" : "Mark done"}
-      >
-        <CheckCircleAccent done={item.done} />
-      </button>
+      <span className="shrink-0 h-9 w-9 -mr-1 flex items-center justify-center" aria-hidden>
+        <CheckCircleAccent done={item.done} failed={!!item.failed} />
+      </span>
     </div>
   );
 }
 
-/** A pinned category card — its title + an unpin action, and its items as
- *  standing rows. */
+/** A pinned category — the SAME unified card "плашка" as a normal category
+ *  (collapsible header: chevron · icon · accent title · progress ring), so a
+ *  pinned list looks and folds exactly like any other. The only differences are
+ *  an unpin action in place of the menu and standing (non-sortable) rows. */
 function PinnedGroupCard({
   group,
   items,
+  collapsed,
+  tint: tintProp,
+  onToggleCollapse,
   onToggle,
+  onFailed,
   onUnpin,
   onOpenItem,
 }: {
   group: Group;
   items: ChecklistItem[];
+  collapsed: boolean;
+  tint?: ChecklistTint;
+  onToggleCollapse: () => void;
   onToggle: (id: string) => void;
+  onFailed: (id: string) => void;
   onUnpin: () => void;
   onOpenItem: (i: ChecklistItem) => void;
 }) {
+  const tint = tintProp ?? checklistCategoryTint(group.id);
+  const done = items.filter((i) => i.done).length;
+  const failed = items.filter((i) => i.failed && !i.done).length;
+  const total = items.length;
+
   return (
-    <div className="mt-4">
-      <div className="flex items-center gap-2 px-1 mb-2">
-        <Folder className="h-3 w-3 text-secondary-fg/50" strokeWidth={2.5} />
-        <span className="text-[11px] font-bold uppercase tracking-[0.14em] text-secondary-fg/50 truncate max-w-[120px] sm:max-w-[200px]">
-          {group.title}
-        </span>
-        <div className="flex-1 h-px bg-border/40" />
-        <button
-          type="button"
-          onClick={() => { haptics.tap(); onUnpin(); }}
-          className="shrink-0 text-secondary-fg/40 hover:text-secondary-fg/70 pressable transition-colors ml-1"
-          aria-label="Unpin category"
+    <div style={checklistTintVars(tint) as CSSProperties}>
+      <div className="relative app-card checklist-surface rounded-[20px] overflow-hidden">
+        {/* ── Card header — always visible, matches ChecklistGroup; the whole
+            bar toggles collapse (the unpin button stops propagation). ───── */}
+        <div
+          onClick={onToggleCollapse}
+          role="button"
+          aria-label={collapsed ? "Expand list" : "Collapse list"}
+          className="flex items-center gap-2 px-3 pt-3 pb-2.5 cursor-pointer select-none pressable"
         >
-          <PinOff className="h-3.5 w-3.5" />
-        </button>
-      </div>
-      <div className="app-card checklist-surface rounded-[20px] overflow-hidden">
-        {items.length === 0 ? (
-          <div className="px-3.5 py-3 text-[12.5px] text-secondary-fg/45">No items yet</div>
-        ) : (
-          items.map((i) => (
-            <PinnedRow key={i.id} item={i} onToggle={onToggle} onOpen={() => onOpenItem(i)} />
-          ))
-        )}
+          <span className="flex items-center justify-center shrink-0 text-secondary-fg/40">
+            <ChevronDown
+              className={`h-4 w-4 transition-transform ${collapsed ? "-rotate-90" : ""}`}
+              strokeWidth={2.5}
+            />
+          </span>
+          <span className="flex items-center justify-center shrink-0" style={{ color: "hsl(var(--accent))" }}>
+            <ListChecks className="h-3.5 w-3.5" strokeWidth={2.5} />
+          </span>
+          <span
+            className="text-[13px] font-bold uppercase tracking-[0.1em] flex-1 min-w-0 truncate"
+            style={{ color: "hsl(var(--accent))" }}
+          >
+            {group.title}
+          </span>
+          <div className="flex items-center gap-1 shrink-0">
+            <ProgressRing done={done} failed={failed} total={total} />
+            <button
+              type="button"
+              onClick={(e) => { e.stopPropagation(); haptics.tap(); onUnpin(); }}
+              aria-label="Unpin category"
+              className="flex items-center justify-center h-7 w-7 rounded-full text-secondary-fg/50 hover:text-secondary-fg/80 hover:bg-muted/50 pressable transition-colors"
+            >
+              <PinOff className="h-4 w-4" />
+            </button>
+          </div>
+        </div>
+
+        {/* Hairline divider — only when expanded so the folded card edge is clean */}
+        <div
+          className={`mx-3 transition-all duration-300 ${collapsed ? "h-0 opacity-0" : "h-px opacity-100"}`}
+          style={{ backgroundColor: "hsl(var(--accent) / 0.18)" }}
+        />
+
+        {/* ── Items (standing rows) — animated collapse ─────────────────── */}
+        <div className={`relative z-10 grid transition-all duration-300 ease-out origin-top ${
+          collapsed ? "grid-rows-[0fr] opacity-0" : "grid-rows-[1fr] opacity-100"
+        }`}>
+          <div className="overflow-hidden">
+            {items.length === 0 ? (
+              <div className="px-3.5 py-3.5 text-[13px] text-secondary-fg/45">No items yet</div>
+            ) : (
+              items.map((i) => (
+                <PinnedRow key={i.id} item={i} onToggle={onToggle} onFailed={onFailed} onOpen={() => onOpenItem(i)} />
+              ))
+            )}
+          </div>
+        </div>
       </div>
     </div>
   );
 }
 
+/** Icon-chip action row for GroupMenuSheet — matches the timeline's "Plan
+ *  options" menu so an app-card module of these reads as one premium
+ *  surface instead of bare buttons floating on the sheet's flat background. */
+const GroupMenuRow = ({
+  onClick,
+  icon,
+  label,
+  destructive,
+}: {
+  onClick: () => void;
+  icon: React.ReactNode;
+  label: string;
+  destructive?: boolean;
+}) => (
+  <button
+    onClick={onClick}
+    className={`w-full flex items-center gap-3 px-2 py-2.5 rounded-xl pressable transition-colors text-[14.5px] font-medium ${
+      destructive ? "text-destructive hover:bg-destructive/[0.08]" : "text-foreground hover:bg-foreground/[0.05]"
+    }`}
+  >
+    <span
+      className="shrink-0 h-8 w-8 rounded-[10px] flex items-center justify-center"
+      style={{
+        background: destructive ? "hsl(var(--destructive) / 0.12)" : "hsl(var(--primary) / 0.1)",
+        boxShadow: destructive
+          ? "inset 0 0 0 1px hsl(var(--destructive) / 0.22)"
+          : "inset 0 0 0 1px hsl(var(--primary) / 0.18)",
+      }}
+    >
+      <span className={destructive ? "text-destructive" : "text-primary"}>{icon}</span>
+    </span>
+    <span className="flex-1 text-left truncate">{label}</span>
+  </button>
+);
+
 /** Rename / delete a category. Delete shows an inline confirm (it cascades items). */
 function GroupMenuSheet({
   group,
   itemCount,
+  colorIndex,
+  colorIsAuto,
+  onSetColor,
   onClose,
   onRename,
   onDelete,
@@ -905,6 +1053,9 @@ function GroupMenuSheet({
 }: {
   group: Group | null;
   itemCount: number;
+  colorIndex: number;
+  colorIsAuto: boolean;
+  onSetColor: (index: number | null) => void;
   onClose: () => void;
   onRename: (id: string, title: string) => void;
   onDelete: (id: string) => void;
@@ -1002,52 +1153,69 @@ function GroupMenuSheet({
 
             {mode === "menu" && (
               <>
-                <button
-                  onClick={() => setMode("rename")}
-                  className="w-full flex items-center gap-3 px-3 py-3.5 rounded-xl pressable transition-colors text-[14px] text-foreground hover:bg-muted/40"
-                >
-                  <Pencil className="h-4 w-4 text-secondary-fg shrink-0" />
-                  <span className="flex-1 text-left">Rename list</span>
-                </button>
-                <button
-                  onClick={() => { onClose(); onTogglePin(); }}
-                  className="w-full flex items-center gap-3 px-3 py-3.5 rounded-xl pressable transition-colors text-[14px] text-foreground hover:bg-muted/40"
-                >
-                  {group.pinned
-                    ? <PinOff className="h-4 w-4 text-secondary-fg shrink-0" />
-                    : <Pin className="h-4 w-4 text-secondary-fg shrink-0" />}
-                  <span className="flex-1 text-left">
-                    {group.pinned ? "Unpin from every day" : "Pin to every day"}
-                  </span>
-                </button>
-                <button
-                  onClick={() => { onClose(); onCarryUnfinished(); }}
-                  className="w-full flex items-center gap-3 px-3 py-3.5 rounded-xl pressable transition-colors text-[14px] text-foreground hover:bg-muted/40"
-                >
-                  <CalendarDays className="h-4 w-4 text-secondary-fg shrink-0" />
-                  <span className="flex-1 text-left">Carry unfinished to…</span>
-                </button>
-                <button
-                  onClick={() => { onClose(); onCarryAll(); }}
-                  className="w-full flex items-center gap-3 px-3 py-3.5 rounded-xl pressable transition-colors text-[14px] text-foreground hover:bg-muted/40"
-                >
-                  <CalendarDays className="h-4 w-4 text-secondary-fg shrink-0" />
-                  <span className="flex-1 text-left">Carry entire category to…</span>
-                </button>
-                <button
-                  onClick={onCopyAsText}
-                  className="w-full flex items-center gap-3 px-3 py-3.5 rounded-xl pressable transition-colors text-[14px] text-foreground hover:bg-muted/40"
-                >
-                  <Copy className="h-4 w-4 text-secondary-fg shrink-0" />
-                  <span className="flex-1 text-left">Copy as text</span>
-                </button>
-                <button
-                  onClick={() => setMode("confirm")}
-                  className="w-full flex items-center gap-3 px-3 py-3.5 rounded-xl pressable transition-colors text-[14px] text-destructive hover:bg-destructive/10"
-                >
-                  <Trash2 className="h-4 w-4 shrink-0" />
-                  <span className="flex-1 text-left">Delete list</span>
-                </button>
+                {/* Colour picker — tap a swatch to recolour this list, or Auto to
+                    let the app pick a non-repeating colour for it. */}
+                <div className="px-3 pt-1 pb-2.5">
+                  <div className="flex items-center gap-1.5 mb-2.5">
+                    <Palette className="h-3.5 w-3.5 text-secondary-fg/60" strokeWidth={2.25} />
+                    <span className="text-[11px] font-bold uppercase tracking-[0.12em] text-secondary-fg/55">Colour</span>
+                  </div>
+                  <div className="flex flex-wrap items-center gap-2">
+                    <button
+                      type="button"
+                      onClick={() => onSetColor(null)}
+                      aria-pressed={colorIsAuto}
+                      className={`h-8 px-3.5 rounded-full text-[12px] font-semibold pressable transition-colors border ${
+                        colorIsAuto
+                          ? "border-foreground/25 bg-foreground/[0.07] text-foreground"
+                          : "border-border/70 bg-transparent text-secondary-fg/70 hover:text-foreground"
+                      }`}
+                    >
+                      Auto
+                    </button>
+                    {CHECKLIST_CATEGORY_PALETTE.map((_, i) => {
+                      const selected = !colorIsAuto && i === colorIndex;
+                      return (
+                        <button
+                          key={i}
+                          type="button"
+                          onClick={() => onSetColor(i)}
+                          aria-label={`Colour ${i + 1}`}
+                          aria-pressed={selected}
+                          className="relative h-8 w-8 rounded-full pressable transition-transform active:scale-90"
+                          style={{
+                            background: swatchGradient(i),
+                            boxShadow: selected
+                              ? "0 0 0 2px hsl(var(--popover)), 0 0 0 3.5px rgba(255,255,255,0.9), 0 4px 10px -3px rgba(0,0,0,0.5)"
+                              : "inset 0 1px 0 rgba(255,255,255,0.25), 0 1px 3px rgba(0,0,0,0.3)",
+                          }}
+                        >
+                          {selected && (
+                            <Check className="absolute inset-0 m-auto h-4 w-4 text-white drop-shadow-[0_1px_2px_rgba(0,0,0,0.5)]" strokeWidth={3} />
+                          )}
+                        </button>
+                      );
+                    })}
+                  </div>
+                </div>
+                <div className="space-y-2.5">
+                  <div className="app-card px-2 py-1.5 divide-y divide-border/25">
+                    <GroupMenuRow onClick={() => setMode("rename")} icon={<Pencil className="h-4 w-4" />} label="Rename list" />
+                    <GroupMenuRow
+                      onClick={() => { onClose(); onTogglePin(); }}
+                      icon={group.pinned ? <PinOff className="h-4 w-4" /> : <Pin className="h-4 w-4" />}
+                      label={group.pinned ? "Unpin from every day" : "Pin to every day"}
+                    />
+                  </div>
+                  <div className="app-card px-2 py-1.5 divide-y divide-border/25">
+                    <GroupMenuRow onClick={() => { onClose(); onCarryUnfinished(); }} icon={<CalendarDays className="h-4 w-4" />} label="Carry unfinished to…" />
+                    <GroupMenuRow onClick={() => { onClose(); onCarryAll(); }} icon={<CalendarDays className="h-4 w-4" />} label="Carry entire category to…" />
+                    <GroupMenuRow onClick={onCopyAsText} icon={<Copy className="h-4 w-4" />} label="Copy as text" />
+                  </div>
+                  <div className="app-card px-2 py-1.5">
+                    <GroupMenuRow onClick={() => setMode("confirm")} icon={<Trash2 className="h-4 w-4" />} label="Delete list" destructive />
+                  </div>
+                </div>
               </>
             )}
           </div>

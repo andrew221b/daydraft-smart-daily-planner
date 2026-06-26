@@ -6,7 +6,7 @@ import { DebouncedTextarea } from "@/components/ui/textarea";
 import { Button } from "@/components/ui/button";
 import { useEffect, useState } from "react";
 import { ThemeToggle } from "@/components/app/ThemeToggle";
-import { Sparkles, AlarmClock, FileText, Shield, Trash2, Download, Loader2, ScanFace, Fingerprint, Lock, Vibrate, Lightbulb } from "lucide-react";
+import { Sparkles, AlarmClock, FileText, Shield, Trash2, Download, Loader2, ScanFace, Fingerprint, Lock, Vibrate, Lightbulb, LifeBuoy, ChevronRight } from "lucide-react";
 import { Link, useLocation } from "react-router-dom";
 import { Capacitor } from "@capacitor/core";
 import { NativeBiometric } from "@capgo/capacitor-native-biometric";
@@ -21,6 +21,7 @@ import { useEntitlement } from "@/hooks/useEntitlement";
 import { Sheet, SheetContent, SheetHeader, SheetTitle, SheetDescription } from "@/components/ui/sheet";
 import { UpgradeSheet } from "@/components/app/UpgradeSheet";
 import { ProFeatureHighlights } from "@/components/app/ProFeatureHighlights";
+import { SupportDialog } from "@/components/app/SupportDialog";
 import { pushAvailability, pushAvailabilityCopy } from "@/lib/push";
 import {
   getNotificationsEnabled,
@@ -33,9 +34,7 @@ import {
 import { supabase } from "@/integrations/supabase/client";
 import { triggerDownload } from "@/lib/reportExport";
 import { useHints } from "@/hooks/useHints";
-import { PerfDebugPanel } from "@/components/app/PerfDebugPanel";
-import { invalidateAiCache } from "@/lib/aiCache";
-import { INSIGHTS_DEV_MODE_EVENT } from "@/components/app/YesterdayDebriefCard";
+
 
 export default function Settings() {
   const { profile, update } = useProfile();
@@ -52,6 +51,7 @@ export default function Settings() {
   const { entitlement, isPro, subscriptionPro, planQuotaUsed, planQuotaLimit, planQuotaRemaining, refresh: refreshEntitlement } = useEntitlement();
   const [upgradeOpen, setUpgradeOpen] = useState(false);
   const [proSheetOpen, setProSheetOpen] = useState(false);
+  const [supportDialogOpen, setSupportDialogOpen] = useState(false);
 
   const [pushState, setPushState] = useState(() => pushAvailability());
   const pushReady = pushState === "ok";
@@ -64,31 +64,6 @@ export default function Settings() {
   const [taskRemindersOn, setTaskRemindersOn] = useState<boolean>(() => getNotificationsEnabled());
   const [dailyNudgesOn, setDailyNudgesOn] = useState<boolean>(() => getDailyNudgesEnabled());
 
-  const DEV_MODE_KEY = "dd_insights_dev_mode";
-  const INSIGHT_MODES = ["recap", "riddle", "quiz", "challenge"] as const;
-  const [insightsDevMode, setInsightsDevMode] = useState<string>(() => {
-    try { return localStorage.getItem(DEV_MODE_KEY) || ""; } catch { return ""; }
-  });
-  const setInsightsModeOverride = (m: string) => {
-    try {
-      if (m) localStorage.setItem(DEV_MODE_KEY, m);
-      else localStorage.removeItem(DEV_MODE_KEY);
-    } catch {}
-    invalidateAiCache("yesterday-debrief");
-    setInsightsDevMode(m);
-    window.dispatchEvent(new Event(INSIGHTS_DEV_MODE_EVENT));
-  };
-
-  const refreshInsights = () => {
-    // Bump a nonce so the edge function rotates theme + re-samples the model —
-    // proves generation is live and gives genuinely new content each tap.
-    try {
-      const cur = parseInt(localStorage.getItem("dd_insights_variation") || "0", 10) || 0;
-      localStorage.setItem("dd_insights_variation", String(cur + 1));
-    } catch {}
-    invalidateAiCache("yesterday-debrief");
-    window.dispatchEvent(new Event(INSIGHTS_DEV_MODE_EVENT));
-  };
 
   const toggleHaptics = (enable: boolean) => {
     setHapticsEnabled(enable);     // persist BEFORE the buzz so an enable can fire
@@ -141,9 +116,6 @@ export default function Settings() {
     }
   };
 
-  // Hidden developer panel — tap the version label 10× in 3s to open.
-  const [versionTaps, setVersionTaps] = useState(0);
-  const [perfPanelOpen, setPerfPanelOpen] = useState(false);
   const [exporting, setExporting] = useState(false);
 
   const handleExportData = async () => {
@@ -163,11 +135,7 @@ export default function Settings() {
       setExporting(false);
     }
   };
-  useEffect(() => {
-    if (versionTaps === 0) return;
-    const id = window.setTimeout(() => setVersionTaps(0), 3000);
-    return () => window.clearTimeout(id);
-  }, [versionTaps]);
+
   useEffect(() => { if (profile) setName(profile.display_name || ""); }, [profile]);
   useEffect(() => {
     if (!profile) return;
@@ -217,9 +185,11 @@ export default function Settings() {
     setDailyNudgesOn(v);
     setDailyNudgesEnabled(v);
     if (v) {
+      // Schedule the morning brief + evening recap at the user's chosen times.
+      // NotificationBridge re-syncs with fresh numbers on the next app run.
       void syncDailyNudges({
-        morningTime: profile?.morning_nudge_local_time,
-        eveningTime: profile?.evening_nudge_local_time,
+        morningTime: profile?.morning_nudge_local_time || "08:00",
+        eveningTime: profile?.evening_nudge_local_time || "20:00",
       });
       toast.success("Daily nudges on");
     } else {
@@ -227,11 +197,28 @@ export default function Settings() {
     }
   };
 
+  // Morning / evening nudge times — persisted to the profile and re-scheduled
+  // on change. Defaults 08:00 / 20:00.
+  const morningTime = profile?.morning_nudge_local_time || "08:00";
+  const eveningTime = profile?.evening_nudge_local_time || "20:00";
+  const setNudgeTime = (which: "morning" | "evening", value: string) => {
+    if (!/^\d{2}:\d{2}$/.test(value)) return;
+    const patch =
+      which === "morning"
+        ? { morning_nudge_local_time: value }
+        : { evening_nudge_local_time: value };
+    void update(patch);
+    void syncDailyNudges({
+      morningTime: which === "morning" ? value : morningTime,
+      eveningTime: which === "evening" ? value : eveningTime,
+    });
+  };
+
 
 
   return (
     <>
-      <div className="px-5 pt-[var(--content-inset-top)]">
+      <div className="w-full md:max-w-[720px] md:mx-auto px-5 md:px-8 pt-[var(--content-inset-top)]">
         <header className="shrink-0 pb-5">
           <p className="eyebrow">Account</p>
           <h1 className="page-title mt-2 text-balance">Settings</h1>
@@ -245,52 +232,30 @@ export default function Settings() {
             onOpenDetails={!isPro ? () => setProSheetOpen(true) : undefined}
           />
 
-          <Section title="Developer">
-            <div className="rounded-[18px] border border-dashed border-primary/40 bg-primary/[0.03] px-4 py-3 space-y-2">
-              <div className="flex items-center justify-between gap-3">
-                <div>
-                  <div className="text-[14px] text-foreground font-medium">Developer Pro Override</div>
-                  <p className="text-[11px] text-secondary-fg mt-1 leading-relaxed">
-                    Unlocks all client-side Pro features and bypasses server-side AI quotas.
-                  </p>
-                </div>
-                <Switch
-                  checked={!!profile?.is_developer}
-                  onCheckedChange={(v) => update({ is_developer: v })}
-                />
-              </div>
-              {profile?.is_developer && (
-                <div className="pt-2 border-t border-primary/15 space-y-2.5">
-                  <div>
-                    <div className="text-[11px] text-secondary-fg mb-2">Insights mode preview</div>
-                    <div className="flex flex-wrap gap-1.5">
-                      {(["", ...INSIGHT_MODES] as const).map((m) => (
-                        <button
-                          key={m || "auto"}
-                          type="button"
-                          onClick={() => setInsightsModeOverride(m)}
-                          className={`px-2.5 py-1 rounded-full text-[11px] font-semibold transition-colors pressable pressable-instant ${
-                            insightsDevMode === m
-                              ? "bg-primary text-primary-foreground"
-                              : "bg-foreground/[0.07] text-secondary-fg hover:bg-foreground/[0.12]"
-                          }`}
-                        >
-                          {m || "auto"}
-                        </button>
-                      ))}
+          <Section title="Support">
+            <button
+              type="button"
+              onClick={() => setSupportDialogOpen(true)}
+              className="w-full text-left rounded-[18px] border border-border/65 hero-glass overflow-hidden pressable transition-colors hover:bg-foreground/[0.02]"
+            >
+              <div className="px-4 py-3 flex items-center justify-between gap-3">
+                <div className="flex items-center gap-3 min-w-0">
+                  <div className="relative flex h-8 w-8 shrink-0 items-center justify-center rounded-full bg-gradient-to-b from-black/[0.03] to-black/[0.08] dark:from-white/[0.12] dark:to-white/[0.06] border border-black/[0.08] dark:border-white/10 shadow-[inset_0_1px_0_rgba(255,255,255,0.4),0_2px_4px_rgba(0,0,0,0.05)] dark:shadow-[inset_0_1px_0_rgba(255,255,255,0.15),0_2px_8px_rgba(0,0,0,0.2)]">
+                    <LifeBuoy className="h-[16px] w-[16px] text-foreground/80 drop-shadow-sm" strokeWidth={2} />
+                  </div>
+                  <div className="min-w-0">
+                    <div className="text-[14px] font-medium text-foreground/95">Help & Feedback</div>
+                    <div className="text-[11px] text-secondary-fg/75 mt-0.5 leading-snug">
+                      Report a bug or share your thoughts
                     </div>
                   </div>
-                  <button
-                    type="button"
-                    onClick={refreshInsights}
-                    className="w-full px-3 py-2 rounded-lg bg-foreground/[0.08] text-secondary-fg text-[12px] font-semibold border border-foreground/[0.1] hover:bg-foreground/[0.12] transition-colors pressable pressable-instant"
-                  >
-                    Refresh Insights
-                  </button>
                 </div>
-              )}
-            </div>
+                <ChevronRight className="h-4 w-4 shrink-0 text-foreground/30" />
+              </div>
+            </button>
           </Section>
+
+
 
           {/* 2. Profile — name + appearance grouped */}
           <Section title="You">
@@ -389,6 +354,33 @@ export default function Settings() {
                     <p className="text-[12px] text-secondary-fg mt-1 leading-relaxed">
                       {pushAvailabilityCopy[pushState].body}
                     </p>
+                  </div>
+                )}
+
+                {/* When on: let the user choose when each ping lands. Native
+                    HH:MM pickers so the time matches their day. */}
+                {pushReady && dailyNudgesOn && (
+                  <div className="mt-3 grid grid-cols-2 gap-2">
+                    <label className="flex items-center justify-between gap-1 rounded-[12px] border border-border/55 bg-card/45 px-2.5 py-2">
+                      <span className="text-[12px] font-medium text-foreground/80 tracking-tight">Morning</span>
+                      <input
+                        type="time"
+                        value={morningTime}
+                        onChange={(e) => setNudgeTime("morning", e.target.value)}
+                        className="bg-transparent text-[14px] font-semibold text-foreground tabular-nums outline-none text-right flex-1 min-w-0"
+                        style={{ fontSize: 16 }}
+                      />
+                    </label>
+                    <label className="flex items-center justify-between gap-1 rounded-[12px] border border-border/55 bg-card/45 px-2.5 py-2">
+                      <span className="text-[12px] font-medium text-foreground/80 tracking-tight">Evening</span>
+                      <input
+                        type="time"
+                        value={eveningTime}
+                        onChange={(e) => setNudgeTime("evening", e.target.value)}
+                        className="bg-transparent text-[14px] font-semibold text-foreground tabular-nums outline-none text-right flex-1 min-w-0"
+                        style={{ fontSize: 16 }}
+                      />
+                    </label>
                   </div>
                 )}
               </div>
@@ -549,24 +541,9 @@ export default function Settings() {
             Sign out
           </Button>
 
-          <button
-            type="button"
-            onClick={() => {
-              setVersionTaps((n) => {
-                const next = n + 1;
-                if (next >= 10) {
-                  setPerfPanelOpen(true);
-                  return 0;
-                }
-                return next;
-              });
-            }}
-            className="block w-full text-center text-[11px] text-secondary-fg pt-1 select-none"
-            aria-label="App version"
-          >
+          <div className="block w-full text-center text-[11px] text-secondary-fg pt-1 select-none pb-4">
             DayDraft · v1.0
-          </button>
-          <PerfDebugPanel open={perfPanelOpen} onOpenChange={setPerfPanelOpen} />
+          </div>
         </div>
       </div>
       <Sheet open={proSheetOpen} onOpenChange={setProSheetOpen}>
@@ -583,6 +560,7 @@ export default function Settings() {
         </SheetContent>
       </Sheet>
       <UpgradeSheet open={upgradeOpen} onOpenChange={setUpgradeOpen} reason="feature" />
+      <SupportDialog open={supportDialogOpen} onOpenChange={setSupportDialogOpen} />
     </>
   );
 }

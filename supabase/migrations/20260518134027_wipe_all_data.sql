@@ -1,47 +1,14 @@
--- One-shot factory reset: empties every user-owned table and deletes all
--- auth.users. Schema and RLS policies are untouched. After this runs:
---   • The DB is in the same shape a brand-new project would have.
---   • Anyone signing in re-creates a fresh profile via handle_new_user().
+-- NEUTRALIZED 2026-06-19 (release-readiness audit).
 --
--- Safe to leave in /migrations: it has no effect on an already-empty DB.
-
-BEGIN;
-
--- Public-schema user data. CASCADE handles any FK we haven't listed
--- (e.g. tables added later); RESTART IDENTITY resets sequences.
-TRUNCATE TABLE
-  public.blocks,
-  public.plans,
-  public.time_entries,
-  public.time_categories,
-  public.quick_captures,
-  public.block_templates,
-  public.push_subscriptions,
-  public.user_patterns,
-  public.profiles
-RESTART IDENTITY CASCADE;
-
--- Tables that may or may not exist depending on migration history
--- (subscriptions, calendar_tokens, streaks, billing_payment_details).
--- TRUNCATE in a separate DO block so a missing table doesn't abort the txn.
-DO $$
-DECLARE
-  t text;
-BEGIN
-  FOREACH t IN ARRAY ARRAY[
-    'public.subscriptions',
-    'public.calendar_tokens',
-    'public.streaks',
-    'public.billing_payment_details'
-  ] LOOP
-    IF to_regclass(t) IS NOT NULL THEN
-      EXECUTE format('TRUNCATE TABLE %s RESTART IDENTITY CASCADE', t);
-    END IF;
-  END LOOP;
-END $$;
-
--- Auth users last. The handle_new_user() trigger only fires on INSERT,
--- so DELETE is safe and won't re-create rows.
-DELETE FROM auth.users;
-
-COMMIT;
+-- This migration originally TRUNCATEd every user table and ran
+-- `DELETE FROM auth.users` — a one-shot factory reset. The old header claimed it
+-- was "safe to leave in /migrations" because it's a no-op on an empty DB. That is
+-- wrong: on any fresh environment (staging, a new prod, or a restored backup)
+-- `supabase db push` replays it and erases all users + data.
+--
+-- It is already recorded as applied on the current production DB, so emptying its
+-- body has no effect there (db push never re-runs an applied migration). Reduced
+-- to a no-op so it can never wipe a fresh/restored database.
+--
+-- A real factory reset is now an out-of-band admin script, not an auto-migration.
+SELECT 1;

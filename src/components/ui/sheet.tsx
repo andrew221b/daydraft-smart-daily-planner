@@ -41,7 +41,9 @@ const sheetVariants = cva(
         bottom:
           // zoom-in-[0.97]: sheet scales from 0.97→1 while rising — gives the
           // feeling that it's "arriving" from depth, not just sliding up.
-          "inset-x-0 bottom-0 border-t data-[state=closed]:slide-out-to-bottom data-[state=open]:slide-in-from-bottom data-[state=open]:zoom-in-[0.97]",
+          // md+ (iPad): centre and cap the width, and add margin/rounding so it
+          // reads as an intentional floating modal column instead of a full-bleed strip.
+          "inset-x-0 bottom-0 md:mb-6 md:mx-auto md:max-w-[540px] md:rounded-[28px] md:border md:shadow-2xl border-t data-[state=closed]:slide-out-to-bottom data-[state=open]:slide-in-from-bottom data-[state=open]:zoom-in-[0.97]",
         left: "inset-y-0 left-0 h-full w-3/4 border-r data-[state=closed]:slide-out-to-left data-[state=open]:slide-in-from-left sm:max-w-sm",
         right:
           "inset-y-0 right-0 h-full w-3/4  border-l data-[state=closed]:slide-out-to-right data-[state=open]:slide-in-from-right sm:max-w-sm",
@@ -60,6 +62,47 @@ interface SheetContentProps
    *  when the sheet already has its own Cancel/Done header so the X would be
    *  redundant. Defaults to false to preserve behaviour for existing sheets. */
   hideClose?: boolean;
+}
+
+let bottomSheetCount = 0;
+
+function SheetStackEffect() {
+  const ref = React.useRef<HTMLSpanElement>(null);
+
+  React.useEffect(() => {
+    const el = ref.current?.closest('[data-sheet-side="bottom"]');
+    if (!el) return;
+
+    let isCounted = false;
+
+    const update = () => {
+      const state = el.getAttribute("data-state");
+      if (state === "open" && !isCounted) {
+        bottomSheetCount++;
+        if (bottomSheetCount === 1) document.body.classList.add("bottom-sheet-open");
+        isCounted = true;
+      } else if (state === "closed" && isCounted) {
+        bottomSheetCount--;
+        if (bottomSheetCount === 0) document.body.classList.remove("bottom-sheet-open");
+        isCounted = false;
+      }
+    };
+
+    update(); // initial state
+
+    const obs = new MutationObserver(() => update());
+    obs.observe(el, { attributes: true, attributeFilter: ["data-state"] });
+
+    return () => {
+      obs.disconnect();
+      if (isCounted) {
+        bottomSheetCount--;
+        if (bottomSheetCount === 0) document.body.classList.remove("bottom-sheet-open");
+      }
+    };
+  }, []);
+
+  return <span ref={ref} style={{ display: "none" }} aria-hidden />;
 }
 
 const SheetContent = React.forwardRef<React.ElementRef<typeof SheetPrimitive.Content>, SheetContentProps>(
@@ -134,12 +177,14 @@ const SheetContent = React.forwardRef<React.ElementRef<typeof SheetPrimitive.Con
         <SheetOverlay />
         <SheetPrimitive.Content
           ref={ref}
+          data-sheet-side={side}
           className={cn(sheetVariants({ side }), className)}
           style={{ ...kbStyle, ...style }}
           onPointerDownOutside={handlePointerDownOutside as React.ComponentPropsWithoutRef<typeof SheetPrimitive.Content>["onPointerDownOutside"]}
           onInteractOutside={handleInteractOutside as React.ComponentPropsWithoutRef<typeof SheetPrimitive.Content>["onInteractOutside"]}
           {...props}
         >
+          {side === "bottom" && <SheetStackEffect />}
           {children}
           {!hideClose && (
             <SheetPrimitive.Close className="absolute right-4 top-4 z-50 p-3 -m-3 min-h-[44px] min-w-[44px] flex items-center justify-center rounded-full opacity-70 ring-offset-background transition-[opacity,background-color] data-[state=open]:bg-secondary hover:opacity-100 hover:bg-secondary/50 focus:outline-none focus:ring-2 focus:ring-ring focus:ring-offset-2 disabled:pointer-events-none">

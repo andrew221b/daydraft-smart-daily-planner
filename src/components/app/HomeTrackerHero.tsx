@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useRef, useState, type CSSProperties, type FormEvent } from "react";
 import { motion, AnimatePresence } from "framer-motion";
-import { Check, Play, Square, Plus, Search, ChevronDown, Wallet, Pencil, Trash2, Lock, Tag, FileText } from "lucide-react";
+import { Check, Play, Square, Plus, Search, ChevronDown, Wallet, Pencil, Trash2, Lock, Tag, FileText, Timer } from "lucide-react";
 import { SessionNoteSheet, SessionTaskSheet } from "@/components/app/EntryEditSheet";
 import { Callout } from "@/components/ui/callout";
 import { useTimeTracker, subscribeElapsed, getElapsedSec, fmtHMS, fmtHM, subscribeWidgetStop, consumeWidgetStopMeta } from "@/hooks/useTimeTracker";
@@ -243,6 +243,7 @@ export function HomeTrackerHero({ onOpenDetails }: { onOpenDetails: () => void }
   // the Yes/No dialog; `noteEditor` drives the actual note input sheet.
   type StoppedSessionMeta = { entryId: string; note: string; categoryName?: string; categoryColor?: string };
   const [stopBusy, setStopBusy] = useState(false);
+  const [confirmStopOpen, setConfirmStopOpen] = useState(false);
   const [notePrompt, setNotePrompt] = useState<StoppedSessionMeta | null>(null);
   const [noteEditor, setNoteEditor] = useState<StoppedSessionMeta | null>(null);
 
@@ -484,7 +485,7 @@ export function HomeTrackerHero({ onOpenDetails }: { onOpenDetails: () => void }
   return (
     <section
       data-tour="hero-tracker"
-      className={`relative overflow-hidden rounded-[28px] hero-glass border px-5 pt-6 pb-5 transition-[border-color,background-color,box-shadow,transform] duration-[320ms] ease-out ${
+      className={`relative overflow-hidden rounded-[28px] hero-glass border px-5 pt-6 pb-5 md:pt-8 md:pb-7 transition-[border-color,background-color,box-shadow,transform] duration-[320ms] ease-out ${
         active
           ? "tracker-hero-clock border-[color-mix(in_srgb,var(--hero-accent)_45%,hsl(var(--border)/0.5))]"
           : "border-border/65"
@@ -506,7 +507,7 @@ export function HomeTrackerHero({ onOpenDetails }: { onOpenDetails: () => void }
         </div>
 
         {/* Hero timer */}
-        <div className="mt-4 flex flex-col items-center text-center">
+        <div className="mt-4 md:mt-5 flex flex-col items-center text-center">
           {active && activeCat ? (
             <>
               <div className="inline-flex items-center gap-2 rounded-full bg-foreground/[0.07] px-3 py-1 border border-border/60">
@@ -527,18 +528,19 @@ export function HomeTrackerHero({ onOpenDetails }: { onOpenDetails: () => void }
                 <button
                   type="button"
                   onClick={() => { haptics.tap(); setTaskSheetOpen(true); }}
-                  className="min-w-0 justify-self-end inline-flex items-center justify-end gap-1.5 rounded-full px-2.5 py-1 text-[12.5px] pressable transition-colors hover:bg-foreground/[0.05]"
+                  className="justify-self-end inline-flex items-center gap-1.5 rounded-full px-2.5 py-1 text-[12.5px] pressable transition-colors hover:bg-foreground/[0.05]"
                   aria-label={active.task_title ? "Edit task name" : "Name this task"}
                 >
                   {active.task_title ? (
-                    <>
-                      <span className="truncate font-medium text-foreground/90">{active.task_title}</span>
-                      <Pencil className="h-3 w-3 shrink-0 text-secondary-fg/45" />
-                    </>
+                    <span className="inline-flex items-center gap-1.5 whitespace-nowrap">
+                      <span className="h-1.5 w-1.5 rounded-full bg-primary/75 shrink-0" />
+                      <Tag className="h-3 w-3 text-foreground/70" />
+                      <span className="font-semibold text-foreground/85">Task</span>
+                    </span>
                   ) : (
-                    <span className="inline-flex items-center gap-1.5 text-secondary-fg/65 whitespace-nowrap">
+                    <span className="inline-flex items-center gap-1.5 text-secondary-fg/55 whitespace-nowrap">
                       <Tag className="h-3 w-3" />
-                      Task name
+                      Task
                     </span>
                   )}
                 </button>
@@ -546,18 +548,19 @@ export function HomeTrackerHero({ onOpenDetails }: { onOpenDetails: () => void }
                 <button
                   type="button"
                   onClick={() => { haptics.tap(); setNoteSheetOpen(true); }}
-                  className="min-w-0 justify-self-start inline-flex items-center justify-start gap-1.5 rounded-full px-2.5 py-1 text-[12.5px] pressable transition-colors hover:bg-foreground/[0.05]"
+                  className="justify-self-start inline-flex items-center gap-1.5 rounded-full px-2.5 py-1 text-[12.5px] pressable transition-colors hover:bg-foreground/[0.05]"
                   aria-label={active.note ? "Edit notes" : "Add notes"}
                 >
                   {active.note ? (
-                    <>
-                      <span className="truncate font-medium text-foreground/90">{active.note}</span>
-                      <Pencil className="h-3 w-3 shrink-0 text-secondary-fg/45" />
-                    </>
+                    <span className="inline-flex items-center gap-1.5 whitespace-nowrap">
+                      <span className="h-1.5 w-1.5 rounded-full bg-primary/75 shrink-0" />
+                      <FileText className="h-3 w-3 text-foreground/70" />
+                      <span className="font-semibold text-foreground/85">Note</span>
+                    </span>
                   ) : (
-                    <span className="inline-flex items-center gap-1.5 text-secondary-fg/65 whitespace-nowrap">
+                    <span className="inline-flex items-center gap-1.5 text-secondary-fg/55 whitespace-nowrap">
                       <FileText className="h-3 w-3" />
-                      Notes
+                      Note
                     </span>
                   )}
                 </button>
@@ -584,23 +587,13 @@ export function HomeTrackerHero({ onOpenDetails }: { onOpenDetails: () => void }
               })()}
               <button
                 type="button"
-                onClick={() => void handleStop()}
+                onClick={() => setConfirmStopOpen(true)}
                 disabled={stopBusy}
                 className="tracker-stop-btn mt-4 inline-flex items-center gap-2 rounded-full text-white px-7 py-3 text-[14px] font-semibold pressable btn-volumetric-danger disabled:opacity-60"
               >
                 <Square className="h-3.5 w-3.5" fill="currentColor" />
                 {stopBusy ? "Stopping…" : "Stop"}
               </button>
-              {categories.length > 1 && (
-                <button
-                  type="button"
-                  onClick={() => openCategoryPicker()}
-                  className="mt-2 inline-flex items-center gap-1.5 rounded-full border border-border/75 bg-background/45 px-4 py-2 text-[12px] font-semibold text-secondary-fg/90 pressable hover:text-foreground"
-                >
-                  Switch category
-                  <ChevronDown className="h-3 w-3" />
-                </button>
-              )}
             </>
           ) : (
             <>
@@ -1116,19 +1109,58 @@ export function HomeTrackerHero({ onOpenDetails }: { onOpenDetails: () => void }
         }}
       />
 
+      {/* Confirm stop — prevents accidental stop of a running tracker */}
+      <AlertDialog open={confirmStopOpen} onOpenChange={setConfirmStopOpen}>
+        <AlertDialogContent
+          className="w-[calc(100vw-48px)] max-w-[340px] rounded-3xl border-border/70 bg-surface/95 p-0 backdrop-blur-2xl"
+        >
+          <AlertDialogHeader className="px-6 pt-6 pb-0 text-center">
+            <div className="mx-auto mb-3 flex h-11 w-11 items-center justify-center rounded-full bg-primary/12 border border-primary/20">
+              <Timer className="h-5 w-5 text-primary" />
+            </div>
+            <AlertDialogTitle className="text-[17px] font-semibold">
+              Stop the timer?
+            </AlertDialogTitle>
+            <AlertDialogDescription className="text-[13px] text-secondary-fg/80 mt-1">
+              Your tracked time will be saved. Are you sure you want to stop?
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter className="flex flex-col gap-2 px-6 py-5 sm:flex-col sm:space-x-0">
+            <AlertDialogAction
+              onClick={() => { setConfirmStopOpen(false); void handleStop(); }}
+              className="h-11 w-full rounded-2xl bg-destructive text-destructive-foreground hover:bg-destructive/90 font-semibold text-[15px] border-0 pressable"
+            >
+              Stop timer
+            </AlertDialogAction>
+            <AlertDialogCancel className="h-11 w-full rounded-2xl border border-foreground/30 bg-foreground/[0.08] text-foreground font-semibold text-[15px] hover:bg-foreground/[0.14] mt-0 pressable">
+              Continue
+            </AlertDialogCancel>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
+
       {/* After Stop: ask whether to add a note. The session is already stopped. */}
       <AlertDialog open={!!notePrompt} onOpenChange={(o) => !o && setNotePrompt(null)}>
         <AlertDialogContent>
           <AlertDialogHeader>
-            <AlertDialogTitle>Add a note?</AlertDialogTitle>
+            <AlertDialogTitle>
+              {notePrompt?.note ? "Update your note?" : "Add a note?"}
+            </AlertDialogTitle>
             <AlertDialogDescription>
-              Session stopped. Want to add notes about what you worked on?
+              {notePrompt?.note
+                ? "You've already written something — anything to add or change?"
+                : "Session stopped. Want to jot down what you worked on?"}
             </AlertDialogDescription>
           </AlertDialogHeader>
           <AlertDialogFooter>
-            <AlertDialogCancel onClick={() => setNotePrompt(null)}>No</AlertDialogCancel>
+            <AlertDialogCancel
+              onClick={() => setNotePrompt(null)}
+              className="border border-foreground/30 bg-foreground/[0.08] text-foreground hover:bg-foreground/[0.14] hover:text-foreground"
+            >
+              No, skip
+            </AlertDialogCancel>
             <AlertDialogAction onClick={() => { setNoteEditor(notePrompt); setNotePrompt(null); }}>
-              Yes
+              {notePrompt?.note ? "Edit note" : "Yes, add"}
             </AlertDialogAction>
           </AlertDialogFooter>
         </AlertDialogContent>

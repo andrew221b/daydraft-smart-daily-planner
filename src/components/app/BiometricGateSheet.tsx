@@ -130,13 +130,16 @@ export function BiometricGateSheet({ open, onClose, feature, onResult }: Props) 
           <p className="text-[14px] text-secondary-fg/72 leading-relaxed max-w-[290px] mb-8">
             {copy.body}
           </p>
+        </div>
 
-          {/* ── CTAs ──────────────────────────────────────────────────── */}
+        {/* ── CTAs — kept OUTSIDE the scrollable area (shrink-0) so the
+            primary button's glow shadow never gets clipped by overflow-y-auto. */}
+        <div className="shrink-0 px-5 sm:px-6 pb-4 flex flex-col items-center text-center">
           <button
             type="button"
             onClick={handleEnable}
             disabled={verifying}
-            className="w-full max-w-[320px] h-[54px] rounded-[18px] bg-primary text-primary-foreground pressable font-semibold text-[16px] shadow-[0_12px_32px_-8px_hsl(var(--primary)/0.6)] disabled:opacity-60 transition-opacity"
+            className="w-full max-w-[320px] h-[54px] rounded-[18px] bg-primary text-primary-foreground pressable font-semibold text-[16px] cta-glow disabled:opacity-60 transition-opacity"
           >
             {verifying ? "Verifying…" : `Enable ${biometricLabel}`}
           </button>

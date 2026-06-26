@@ -1,6 +1,5 @@
 import { memo, useEffect, useLayoutEffect, useRef, useState, useTransition } from "react";
 import { NavLink, useLocation, useNavigate } from "react-router-dom";
-import { ptMark } from "@/lib/perfTrace"; // TEMP perf trace
 import { BarChart3, CalendarDays, Settings as SettingsIcon, Timer } from "lucide-react";
 import { motion, useMotionValue, useSpring, useTransform, useVelocity } from "framer-motion";
 import { haptics } from "@/lib/haptics";
@@ -13,7 +12,7 @@ import type { LucideIcon } from "lucide-react";
 // download *before* the click commits — eliminating the lazy-load
 // spinner on tab switches for users whose Shell prefetch hasn't yet
 // completed (slow phones, throttled connections, cold app start).
-const tabs = [
+export const tabs = [
   { to: "/home", icon: Timer, label: "Track", tour: "tab-home", prefetch: () => import("@/pages/app/Home") },
   { to: "/today", icon: CalendarDays, label: "Plan", tour: "tab-today", prefetch: () => import("@/pages/app/DayView") },
   { to: "/reports", icon: BarChart3, label: "Reports", tour: "tab-reports", prefetch: () => import("@/pages/app/Reports") },
@@ -23,7 +22,7 @@ const tabs = [
 /** Must match Tailwind gap-1.5 (6px). */
 const TAB_GAP_PX = 6;
 
-const activeTabIndex = (pathname: string) => {
+export const activeTabIndex = (pathname: string) => {
   if (
     pathname === "/" ||
     pathname.startsWith("/home") ||
@@ -67,11 +66,9 @@ export const TabBar = () => {
   // "frozen". The pendingIdx above keeps the indicator feeling immediate.
   const selectTab = (idx: number, to: string) => {
     if (idx === activeIdx) return;
-    ptMark(`TAP tab ${to}`); // TEMP perf trace
     setPendingIdx(idx);
     haptics.selection();
     startNav(() => {
-      ptMark(`navigate() ${to}`); // TEMP perf trace
       navigate(to);
     });
   };
@@ -132,7 +129,7 @@ export const TabBar = () => {
       // keyboard (the native pattern). It must NOT ride up on `--keyboard-inset`
       // — doing that made it float above the keyboard while typing in the
       // checklist, which the user explicitly didn't want.
-      className="fixed bottom-0 inset-x-0 z-40 bg-transparent"
+      className="fixed bottom-0 inset-x-0 z-40 bg-transparent md:hidden"
       style={{
         paddingBottom: "max(var(--safe-area-inset-bottom, env(safe-area-inset-bottom, 0px)), 10px)",
         touchAction: "manipulation",
@@ -148,10 +145,11 @@ export const TabBar = () => {
         className="pointer-events-none absolute inset-x-0 bottom-0 z-[-1]"
         style={{
           height: "max(var(--safe-area-inset-bottom, env(safe-area-inset-bottom, 0px)), 10px)",
-          backdropFilter: "blur(18px) saturate(140%)",
-          WebkitBackdropFilter: "blur(18px) saturate(140%)",
-          maskImage: "linear-gradient(to bottom, transparent, black 35%)",
-          WebkitMaskImage: "linear-gradient(to bottom, transparent, black 35%)",
+          backdropFilter: "blur(24px) saturate(150%)",
+          WebkitBackdropFilter: "blur(24px) saturate(150%)",
+          backgroundColor: "rgba(0, 0, 0, 0.15)", // Slightly darkened as requested
+          maskImage: "linear-gradient(to bottom, transparent, black 40%)", // Blur starts sooner
+          WebkitMaskImage: "linear-gradient(to bottom, transparent, black 40%)",
         }}
       />
       {/* Centering wrapper — pill stays max 424 px wide, centred */}

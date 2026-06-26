@@ -54,14 +54,28 @@ function DayMarkers({
   selected,
   size = 10,
   showFlag = false,
+  mode = "compact"
 }: {
   marks: DayMarks;
   selected: boolean;
   size?: number;
   showFlag?: boolean;
+  mode?: "compact" | "dots";
 }) {
   const hasPrio = marks.prio.length > 0;
   if (!marks.t && !marks.c && !(showFlag && hasPrio)) return null;
+
+  if (mode === "dots") {
+    const tColor = selected ? "hsl(0 0% 100% / 0.9)" : "hsl(var(--primary))";
+    const cColor = selected ? "hsl(0 0% 100% / 0.9)" : "hsl(var(--checklist-accent))";
+    return (
+      <span className="flex items-center justify-center gap-[3.5px] mt-[1px]">
+        {marks.t > 0 && <span className="h-[4.5px] w-[4.5px] rounded-full" style={{ background: tColor }} />}
+        {marks.c > 0 && <span className="h-[4.5px] w-[4.5px] rounded-full" style={{ background: cColor }} />}
+      </span>
+    );
+  }
+
   return (
     <span className="flex items-center justify-center gap-[3px]" style={{ fontSize: size }}>
       {showFlag && hasPrio && (
@@ -111,6 +125,13 @@ const SELECTED_STYLE: React.CSSProperties = {
   background: "linear-gradient(180deg, hsl(var(--primary)/0.92) 0%, hsl(var(--primary)) 100%)",
   boxShadow:
     "inset 0 1px 0 hsl(0 0% 100% / 0.18), 0 8px 24px -8px hsl(var(--primary)/0.65), 0 0 0 1.5px hsl(var(--primary)/0.55)",
+};
+
+/** Today's circle when not selected — a soft tinted fill instead of a bare
+ *  ring, so "today" reads at a glance instead of blending into hover states. */
+const TODAY_STYLE: React.CSSProperties = {
+  background: "linear-gradient(180deg, hsl(var(--primary)/0.16) 0%, hsl(var(--primary)/0.05) 100%)",
+  boxShadow: "inset 0 1px 0 hsl(0 0% 100% / 0.1), 0 0 0 1.5px hsl(var(--primary)/0.5)",
 };
 
 export function DayPickerSheet({
@@ -220,16 +241,31 @@ export function DayPickerSheet({
   const monthDirRef = useRef<1 | -1>(1);
 
   useEffect(() => {
-    if (!open) return;
-    setExpanded(readCalendarPref()); // restore the user's last-used picker mode
     setPreviewYmd(null);
     setExpandedInfo(null);
+    if (!open) return;
+    setExpanded(readCalendarPref());
     setViewMonth(firstOfMonth(parseDateStr(value || todayYmd)));
   }, [open, value, todayYmd]);
 
   const grid = useMemo(() => buildMonthGrid(viewMonth), [viewMonth]);
-  const minMonthMs = useMemo(() => firstOfMonth(minDate).getTime(), [minDate]);
-  const maxMonthMs = useMemo(() => firstOfMonth(maxDate).getTime(), [maxDate]);
+  // The month *grid's* browsing range is intentionally wider than pastDays/
+  // futureDays — those tune the day-scroller's near-term relevance window
+  // (e.g. 28 days for normal navigation), not how many months a user should
+  // be able to flip through. Floor it generously so "browse a few months
+  // ahead" always works regardless of the caller's scroller window.
+  const calMinDate = useMemo(() => {
+    const d = parseDateStr(todayYmd);
+    d.setDate(d.getDate() - Math.max(pastDays, 60));
+    return d;
+  }, [todayYmd, pastDays]);
+  const calMaxDate = useMemo(() => {
+    const d = parseDateStr(todayYmd);
+    d.setDate(d.getDate() + Math.max(futureDays, 365));
+    return d;
+  }, [todayYmd, futureDays]);
+  const minMonthMs = useMemo(() => firstOfMonth(calMinDate).getTime(), [calMinDate]);
+  const maxMonthMs = useMemo(() => firstOfMonth(calMaxDate).getTime(), [calMaxDate]);
   const canPrev = viewMonth.getTime() > minMonthMs;
   const canNext = viewMonth.getTime() < maxMonthMs;
 
@@ -245,6 +281,14 @@ export function DayPickerSheet({
     setViewMonth((m) => new Date(m.getFullYear(), m.getMonth() + 1, 1));
     haptics.selection();
   };
+  const goTodayMonth = () => {
+    const today = parseDateStr(todayYmd);
+    monthDirRef.current = viewMonth.getTime() > today.getTime() ? -1 : 1;
+    setViewMonth(firstOfMonth(today));
+    haptics.selection();
+  };
+
+  const isNotCurrentMonth = viewMonth.getMonth() !== parseDateStr(todayYmd).getMonth() || viewMonth.getFullYear() !== parseDateStr(todayYmd).getFullYear();
 
   useEffect(() => {
     if (!open || expanded) return;
@@ -391,6 +435,7 @@ export function DayPickerSheet({
           {expanded ? (
             <motion.div
               key="grid"
+              layout
               initial={{ opacity: 0, y: 10, scale: 0.985 }}
               animate={{ opacity: 1, y: 0, scale: 1 }}
               exit={{ opacity: 0, y: 8, scale: 0.985 }}
@@ -408,18 +453,35 @@ export function DayPickerSheet({
                 >
                   <ChevronLeft className="h-5 w-5" />
                 </button>
-                <div className="relative h-7 overflow-hidden flex-1 mx-2">
-                  <AnimatePresence mode="popLayout" initial={false}>
-                    <motion.p
-                      key={monthLabel}
-                      initial={{ opacity: 0, x: monthDirRef.current * 12 }}
-                      animate={{ opacity: 1, x: 0 }}
-                      exit={{ opacity: 0, x: -monthDirRef.current * 12 }}
-                      transition={{ type: "spring", stiffness: 380, damping: 32, mass: 0.9 }}
-                      className="absolute inset-0 flex items-center justify-center text-[15px] font-semibold text-foreground/95 tracking-tight"
-                    >
-                      {monthLabel}
-                    </motion.p>
+                <div className="relative h-7 flex-1 mx-2 flex items-center justify-center">
+                  <div className="relative w-[140px] h-full overflow-hidden">
+                    <AnimatePresence mode="popLayout" initial={false}>
+                      <motion.p
+                        key={monthLabel}
+                        initial={{ opacity: 0, x: monthDirRef.current * 12 }}
+                        animate={{ opacity: 1, x: 0 }}
+                        exit={{ opacity: 0, x: -monthDirRef.current * 12 }}
+                        transition={{ type: "spring", stiffness: 380, damping: 32, mass: 0.9 }}
+                        className="absolute inset-0 flex items-center justify-center text-[15px] font-semibold text-foreground/95 tracking-tight"
+                      >
+                        {monthLabel}
+                      </motion.p>
+                    </AnimatePresence>
+                  </div>
+                  <AnimatePresence>
+                    {isNotCurrentMonth && (
+                      <motion.button
+                        initial={{ opacity: 0, scale: 0.8 }}
+                        animate={{ opacity: 1, scale: 1 }}
+                        exit={{ opacity: 0, scale: 0.8 }}
+                        transition={{ duration: 0.15 }}
+                        type="button"
+                        onClick={goTodayMonth}
+                        className="absolute right-0 text-[11px] font-bold uppercase tracking-[0.08em] text-primary bg-primary/10 hover:bg-primary/20 transition-colors px-2.5 py-1 rounded-full pressable"
+                      >
+                        Today
+                      </motion.button>
+                    )}
                   </AnimatePresence>
                 </div>
                 <button
@@ -433,99 +495,149 @@ export function DayPickerSheet({
                 </button>
               </div>
 
-              {/* Weekday header */}
-              <div className="shrink-0 px-5 pb-1.5 grid grid-cols-7 gap-1">
-                {WEEKDAY_NARROW_LABELS.map((w, i) => (
-                  <div key={i} className="h-6 flex items-center justify-center text-[11px] font-semibold uppercase tracking-[0.1em] text-secondary-fg/55">
-                    {w}
+              {/* Calendar module — header + grid share one premium "app-card"
+                  surface so the calendar reads as a distinct, elevated block
+                  instead of dots floating on the sheet background. */}
+              <div className="px-5 flex-1 min-h-0 overflow-y-auto" style={{ paddingBottom: 8 }}>
+                <div className="app-card flex flex-col px-2.5 pt-3 pb-2">
+                  {/* Weekday header — weekend columns get a slightly dimmer
+                      tint so the 7-day rhythm of the grid reads at a glance. */}
+                  <div className="shrink-0 grid grid-cols-7 gap-1 pb-2 mb-1 border-b border-border/30">
+                    {WEEKDAY_NARROW_LABELS.map((w, i) => {
+                      const isWeekend = i >= 5; // Monday-first grid: Sat=5, Sun=6
+                      return (
+                        <div
+                          key={i}
+                          className={`h-6 flex items-center justify-center text-[11px] font-bold uppercase tracking-[0.1em] ${
+                            isWeekend ? "text-secondary-fg/40" : "text-secondary-fg/60"
+                          }`}
+                        >
+                          {w}
+                        </div>
+                      );
+                    })}
                   </div>
-                ))}
-              </div>
 
-              {/* Day grid */}
-              <div className="px-5 flex-1 overflow-y-auto" style={{ paddingBottom: 8 }}>
-                <div className="relative">
-                  <AnimatePresence mode="popLayout" initial={false}>
-                    <motion.div
-                      key={`${viewMonth.getFullYear()}-${viewMonth.getMonth()}`}
-                      initial={{ opacity: 0, x: monthDirRef.current * 26 }}
-                      animate={{ opacity: 1, x: 0 }}
-                      exit={{ opacity: 0, x: -monthDirRef.current * 26 }}
-                      transition={{ type: "spring", stiffness: 320, damping: 32, mass: 0.95 }}
-                      className="grid grid-cols-7 gap-1"
-                    >
-                      {grid.map((day, i) => {
-                        const ymd = dateStr(day);
-                        const dayMs = day.getTime();
-                        const inMonth = day.getMonth() === viewMonth.getMonth();
-                        const isToday = ymd === todayYmd;
-                        const isSelected = ymd === selectedYmd;
-                        const isDisabled = dayMs < minMs || dayMs > maxMs;
-                        const mk = marks.get(ymd);
-                        const hasPrio = !isDisabled && (mk?.prio.length ?? 0) > 0;
+                  {/* Drag surface is a separate node from the slide-animated grid below it
+                      (which already owns `x` via initial/animate/exit) — keeping the two
+                      independent avoids the gesture and the spring fighting over the same
+                      motion value. Snaps back to 0 on release; the actual month change
+                      comes from goPrevMonth/goNextMonth, same as the chevrons use. */}
+                  <motion.div
+                    className="relative overflow-hidden"
+                    drag="x"
+                    dragElastic={0.4}
+                    dragConstraints={{ left: 0, right: 0 }}
+                    onDragEnd={(_, info) => {
+                      const SWIPE_DIST = 50;
+                      const SWIPE_VELOCITY = 400;
+                      if (info.offset.x < -SWIPE_DIST || info.velocity.x < -SWIPE_VELOCITY) goNextMonth();
+                      else if (info.offset.x > SWIPE_DIST || info.velocity.x > SWIPE_VELOCITY) goPrevMonth();
+                    }}
+                  >
+                    <AnimatePresence mode="popLayout" initial={false}>
+                      <motion.div
+                        key={`${viewMonth.getFullYear()}-${viewMonth.getMonth()}`}
+                        initial={{ opacity: 0, x: monthDirRef.current * 64 }}
+                        animate={{ opacity: 1, x: 0 }}
+                        exit={{ opacity: 0, x: -monthDirRef.current * 64 }}
+                        transition={{ type: "spring", stiffness: 340, damping: 34, mass: 0.9 }}
+                        className="grid grid-cols-7 gap-x-1 gap-y-1"
+                      >
+                        {grid.map((day, i) => {
+                          const ymd = dateStr(day);
+                          const dayMs = day.getTime();
+                          const inMonth = day.getMonth() === viewMonth.getMonth();
+                          const isToday = ymd === todayYmd;
+                          const isSelected = ymd === selectedYmd;
+                          const isDisabled = dayMs < minMs || dayMs > maxMs;
+                          const mk = marks.get(ymd);
+                          const hasPrio = !isDisabled && (mk?.prio.length ?? 0) > 0;
+                          const isWeekend = day.getDay() === 0 || day.getDay() === 6;
+                          // `text-secondary-fg/NN` never had any effect here — Tailwind
+                          // only generates opacity-modifier utilities for colors it knows
+                          // about, and "secondary-fg" isn't registered in tailwind.config
+                          // (it only exists as a plain manual class in index.css). So these
+                          // cells silently rendered at full inherited color the whole time.
+                          // Use a real alpha-blended inline color instead, which always works.
+                          const dimAlpha = !hasPrio && !isSelected && !isToday
+                            ? !inMonth
+                              ? (isDisabled ? 0.16 : 0.32)
+                              : (isDisabled ? 0.3 : null)
+                            : null;
 
-                        return (
-                          <div key={i} className="relative h-[52px] flex flex-col items-center justify-start gap-[2px] pt-[2px]">
-                            {/* Date circle — flag badge lives inside */}
-                            <motion.button
-                              type="button"
-                              onClick={() => { if (!isDisabled) pick(ymd); }}
-                              disabled={isDisabled}
-                              whileTap={!isDisabled ? { scale: 0.86 } : undefined}
-                              transition={{ type: "spring", stiffness: 500, damping: 24 }}
-                              style={isSelected ? SELECTED_STYLE : undefined}
-                              className={[
-                                "relative h-9 w-9 rounded-full text-[14px] font-semibold tabular-nums transition-[background-color,box-shadow,color] duration-150 flex items-center justify-center",
-                                isSelected
-                                  ? "text-primary-foreground"
-                                  : isToday
-                                    ? "ring-1 ring-primary/55 text-primary"
-                                    : hasPrio
-                                      ? "text-amber-500 dark:text-amber-400 ring-1 ring-amber-400/40 hover:bg-amber-400/[0.06]"
-                                      : inMonth
-                                        ? isDisabled
-                                          ? "text-secondary-fg/25"
-                                          : "text-foreground/90 hover:bg-foreground/[0.06]"
-                                        : isDisabled
-                                          ? "text-secondary-fg/15"
-                                          : "text-secondary-fg/40 hover:bg-foreground/[0.04]",
-                              ].join(" ")}
-                              aria-label={DATE_LONG_FMT.format(day)}
-                              aria-pressed={isSelected}
-                            >
-                              {day.getDate()}
-                              {/* Priority flag badge — bottom-right corner of the circle */}
-                              {hasPrio && (
-                                <span
-                                  className="absolute bottom-[1px] right-[0px] pointer-events-none"
-                                  aria-hidden
-                                >
-                                  <Flag
-                                    style={{
-                                      width: 9,
-                                      height: 9,
-                                      color: isSelected ? "hsl(0 0% 100% / 0.82)" : AMBER,
-                                      display: "block",
-                                    }}
-                                    fill="currentColor"
-                                  />
-                                </span>
-                              )}
-                            </motion.button>
+                          return (
+                            <div key={i} className="relative h-[56px] flex flex-col items-center justify-start gap-[3px] pt-[2px]">
+                              {/* Date circle — flag badge lives inside */}
+                              <motion.button
+                                type="button"
+                                onClick={() => { if (!isDisabled) pick(ymd); }}
+                                disabled={isDisabled}
+                                whileTap={!isDisabled ? { scale: 0.86 } : undefined}
+                                transition={{ type: "spring", stiffness: 500, damping: 24 }}
+                                style={
+                                  isSelected ? SELECTED_STYLE
+                                    : isToday ? TODAY_STYLE
+                                      : dimAlpha != null ? { color: `hsl(var(--muted-foreground) / ${dimAlpha})` }
+                                        : undefined
+                                }
+                                className={[
+                                  "relative h-10 w-10 rounded-full text-[15px] font-semibold tabular-nums transition-[background-color,box-shadow,color] duration-150 flex items-center justify-center",
+                                  isSelected
+                                    ? "text-primary-foreground"
+                                    : isToday
+                                      ? "text-primary"
+                                      : hasPrio
+                                        ? "text-amber-500 dark:text-amber-400 ring-1 ring-amber-400/40 hover:bg-amber-400/[0.06]"
+                                        : inMonth
+                                          ? isDisabled
+                                            ? ""
+                                            : isWeekend
+                                              ? "text-foreground/65 hover:bg-foreground/[0.06]"
+                                              : "text-foreground/90 hover:bg-foreground/[0.06]"
+                                          : isDisabled
+                                            ? "pointer-events-none"
+                                            : "hover:bg-foreground/[0.04]",
+                                ].join(" ")}
+                                aria-label={DATE_LONG_FMT.format(day)}
+                                aria-pressed={isSelected}
+                              >
+                                {day.getDate()}
+                                {/* Priority flag badge — bottom-right corner of the circle */}
+                                {hasPrio && (
+                                  <span
+                                    className="absolute bottom-[2px] right-[1px] pointer-events-none"
+                                    aria-hidden
+                                  >
+                                    <Flag
+                                      style={{
+                                        width: 9,
+                                        height: 9,
+                                        color: isSelected ? "hsl(0 0% 100% / 0.82)" : AMBER,
+                                        display: "block",
+                                      }}
+                                      fill="currentColor"
+                                    />
+                                  </span>
+                                )}
+                              </motion.button>
 
-                            {/* Marker strip — counts only (flag is in the circle) */}
-                            <span className="h-[12px] flex items-center justify-center max-w-full overflow-hidden" aria-hidden>
-                              {mk && (mk.t || mk.c) ? (
-                                <DayMarkers marks={mk} selected={false} size={9.5} showFlag={false} />
-                              ) : isToday ? (
-                                <span className="h-[3px] w-[3px] rounded-full bg-primary" />
-                              ) : null}
-                            </span>
-                          </div>
-                        );
-                      })}
-                    </motion.div>
-                  </AnimatePresence>
+                              {/* Marker strip — dots mode for the grid */}
+                              <span className="h-[10px] flex items-center justify-center max-w-full overflow-hidden" aria-hidden>
+                                {inMonth && (
+                                  mk && (mk.t || mk.c) ? (
+                                    <DayMarkers marks={mk} selected={false} size={9.5} showFlag={false} mode="dots" />
+                                  ) : isToday ? (
+                                    <span className="h-[4px] w-[4px] rounded-full bg-primary mt-[1px]" />
+                                  ) : null
+                                )}
+                              </span>
+                            </div>
+                          );
+                        })}
+                      </motion.div>
+                    </AnimatePresence>
+                  </motion.div>
                 </div>
               </div>
             </motion.div>
@@ -576,9 +688,6 @@ export function DayPickerSheet({
                                 } : hasPrio ? {
                                   background: "linear-gradient(180deg, hsl(38 92% 52% / 0.13) 0%, hsl(38 92% 52% / 0.05) 100%)",
                                   boxShadow: "inset 0 1px 0 hsl(0 0% 100% / 0.06), 0 0 0 1.5px hsl(38 92% 52% / 0.42)",
-                                } : c.isPast ? {
-                                  background: "linear-gradient(180deg, hsl(var(--foreground)/0.03) 0%, transparent 100%)",
-                                  boxShadow: "0 0 0 1px hsl(var(--border)/0.3)",
                                 } : {
                                   background: "linear-gradient(180deg, hsl(var(--card)/0.7) 0%, hsl(var(--card)/0.4) 100%)",
                                   boxShadow: "inset 0 1px 0 hsl(0 0% 100% / 0.06), 0 0 0 1px hsl(var(--border)/0.45), 0 2px 6px -3px hsl(0 0% 0% / 0.15)",
@@ -589,8 +698,7 @@ export function DayPickerSheet({
                               sel ? "text-primary-foreground"
                                 : c.isToday ? "text-primary"
                                   : hasPrio ? "text-amber-600 dark:text-amber-300"
-                                    : c.isPast ? "text-secondary-fg/45"
-                                      : "text-foreground/90",
+                                    : "text-foreground/90",
                             ].join(" ")}
                           >
                             <span className={`text-[9.5px] font-bold uppercase tracking-[0.16em] ${sel ? "opacity-80" : c.isToday ? "text-primary/80" : hasPrio ? "text-amber-600/80 dark:text-amber-300/80" : "opacity-60"}`}>
@@ -624,7 +732,7 @@ export function DayPickerSheet({
              Content updates in-place; the card uses `layout` to animate its
              own height change when switching between days with different amounts
              of content. No exit/enter cycle on every date tap = no jump. */}
-        <AnimatePresence initial={false}>
+        <AnimatePresence initial={false} mode="popLayout">
           {preview && previewYmd && (() => {
             const mk = marks.get(previewYmd) ?? { t: 0, c: 0, prio: [] as DayMarks["prio"], tTasks: [] as string[], cTasks: [] as string[] };
             const isEmpty = !mk.t && !mk.c;
@@ -638,11 +746,10 @@ export function DayPickerSheet({
                 transition={{ type: "spring", stiffness: 420, damping: 36, mass: 0.8 }}
                 className="shrink-0 px-5 pt-3"
               >
-                {/* layout animates height when content changes between days */}
                 <motion.div
                   layout="size"
                   transition={{ type: "spring", stiffness: 360, damping: 32, mass: 0.9 }}
-                  className="rounded-[20px] border border-border/75 bg-card/50 overflow-hidden"
+                  className="app-card shadow-elevated overflow-hidden"
                 >
                   <div className="p-4">
                     {/* Date header — × dismisses the preview card (clears previewYmd)
@@ -796,7 +903,7 @@ export function DayPickerSheet({
                     <button
                       type="button"
                       onClick={() => commit(previewYmd)}
-                      className="mt-3.5 w-full h-11 rounded-2xl bg-primary text-primary-foreground text-[14px] font-semibold pressable inline-flex items-center justify-center gap-1.5 shadow-[0_8px_22px_-8px_hsl(var(--primary)/0.55)]"
+                      className="mt-3.5 w-full h-11 rounded-2xl bg-primary text-primary-foreground text-[14px] font-semibold pressable inline-flex items-center justify-center gap-1.5 cta-glow"
                     >
                       Open this day <ArrowRight className="h-4 w-4" />
                     </button>
@@ -818,7 +925,7 @@ export function DayPickerSheet({
               setTimeout(() => { onPick(todayYmd); }, 280);
             }}
             disabled={isValueToday}
-            className="flex-1 h-[50px] rounded-[16px] bg-primary text-primary-foreground text-[14px] font-semibold pressable shadow-[0_8px_22px_-8px_hsl(var(--primary)/0.55)] disabled:opacity-40 disabled:pointer-events-none transition-opacity"
+            className="flex-1 h-[50px] rounded-[16px] bg-primary text-primary-foreground text-[14px] font-semibold pressable cta-glow disabled:opacity-40 disabled:pointer-events-none transition-opacity"
           >
             Today
           </button>

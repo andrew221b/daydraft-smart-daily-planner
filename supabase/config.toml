@@ -1,16 +1,12 @@
 project_id = "xsoxordweqrikahxjdxc"
 
-# Apple IAP webhook — must accept unsigned requests from Apple servers
-[functions.apple-iap-webhook]
-verify_jwt = false
-
 # RevenueCat webhook — public endpoint, guarded by REVENUECAT_WEBHOOK_SECRET.
+# This is the sole source-of-truth writer for `subscriptions`. The custom Apple
+# IAP functions (verify-apple-iap / apple-iap-webhook) were removed: they were
+# never called (RevenueCat handles StoreKit) yet decoded JWS without signature
+# verification, so a deployed endpoint let any authenticated user forge Pro.
 [functions.revenuecat-webhook]
 verify_jwt = false
-
-# Apple IAP verification — called from the native iOS client with a Supabase JWT
-[functions.verify-apple-iap]
-verify_jwt = true
 
 # Cron: slot-end reminders (service-role bearer only — no user JWT).
 [functions.notify-block-ends]

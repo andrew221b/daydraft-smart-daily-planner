@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useCallback, useEffect, useState } from "react";
 import { motion } from "framer-motion";
 import { Sheet, SheetContent, SheetTitle } from "@/components/ui/sheet";
 import { Shield, Check, Lock, RotateCcw } from "lucide-react";
@@ -41,6 +41,10 @@ export const UpgradeSheet = ({
   reason?: UpgradeReason;
 }) => {
   const [plan, setPlan] = useState<ProPlanId>("annual");
+  // Stable handler so ProPlanRow's memo holds — a fresh closure per render would
+  // re-render all three rows (and on the old build, re-animate the cards) on
+  // every tap, which was a big part of the plan-switch freeze.
+  const selectPlan = useCallback((id: ProPlanId) => { haptics.selection(); setPlan(id); }, []);
   const [busy, setBusy] = useState(false);
   const [restoring, setRestoring] = useState(false);
   const prices = usePlanPrices();
@@ -89,7 +93,7 @@ export const UpgradeSheet = ({
   const ctaLabel = busy
     ? "Opening…"
     : plan === "annual"
-      ? "Start 7-day free trial"
+      ? "Start 3-day free trial"
       : "Continue with Pro";
 
   return (
@@ -115,7 +119,7 @@ export const UpgradeSheet = ({
           className="flex-1 overflow-y-auto overscroll-contain"
         >
           {/* ─── Hero ─────────────────────────────────────────────── */}
-          <div className="relative px-6 pt-3 pb-3 text-center flex flex-col items-center">
+          <div className="relative px-6 pt-2 pb-2.5 text-center flex flex-col items-center">
             {/* Reduced gradient height so it doesn't visually bleed toward
                 the top of the sheet (was h-40, looked like it overlapped the
                 status bar on small phones). */}
@@ -127,43 +131,43 @@ export const UpgradeSheet = ({
               }}
             />
 
-            <div className="inline-flex items-center gap-1.5 rounded-full border border-primary/25 bg-primary/[0.07] px-3 py-1 mb-3 relative z-10">
+            <div className="inline-flex items-center gap-1.5 rounded-full border border-primary/25 bg-primary/[0.07] px-3 py-1 mb-2 relative z-10">
               <Lock className="h-2.5 w-2.5 text-primary" strokeWidth={2.5} />
               <span className="text-[11px] font-semibold tracking-[0.08em] uppercase text-primary">DayDraft Pro</span>
             </div>
 
-            <h2 className="font-semibold text-[20px] leading-[1.2] tracking-tight text-foreground relative z-10">
+            <h2 className="font-semibold text-[19px] leading-[1.2] tracking-tight text-foreground relative z-10">
               {h}
             </h2>
           </div>
 
           {/* ─── Feature cards ────────────────────────────────────── */}
-          <div className="px-4 flex flex-col gap-1.5">
+          <div className="px-4 flex flex-col gap-1">
             {PRO_FEATURES.map((feat, i) => (
               <ProFeatureCard key={feat.id} feat={feat} index={i} />
             ))}
           </div>
 
           {/* ─── Plan selector ────────────────────────────────────── */}
-          <div className="px-4 mt-4 flex flex-col gap-1.5">
+          <div className="px-4 mt-3 flex flex-col gap-2">
             {PRO_PLANS.map((p) => (
               <ProPlanRow
                 key={p.id}
                 plan={p}
                 active={plan === p.id}
                 priceInfo={prices[p.id]}
-                onClick={() => { haptics.selection(); setPlan(p.id); }}
+                onSelect={selectPlan}
               />
             ))}
           </div>
 
           {/* ─── CTA ──────────────────────────────────────────────── */}
-          <div className="px-4 mt-4">
+          <div className="px-4 mt-2.5">
             <button
               type="button"
               onClick={checkout}
               disabled={busy}
-              className="pressable w-full h-[52px] rounded-[16px] bg-primary text-primary-foreground text-[15px] font-semibold tracking-wide disabled:opacity-60"
+              className="pressable w-full h-[50px] rounded-[16px] bg-primary text-primary-foreground text-[16px] font-semibold tracking-wide disabled:opacity-60 shadow-[0_8px_20px_-6px_hsl(var(--primary)/0.4)]"
             >
               {ctaLabel}
             </button>
@@ -171,7 +175,7 @@ export const UpgradeSheet = ({
             {/* Trust badges + restore — flex-wrap so the row wraps on
                 iPhone SE (375px) instead of overflowing. gap-3 is tighter
                 than gap-5 to give each label more room. */}
-            <div className="flex items-center justify-center gap-x-3 gap-y-1.5 flex-wrap mt-2.5">
+            <div className="flex items-center justify-center gap-x-3 gap-y-1.5 flex-wrap mt-2">
               {[
                 { Icon: Shield, text: "Cancel anytime" },
                 { Icon: Check, text: "Secure payment" },
@@ -192,7 +196,7 @@ export const UpgradeSheet = ({
 
             <PaywallTerms planId={plan} priceInfo={prices[plan]} />
 
-            <div style={{ height: "max(16px, env(safe-area-inset-bottom, 0px))" }} />
+            <div style={{ height: "max(10px, env(safe-area-inset-bottom, 0px))" }} />
           </div>
         </motion.div>
       </SheetContent>

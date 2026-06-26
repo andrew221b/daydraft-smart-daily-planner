@@ -214,7 +214,7 @@ export function UncompleteTaskSheet({ block, onCancel, onConfirm, minTime }: Pro
               type="button"
               onClick={handleSubmit}
               disabled={!canSubmit}
-              className="flex-1 h-[52px] rounded-[16px] bg-primary text-primary-foreground text-[14px] font-semibold pressable shadow-[0_10px_28px_-8px_hsl(var(--primary)/0.55)] disabled:opacity-40 disabled:pointer-events-none transition-opacity"
+              className="flex-1 h-[52px] rounded-[16px] bg-primary text-primary-foreground text-[14px] font-semibold pressable cta-glow disabled:opacity-40 disabled:pointer-events-none transition-opacity"
             >
               {hasTrackedTime ? "Create Part 2" : "Return task"}
             </button>

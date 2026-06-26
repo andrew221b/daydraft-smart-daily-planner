@@ -12,6 +12,9 @@ import type { ChecklistGroup, ChecklistItem, MoveTarget } from "@/hooks/useCheck
  * to the parent (avoids nesting one bottom sheet inside another).
  */
 
+/** Same icon-chip row used by the timeline's "Plan options" menu — an
+ *  app-card module of these (divide-y) reads as one premium surface instead
+ *  of bare buttons floating on the sheet's flat background. */
 const Row = ({
   onClick,
   icon,
@@ -27,11 +30,21 @@ const Row = ({
 }) => (
   <button
     onClick={onClick}
-    className={`w-full flex items-center gap-3 px-3 py-3.5 rounded-xl pressable transition-colors text-[14px] ${
-      destructive ? "text-destructive hover:bg-destructive/10" : "text-foreground hover:bg-muted/40"
+    className={`w-full flex items-center gap-3 px-2 py-2.5 rounded-xl pressable transition-colors text-[14.5px] font-medium ${
+      destructive ? "text-destructive hover:bg-destructive/[0.08]" : "text-foreground hover:bg-foreground/[0.05]"
     }`}
   >
-    <span className={`shrink-0 ${destructive ? "text-destructive/80" : "text-secondary-fg"}`}>{icon}</span>
+    <span
+      className="shrink-0 h-8 w-8 rounded-[10px] flex items-center justify-center"
+      style={{
+        background: destructive ? "hsl(var(--destructive) / 0.12)" : "hsl(var(--primary) / 0.1)",
+        boxShadow: destructive
+          ? "inset 0 0 0 1px hsl(var(--destructive) / 0.22)"
+          : "inset 0 0 0 1px hsl(var(--primary) / 0.18)",
+      }}
+    >
+      <span className={destructive ? "text-destructive" : "text-primary"}>{icon}</span>
+    </span>
     <span className="flex-1 text-left truncate">{label}</span>
     {active && <Check className="h-4 w-4 text-accent shrink-0" />}
   </button>
@@ -102,7 +115,7 @@ export function ChecklistItemSheet({
     <Sheet open={open} onOpenChange={(v) => !v && onClose()}>
       <SheetContent side="bottom" className="rounded-t-[28px] border-border/75 bg-popover" onOpenAutoFocus={(e) => e.preventDefault()}>
         {item && (
-          <div className="max-h-[75vh] overflow-y-auto overflow-x-hidden no-scrollbar space-y-1 pb-4">
+          <div className="max-h-[75vh] overflow-y-auto overflow-x-hidden no-scrollbar space-y-2.5 pb-4">
             <SheetHeader className="text-left mb-2">
               <SheetTitle className="text-[16px] leading-snug">{item.title}</SheetTitle>
             </SheetHeader>
@@ -138,91 +151,99 @@ export function ChecklistItemSheet({
               </div>
             ) : (
               <>
-                <Row
-                  onClick={() => setMode("rename")}
-                  icon={<Pencil className="h-4 w-4" />}
-                  label="Rename"
-                />
-                {onTogglePriority && (
+                <div className="app-card px-2 py-1.5 divide-y divide-border/25">
                   <Row
-                    onClick={() => { onTogglePriority(item.id); haptics.tap(); onClose(); }}
-                    icon={
-                      <Flag
-                        className={`h-4 w-4 ${item.priority ? "text-amber-500 dark:text-amber-400" : ""}`}
-                        fill={item.priority ? "currentColor" : "none"}
-                      />
-                    }
-                    label={item.priority ? "Remove priority" : "Mark as priority"}
-                    active={item.priority}
+                    onClick={() => setMode("rename")}
+                    icon={<Pencil className="h-4 w-4" />}
+                    label="Rename"
                   />
-                )}
-                {/* Pin only applies to loose items; grouped items inherit the
-                    pin from their category. */}
-                {item.group_id === null && onTogglePin && (
-                  <Row
-                    onClick={() => { onTogglePin(item.id); haptics.tap(); onClose(); }}
-                    icon={item.pinned ? <PinOff className="h-4 w-4" /> : <Pin className="h-4 w-4" />}
-                    label={item.pinned ? "Unpin from every day" : "Keep on every day"}
-                  />
-                )}
+                  {onTogglePriority && (
+                    <Row
+                      onClick={() => { onTogglePriority(item.id); haptics.tap(); onClose(); }}
+                      icon={
+                        <Flag
+                          className={`h-4 w-4 ${item.priority ? "text-amber-500 dark:text-amber-400" : ""}`}
+                          fill={item.priority ? "currentColor" : "none"}
+                        />
+                      }
+                      label={item.priority ? "Remove priority" : "Mark as priority"}
+                      active={item.priority}
+                    />
+                  )}
+                  {/* Pin only applies to loose items; grouped items inherit the
+                      pin from their category. */}
+                  {item.group_id === null && onTogglePin && (
+                    <Row
+                      onClick={() => { onTogglePin(item.id); haptics.tap(); onClose(); }}
+                      icon={item.pinned ? <PinOff className="h-4 w-4" /> : <Pin className="h-4 w-4" />}
+                      label={item.pinned ? "Unpin from every day" : "Keep on every day"}
+                    />
+                  )}
+                </div>
 
                 <Label>Move to list</Label>
-                {item.group_id !== null && (
-                  <Row
-                    onClick={() => {
-                      onMove(item.id, { groupId: null });
-                      haptics.tap();
-                      onClose();
-                    }}
-                    icon={<Inbox className="h-4 w-4" />}
-                    label="No category"
-                  />
-                )}
-                {groups
-                  .filter((g) => g.id !== item.group_id)
-                  .map((g) => (
-                    <Row
-                      key={g.id}
-                      onClick={() => {
-                        onMove(item.id, { groupId: g.id });
-                        haptics.tap();
-                        onClose();
-                      }}
-                      icon={<FolderInput className="h-4 w-4" />}
-                      label={g.title}
-                    />
-                  ))}
-                {groups.filter((g) => g.id !== item.group_id).length === 0 && item.group_id === null && (
+                {item.group_id !== null || groups.length > 0 ? (
+                  <div className="app-card px-2 py-1.5 divide-y divide-border/25">
+                    {item.group_id !== null && (
+                      <Row
+                        onClick={() => {
+                          onMove(item.id, { groupId: null });
+                          haptics.tap();
+                          onClose();
+                        }}
+                        icon={<Inbox className="h-4 w-4" />}
+                        label="No category"
+                      />
+                    )}
+                    {groups
+                      .filter((g) => g.id !== item.group_id)
+                      .map((g) => (
+                        <Row
+                          key={g.id}
+                          onClick={() => {
+                            onMove(item.id, { groupId: g.id });
+                            haptics.tap();
+                            onClose();
+                          }}
+                          icon={<FolderInput className="h-4 w-4" />}
+                          label={g.title}
+                        />
+                      ))}
+                  </div>
+                ) : (
                   <p className="px-3 py-1.5 text-[12px] text-secondary-fg/60">No other lists yet.</p>
                 )}
 
                 <Label>Move to day</Label>
-                <Row
-                  onClick={() => {
-                    onMove(item.id, { date: shiftDate(planDate, 1) });
-                    haptics.tap();
-                    onClose();
-                  }}
-                  icon={<CalendarArrowUp className="h-4 w-4" />}
-                  label={nextDayLabel}
-                />
-                <Row
-                  onClick={() => onRequestPickDate(item)}
-                  icon={<CalendarClock className="h-4 w-4" />}
-                  label="Pick a date…"
-                />
+                <div className="app-card px-2 py-1.5 divide-y divide-border/25">
+                  <Row
+                    onClick={() => {
+                      onMove(item.id, { date: shiftDate(planDate, 1) });
+                      haptics.tap();
+                      onClose();
+                    }}
+                    icon={<CalendarArrowUp className="h-4 w-4" />}
+                    label={nextDayLabel}
+                  />
+                  <Row
+                    onClick={() => onRequestPickDate(item)}
+                    icon={<CalendarClock className="h-4 w-4" />}
+                    label="Pick a date…"
+                  />
+                </div>
 
-                <div className="h-px bg-border/40 my-1.5 mx-3" />
-                <Row
-                  onClick={() => {
-                    onDelete(item.id);
-                    haptics.impact("medium");
-                    onClose();
-                  }}
-                  icon={<Trash2 className="h-4 w-4" />}
-                  label="Delete"
-                  destructive
-                />
+                <div className="app-card px-2 py-1.5">
+                  <Row
+                    onClick={() => {
+                      onDelete(item.id);
+                      haptics.impact("medium");
+                      onClose();
+                    }}
+                    icon={<Trash2 className="h-4 w-4" />}
+                    label="Delete"
+                    destructive
+                  />
+                </div>
               </>
             )}
           </div>

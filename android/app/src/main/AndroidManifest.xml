@@ -13,7 +13,7 @@
             android:label="@string/title_activity_main"
             android:theme="@style/AppTheme.NoActionBarLaunch"
             android:launchMode="singleTask"
-            android:windowSoftInputMode="adjustResize"
+            android:windowSoftInputMode="adjustNothing"
             android:exported="true">
             <intent-filter>
                 <action android:name="android.intent.action.MAIN" />
@@ -46,8 +46,17 @@
 
     <uses-permission android:name="android.permission.INTERNET" />
     <uses-permission android:name="android.permission.POST_NOTIFICATIONS" />
+    <!--
+      Exact timing for block-end notifications. SCHEDULE_EXACT_ALARM is enough —
+      it's a delay-tolerant reminder, not an alarm clock, so USE_EXACT_ALARM
+      (Play policy restricts auto-grant to alarm/clock/calendar apps, and flags
+      other declarers in review) is intentionally NOT declared. If the user
+      hasn't granted exact-alarm access, the @capacitor/local-notifications
+      plugin (LocalNotificationManager.setExactIfPossible) already falls back
+      to setAndAllowWhileIdle on its own — so this costs at most a few minutes
+      of slack, never a broken or crashing notification.
+    -->
     <uses-permission android:name="android.permission.SCHEDULE_EXACT_ALARM" />
-    <uses-permission android:name="android.permission.USE_EXACT_ALARM" />
     <!--
       Haptics (@capacitor/haptics) and navigator.vibrate both call the system
       Vibrator, which requires VIBRATE. Without it every haptic throws a

@@ -1,5 +1,4 @@
-import { Fragment, memo, startTransition, useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
-import { ptMark } from "@/lib/perfTrace"; // TEMP perf trace
+import { Fragment, memo, startTransition, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { createPortal } from "react-dom";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { useNavigate, useSearchParams } from "react-router-dom";
@@ -15,7 +14,7 @@ import {
   Block, type BlockType, type BlockKind, fmtTime, todayDateStr, parseDateStr, friendlyDateFor, isFutureDateStr, isUserTask, isOpenUserTask, isUserTaskDone, inferScheduleBlockType, packLinearSchedule,
   blockSlotEndHHMM, timeToMinutes, minutesToHHMM, planBlockInstants, wallMsOnPlanDay, shiftDate, normalizeSchedule,
 } from "@/lib/daydraft";
-import { ChevronLeft, ChevronRight, Play, CalendarDays, Trash2, Bell, BellOff, MoreHorizontal, Clock, Timer, Copy, Sparkles, ListPlus, Wand2, ArrowRightCircle, AlertCircle, Loader2, X, ListChecks, CheckSquare, History, Flag } from "lucide-react";
+import { ChevronLeft, ChevronRight, ChevronDown, Play, CalendarDays, Trash2, Bell, BellOff, MoreHorizontal, Clock, Timer, Copy, Sparkles, ListPlus, Wand2, ArrowRightCircle, AlertCircle, Loader2, X, ListChecks, CheckSquare, History, Flag } from "lucide-react";
 import { DayPickerSheet } from "@/components/app/DayPickerSheet";
 import { UncompleteTaskSheet } from "@/components/app/UncompleteTaskSheet";
 import { ChecklistView, type ChecklistApi } from "@/components/app/ChecklistView";
@@ -26,7 +25,7 @@ import { motion, AnimatePresence } from "framer-motion";
 import { SortableContext, verticalListSortingStrategy } from "@dnd-kit/sortable";
 import { SortableBlock } from "@/components/app/SortableBlock";
 import { FeatureHint } from "@/components/app/FeatureHint";
-import { Sheet, SheetContent, SheetHeader, SheetTitle } from "@/components/ui/sheet";
+import { Sheet, SheetContent, SheetDescription, SheetHeader, SheetTitle } from "@/components/ui/sheet";
 import { Switch } from "@/components/ui/switch";
 import {
   AlertDialog,
@@ -48,7 +47,7 @@ import { DurationPicker } from "@/components/app/DurationPicker";
 import { firstTaskCompleteMessage } from "@/lib/microDelights";
 import { PullToRefresh } from "@/components/app/PullToRefresh";
 import { formatPlanAsPlainText, copyTextToClipboard } from "@/lib/planTextExport";
-import { fetchDayPlan, planDashboardQueryKey, planDayQueryKey } from "@/lib/planQueries";
+import { fetchDayPlan, planDashboardQueryKey, planDayQueryKey, PLAN_DAY_ROOT } from "@/lib/planQueries";
 import { applyAutoMissedBlocks } from "@/lib/blockResolution";
 import { resolveActualMinutesOnComplete } from "@/lib/blockActualTime";
 import { rollingEntriesQueryKey, type RollingEntry } from "@/lib/timeEntriesQuery";
@@ -64,9 +63,10 @@ import { UpgradeSheet } from "@/components/app/UpgradeSheet";
 import { LateCompleteSheet } from "@/components/app/LateCompleteSheet";
 import { setDndBodyScrollLock } from "@/lib/dndScrollLock";
 import { AskAiSheet } from "@/components/app/AskAiSheet";
+import { TaskCoachSheet } from "@/components/app/TaskCoachSheet";
 import { Textarea } from "@/components/ui/textarea";
 import { DebouncedInput } from "@/components/ui/input";
-import { parseBulkTasks, extractDurationFromTitle, extractStartTimeFromTitle } from "@/lib/taskSplitter";
+import { parseBulkTasks, extractDurationFromTitle, extractStartTimeFromTitle, parseDurationAnswer } from "@/lib/taskSplitter";
 import { useTimeTracker } from "@/hooks/useTimeTracker";
 import { useTabVisible } from "@/components/app/PersistentTabs";
 
@@ -88,6 +88,7 @@ function buildTaskSeedContext(block: ExBlock, allBlocks: ExBlock[], activeTracke
     `Day: ${doneCount}/${tasks.length} tasks done`,
     before && `Done before this: ${before}`,
     after && `Coming up: ${after}`,
+    block.ai_reasoning && `Why it's scheduled here: ${block.ai_reasoning}`,
   ].filter(Boolean).join("\n");
 }
 
@@ -141,10 +142,21 @@ type AiPlanBlock = {
   slot_end_time?: string | null;
 };
 
+/** A clarification quiz question from parse-tasks / generate-clarification.
+ *  `kind` gates whether an answer may overwrite a task's own duration:
+ *  only "duration" may — "travel" is one-way commute time and must never
+ *  be written into the task's own duration_min. */
+type ClarificationQuestion = {
+  id: string;
+  text: string;
+  options: string[];
+  kind?: "duration" | "travel" | "timing" | "other";
+};
+
 /** Shape returned by the generate-plan / reschedule AI edge functions. */
 type AiPlanResponse = {
   blocks?: AiPlanBlock[];
-  questions?: Array<{ id: string; text: string; options: string[] }>;
+  questions?: ClarificationQuestion[];
   error?: string;
   code?: string;
 };
@@ -175,11 +187,24 @@ function activeFirstOrder(packed: ExBlock[]): ExBlock[] {
   const isResolvedB = (b: ExBlock) =>
     b.kind === "task" && !b.is_calendar_event && !isOpenUserTask(b as Block);
   const nonBreak = packed.filter(b => b.kind !== "break");
+  
   const byTime = (a: ExBlock, b: ExBlock) =>
     timeToMinutes(a.start_time) - timeToMinutes(b.start_time);
+    
+  const byResolvedTime = (a: ExBlock, b: ExBlock) => {
+    const timeA = a.completed_at || a.resolved_at;
+    const timeB = b.completed_at || b.resolved_at;
+    if (timeA && timeB) {
+      return new Date(timeA).getTime() - new Date(timeB).getTime();
+    }
+    if (timeA) return 1;
+    if (timeB) return -1;
+    return byTime(a, b);
+  };
+
   return [
     ...nonBreak.filter(b => !isResolvedB(b)).sort(byTime),
-    ...nonBreak.filter(isResolvedB).sort(byTime),
+    ...nonBreak.filter(isResolvedB).sort(byResolvedTime),
   ];
 }
 
@@ -338,15 +363,19 @@ export default function DayView() {
   const [composerOpen, setComposerOpen] = useState(false);
   const [bulkInput, setBulkInput] = useState("");
   const [bulkRows, setBulkRows] = useState<BulkRow[]>([]);
+  // The day the composer will write to (mirrors composerTargetDateRef for the UI).
+  // Editable from the review step so a wrong-day plan doesn't have to be retyped.
+  const [composerTargetDate, setComposerTargetDate] = useState(viewDate);
+  const [composerDatePickerOpen, setComposerDatePickerOpen] = useState(false);
   const [durationWarnKind, setDurationWarnKind] = useState<"some" | "all" | null>(null);
   const [highlightMissingDuration, setHighlightMissingDuration] = useState(false);
   const [highlightMissingStartTime, setHighlightMissingStartTime] = useState(false);
   const pendingBulkActionRef = useRef<(() => void) | null>(null);
   const [bulkStep, setBulkStep] = useState<"input" | "clarify" | "review">("input");
-  const [clarificationQuestions, setClarificationQuestions] = useState<{ id: string; text: string; options: string[] }[]>([]);
+  const [clarificationQuestions, setClarificationQuestions] = useState<ClarificationQuestion[]>([]);
   const [clarificationAnswers, setClarificationAnswers] = useState<Record<string, string>>({});
   // Pre-fetched by parse-tasks (combined call). null = not yet fetched, [] = no questions.
-  const [preFetchedQuestions, setPreFetchedQuestions] = useState<{ id: string; text: string; options: string[] }[] | null>(null);
+  const [preFetchedQuestions, setPreFetchedQuestions] = useState<ClarificationQuestion[] | null>(null);
   const [bulkParsing, setBulkParsing] = useState(false);
   const [bulkDurationEditIndex, setBulkDurationEditIndex] = useState<number | null>(null);
   const [bulkStartTimeEditIndex, setBulkStartTimeEditIndex] = useState<number | null>(null);
@@ -380,7 +409,10 @@ export default function DayView() {
   const [planMutating, setPlanMutating] = useState(false);
   const [askAiOpen, setAskAiOpen] = useState(false);
   const [askAiContext, setAskAiContext] = useState<string | null>(null);
-  const [askAiTaskTitle, setAskAiTaskTitle] = useState<string | null>(null);
+  // Per-task "Coach" popup (single-shot advice, not a chat). Separate from the
+  // day-level Ask AI chat above.
+  const [coachOpen, setCoachOpen] = useState(false);
+  const [coachTask, setCoachTask] = useState<{ title: string; context: string } | null>(null);
   // Cancels in-flight `generate-plan` calls when DayView unmounts so we
   // don't try to mutate state for a page the user already left.
   const getAiAbortSignal = useAbortOnUnmount();
@@ -420,9 +452,14 @@ export default function DayView() {
   // auto-missed by morning. See addBulkRows / autoScheduleBulkRows.
   const composerTargetDateRef = useRef<string>(viewDate);
   const prevComposerOpenRef = useRef(false);
+  // Hash of the last block set we synced notifications for. Skips the three
+  // expensive Capacitor bridge calls (getPending → cancel → schedule) when
+  // the plan hasn't changed — the common case on tab-switch and app-resume.
+  const notifSyncKeyRef = useRef("");
   useEffect(() => {
     if (composerOpen && !prevComposerOpenRef.current) {
       composerTargetDateRef.current = viewDate; // snapshot only on closed→open
+      setComposerTargetDate(viewDate);          // and mirror it for the review UI
     }
     prevComposerOpenRef.current = composerOpen;
   }, [composerOpen, viewDate]);
@@ -433,6 +470,14 @@ export default function DayView() {
     if (mode === "checklist") setPlanViewMode("checklist");
     else if (mode === "timeline") setPlanViewMode("timeline");
   }, [searchParams]);
+
+  // Clear the notif-sync dedup key on day switch so a new day always gets a
+  // fresh notification resync even if its blocks happen to look the same.
+  const prevNotifDateRef = useRef(viewDate);
+  if (prevNotifDateRef.current !== viewDate) {
+    prevNotifDateRef.current = viewDate;
+    notifSyncKeyRef.current = "";
+  }
 
   const tomorrowDate = shiftDate(viewDate, 1);
   const yesterdayDate = shiftDate(viewDate, -1);
@@ -471,7 +516,6 @@ export default function DayView() {
     // active tasks stay chronological on top — matching every edit path. Without
     // this, the DB's position-based order could leave resolved rows at the top.
     const taskRows = activeFirstOrder(raw.filter((b) => b.kind !== "break"));
-    ptMark(`DayView data->setBlocks N=${taskRows.length}`); // TEMP perf trace
     // The FIRST render of the populated block list (DndContext + every
     // SortableBlock's useSortable + framer-motion) is the heavy synchronous work
     // that froze the Plan tab on its first visit. For that cold paint we defer
@@ -503,9 +547,22 @@ export default function DayView() {
       void supabase.from("blocks").delete().eq("plan_id", plan.id).eq("kind", "break");
     }
 
-    // Only schedule local notifications for today's plan
+    // Only schedule local notifications for today's plan.
+    // Guard 1 — hash: skip the three heavy bridge calls (getPending/cancel/schedule)
+    // when nothing has changed (tab-switch, app-resume, same cached data arriving).
+    // Guard 2 — defer: run AFTER the React render settles so the bridge work doesn't
+    // compete with DndContext + SortableBlock mounting on first tab visit.
     if (viewDate === todayDateStr()) {
-      syncBlockNotifications(viewDate, taskRows);
+      const syncKey = taskRows
+        .map((b) => `${b.id}:${b.start_time}:${b.duration_min}:${(b as ExBlock).resolution ?? ""}`)
+        .join("|");
+      if (syncKey !== notifSyncKeyRef.current) {
+        notifSyncKeyRef.current = syncKey;
+        // Cold path: render takes ~120ms defer + heavy mount; give it 1 s head start.
+        // Warm path (day already rendered): 300 ms is enough to clear the transition.
+        const delay = warmSwitch ? 300 : 1000;
+        setTimeout(() => void syncBlockNotifications(viewDate, taskRows), delay);
+      }
     }
     
     return () => { if (timer) clearTimeout(timer); if (raf !== undefined) cancelAnimationFrame(raf); };
@@ -547,11 +604,6 @@ export default function DayView() {
     return () => { cancelled = true; };
   }, [user?.id, viewDate, yesterdayDate, tomorrowDate, dayTabVisible, queryClient, handleChecklistChange]);
 
-  // TEMP perf trace: marks when the populated block list actually commits.
-  useLayoutEffect(() => {
-    if (blocks.length > 0) ptMark(`DayView committed blocks=${blocks.length}`);
-  }, [blocks]);
-
   // Play the entrance stagger only on the FIRST paint that has rows, then turn
   // it off so day switches don't replay it (the source of the date-change jerk).
   useEffect(() => {
@@ -585,48 +637,82 @@ export default function DayView() {
   };
 
   const uncompleteTaskAction = async (b: Block, action: "revert" | "v2", newStart: string, newDur: number) => {
+    const snapshot = blocks;
+    const slotEnd = blockSlotEndHHMM({ start_time: newStart, duration_min: newDur } as Block);
+    let newBlocks: ExBlock[];
+    let payload: Record<string, unknown>;
+    let writeOp: "update" | "insert";
+    let writeFilter: { id: string } | undefined;
+
+    if (action === "revert") {
+      writeOp = "update";
+      payload = {
+        completed: false,
+        resolution: null,
+        resolved_at: null,
+        start_time: newStart,
+        duration_min: newDur,
+        // Keep the denormalized end in lock-step with the new start/duration so
+        // reminders + auto-missed read the right window.
+        slot_end_time: slotEnd,
+      };
+      writeFilter = { id: b.id };
+      newBlocks = blocks.map((blk) =>
+        blk.id === b.id ? { ...blk, ...(payload as Partial<ExBlock>) } : blk,
+      );
+    } else {
+      // Continuation copy. Tag it "(Part 2)" (don't double-tag) and insert the
+      // SAME full field set a normal task gets — earlier it was a bare row with
+      // no slot_end_time/block_type, so its reminder + end pings never scheduled
+      // ("the program doesn't see it"). id is pre-generated client-side so it can
+      // render optimistically and be queued offline without a server round-trip.
+      writeOp = "insert";
+      const cloneTitle = b.title.trim().endsWith("(Part 2)") ? b.title : `${b.title} (Part 2)`;
+      payload = {
+        id: crypto.randomUUID(),
+        plan_id: b.plan_id,
+        user_id: user?.id,
+        title: cloneTitle,
+        duration_min: newDur,
+        start_time: newStart,
+        position: b.position + 1,
+        type: b.type,
+        kind: "task",
+        block_type: inferScheduleBlockType(b),
+        estimated_minutes: newDur,
+        slot_end_time: slotEnd,
+        completed: false,
+      };
+      newBlocks = [...blocks, payload as unknown as ExBlock];
+    }
+
+    // Optimistic update BEFORE the write, mirroring toggleComplete/skipBlock —
+    // the UI must reflect the change immediately regardless of network state.
+    setBlocks(newBlocks);
+    if (dayData && user?.id) {
+      queryClient.setQueryData(planDayQueryKey(user.id, viewDate), { ...dayData, blocks: newBlocks });
+    }
+
     try {
-      if (action === "revert") {
-        const { error } = await supabase.from("blocks").update({
-          completed: false,
-          resolution: null,
-          resolved_at: null,
-          start_time: newStart,
-          duration_min: newDur,
-          // Keep the denormalized end in lock-step with the new start/duration so
-          // reminders + auto-missed read the right window.
-          slot_end_time: blockSlotEndHHMM({ start_time: newStart, duration_min: newDur } as Block),
-        }).eq("id", b.id);
-        if (error) throw error;
-      } else {
-        // Continuation copy. Tag it "(Part 2)" (don't double-tag) and insert the
-        // SAME full field set a normal task gets — earlier it was a bare row with
-        // no slot_end_time/block_type, so its reminder + end pings never scheduled
-        // ("the program doesn't see it").
-        const cloneTitle = b.title.trim().endsWith("(Part 2)") ? b.title : `${b.title} (Part 2)`;
-        const { error } = await supabase.from("blocks").insert({
-          plan_id: b.plan_id,
-          user_id: user?.id,
-          title: cloneTitle,
-          duration_min: newDur,
-          start_time: newStart,
-          position: b.position + 1,
-          type: b.type,
-          kind: "task",
-          block_type: inferScheduleBlockType(b),
-          estimated_minutes: newDur,
-          slot_end_time: blockSlotEndHHMM({ start_time: newStart, duration_min: newDur } as Block),
-          completed: false,
-        });
-        if (error) throw error;
+      const { error } = writeOp === "update"
+        ? await supabase.from("blocks").update(payload as never).eq("id", writeFilter!.id)
+        : await supabase.from("blocks").insert(payload as never);
+      if (error) {
+        if (!navigator.onLine || error.message?.toLowerCase().includes("fetch")) {
+          await enqueueWrite({ table: "blocks", op: writeOp, payload, filter: writeFilter });
+          toast("Saved offline", { description: "Will sync when reconnected" });
+        } else {
+          throw error;
+        }
       }
-      // Refetch the plan, then (re)schedule reminders off the fresh blocks so the
-      // restored/cloned task gets its pings (e.g. the default 5-min-before nudge)
-      // just like every other task — the load effect can miss a brand-new row.
-      const { data: fresh } = await refetch();
-      await queryClient.invalidateQueries({ queryKey: planDashboardQueryKey(user?.id ?? "", viewDate) });
-      if (isToday && fresh?.blocks) void syncBlockNotifications(viewDate, fresh.blocks as Block[]);
+      if (isToday) void syncBlockNotifications(viewDate, newBlocks as Block[]);
+      void queryClient.invalidateQueries({ queryKey: planDayQueryKey(user?.id ?? "", viewDate), refetchType: "none" });
+      void queryClient.invalidateQueries({ queryKey: planDashboardQueryKey(user?.id ?? "", viewDate) });
     } catch (e) {
+      setBlocks(snapshot);
+      if (dayData && user?.id) {
+        queryClient.setQueryData(planDayQueryKey(user.id, viewDate), dayData);
+      }
       toast.error(e?.message || "Failed to update task");
     }
   };
@@ -743,7 +829,7 @@ export default function DayView() {
     
     // Only "All done" if every timeline task is explicitly completed (green status).
     // Missed or skipped tasks do not trigger the success banner.
-    const isAllDone = !planMissing && !isFuture && totalTasks > 0 && doneTasksCount === totalTasks;
+    const isAllDone = !planMissing && !isFuture && !isPast && totalTasks > 0 && doneTasksCount === totalTasks;
     
     // Only trigger the animation if we transition from NOT all done to ALL done.
     if (prevIsAllDoneRef.current === false && isAllDone && dayTabVisible && planViewMode === "timeline") {
@@ -1373,6 +1459,22 @@ export default function DayView() {
             .update({ resolution: "skipped", resolved_at: movedAt, moved_to_date: targetDate })
             .in("id", originalIds);
         }
+        // Chain fix: when re-moving a COPY further along (today → tomorrow →
+        // day-after), the copy carries source_block_id pointing at the
+        // ultimate original, which is sitting on some earlier day with a now
+        // stale "moved to tomorrow" stub. Re-point that stub at the new
+        // target so the earlier day always reflects where the task ended up.
+        const chainOriginIds = [...new Set(
+          sourceBlocks.map((b) => b.source_block_id).filter((id): id is string => !!id),
+        )];
+        if (chainOriginIds.length) {
+          await supabase.from("blocks")
+            .update({ moved_to_date: targetDate })
+            .in("id", chainOriginIds);
+          // The stale stub may live on any earlier day, not just viewDate —
+          // invalidate every cached day for this user so it self-heals on next view.
+          if (user) void queryClient.invalidateQueries({ queryKey: [PLAN_DAY_ROOT, user.id] });
+        }
         // Update current-day local state: remove deleted copies, mark moved originals.
         setBlocks(
           activeFirstOrder(
@@ -1400,6 +1502,104 @@ export default function DayView() {
       return;
     }
     // ── END MOVE MODE ────────────────────────────────────────────────────────
+
+    // ── ADD TO A DIFFERENT DAY ───────────────────────────────────────────────
+    // The user changed the date in the review window to a day that isn't on
+    // screen. We can't pack against the on-screen `blocks` (they belong to
+    // viewDate) and must never reorder or persist them — so insert straight onto
+    // the chosen day's plan, appended after whatever is already there.
+    if (composerTargetDateRef.current !== viewDate) {
+      const targetDate = composerTargetDateRef.current;
+      const clean = rows.filter((r) => r.title.trim());
+      if (!clean.length) { toast.error("No tasks to add"); return; }
+      setPlanMutating(true);
+      try {
+        const targetPlanId = await ensurePlanIdForDate(targetDate);
+        if (!targetPlanId) return;
+        const { data: existing } = await supabase
+          .from("blocks")
+          .select("start_time, duration_min")
+          .eq("plan_id", targetPlanId);
+        const startPos = existing?.length ?? 0;
+        // Free-floating tasks pack after the last existing block (or from 09:00,
+        // or the current time when the target is today).
+        const baseStart = targetDate === todayDateStr() ? roundedNowHHMM() : "09:00";
+        let wallCursorMin = timeToMinutes(baseStart);
+        for (const b of existing ?? []) {
+          wallCursorMin = Math.max(
+            wallCursorMin,
+            timeToMinutes(b.start_time) + Math.max(1, Number(b.duration_min || 0)),
+          );
+        }
+        const toInsert = clean.map((r, i) => {
+          const dur = r.duration && r.duration > 0 ? Math.max(1, r.duration) : 0;
+          const kind = (r.kind || "task") as BlockKind;
+          let st: string;
+          if (r.start_time) {
+            st = r.start_time;
+            wallCursorMin = Math.max(wallCursorMin, timeToMinutes(st) + dur);
+          } else {
+            st = minutesToHHMM(wallCursorMin % 1440);
+            wallCursorMin += dur;
+          }
+          return {
+            plan_id: targetPlanId,
+            user_id: user!.id,
+            start_time: st,
+            duration_min: dur,
+            estimated_minutes: dur,
+            actual_minutes: null,
+            title: r.title.trim(),
+            type: (r.type || "deep_work") as BlockType,
+            kind,
+            block_type: inferScheduleBlockType({ kind, title: r.title }),
+            completed: false,
+            position: startPos + i,
+            priority: r.priority ?? false,
+            ai_reasoning: r.ai_reasoning || null,
+            slot_end_time: blockSlotEndHHMM({ start_time: st, duration_min: dur } as Block),
+          };
+        });
+        const { error: insErr } = await supabase.from("blocks").insert(toInsert);
+        if (insErr) {
+          if (insErr.message?.includes("PLAN_QUOTA_REACHED")) {
+            void refreshEntitlement();
+            toast(`Free trial limit reached — ${planQuotaLimit} planning days used`, {
+              description: "Upgrade to start a new plan.",
+              action: { label: "Upgrade", onClick: () => setUpgradeOpen(true) },
+            });
+            setUpgradeOpen(true);
+            return;
+          }
+          if (!navigator.onLine || insErr.message?.toLowerCase().includes("fetch")) {
+            for (const b of toInsert) await enqueueWrite({ table: "blocks", op: "insert", payload: b });
+          } else {
+            throw insErr;
+          }
+        }
+        setComposerOpen(false);
+        setBulkInput("");
+        setBulkRows([]);
+        setBulkStep("input");
+        void invalidatePlanCaches();
+        if (user) {
+          queryClient.invalidateQueries({ queryKey: planDayQueryKey(user.id, targetDate) });
+          queryClient.invalidateQueries({ queryKey: planDashboardQueryKey(user.id, targetDate) });
+        }
+        void refreshEntitlement(); // a brand-new day may consume a trial slot
+        haptics.notify("success");
+        toast.success(
+          `Added ${clean.length} task${clean.length === 1 ? "" : "s"} to ${friendlyDateFor(parseDateStr(targetDate))}`,
+          { action: { label: "Open", onClick: () => navigateToDay(targetDate) } },
+        );
+      } catch (e) {
+        toast.error(e?.message || "Unable to add tasks");
+      } finally {
+        setPlanMutating(false);
+      }
+      return;
+    }
+    // ── END ADD TO A DIFFERENT DAY ───────────────────────────────────────────
 
     const clean = rows.filter((t) => t.title.trim());
     if (!clean.length) {
@@ -1607,7 +1807,7 @@ export default function DayView() {
       const msg = e?.message || "";
       if (msg.includes("PLAN_QUOTA_REACHED")) {
         // DB trigger fired — the client gate let it through (legacy data, race,
-        // or simulated-Pro mismatch). Surface as the upgrade prompt.
+        // or state mismatch). Surface as the upgrade prompt.
         void refreshEntitlement();
         toast(`Free trial limit reached — ${planQuotaLimit} planning days used`, {
           description: "Upgrade to start a new plan.",
@@ -1960,6 +2160,34 @@ export default function DayView() {
     setBulkAiStep("planning");
     const signal = getAiAbortSignal();
     try {
+      // A clarification answer naming a duration ("3-4 hours") is the user's
+      // own correction — sync it into the row BEFORE building raw_input, so
+      // the embedded [Xmin] hard-tag matches it instead of contradicting it.
+      // Previously the stale pre-clarification duration still went out as
+      // the hard tag while the answer went out separately as a "constraint",
+      // leaving the model two conflicting signals for the same task — it
+      // could (and did) resolve that by under-using the answer and leaving
+      // the rest of the stated length as an unscheduled gap.
+      // Only a question classified "duration" may overwrite a row's own
+      // length. A "travel" question also names the task (e.g. "How long is
+      // the trip to the gym?") but its answer is one-way commute time, not
+      // the activity's own length — matching by title text alone used to
+      // let a travel answer silently hijack the task's duration.
+      const norm = (s: string) => s.toLowerCase().trim();
+      const effectiveRows = Object.keys(clarificationAnswers).length === 0
+        ? bulkRows
+        : bulkRows.map((row) => {
+            const rowTitleNorm = norm(row.title);
+            if (!rowTitleNorm) return row;
+            const q = clarificationQuestions.find(
+              (q) => q.kind === "duration" && clarificationAnswers[q.id] && norm(q.text).includes(rowTitleNorm)
+            );
+            if (!q) return row;
+            const parsed = parseDurationAnswer(clarificationAnswers[q.id]);
+            return parsed ? { ...row, duration: parsed } : row;
+          });
+      if (effectiveRows !== bulkRows) setBulkRows(effectiveRows);
+
       // Schedule against the date the composer was opened on (see addBulkRows).
       const targetDate = composerTargetDateRef.current;
       const nowHM = `${String(now.getHours()).padStart(2,"0")}:${String(now.getMinutes()).padStart(2,"0")}`;
@@ -1971,7 +2199,7 @@ export default function DayView() {
           // Embed time + duration hints already set in the review step so
           // generate-plan treats them as HIGHEST PRIORITY fixed commitments
           // (its prompt already handles "at HH:MM" and "[Xmin]" patterns).
-          raw_input: bulkRows.map(r => {
+          raw_input: effectiveRows.map(r => {
             let line = r.title;
             if (r.duration != null) line += ` [${r.duration}min]`;
             if (r.start_time) line += ` at ${r.start_time}`;
@@ -1979,8 +2207,15 @@ export default function DayView() {
           }).join("\n"),
           planning_context: Object.keys(clarificationAnswers).length > 0
             ? "User Clarifications:\n" + Object.entries(clarificationAnswers).map(([qId, a]) => {
-                const qText = clarificationQuestions.find(q => q.id === qId)?.text || qId;
-                return `- Q: ${qText}\n  A: ${a}`;
+                const q = clarificationQuestions.find(q => q.id === qId);
+                const qText = q?.text || qId;
+                // A travel answer is one-way commute time, not the task's own
+                // duration — tag it explicitly so generate-plan applies it to
+                // BOTH the outbound and return travel block instead of either
+                // overwriting the task's duration or only covering one leg.
+                return q?.kind === "travel"
+                  ? `- Q: ${qText}\n  A: ${a} [TRAVEL TIME — ONE-WAY. Use this exact number for BOTH the "Travel to" block before this task AND the "Return from" block after it. This is NOT the task's own duration.]`
+                  : `- Q: ${qText}\n  A: ${a}`;
               }).join("\n")
             : undefined,
           energy_preference: profile?.energy_preference || "morning",
@@ -2017,7 +2252,7 @@ export default function DayView() {
         const normalize = (s: string) =>
           String(s || "").toLowerCase().replace(/\s*\(part\s*\d+\)/i, "").replace(/[^a-z0-9 ]/g, "").trim();
         const matched = new Set<number>();
-        const newRows = bulkRows.map((row) => {
+        const newRows = effectiveRows.map((row) => {
           const rowKey = normalize(row.title);
           let bestIdx = -1;
           let bestScore = 0;
@@ -2311,12 +2546,12 @@ export default function DayView() {
     onEditDuration: (blk: Block) => setDurationEditId(blk.id),
     onEditReminders: (blk: Block) => openReminders(blk.id),
     onAskAi: (blk: Block) => {
-      const activeTrackerMin = tracker.active?.block_id === blk.id 
-        ? Math.floor((Date.now() - new Date(tracker.active.started_at).getTime()) / 60000) 
+      const activeTrackerMin = tracker.active?.block_id === blk.id
+        ? Math.floor((Date.now() - new Date(tracker.active.started_at).getTime()) / 60000)
         : undefined;
-      setAskAiTaskTitle(blk.title);
-      setAskAiContext(buildTaskSeedContext(blk as ExBlock, blocks, activeTrackerMin));
-      setAskAiOpen(true);
+      // Per-task button now opens the one-shot Coach popup, not the chat.
+      setCoachTask({ title: blk.title, context: buildTaskSeedContext(blk as ExBlock, blocks, activeTrackerMin) });
+      setCoachOpen(true);
     },
     onSaveTemplate: (blk: Block) => void saveAsTemplate(blk),
     onSkip: (blk: Block) => void skipBlock(blk.id),
@@ -2379,7 +2614,7 @@ export default function DayView() {
         initial={{ opacity: 0, y: 15 }}
         animate={{ opacity: 1, y: 0 }}
         transition={{ type: "spring", bounce: 0.15, duration: 0.6 }}
-        className="flex w-full flex-col px-5 pt-[var(--content-inset-top)] pb-8"
+        className="flex w-full md:max-w-[680px] lg:max-w-[720px] md:mx-auto flex-col px-5 md:px-8 pt-[var(--content-inset-top)] pb-8"
       >
         <div className="app-card no-chrome-border px-2 py-2.5 flex items-center gap-1">
           <button
@@ -2471,6 +2706,16 @@ export default function DayView() {
           placement="bottom"
         >
           Group items into categories and star the important ones. Drop any item onto your timeline whenever you're ready to give it a time.
+        </FeatureHint>
+        <FeatureHint
+          id="checklist-gestures"
+          selector=".checklist-item-row"
+          active={planViewMode === "checklist" && checklistCounts.total > 0}
+          title="Tap, double-tap, hold"
+          badge="New"
+          placement="bottom"
+        >
+          <span className="font-medium text-foreground">Tap</span> a task to tick it off. <span className="font-medium text-foreground">Double-tap</span> to mark it not done — a red ✗. <span className="font-medium text-foreground">Press and hold</span> for the menu: rename, move, pin or delete. Drag the handle to reorder.
         </FeatureHint>
 
         {planViewMode === "checklist" ? (
@@ -2575,7 +2820,7 @@ export default function DayView() {
         {!planMissing && isToday && firstUnfinishedTask && (
           <Button
             onClick={() => nav(`/focus/${firstUnfinishedTask.id}`)}
-            className="w-full h-12 rounded-2xl bg-primary hover:bg-primary/90 text-primary-foreground text-[15px] font-semibold pressable shadow-[0_8px_30px_-6px_hsl(var(--primary)/0.5)] border border-primary/20 mt-4 mb-1"
+            className="w-full h-12 rounded-2xl bg-primary hover:bg-primary/90 text-primary-foreground text-[15px] font-semibold pressable cta-glow border border-primary/20 mt-4 mb-1"
           >
             <Play className="h-4 w-4 mr-2" fill="currentColor" />
             {toneCopy(getTone(profile), doneTasks === 0 ? "start_first" : "start_next")}
@@ -2614,7 +2859,6 @@ export default function DayView() {
                   type="button"
                   data-tour="ask-ai"
                   onClick={() => {
-                    setAskAiTaskTitle(null);
                     setAskAiContext("__empty_day__");
                     setAskAiOpen(true);
                   }}
@@ -2657,7 +2901,6 @@ export default function DayView() {
                     type="button"
                     data-tour="ask-ai"
                     onClick={() => {
-                      setAskAiTaskTitle(null);
                       setAskAiContext("__empty_day__");
                       setAskAiOpen(true);
                     }}
@@ -2785,7 +3028,6 @@ export default function DayView() {
                 </button>
                 <button
                   onClick={() => {
-                    setAskAiTaskTitle(null);
                     setAskAiContext(buildDaySeedContext(blocks));
                     setAskAiOpen(true);
                   }}
@@ -2834,8 +3076,9 @@ export default function DayView() {
             <SheetTitle className="text-[16px]">Plan options</SheetTitle>
           </SheetHeader>
 
-          {/* Master notifications toggle */}
-          <div className="mb-2 flex items-center gap-3 rounded-2xl border border-soft bg-card/40 px-4 py-3">
+          {/* Master notifications toggle — own premium surface, same "app-card"
+              language as the rest of the app instead of a flat bordered strip. */}
+          <div className="app-card mb-3 flex items-center gap-3 px-4 py-3">
             <span
               className="shrink-0 h-9 w-9 rounded-xl flex items-center justify-center"
               style={{
@@ -2869,67 +3112,71 @@ export default function DayView() {
             />
           </div>
 
-          {planViewMode === "timeline" ? (
-            <>
-              {!isFuture && (
+          {/* Action list — same app-card module, rows separated by hairlines
+              instead of floating loose on the sheet's flat background. */}
+          <div className="app-card px-2 py-1.5 divide-y divide-border/25">
+            {planViewMode === "timeline" ? (
+              <>
+                {!isFuture && (
+                  <ActionRow
+                    onClick={() => {
+                      setMoreOpen(false);
+                      setDayPickerIntent({ kind: "carry-missed" });
+                    }}
+                    icon={<CalendarDays className="h-4 w-4" />}
+                    label="Carry unfinished to…"
+                  />
+                )}
+                {blocks.length > 0 && (
+                  <ActionRow
+                    onClick={() => { setMoreOpen(false); void copyDayOutline(); }}
+                    icon={<Copy className="h-4 w-4" />}
+                    label="Copy plan as text"
+                  />
+                )}
+              </>
+            ) : (
+              <>
+                {checklistCounts.total > 0 && (
+                  <ActionRow
+                    onClick={() => {
+                      setMoreOpen(false);
+                      checklistRef.current?.enterSelectMode();
+                    }}
+                    icon={<CheckSquare className="h-4 w-4" />}
+                    label="Edit items"
+                  />
+                )}
+                {!isFuture && (
+                  <ActionRow
+                    onClick={() => {
+                      setMoreOpen(false);
+                      setDayPickerIntent({ kind: "checklist-carry-ungrouped" });
+                    }}
+                    icon={<CalendarDays className="h-4 w-4" />}
+                    label="Carry unfinished to…"
+                  />
+                )}
                 <ActionRow
                   onClick={() => {
                     setMoreOpen(false);
-                    setDayPickerIntent({ kind: "carry-missed" });
+                    checklistRef.current?.copyPlanAsText();
                   }}
-                  icon={<CalendarDays className="h-4 w-4" />}
-                  label="Carry unfinished to…"
-                />
-              )}
-              {blocks.length > 0 && (
-                <ActionRow
-                  onClick={() => { setMoreOpen(false); void copyDayOutline(); }}
                   icon={<Copy className="h-4 w-4" />}
                   label="Copy plan as text"
                 />
-              )}
-            </>
-          ) : (
-            <>
-              {checklistCounts.total > 0 && (
-                <ActionRow
-                  onClick={() => {
-                    setMoreOpen(false);
-                    checklistRef.current?.enterSelectMode();
-                  }}
-                  icon={<CheckSquare className="h-4 w-4" />}
-                  label="Edit items"
-                />
-              )}
-              {!isFuture && (
-                <ActionRow
-                  onClick={() => {
-                    setMoreOpen(false);
-                    setDayPickerIntent({ kind: "checklist-carry-ungrouped" });
-                  }}
-                  icon={<CalendarDays className="h-4 w-4" />}
-                  label="Carry unfinished to…"
-                />
-              )}
+              </>
+            )}
+            {/* Past days are frozen — deleting a finished day's plan is locked. */}
+            {!isPast && (
               <ActionRow
-                onClick={() => {
-                  setMoreOpen(false);
-                  checklistRef.current?.copyPlanAsText();
-                }}
-                icon={<Copy className="h-4 w-4" />}
-                label="Copy plan as text"
+                onClick={() => { setMoreOpen(false); setConfirmDeletePlan(true); }}
+                icon={<Trash2 className="h-4 w-4" />}
+                label={planViewMode === "checklist" ? "Delete checklist" : "Delete plan"}
+                destructive
               />
-            </>
-          )}
-          {/* Past days are frozen — deleting a finished day's plan is locked. */}
-          {!isPast && (
-            <ActionRow
-              onClick={() => { setMoreOpen(false); setConfirmDeletePlan(true); }}
-              icon={<Trash2 className="h-4 w-4" />}
-              label={planViewMode === "checklist" ? "Delete checklist" : "Delete plan"}
-              destructive
-            />
-          )}
+            )}
+          </div>
         </SheetContent>
       </Sheet>
 
@@ -2955,6 +3202,9 @@ export default function DayView() {
                   : <><ListPlus className="h-4 w-4 text-primary" /> Add tasks</>
               }
             </SheetTitle>
+            <SheetDescription className="sr-only">
+              Add or review the tasks you're planning for this day.
+            </SheetDescription>
           </SheetHeader>
 
           <div className="mt-4 flex-1 overflow-y-auto">
@@ -3057,38 +3307,13 @@ export default function DayView() {
                     );
                   })}
                 </div>
-
-                {/* CTA + skip — vertically centered column */}
-                <div className="flex flex-col items-center gap-2 pt-1">
-                  <Button
-                    onClick={() => void autoScheduleBulkRows()}
-                    disabled={bulkAiLoading}
-                    className="w-full h-12 rounded-2xl bg-primary hover:bg-primary/92 text-white font-semibold pressable"
-                  >
-                    {bulkAiLoading
-                      ? <Loader2 className="h-5 w-5 mr-2 animate-spin" />
-                      : <Sparkles className="h-5 w-5 mr-2" />}
-                    {bulkAiStep === "planning" ? "Building your plan…" : "Build Plan"}
-                  </Button>
-                  <button
-                    type="button"
-                    disabled={bulkAiLoading}
-                    onClick={() => { setClarificationAnswers({}); void autoScheduleBulkRows(); }}
-                    className="text-[12.5px] text-secondary-fg/55 hover:text-secondary-fg py-1.5 pressable transition-colors disabled:opacity-40"
-                  >
-                    Skip — plan without answers
-                  </button>
-                </div>
               </div>
             ) : (
               <div className="space-y-3 pb-4">
-                <div className="flex items-start justify-between px-1">
-                  <div>
+                {pendingMoveState ? (
+                  <div className="px-1">
                     <p className="text-[12px] text-secondary-fg leading-relaxed">
-                      {pendingMoveState
-                        ? "Set time and duration for each task on the new day."
-                        : "Review your tasks. Tap time or duration to adjust."
-                      }
+                      Set time and duration for each task on the new day.
                     </p>
                     {highlightMissingStartTime && (
                       <p className="text-[11.5px] text-amber-400 font-medium mt-1">
@@ -3096,19 +3321,43 @@ export default function DayView() {
                       </p>
                     )}
                   </div>
-                  {!pendingMoveState && (
-                    <Button
-                      onClick={() => void startClarification()}
-                      disabled={bulkAiLoading || planMutating}
-                      size="sm"
-                      className="h-8 rounded-full bg-primary/10 text-primary border border-primary/25 text-[12px] font-medium pressable shrink-0"
-                    >
-                      <Loader2 className={`h-3.5 w-3.5 mr-1.5 ${bulkAiLoading ? "animate-spin" : "hidden"}`} />
-                      <Sparkles className={`h-3.5 w-3.5 mr-1.5 ${bulkAiLoading ? "hidden" : ""}`} />
-                      {bulkAiStep === "clarifying" ? "Thinking…" : bulkAiStep === "planning" ? "Scheduling…" : "Auto-schedule"}
-                    </Button>
-                  )}
-                </div>
+                ) : (
+                  <div className="space-y-2 px-1">
+                    <div className="flex items-center justify-between gap-2">
+                      {/* Plan date — tap to retarget the whole plan to another day,
+                          so a wrong day doesn't mean retyping everything. */}
+                      <button
+                        type="button"
+                        onClick={() => { haptics.tap(); setComposerDatePickerOpen(true); }}
+                        className="inline-flex items-center gap-1.5 h-8 pl-3 pr-2.5 rounded-full border border-primary/30 bg-primary/[0.08] text-primary text-[12.5px] font-semibold pressable transition-colors hover:bg-primary/[0.12]"
+                      >
+                        <CalendarDays className="h-3.5 w-3.5" />
+                        {composerTargetDate === todayDateStr()
+                          ? "Today"
+                          : friendlyDateFor(parseDateStr(composerTargetDate))}
+                        <ChevronDown className="h-3.5 w-3.5 opacity-70" />
+                      </button>
+                      <Button
+                        onClick={() => void startClarification()}
+                        disabled={bulkAiLoading || planMutating}
+                        size="sm"
+                        className="h-8 rounded-full bg-primary/10 text-primary border border-primary/25 text-[12px] font-medium pressable shrink-0"
+                      >
+                        <Loader2 className={`h-3.5 w-3.5 mr-1.5 ${bulkAiLoading ? "animate-spin" : "hidden"}`} />
+                        <Sparkles className={`h-3.5 w-3.5 mr-1.5 ${bulkAiLoading ? "hidden" : ""}`} />
+                        {bulkAiStep === "clarifying" ? "Thinking…" : bulkAiStep === "planning" ? "Scheduling…" : "Auto-schedule"}
+                      </Button>
+                    </div>
+                    <p className="text-[12px] text-secondary-fg leading-relaxed">
+                      Review your tasks. Tap time or duration to adjust.
+                    </p>
+                    {highlightMissingStartTime && (
+                      <p className="text-[11.5px] text-amber-400 font-medium">
+                        Set a start time for each task to continue.
+                      </p>
+                    )}
+                  </div>
+                )}
                 <div className="space-y-2.5 max-h-[48vh] overflow-y-auto pr-1 pb-2 pt-1">
                   {bulkRows.map((row, i) => (
                     <div key={i} className="flex flex-col gap-2 rounded-[18px] border border-border/90 bg-foreground/[0.04] dark:bg-foreground/[0.06] px-4 py-4 shadow-sm">
@@ -3224,54 +3473,97 @@ export default function DayView() {
                     <p className="text-center text-[13px] text-secondary-fg py-10 bg-muted/20 rounded-[18px] border border-dashed border-border/75 mx-1">No tasks left.</p>
                   )}
                 </div>
-                <div className="flex items-center gap-2 pt-3 border-t border-border/60 px-1">
-                  <Button variant="outline" onClick={() => {
-                    if (pendingMoveState) {
-                      // In move mode "Back" cancels the whole flow
-                      setPendingMoveState(null);
-                      setComposerOpen(false);
-                      setBulkRows([]);
-                      setBulkStep("input");
-                    } else {
-                      setBulkStep("input");
-                    }
-                    setHighlightMissingStartTime(false);
-                    setHighlightMissingDuration(false);
-                  }} disabled={planMutating} className="h-12 rounded-2xl border-soft text-[14px]">
-                    {pendingMoveState ? "Cancel" : "Back"}
-                  </Button>
-                  <Button
-                    onClick={() => {
-                      // Require a start time for every task so it doesn't float
-                      const missingStart = bulkRows.filter(r => !r.start_time).length;
-                      if (missingStart > 0) {
-                        setHighlightMissingStartTime(true);
-                        haptics.notify("error");
-                        return;
-                      }
-                      setHighlightMissingStartTime(false);
-                      const missing = bulkRows.filter(r => r.duration == null).length;
-                      if (missing > 0) {
-                        pendingBulkActionRef.current = () => void addBulkRows(bulkRows);
-                        setDurationWarnKind(missing === bulkRows.length ? "all" : "some");
-                      } else {
-                        void addBulkRows(bulkRows);
-                      }
-                    }}
-                    disabled={planMutating || bulkRows.length === 0}
-                    className="flex-1 h-12 rounded-2xl bg-primary hover:bg-primary/92 text-primary-foreground font-semibold pressable"
-                  >
-                    {pendingMoveState
-                      ? `Move ${bulkRows.length} ${bulkRows.length === 1 ? "task" : "tasks"}`
-                      : `Add ${bulkRows.length} ${bulkRows.length === 1 ? "task" : "tasks"}`
-                    }
-                  </Button>
-                </div>
               </div>
             )}
           </div>
+
+          {/* Footers live OUTSIDE the scrollable area (shrink-0) so the primary
+              button's glow shadow never gets clipped by overflow-y-auto. */}
+          {bulkStep === "clarify" && (
+            <div className="shrink-0 flex flex-col items-center gap-2 pt-3 px-1">
+              <Button
+                onClick={() => void autoScheduleBulkRows()}
+                disabled={bulkAiLoading}
+                className="w-full h-12 rounded-2xl bg-primary hover:bg-primary/92 text-white font-semibold pressable"
+              >
+                {bulkAiLoading
+                  ? <Loader2 className="h-5 w-5 mr-2 animate-spin" />
+                  : <Sparkles className="h-5 w-5 mr-2" />}
+                {bulkAiStep === "planning" ? "Building your plan…" : "Build Plan"}
+              </Button>
+              <button
+                type="button"
+                disabled={bulkAiLoading}
+                onClick={() => { setClarificationAnswers({}); void autoScheduleBulkRows(); }}
+                className="text-[12.5px] text-secondary-fg/55 hover:text-secondary-fg py-1.5 pressable transition-colors disabled:opacity-40"
+              >
+                Skip — plan without answers
+              </button>
+            </div>
+          )}
+          {bulkStep === "review" && (
+            <div className="shrink-0 flex items-center gap-2 pt-3 border-t border-border/60 px-1">
+              <Button variant="outline" onClick={() => {
+                if (pendingMoveState) {
+                  // In move mode "Back" cancels the whole flow
+                  setPendingMoveState(null);
+                  setComposerOpen(false);
+                  setBulkRows([]);
+                  setBulkStep("input");
+                } else {
+                  setBulkStep("input");
+                }
+                setHighlightMissingStartTime(false);
+                setHighlightMissingDuration(false);
+              }} disabled={planMutating} className="h-12 rounded-2xl border-soft text-[14px]">
+                {pendingMoveState ? "Cancel" : "Back"}
+              </Button>
+              <Button
+                onClick={() => {
+                  // Require a start time for every task so it doesn't float
+                  const missingStart = bulkRows.filter(r => !r.start_time).length;
+                  if (missingStart > 0) {
+                    setHighlightMissingStartTime(true);
+                    haptics.notify("error");
+                    return;
+                  }
+                  setHighlightMissingStartTime(false);
+                  const missing = bulkRows.filter(r => r.duration == null).length;
+                  if (missing > 0) {
+                    pendingBulkActionRef.current = () => void addBulkRows(bulkRows);
+                    setDurationWarnKind(missing === bulkRows.length ? "all" : "some");
+                  } else {
+                    void addBulkRows(bulkRows);
+                  }
+                }}
+                disabled={planMutating || bulkRows.length === 0}
+                className="flex-1 h-12 rounded-2xl bg-primary hover:bg-primary/92 text-primary-foreground font-semibold pressable"
+              >
+                {pendingMoveState
+                  ? `Move ${bulkRows.length} ${bulkRows.length === 1 ? "task" : "tasks"}`
+                  : `Add ${bulkRows.length} ${bulkRows.length === 1 ? "task" : "tasks"}`
+                }
+              </Button>
+            </div>
+          )}
         </SheetContent>
       </Sheet>
+
+      {/* Composer plan-date picker — retarget the whole plan from the review step */}
+      <DayPickerSheet
+        open={composerDatePickerOpen}
+        onOpenChange={(v) => !v && setComposerDatePickerOpen(false)}
+        value={composerTargetDate}
+        onPick={(ymd) => {
+          composerTargetDateRef.current = ymd;
+          setComposerTargetDate(ymd);
+          setComposerDatePickerOpen(false);
+          if (ymd !== composerTargetDate) haptics.selection();
+        }}
+        pastDays={0}
+        futureDays={120}
+        title="Plan date"
+      />
 
       {/* Duration warning dialog — shown when user tries to add/schedule tasks without duration */}
       <AlertDialog open={durationWarnKind !== null} onOpenChange={(v) => { if (!v) { setDurationWarnKind(null); pendingBulkActionRef.current = null; } }}>
@@ -3627,7 +3919,13 @@ export default function DayView() {
         </SheetContent>
       </Sheet>
       <UpgradeSheet open={upgradeOpen} onOpenChange={setUpgradeOpen} reason="feature" />
-      <AskAiSheet open={askAiOpen} onOpenChange={setAskAiOpen} seedContext={askAiContext} taskTitle={askAiTaskTitle} />
+      <AskAiSheet open={askAiOpen} onOpenChange={setAskAiOpen} seedContext={askAiContext} />
+      <TaskCoachSheet
+        open={coachOpen}
+        onOpenChange={(v) => { setCoachOpen(v); if (!v) setCoachTask(null); }}
+        taskTitle={coachTask?.title}
+        seedContext={coachTask?.context}
+      />
       <LateCompleteSheet
         open={!!lateCompleteBlock}
         onOpenChange={(v) => { if (!v) setLateCompleteBlock(null); }}
@@ -3668,8 +3966,8 @@ export default function DayView() {
               ? `${movableTasks.length} task${movableTasks.length === 1 ? "" : "s"} will be added there and marked moved here.`
               : undefined
         }
-        pastDays={dayPickerIntent?.kind === "navigate" ? 7 : 0}
-        futureDays={28}
+        pastDays={dayPickerIntent?.kind === "navigate" ? 3650 : 0}
+        futureDays={dayPickerIntent?.kind === "navigate" ? 365 : 28}
         preview={dayPickerIntent?.kind === "navigate"}
       />
 
@@ -3956,9 +4254,21 @@ const ActionRow = ({ onClick, icon, label, destructive, children }: { onClick?: 
       // before the native time-picker can open. pointer-events:none lets the
       // absolutely-positioned input receive the touch directly.
       style={children ? { pointerEvents: "none" } : undefined}
-      className={`w-full flex items-center gap-3 px-3 py-3.5 rounded-xl pressable transition-colors text-[14px] ${destructive ? "text-destructive hover:bg-destructive/10" : "text-foreground hover:bg-muted/40"}`}
+      className={`w-full flex items-center gap-3 px-2 py-2.5 rounded-xl pressable transition-colors text-[14.5px] font-medium ${destructive ? "text-destructive hover:bg-destructive/[0.08]" : "text-foreground hover:bg-foreground/[0.05]"}`}
     >
-      {icon && <span className={`shrink-0 ${destructive ? "text-destructive/80" : "text-secondary-fg"}`}>{icon}</span>}
+      {icon && (
+        <span
+          className="shrink-0 h-8 w-8 rounded-[10px] flex items-center justify-center"
+          style={{
+            background: destructive ? "hsl(var(--destructive) / 0.12)" : "hsl(var(--primary) / 0.1)",
+            boxShadow: destructive
+              ? "inset 0 0 0 1px hsl(var(--destructive) / 0.22)"
+              : "inset 0 0 0 1px hsl(var(--primary) / 0.18)",
+          }}
+        >
+          <span className={destructive ? "text-destructive" : "text-primary"}>{icon}</span>
+        </span>
+      )}
       <span className="flex-1 text-left">{label}</span>
     </button>
     {children}

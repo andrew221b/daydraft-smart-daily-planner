@@ -5,8 +5,8 @@ import { CSS } from "@dnd-kit/utilities";
 import { AnimatePresence, motion } from "framer-motion";
 import { Block, fmtTime, inferScheduleBlockType, isOpenUserTask, isUserTaskDone } from "@/lib/daydraft";
 import {
-  Check, Calendar, GripVertical, Sparkles, Play, Square,
-  ChevronDown, Clock, Bell, Bookmark, Trash2, RotateCcw, SkipForward, Pencil, X as XIcon, Flag,
+  Check, Calendar, GripVertical, Sparkles, Play, Square, Timer,
+  ChevronDown, Clock, Bell, Bookmark, Trash2, RotateCcw, SkipForward, Pencil, X as XIcon, Flag, Navigation,
 } from "lucide-react";
 import { haptics } from "@/lib/haptics";
 import {
@@ -98,6 +98,7 @@ export const SortableBlock = memo(({
 }) => {
   const [expanded, setExpanded] = useState(false);
   const [confirmDelete, setConfirmDelete] = useState(false);
+  const [confirmStopTrack, setConfirmStopTrack] = useState(false);
   const [renaming, setRenaming] = useState(false);
   const [renameDraft, setRenameDraft] = useState("");
 
@@ -193,7 +194,7 @@ export const SortableBlock = memo(({
     { id: "duration",  icon: <Clock       className="h-3.5 w-3.5" />, label: "Duration",  cb: onEditDuration,  color: "text-sky-400/75"       },
     { id: "skip",      icon: <SkipForward className="h-3.5 w-3.5" />, label: "Skip",      cb: onSkip,          color: "text-amber-400/80"     },
     { id: "reminders", icon: <Bell        className="h-3.5 w-3.5" />, label: "Remind",    cb: onEditReminders, color: "text-violet-400/75"     },
-    { id: "ai",        icon: <Sparkles    className="h-3.5 w-3.5" />, label: "Ask AI",    cb: onAskAi,         color: "text-primary/75"        },
+    { id: "ai",        icon: <Sparkles    className="h-3.5 w-3.5" />, label: "Coach",     cb: onAskAi,         color: "text-primary/75"        },
     { id: "template",  icon: <Bookmark    className="h-3.5 w-3.5" />, label: "Template",  cb: onSaveTemplate,  color: "text-amber-400/75"      },
     { id: "delete",    icon: <Trash2      className="h-3.5 w-3.5" />, label: "Delete",    cb: onDeleteBlock,   color: "text-destructive/50", destructive: true },
   ] as const;
@@ -202,7 +203,43 @@ export const SortableBlock = memo(({
     const h = Math.floor(block.duration_min / 60);
     const m = block.duration_min % 60;
     const durStr = h > 0 ? (m > 0 ? `${h}h ${m}m` : `${h}h`) : `${m}m`;
-    
+
+    // addBuffers() only ever emits these two generic titles for anonymous
+    // decompression padding with no real destination/purpose. Anything else
+    // reaching kind="break" (AI-written travel/prep/meeting-buffer blocks)
+    // always carries a real, specific title — show it instead of treating
+    // accounted-for time as an empty "gap".
+    const isGenericBuffer = !block.title || block.title === "Buffer" || block.title === "Transition";
+
+    if (!isGenericBuffer) {
+      return (
+        <div
+          ref={setNodeRef}
+          style={style}
+          {...(sortableDisabled ? {} : attributes)}
+          {...(sortableDisabled ? {} : listeners)}
+          className={[
+            "group relative flex items-center gap-2 py-2 px-3.5 cursor-pointer outline-none rounded-2xl border border-dashed border-border/70 bg-background",
+            isDragging ? "is-dragging opacity-60" : "opacity-80 hover:opacity-100 transition-opacity",
+          ].filter(Boolean).join(" ")}
+        >
+          <Navigation className="h-3.5 w-3.5 text-secondary-fg shrink-0" />
+          <span className="flex-1 text-[12.5px] font-medium text-secondary-fg truncate">{block.title}</span>
+          <span className="text-[11px] text-secondary-fg shrink-0 tabular-nums">{durStr}</span>
+          <button
+            onClick={(e) => {
+              e.stopPropagation();
+              onDeleteBlock(block);
+            }}
+            className="p-1 -mr-1 hover:bg-destructive/10 hover:text-destructive rounded-full transition-colors pressable shrink-0"
+            aria-label={`Remove ${block.title}`}
+          >
+            <Trash2 className="h-3 w-3" />
+          </button>
+        </div>
+      );
+    }
+
     return (
       <div
         ref={setNodeRef}
@@ -327,7 +364,7 @@ export const SortableBlock = memo(({
               }
 
               return (
-                <div className="shrink-0 self-center w-[62px] flex flex-col items-start gap-1 pl-0.5">
+                <div className="shrink-0 h-9 justify-center w-[62px] flex flex-col items-start gap-0.5 pl-0.5">
                   <span className={`text-[13.5px] font-bold leading-none tracking-[0.02em] uppercase whitespace-nowrap ${colorClass}`}>
                     {label}
                   </span>
@@ -353,12 +390,12 @@ export const SortableBlock = memo(({
             if (onTapTime && !block.is_calendar_event && !readOnly) {
               return (
                 <div
-                  className="relative shrink-0 self-center w-[56px] flex flex-col items-center"
+                  className="relative shrink-0 w-[56px] flex flex-col items-center"
                   onPointerDown={(e) => e.stopPropagation()}
                   onClick={(e) => e.stopPropagation()}
                 >
                   <div
-                    className="relative px-1 py-0.5 text-secondary-fg/90 pressable hover:text-foreground transition-colors rounded-md cursor-pointer select-none"
+                    className="relative px-1 w-full h-9 flex items-center justify-center text-secondary-fg/90 pressable hover:text-foreground transition-colors rounded-md cursor-pointer select-none"
                     aria-label="Change start time"
                   >
                     <span className="pointer-events-none">{timeDisplay}</span>
@@ -381,8 +418,8 @@ export const SortableBlock = memo(({
               );
             }
             return (
-              <div className="shrink-0 self-center w-[56px] flex flex-col items-center text-secondary-fg/75">
-                {timeDisplay}
+              <div className="shrink-0 w-[56px] flex flex-col items-center text-secondary-fg/75">
+                <div className="h-9 flex items-center justify-center">{timeDisplay}</div>
                 {lateIndicator}
               </div>
             );
@@ -461,12 +498,12 @@ export const SortableBlock = memo(({
 
           {/* Right side: live Stop (Focus session) · Move · status · chevron.
               The category-assign Track/Change button now lives in the accordion. */}
-          <div className="flex items-center gap-1.5 shrink-0">
+          <div className="h-9 flex items-center gap-1.5 shrink-0">
             {trackingActive && onStopTrack && !isCal && block.kind === "task" && !readOnly && (
               <button
                 type="button"
                 onPointerDown={(e) => e.stopPropagation()}
-                onClick={(e) => { e.stopPropagation(); onStopTrack?.(block); }}
+                onClick={(e) => { e.stopPropagation(); setConfirmStopTrack(true); }}
                 className="shrink-0 h-8 rounded-full bg-success/15 text-success border border-success/30 inline-flex items-center justify-center gap-1 px-2.5 text-[11px] font-medium pressable hover:bg-success/22 transition-colors"
                 aria-label="Stop tracking"
               >
@@ -546,6 +583,36 @@ export const SortableBlock = memo(({
         </AlertDialogContent>
       </AlertDialog>
 
+      {/* ── Stop tracking confirmation ── */}
+      <AlertDialog open={confirmStopTrack} onOpenChange={setConfirmStopTrack}>
+        <AlertDialogContent
+          className="w-[calc(100vw-48px)] max-w-[340px] rounded-3xl border-border/70 bg-surface/95 p-0 backdrop-blur-2xl"
+        >
+          <AlertDialogHeader className="px-6 pt-6 pb-0 text-center">
+            <div className="mx-auto mb-3 flex h-11 w-11 items-center justify-center rounded-full bg-primary/12 border border-primary/20">
+              <Timer className="h-5 w-5 text-primary" />
+            </div>
+            <AlertDialogTitle className="text-[17px] font-semibold">
+              Stop the timer?
+            </AlertDialogTitle>
+            <AlertDialogDescription className="text-[13px] text-secondary-fg/80 mt-1">
+              Your tracked time will be saved. Are you sure you want to stop?
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter className="flex flex-col gap-2 px-6 py-5 sm:flex-col sm:space-x-0">
+            <AlertDialogAction
+              onClick={() => { setConfirmStopTrack(false); onStopTrack?.(block); }}
+              className="h-11 w-full rounded-2xl bg-destructive text-destructive-foreground hover:bg-destructive/90 font-semibold text-[15px] border-0 pressable"
+            >
+              Stop timer
+            </AlertDialogAction>
+            <AlertDialogCancel className="h-11 w-full rounded-2xl border-border/65 bg-foreground/[0.05] text-foreground font-semibold text-[15px] hover:bg-foreground/[0.09] mt-0 pressable">
+              Continue
+            </AlertDialogCancel>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
+
       {/* ── Expandable panel ── */}
       <AnimatePresence initial={false}>
         {expanded && canExpand && (
@@ -559,6 +626,10 @@ export const SortableBlock = memo(({
             style={{ overflow: "hidden" }}
           >
             <div className="mt-3 pt-3 border-t border-border/[0.15] space-y-2">
+
+              {/* The AI's one-line placement reasoning used to show here as a grey
+                  strip; it now feeds the per-task Coach popup instead (the Coach
+                  tile below), so the expanded panel stays clean. */}
 
               {/* ── Rename: full-width strip at rest; inline input when active.
                    Both states share a propagation-stopping wrapper so neither

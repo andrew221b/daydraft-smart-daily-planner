@@ -299,6 +299,16 @@ export function TimeTrackerProvider({ children }: { children: ReactNode }) {
   const workerRef = useRef<Worker | null>(null);
   const fallbackTickRef = useRef<number | null>(null);
   const alignmentRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  // Bumped on every native foreground resume (see the appStateChange effect
+  // below) to force the tick effect to tear down and recreate the worker.
+  // Android can fully suspend a backgrounded WebView's Worker thread — unlike
+  // a throttled setInterval, a suspended worker may never resume ticking on
+  // its own, so the in-app timer display can freeze (while the OS-native
+  // Live Activity widget, unaffected by WebView suspension, keeps counting
+  // correctly) until something rebuilds it. DOM `visibilitychange` is NOT
+  // reliable for this on native (see the dayKey comment above) — `appStateChange`
+  // is the trustworthy resume signal, so it drives this instead.
+  const [resyncNonce, setResyncNonce] = useState(0);
 
   const userId = user?.id;
   const enabled = !!userId;
@@ -496,7 +506,7 @@ export function TimeTrackerProvider({ children }: { children: ReactNode }) {
         workerRef.current = null;
       }
     };
-  }, [active?.id, active?.started_at]);
+  }, [active?.id, active?.started_at, resyncNonce]);
 
   useEffect(() => {
     if (!active) return;
@@ -532,6 +542,10 @@ export function TimeTrackerProvider({ children }: { children: ReactNode }) {
         if (cancelled) return;
         const handle = App.addListener("appStateChange", async ({ isActive }) => {
           if (isActive) {
+            // Force the tick effect to tear down and rebuild its worker — see
+            // the resyncNonce comment near workerRef for why this can't just
+            // rely on the worker having kept ticking through the suspension.
+            setResyncNonce((n) => n + 1);
             const { remaining } = await drainOfflineQueue();
             if (remaining === 0) void refresh();
           }
@@ -780,6 +794,13 @@ export function TimeTrackerProvider({ children }: { children: ReactNode }) {
       }
     }
     emitElapsed(0);
+    setActiveData(null);
+    // A resume (appStateChange → refresh) can have an active-entry refetch IN
+    // FLIGHT that started before this stop wrote `ended_at`. If it resolves after
+    // us it would revert `active` back to the still-"open" row — the timer then
+    // keeps ticking behind the note prompt (the widget "Add a note?" bug). Cancel
+    // any in-flight active fetch and re-assert null so the stopped state wins.
+    await queryClient.cancelQueries({ queryKey: activeEntryQueryKey(user.id) });
     setActiveData(null);
     // Tear down the tracker Live Activity. Safe to call unconditionally — if
     // the session was started from Focus there's no tracker activity and this

@@ -12,7 +12,17 @@ Deno.serve(async (req) => {
       Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!,
     );
     const since = new Date(); since.setDate(since.getDate() - 30);
-    const { data: users } = await supabase.from("profiles").select("id");
+    // Optional { user_id } body scopes this to one user — used for on-demand
+    // recompute (e.g. right after seeding test data) instead of waiting for the
+    // nightly batch. No body (the cron's call shape) keeps the old behavior.
+    let targetUserId: string | null = null;
+    try {
+      const body = await req.json();
+      if (typeof body?.user_id === "string" && /^[0-9a-f-]{36}$/i.test(body.user_id)) targetUserId = body.user_id;
+    } catch { /* no/empty body — nightly cron */ }
+    const users = targetUserId
+      ? [{ id: targetUserId }]
+      : ((await supabase.from("profiles").select("id")).data || []);
     let updated = 0;
     for (const u of users || []) {
       const { data: plans } = await supabase.from("plans").select("id").eq("user_id", u.id).gte("date", since.toISOString().slice(0,10));
