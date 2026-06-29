@@ -17,6 +17,7 @@
     "ios": "vite build && npx cap sync ios && npx cap open ios"
   },
   "dependencies": {
+    "@capacitor-community/speech-recognition": "^7.0.1",
     "@capacitor/android": "^8.3.4",
     "@capacitor/app": "^8.1.0",
     "@capacitor/core": "^8.0.0",

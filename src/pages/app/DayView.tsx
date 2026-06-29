@@ -4,7 +4,6 @@ import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { useNavigate, useSearchParams } from "react-router-dom";
 import { useAuth } from "@/hooks/useAuth";
 import { supabase } from "@/integrations/supabase/client";
-import { trackAiEvent } from "@/lib/aiRuntime";
 import { Capacitor } from "@capacitor/core";
 import { syncBlockNotifications, getNotificationsEnabled, setNotificationsEnabled } from "@/lib/localNotifications";
 import { enqueueWrite } from "@/lib/idbCache";
@@ -25,6 +24,7 @@ import { motion, AnimatePresence } from "framer-motion";
 import { SortableContext, verticalListSortingStrategy } from "@dnd-kit/sortable";
 import { SortableBlock } from "@/components/app/SortableBlock";
 import { FeatureHint } from "@/components/app/FeatureHint";
+import { VoiceMicButton } from "@/components/app/VoiceDictation";
 import { Sheet, SheetContent, SheetDescription, SheetHeader, SheetTitle } from "@/components/ui/sheet";
 import { Switch } from "@/components/ui/switch";
 import {
@@ -232,6 +232,10 @@ const BulkInputStep = memo(function BulkInputStep({
   loading?: boolean;
 }) {
   const [val, setVal] = useState(initialValue);
+  // Snapshot of `val` the instant a dictation session starts — onText always
+  // reports the FULL session transcript, so each update replaces everything
+  // typed/dictated after that snapshot rather than appending duplicates.
+  const dictationBaseRef = useRef("");
   return (
     <div className="space-y-3 pb-4">
       <p className="text-[12px] leading-relaxed text-secondary-fg">
@@ -264,14 +268,25 @@ const BulkInputStep = memo(function BulkInputStep({
         </div>
       )}
       {/* fontSize:16 prevents iOS from auto-zooming the viewport when focusing */}
-      <Textarea
-        autoFocus={false}
-        value={val}
-        onChange={(e) => setVal(e.target.value)}
-        placeholder={"Fix mobile layout, download PDF, send to client\nCall Alex, invoice client"}
-        className="min-h-[150px] rounded-2xl border-soft bg-card text-[14px]"
-        style={{ fontSize: 16 }}
-      />
+      <div className="relative">
+        <Textarea
+          autoFocus={false}
+          value={val}
+          onChange={(e) => setVal(e.target.value)}
+          placeholder={"Fix mobile layout, download PDF, send to client\nCall Alex, invoice client"}
+          className="min-h-[150px] rounded-2xl border-soft bg-card text-[14px] pb-11"
+          style={{ fontSize: 16 }}
+        />
+        <VoiceMicButton
+          className="absolute bottom-2 right-2"
+          contextualStrings={templates.map((t) => t.name)}
+          onSessionStart={() => { dictationBaseRef.current = val; }}
+          onText={(text) => {
+            const base = dictationBaseRef.current;
+            setVal(base ? `${base}${base.endsWith("\n") ? "" : "\n"}${text}` : text);
+          }}
+        />
+      </div>
       <Button
         onClick={() => onContinue(val)}
         disabled={disabled || loading}

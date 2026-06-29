@@ -216,11 +216,17 @@ export function DayPickerSheet({
     return () => { cancelled = true; };
   }, [open, user, minDate, maxDate]);
 
+  // The scroller only needs a manageable window around today — generating
+  // thousands of cells for pastDays=3650 freezes the UI. Cap it so the
+  // scroller stays snappy while the month grid handles distant navigation.
+  const scrollerPast = Math.min(pastDays, 90);
+  const scrollerFuture = Math.min(futureDays, 90);
+
   const cells = useMemo<DayCell[]>(() => {
     const today = parseDateStr(todayYmd);
     const todayMs = today.getTime();
     const list: DayCell[] = [];
-    for (let i = -pastDays; i <= futureDays; i++) {
+    for (let i = -scrollerPast; i <= scrollerFuture; i++) {
       const d = new Date(today);
       d.setDate(today.getDate() + i);
       const ymd = dateStr(d);
@@ -235,7 +241,7 @@ export function DayPickerSheet({
       });
     }
     return list;
-  }, [pastDays, futureDays, value, todayYmd]);
+  }, [scrollerPast, scrollerFuture, value, todayYmd]);
 
   const [viewMonth, setViewMonth] = useState(() => firstOfMonth(parseDateStr(value || todayYmd)));
   const monthDirRef = useRef<1 | -1>(1);
@@ -292,14 +298,25 @@ export function DayPickerSheet({
 
   useEffect(() => {
     if (!open || expanded) return;
+    // Give AnimatePresence time to mount the scroller DOM node before we try
+    // to measure offsets.  A double-rAF is the most reliable cross-browser
+    // way to wait for the new element to paint.
+    let cancelled = false;
     const id = requestAnimationFrame(() => {
-      const el = scrollerRef.current?.querySelector<HTMLElement>('[data-selected="true"]');
-      if (!el || !scrollerRef.current) return;
-      const scroller = scrollerRef.current;
-      const target = el.offsetLeft - scroller.clientWidth / 2 + el.clientWidth / 2;
-      scroller.scrollTo({ left: Math.max(0, target), behavior: "instant" as ScrollBehavior });
+      requestAnimationFrame(() => {
+        if (cancelled) return;
+        const scroller = scrollerRef.current;
+        if (!scroller) return;
+        // Try to scroll to the selected day; if it's outside the capped range,
+        // fall back to today so the user always sees a sensible starting point.
+        let el = scroller.querySelector<HTMLElement>('[data-selected="true"]');
+        if (!el) el = scroller.querySelector<HTMLElement>('[data-today="true"]');
+        if (!el) return;
+        const target = el.offsetLeft - scroller.clientWidth / 2 + el.clientWidth / 2;
+        scroller.scrollTo({ left: Math.max(0, target), behavior: "instant" as ScrollBehavior });
+      });
     });
-    return () => cancelAnimationFrame(id);
+    return () => { cancelled = true; cancelAnimationFrame(id); };
   }, [open, expanded]);
 
   useEffect(() => {
@@ -430,16 +447,30 @@ export function DayPickerSheet({
           </button>
         </div>
 
-        {/* Body */}
-        <AnimatePresence mode="wait" initial={false}>
+        {/* Body — the outer motion.div measures its own height via `layout`
+             and smoothly interpolates it whenever `expanded` toggles.
+             Overflow hidden is essential so the exiting view doesn't
+             visibly overflow the contracting container during the tween. */}
+        <motion.div
+          layout
+          layoutRoot
+          transition={{ type: "spring", stiffness: 300, damping: 36, mass: 0.9 }}
+          style={{ overflow: "hidden" }}
+          className="relative"
+        >
+          {/* popLayout (not sync): the OUTGOING view is lifted out of layout
+              flow, so the INCOMING view immediately claims its real height and
+              the parent `layout` spring morphs the container height in one
+              continuous motion — instead of both views stacking in-flow and
+              ballooning the height mid-transition (the old "jump"). */}
+          <AnimatePresence mode="popLayout" initial={false}>
           {expanded ? (
             <motion.div
               key="grid"
-              layout
-              initial={{ opacity: 0, y: 10, scale: 0.985 }}
-              animate={{ opacity: 1, y: 0, scale: 1 }}
-              exit={{ opacity: 0, y: 8, scale: 0.985 }}
-              transition={{ type: "spring", stiffness: 380, damping: 32, mass: 0.85 }}
+              initial={{ opacity: 0, y: -8 }}
+              animate={{ opacity: 1, y: 0 }}
+              exit={{ opacity: 0, y: -8 }}
+              transition={{ type: "spring", stiffness: 380, damping: 36, mass: 0.8 }}
               className="flex-1 min-h-0 flex flex-col"
             >
               {/* Month nav */}
@@ -569,12 +600,10 @@ export function DayPickerSheet({
                           return (
                             <div key={i} className="relative h-[56px] flex flex-col items-center justify-start gap-[3px] pt-[2px]">
                               {/* Date circle — flag badge lives inside */}
-                              <motion.button
+                              <button
                                 type="button"
                                 onClick={() => { if (!isDisabled) pick(ymd); }}
                                 disabled={isDisabled}
-                                whileTap={!isDisabled ? { scale: 0.86 } : undefined}
-                                transition={{ type: "spring", stiffness: 500, damping: 24 }}
                                 style={
                                   isSelected ? SELECTED_STYLE
                                     : isToday ? TODAY_STYLE
@@ -597,7 +626,7 @@ export function DayPickerSheet({
                                               : "text-foreground/90 hover:bg-foreground/[0.06]"
                                           : isDisabled
                                             ? "pointer-events-none"
-                                            : "hover:bg-foreground/[0.04]",
+                                            : "hover:bg-foreground/[0.04] pressable",
                                 ].join(" ")}
                                 aria-label={DATE_LONG_FMT.format(day)}
                                 aria-pressed={isSelected}
@@ -620,7 +649,7 @@ export function DayPickerSheet({
                                     />
                                   </span>
                                 )}
-                              </motion.button>
+                              </button>
 
                               {/* Marker strip — dots mode for the grid */}
                               <span className="h-[10px] flex items-center justify-center max-w-full overflow-hidden" aria-hidden>
@@ -641,18 +670,19 @@ export function DayPickerSheet({
                 </div>
               </div>
             </motion.div>
-          ) : (
+          ) : null}
+          {!expanded ? (
             <motion.div
               key="scroller"
-              initial={{ opacity: 0, y: -6 }}
+              initial={{ opacity: 0, y: 8 }}
               animate={{ opacity: 1, y: 0 }}
-              exit={{ opacity: 0, y: -6 }}
-              transition={{ type: "spring", stiffness: 380, damping: 32, mass: 0.85 }}
+              exit={{ opacity: 0, y: 8 }}
+              transition={{ type: "spring", stiffness: 380, damping: 36, mass: 0.8 }}
               className="shrink-0"
             >
               <div
                 ref={scrollerRef}
-                className="overflow-x-scroll no-scrollbar"
+                className="overflow-x-scroll no-scrollbar relative"
                 style={{
                   WebkitOverflowScrolling: "touch",
                   touchAction: "pan-x",
@@ -672,13 +702,12 @@ export function DayPickerSheet({
                         const mk = marks.get(c.ymd);
                         const hasPrio = (mk?.prio.length ?? 0) > 0;
                         return (
-                          <motion.button
+                          <button
                             key={c.ymd}
                             type="button"
                             data-selected={sel}
+                            data-today={c.isToday || undefined}
                             onClick={() => pick(c.ymd)}
-                            whileTap={{ scale: 0.94 }}
-                            transition={{ type: "spring", stiffness: 500, damping: 24 }}
                             style={{
                               touchAction: "pan-x",
                               ...(sel ? SELECTED_STYLE
@@ -715,7 +744,7 @@ export function DayPickerSheet({
                                 <span className="h-[4px] w-[4px] rounded-full bg-primary" />
                               ) : null}
                             </span>
-                          </motion.button>
+                          </button>
                         );
                       })}
                     </div>
@@ -723,8 +752,9 @@ export function DayPickerSheet({
                 </div>
               </div>
             </motion.div>
-          )}
-        </AnimatePresence>
+          ) : null}
+          </AnimatePresence>
+        </motion.div>
 
         {/* ── Preview card ──────────────────────────────────────────────────────
              Stable key="preview-card" — the card mounts once when previewYmd

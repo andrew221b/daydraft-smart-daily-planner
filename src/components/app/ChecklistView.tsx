@@ -12,12 +12,16 @@ import {
   type DragStartEvent,
 } from "@dnd-kit/core";
 import { SortableContext, verticalListSortingStrategy, arrayMove } from "@dnd-kit/sortable";
-import { GripVertical, FolderPlus, Folder, ListChecks, Trash2, Pencil, X, CalendarDays, Copy, Pin, PinOff, Flag, ChevronDown, Palette, Check } from "lucide-react";
+import { GripVertical, FolderPlus, Folder, ListChecks, Trash2, Pencil, X, CalendarDays, Copy, Pin, PinOff, Flag, ChevronDown, Palette, Check, Sparkles } from "lucide-react";
 import { Sheet, SheetContent, SheetHeader, SheetTitle } from "@/components/ui/sheet";
 import { DayPickerSheet } from "@/components/app/DayPickerSheet";
 import { ChecklistGroup, ChecklistItemRow, AddItemRow, CheckCircleAccent, ProgressRing, useRowGestures } from "@/components/app/ChecklistGroup";
 import { ChecklistItemSheet } from "@/components/app/ChecklistItemSheet";
+import { ChecklistDumpSheet } from "@/components/app/ChecklistDumpSheet";
 import { useChecklist, type ChecklistGroup as Group, type ChecklistItem } from "@/hooks/useChecklist";
+import { useEntitlement } from "@/hooks/useEntitlement";
+import { supabase } from "@/integrations/supabase/client";
+import { parseBulkTasks, extractDurationFromTitle, extractStartTimeFromTitle } from "@/lib/taskSplitter";
 import { haptics } from "@/lib/haptics";
 import { todayDateStr } from "@/lib/daydraft";
 import {
@@ -102,6 +106,36 @@ export const ChecklistView = forwardRef<ChecklistApi, ChecklistViewProps>(({
     moveGroupToDate,
     deleteAllForDay,
   } = useChecklist(userId, viewDate, eveningNudgeTime);
+
+  const { isPro } = useEntitlement();
+
+  // ── Brain dump (paste a wall of to-dos → AI/local split → bulk add) ─────
+  const [dumpOpen, setDumpOpen] = useState(false);
+
+  const parseDump = useCallback(async (raw: string): Promise<string[]> => {
+    if (isPro) {
+      try {
+        const { data, error } = await supabase.functions.invoke("parse-tasks", { body: { raw_input: raw } });
+        if (error) throw error;
+        const tasks = Array.isArray(data?.tasks) ? data.tasks : [];
+        if (tasks.length > 0) return tasks.map((t: { title: string }) => t.title).filter(Boolean);
+      } catch (e) {
+        console.warn("Checklist dump AI parse failed, falling back to local split", e);
+      }
+    }
+    // Free tier or AI failure: local split, stripping any duration/time
+    // annotations the splitter recognizes (irrelevant here — checklist items
+    // don't carry a time, only a clean title).
+    return parseBulkTasks(raw).map((rawTitle) => {
+      const { title: t1 } = extractDurationFromTitle(rawTitle);
+      const { title } = extractStartTimeFromTitle(t1 || rawTitle);
+      return title || rawTitle;
+    }).filter(Boolean);
+  }, [isPro]);
+
+  const confirmDump = useCallback((titles: string[], groupId: string | null) => {
+    for (const title of titles) addItem(title, groupId);
+  }, [addItem]);
 
   // ── Multi-select ────────────────────────────────────────────────────────
   const [selectMode, setSelectMode] = useState(false);
@@ -666,21 +700,50 @@ export const ChecklistView = forwardRef<ChecklistApi, ChecklistViewProps>(({
           </button>
         </div>
       ) : (
-        <button
-          onClick={() => {
-            haptics.tap();
-            setAddingGroup(true);
-          }}
-          className="checklist-add-list-btn w-full flex items-center justify-center gap-2 h-12 rounded-2xl border border-dashed text-[13px] font-semibold pressable transition-colors"
-          style={{
-            color: "hsl(var(--accent))",
-            borderColor: "hsl(var(--accent) / 0.45)",
-            background: "hsl(var(--accent) / 0.05)",
-          }}
-        >
-          <FolderPlus className="h-4 w-4" strokeWidth={2.25} /> Add list
-        </button>
+        <div className="flex items-center gap-2">
+          <button
+            onClick={() => {
+              haptics.tap();
+              setAddingGroup(true);
+            }}
+            className="checklist-add-list-btn flex-1 flex items-center justify-center gap-2 h-12 rounded-2xl border border-dashed text-[13px] font-semibold pressable transition-colors"
+            style={{
+              color: "hsl(var(--accent))",
+              borderColor: "hsl(var(--accent) / 0.45)",
+              background: "hsl(var(--accent) / 0.05)",
+            }}
+          >
+            <FolderPlus className="h-4 w-4" strokeWidth={2.25} /> Add list
+          </button>
+          {/* Brain dump — paste a wall of to-dos, AI/local-split adds them all at
+              once. Filled (not dashed) so it reads as the "richer" of the two
+              add actions, same accent theme as the rest of the page. */}
+          <button
+            onClick={() => {
+              haptics.tap();
+              setDumpOpen(true);
+            }}
+            className="flex-1 flex items-center justify-center gap-2 h-12 rounded-2xl border text-[13px] font-semibold pressable transition-colors"
+            style={{
+              color: "hsl(var(--accent))",
+              borderColor: "hsl(var(--accent) / 0.35)",
+              background: "hsl(var(--accent) / 0.12)",
+            }}
+          >
+            <Sparkles className="h-4 w-4" strokeWidth={2.25} /> Brain dump
+          </button>
+        </div>
       )}
+
+      <ChecklistDumpSheet
+        open={dumpOpen}
+        onOpenChange={setDumpOpen}
+        groups={groups}
+        tintOf={tintOf}
+        isPro={isPro}
+        parseDump={parseDump}
+        onConfirm={confirmDump}
+      />
 
       {/* Empty state */}
       {isEmpty && (

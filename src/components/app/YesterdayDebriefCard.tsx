@@ -10,6 +10,7 @@ import { useAbortOnUnmount } from "@/hooks/useAbortOnUnmount";
 import { useDayKey } from "@/hooks/useDayKey";
 import { useEntitlement } from "@/hooks/useEntitlement";
 import { useAuth } from "@/hooks/useAuth";
+import { useTabVisible } from "@/components/app/PersistentTabs";
 import { haptics } from "@/lib/haptics";
 import { todayDateStr } from "@/lib/daydraft";
 import { UpgradeSheet } from "@/components/app/UpgradeSheet";
@@ -551,6 +552,15 @@ function InsightsCardInner({ timezone }: { timezone?: string | null }) {
   const toggleCollapsed = () => {
     setCollapsed((c) => !c);
   };
+
+  // Reset to collapsed whenever the user leaves the Track tab (or drills into
+  // Focus). The tab stays mounted in PersistentTabs, so without this an
+  // expanded card would still be open on return — the user wants Insights to
+  // always start closed and only open on an explicit tap.
+  const tabVisible = useTabVisible();
+  useEffect(() => {
+    if (!tabVisible) setCollapsed(true);
+  }, [tabVisible]);
 
 
 

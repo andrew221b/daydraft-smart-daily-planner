@@ -2,6 +2,7 @@ import { Capacitor } from "@capacitor/core";
 import {
   Purchases,
   LOG_LEVEL,
+  INTRO_ELIGIBILITY_STATUS,
   type PurchasesPackage,
   type CustomerInfo,
 } from "@revenuecat/purchases-capacitor";
@@ -99,6 +100,15 @@ export async function configureRevenueCat(): Promise<void> {
     } catch {
       /* ignore — listener will catch up */
     }
+
+    // Warm the offerings cache while the app is idle. The FIRST getOfferings()
+    // does a native round-trip + JSON parse on the main thread; paying that
+    // here (not on the user's first paywall tap) removes the one-time hitch
+    // when the upgrade sheet opens, since usePlanPrices + annualTrialEligible
+    // then read RevenueCat's in-memory cache instead of a cold fetch.
+    const warmOfferings = () => { void Purchases.getOfferings().catch(() => {}); };
+    if (typeof requestIdleCallback !== "undefined") requestIdleCallback(warmOfferings, { timeout: 4000 });
+    else setTimeout(warmOfferings, 1500);
   } catch (e) {
     console.error(`${tag} configure failed`, e);
   }
@@ -202,6 +212,73 @@ export async function getLocalizedPrices(): Promise<PlanPrices> {
   } catch (e) {
     console.warn(`${tag} getLocalizedPrices failed`, e);
     return {};
+  }
+}
+
+/**
+ * Whether the annual free-trial offer should still be advertised to THIS user.
+ *
+ * iOS reports real eligibility — a user who already burned the 3-day trial
+ * comes back INELIGIBLE, so we stop promising "3 days free" (the App Store
+ * wouldn't honour it and it reads as a lie). Android always returns UNKNOWN
+ * (Google only decides at purchase time), so there we keep showing it.
+ *
+ * Rule: hide ONLY when we positively know it won't apply — INELIGIBLE, or the
+ * product carries no intro offer at all. UNKNOWN / ELIGIBLE → show. Fail-safe
+ * to `true` on web / unconfigured / error so a real offer is never silently
+ * dropped (matches the previous always-on behaviour).
+ */
+export async function annualTrialEligible(): Promise<boolean> {
+  if (!configured) return true;
+  try {
+    const offerings = await Purchases.getOfferings();
+    const pkg = offerings.current?.annual;
+    if (!pkg) return true;
+
+    // Android: checkTrialOrIntroductoryPriceEligibility ALWAYS returns UNKNOWN
+    // (Google decides only at purchase), so it can't tell us anything. But
+    // Google Play already filters offers by eligibility — when the base plan's
+    // free-trial offer is gated to "new customer acquisition", a returning
+    // customer simply doesn't get it back, so RevenueCat's defaultOption has NO
+    // freePhase. Presence of a freePhase is therefore the real eligibility
+    // signal: it's there iff this user can still start the trial.
+    if (Capacitor.getPlatform() === "android") {
+      return !!pkg.product.defaultOption?.freePhase;
+    }
+
+    // iOS: StoreKit reports real per-user eligibility. Hide the trial only when
+    // we positively know it won't apply (INELIGIBLE / no intro offer); UNKNOWN
+    // or ELIGIBLE → show.
+    const productId = pkg.product.identifier;
+    const elig = await Purchases.checkTrialOrIntroductoryPriceEligibility({
+      productIdentifiers: [productId],
+    });
+    const status = elig[productId]?.status;
+    return (
+      status !== INTRO_ELIGIBILITY_STATUS.INTRO_ELIGIBILITY_STATUS_INELIGIBLE &&
+      status !== INTRO_ELIGIBILITY_STATUS.INTRO_ELIGIBILITY_STATUS_NO_INTRO_OFFER_EXISTS
+    );
+  } catch (e) {
+    console.warn(`${tag} annual trial eligibility check failed`, e);
+    return true;
+  }
+}
+
+/**
+ * The store's subscription-management URL for the current customer — App Store
+ * subscriptions on iOS, Google Play subscriptions on Android. RevenueCat fills
+ * it in from the active store transaction. Returns `null` when there's no
+ * store-managed subscription (e.g. a manually-granted entitlement), so the
+ * caller can fall back to the platform's generic subscriptions page.
+ */
+export async function getManagementURL(): Promise<string | null> {
+  if (!configured) return null;
+  try {
+    const { customerInfo } = await Purchases.getCustomerInfo();
+    return customerInfo.managementURL ?? null;
+  } catch (e) {
+    console.warn(`${tag} getManagementURL failed`, e);
+    return null;
   }
 }
 

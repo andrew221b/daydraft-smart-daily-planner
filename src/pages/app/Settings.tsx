@@ -1,14 +1,12 @@
 import { useProfile } from "@/hooks/useProfile";
 import { useAuth } from "@/hooks/useAuth";
 import { Switch } from "@/components/ui/switch";
-import { Input, DebouncedInput } from "@/components/ui/input";
+import { DebouncedInput } from "@/components/ui/input";
 import { DebouncedTextarea } from "@/components/ui/textarea";
 import { Button } from "@/components/ui/button";
 import { useEffect, useState } from "react";
-import { motion, AnimatePresence } from "framer-motion";
 import { ThemeToggle } from "@/components/app/ThemeToggle";
-import { BiometricAura } from "@/components/app/BiometricAura";
-import { Sparkles, AlarmClock, FileText, Shield, Trash2, Download, Loader2, ScanFace, Fingerprint, Lock, Vibrate, Lightbulb, LifeBuoy, ChevronRight } from "lucide-react";
+import { Sparkles, AlarmClock, FileText, Shield, Trash2, Download, Loader2, ScanFace, Lock, Vibrate, Lightbulb, LifeBuoy, ChevronRight } from "lucide-react";
 import { Link, useLocation } from "react-router-dom";
 import { Capacitor } from "@capacitor/core";
 import { NativeBiometric } from "@capgo/capacitor-native-biometric";
@@ -62,6 +60,7 @@ export default function Settings() {
   const [bioInfo, setBioInfo] = useState<BiometricInfo | null>(null);
   const [appLockOn, setAppLockOn] = useState<boolean>(() => getGatePref() === "on");
   const [bioTogglingLock, setBioTogglingLock] = useState(false);
+
   const [hapticsOn, setHapticsOn] = useState<boolean>(() => getHapticsEnabled());
   const [taskRemindersOn, setTaskRemindersOn] = useState<boolean>(() => getNotificationsEnabled());
   const [dailyNudgesOn, setDailyNudgesOn] = useState<boolean>(() => getDailyNudgesEnabled());
@@ -94,29 +93,29 @@ export default function Settings() {
 
   const toggleAppLock = async (enable: boolean) => {
     if (bioTogglingLock) return;
-    if (enable) {
-      setBioTogglingLock(true);
-      // Wait for the gorgeous custom overlay to animate in before native UI takes over
-      await new Promise((r) => setTimeout(r, 450));
-      try {
-        await NativeBiometric.verifyIdentity({
-          reason: "Enable Biometric Lock",
-          title: "Confirm identity",
-          subtitle: "Verify to enable Biometric Lock",
-          description: "Keep your sensitive data private.",
-        });
-        setGatePref("on");
-        setAppLockOn(true);
-        haptics.notify("success");
-      } catch {
-        /* user cancelled — stay as-is */
-      } finally {
-        setBioTogglingLock(false);
+    setBioTogglingLock(true);
+    try {
+      if (enable) {
+        try {
+          await NativeBiometric.verifyIdentity({
+            reason: "Enable Biometric Lock",
+            title: "Confirm identity",
+            subtitle: "Verify to enable Biometric Lock",
+            description: "Keep your sensitive data private.",
+          });
+          setGatePref("on");
+          setAppLockOn(true);
+          haptics.notify("success");
+        } catch {
+          /* user cancelled — stay as-is */
+        }
+      } else {
+        setGatePref("off");
+        setAppLockOn(false);
+        haptics.selection();
       }
-    } else {
-      setGatePref("off");
-      setAppLockOn(false);
-      haptics.selection();
+    } finally {
+      setBioTogglingLock(false);
     }
   };
 
@@ -222,32 +221,6 @@ export default function Settings() {
 
   return (
     <>
-      <AnimatePresence>
-        {bioTogglingLock && (
-          <motion.div
-            key="bio-overlay"
-            className="fixed inset-0 z-[9999] flex flex-col items-center justify-center bg-background px-6"
-            initial={{ opacity: 0, scale: 0.96 }}
-            animate={{ opacity: 1, scale: 1 }}
-            exit={{ opacity: 0, scale: 0.96 }}
-            transition={{ duration: 0.2 }}
-          >
-            <div className="mb-8 opacity-90">
-              <BiometricAura
-                variant={bioInfo?.isFace ? "face" : "fingerprint"}
-                size={150}
-                subtle
-              />
-            </div>
-            <h2 className="text-2xl font-display font-semibold mb-2 text-foreground text-balance text-center">
-              Confirm Identity
-            </h2>
-            <p className="text-[14px] text-secondary-fg text-center max-w-xs leading-relaxed">
-              Verify to enable Biometric Lock.
-            </p>
-          </motion.div>
-        )}
-      </AnimatePresence>
       <div className="w-full md:max-w-[720px] md:mx-auto px-5 md:px-8 pt-[var(--content-inset-top)]">
         <header className="shrink-0 pb-5">
           <p className="eyebrow">Account</p>
@@ -398,7 +371,7 @@ export default function Settings() {
                         value={morningTime}
                         onChange={(e) => setNudgeTime("morning", e.target.value)}
                         className="bg-transparent text-[14px] font-semibold text-foreground tabular-nums outline-none text-right flex-1 min-w-0"
-                        style={{ fontSize: 16 }}
+                        style={{ fontSize: Capacitor.getPlatform() === "android" ? 13 : 16 }}
                       />
                     </label>
                     <label className="flex items-center justify-between gap-1 rounded-[12px] border border-border/55 bg-card/45 px-2.5 py-2">
@@ -408,7 +381,7 @@ export default function Settings() {
                         value={eveningTime}
                         onChange={(e) => setNudgeTime("evening", e.target.value)}
                         className="bg-transparent text-[14px] font-semibold text-foreground tabular-nums outline-none text-right flex-1 min-w-0"
-                        style={{ fontSize: 16 }}
+                        style={{ fontSize: Capacitor.getPlatform() === "android" ? 13 : 16 }}
                       />
                     </label>
                   </div>
@@ -483,28 +456,37 @@ export default function Settings() {
             </div>
           </Section>
 
-          {/* Security — only shown when device has enrolled biometrics */}
-          {Capacitor.isNativePlatform() && bioInfo?.available && (
+          {/* Security — always shown on native so users who denied permission aren't confused */}
+          {Capacitor.isNativePlatform() && (
             <Section title="Security">
               <div className="rounded-[18px] border border-border/65 hero-glass divide-y divide-border/35 overflow-hidden">
                 {/* Biometric Lock */}
                 <div className="px-4 py-3 flex items-center gap-3">
-                  <div className="flex items-center justify-center h-8 w-8 rounded-[10px] bg-primary/10 border border-primary/18 shrink-0">
-                    {bioInfo.isFace
+                  {/* Only the icon + title dim out when unavailable — the red
+                      explanation must stay vivid, so it is NOT wrapped in the
+                      grayscale/opacity (which would mute the red to grey). */}
+                  <div className={`flex items-center justify-center h-8 w-8 rounded-[10px] bg-primary/10 border border-primary/18 shrink-0 ${bioInfo && !bioInfo.available ? "opacity-50 grayscale" : ""}`}>
+                    {bioInfo?.isFace
                       ? <ScanFace className="h-4 w-4 text-primary" strokeWidth={1.8} />
                       : <Lock className="h-4 w-4 text-primary" strokeWidth={1.8} />}
                   </div>
                   <div className="flex-1 min-w-0">
-                    <div className="text-[14px]">Biometric Lock</div>
-                    <div className="text-[11px] text-secondary-fg/70 mt-0.5">
-                      Require {bioInfo.isFace
-                        ? (Capacitor.getPlatform() === "android" ? "Face Auth" : "Face ID")
-                        : (Capacitor.getPlatform() === "android" ? "fingerprint" : "Touch ID")} to view billing info or export reports
-                    </div>
+                    <div className={`text-[14px] ${bioInfo && !bioInfo.available ? "text-foreground/45" : ""}`}>Biometric Lock</div>
+                    {bioInfo && !bioInfo.available ? (
+                      <div className="text-[11px] text-red-500 dark:text-red-400 mt-0.5 leading-relaxed">
+                        Biometrics unavailable or permission denied — enable it in your device Settings.
+                      </div>
+                    ) : (
+                      <div className="text-[11px] text-secondary-fg/70 mt-0.5 leading-relaxed">
+                        {`Require ${bioInfo?.isFace
+                          ? (Capacitor.getPlatform() === "android" ? "Face Auth" : "Face ID")
+                          : (Capacitor.getPlatform() === "android" ? "fingerprint" : "Touch ID")} to view billing info or export reports`}
+                      </div>
+                    )}
                   </div>
                   <Switch
                     checked={appLockOn}
-                    disabled={bioTogglingLock}
+                    disabled={bioTogglingLock || !bioInfo || !bioInfo.available}
                     onCheckedChange={toggleAppLock}
                   />
                 </div>
@@ -621,6 +603,23 @@ const ProCard = ({ entitlement, isPro, subscriptionPro, planQuotaUsed, planQuota
   // Visual cap: never show "7 of 5" — the over-quota state has its own message below.
   const displayUsed = !isPro && Number.isFinite(planQuotaLimit) ? Math.min(planQuotaUsed, planQuotaLimit) : planQuotaUsed;
 
+  // Open the store's subscription-management page. RevenueCat gives a deep
+  // managementURL for real store subscriptions; for manually-granted Pro (no
+  // store subscription) it's null, so fall back to the platform's generic
+  // subscriptions page. `_blank` hands the URL to the OS, which routes the
+  // App Store / Play link into the respective store app.
+  const openManageSubscription = async () => {
+    let url: string | null = null;
+    try {
+      const { getManagementURL } = await import("@/lib/revenueCat");
+      url = await getManagementURL();
+    } catch { /* fall back below */ }
+    const fallback = Capacitor.getPlatform() === "ios"
+      ? "https://apps.apple.com/account/subscriptions"
+      : "https://play.google.com/store/account/subscriptions";
+    window.open(url || fallback, "_blank");
+  };
+
   return (
     <div
       className={`rounded-[18px] border backdrop-blur-sm p-4 shadow-card surface-accent deep-float ${
@@ -674,7 +673,7 @@ const ProCard = ({ entitlement, isPro, subscriptionPro, planQuotaUsed, planQuota
         </Button>
       )}
       {isPro && subscriptionPro && (
-        <button onClick={() => toast("Subscription management will be available soon")}
+        <button onClick={openManageSubscription}
           className="w-full mt-3 h-10 rounded-[12px] text-[12px] text-secondary-fg border border-soft surface-card pressable hover:text-foreground">
           Manage subscription
         </button>

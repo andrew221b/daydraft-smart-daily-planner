@@ -47,6 +47,10 @@ export const UpgradeSheet = ({
   const selectPlan = useCallback((id: ProPlanId) => { haptics.selection(); setPlan(id); }, []);
   const [busy, setBusy] = useState(false);
   const [restoring, setRestoring] = useState(false);
+  // Real trial eligibility from RevenueCat. Defaults to `true` so the "3 days
+  // free" copy shows immediately (matching the old hardcoded behaviour) and
+  // only hides if RevenueCat positively reports the user is ineligible.
+  const [trialEligible, setTrialEligible] = useState(true);
   const prices = usePlanPrices();
   const { user } = useAuth();
   const { update } = useProfile();
@@ -85,14 +89,35 @@ export const UpgradeSheet = ({
 
   useEffect(() => {
     if (!open) return;
+    // Always reopen on the recommended (annual) plan — the sheet stays mounted
+    // across open/close, so without this a previously-tapped Monthly/Weekly
+    // would stick on the next open.
+    setPlan("annual");
     try { localStorage.setItem(PAYWALL_COOLDOWN_KEY, String(Date.now())); } catch { /* ignore */ }
+  }, [open]);
+
+  // Resolve real trial eligibility each time the sheet opens. Lazy import keeps
+  // the RevenueCat module off the critical path; failure leaves the default
+  // (show the trial), so the copy never disappears on a transient error.
+  useEffect(() => {
+    if (!open) return;
+    let cancelled = false;
+    void (async () => {
+      try {
+        const { annualTrialEligible } = await import("@/lib/revenueCat");
+        const ok = await annualTrialEligible();
+        if (!cancelled) setTrialEligible(ok);
+      } catch { /* keep default */ }
+    })();
+    return () => { cancelled = true; };
   }, [open]);
 
   const { h } = HEADLINE[reason];
 
+  const showTrial = plan === "annual" && trialEligible;
   const ctaLabel = busy
     ? "Opening…"
-    : plan === "annual"
+    : showTrial
       ? "Start 3-day free trial"
       : "Continue with Pro";
 
@@ -194,7 +219,7 @@ export const UpgradeSheet = ({
               ))}
             </div>
 
-            <PaywallTerms planId={plan} priceInfo={prices[plan]} />
+            <PaywallTerms planId={plan} priceInfo={prices[plan]} showTrial={showTrial} />
 
             <div style={{ height: "max(10px, env(safe-area-inset-bottom, 0px))" }} />
           </div>

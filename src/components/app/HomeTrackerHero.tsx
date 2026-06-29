@@ -3,7 +3,7 @@ import { motion, AnimatePresence } from "framer-motion";
 import { Check, Play, Square, Plus, Search, ChevronDown, Wallet, Pencil, Trash2, Lock, Tag, FileText, Timer } from "lucide-react";
 import { SessionNoteSheet, SessionTaskSheet } from "@/components/app/EntryEditSheet";
 import { Callout } from "@/components/ui/callout";
-import { useTimeTracker, subscribeElapsed, getElapsedSec, fmtHMS, fmtHM, subscribeWidgetStop, consumeWidgetStopMeta } from "@/hooks/useTimeTracker";
+import { useTimeTracker, subscribeElapsed, fmtHMS, fmtHM, subscribeWidgetStop, consumeWidgetStopMeta } from "@/hooks/useTimeTracker";
 import { LiveElapsed } from "@/components/app/LiveElapsed";
 import { Sheet, SheetContent, SheetHeader, SheetTitle } from "@/components/ui/sheet";
 import { Input } from "@/components/ui/input";
@@ -492,6 +492,7 @@ export function HomeTrackerHero({ onOpenDetails }: { onOpenDetails: () => void }
       }`}
       style={{ "--hero-accent": accent } as CSSProperties}
     >
+
       <div className="relative">
         <div className="flex items-center justify-between">
           <span className="text-[10px] font-semibold uppercase tracking-[0.2em] text-secondary-fg/70">
@@ -691,8 +692,8 @@ export function HomeTrackerHero({ onOpenDetails }: { onOpenDetails: () => void }
                     setBioGateIntent("expand");
                     return;
                   }
-                  const allowed = await verifyBiometric("Access Rate & Billing");
-                  if (allowed) setBillingExpanded(true);
+                  if (!(await verifyBiometric("Access Rate & Billing"))) return;
+                  setBillingExpanded(true);
                 }
               }}
               className="w-full flex items-center justify-between px-4 py-3 hover:bg-foreground/[0.02] transition-colors"

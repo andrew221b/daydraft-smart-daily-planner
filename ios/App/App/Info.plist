@@ -43,6 +43,10 @@
 	<true/>
 	<key>NSFaceIDUsageDescription</key>
 	<string>DayDraft uses Face ID to unlock your schedule and keep your daily plans private.</string>
+	<key>NSMicrophoneUsageDescription</key>
+	<string>DayDraft uses the microphone so you can dictate tasks instead of typing them.</string>
+	<key>NSSpeechRecognitionUsageDescription</key>
+	<string>DayDraft converts your speech to text so you can add tasks by voice.</string>
 	<key>UIBackgroundModes</key>
 	<array>
 		<string>fetch</string>

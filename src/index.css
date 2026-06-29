@@ -953,8 +953,8 @@ body.dd-dnd-scroll-lock {
     right: 0;
     z-index: 18;
     pointer-events: none;
-    backdrop-filter: blur(4px);
-    -webkit-backdrop-filter: blur(4px);
+    backdrop-filter: blur(12px);
+    -webkit-backdrop-filter: blur(12px);
   }
 
   /* ── Top edge ────────────────────────────────────────── */
@@ -963,8 +963,8 @@ body.dd-dnd-scroll-lock {
     height: calc(env(safe-area-inset-top, 44px) + 40px);
     /* Mask: fully opaque at very top (glass covers notch), fades to zero
        before reaching the content — smooth ramp over the full height. */
-    -webkit-mask-image: linear-gradient(to bottom, #000 18%, transparent 100%);
-            mask-image: linear-gradient(to bottom, #000 18%, transparent 100%);
+    -webkit-mask-image: linear-gradient(to bottom, #000 0%, transparent 100%);
+            mask-image: linear-gradient(to bottom, #000 0%, transparent 100%);
     background: linear-gradient(
       to bottom,
       hsl(var(--background) / 0.95) 0%,
@@ -982,15 +982,23 @@ body.dd-dnd-scroll-lock {
   /* ── Bottom edge ─────────────────────────────────────── */
   .edge-fade-bottom {
     bottom: 0;
-    height: calc(env(safe-area-inset-bottom, 34px) + 40px);
+    height: calc(env(safe-area-inset-bottom, 34px) + 60px);
     /* Mask: fully opaque at very bottom (covers home indicator), fades to
        zero at the top of the strip — smooth ramp. */
-    -webkit-mask-image: linear-gradient(to top, #000 18%, transparent 100%);
-            mask-image: linear-gradient(to top, #000 18%, transparent 100%);
-    background: transparent;
+    -webkit-mask-image: linear-gradient(to top, #000 0%, transparent 100%);
+            mask-image: linear-gradient(to top, #000 0%, transparent 100%);
+    background: linear-gradient(
+      to top,
+      hsl(var(--background) / 0.95) 0%,
+      transparent 100%
+    );
   }
   :root.light .edge-fade-bottom {
-    background: transparent;
+    background: linear-gradient(
+      to top,
+      hsl(var(--background) / 0.95) 0%,
+      transparent 100%
+    );
   }
 
   /**

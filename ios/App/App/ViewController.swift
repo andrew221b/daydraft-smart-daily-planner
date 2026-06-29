@@ -9,5 +9,6 @@ import Capacitor
 class ViewController: CAPBridgeViewController {
     override func capacitorDidLoad() {
         bridge?.registerPluginInstance(LiveActivityPlugin())
+        bridge?.registerPluginInstance(SpeechRecognitionPlugin())
     }
 }

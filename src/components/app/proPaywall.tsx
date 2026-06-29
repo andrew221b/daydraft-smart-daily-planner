@@ -249,8 +249,8 @@ export const ProPlanRow = memo(function ProPlanRow({
     <button
       type="button"
       onClick={() => onSelect(plan.id)}
-      className={`relative w-full text-left rounded-[16px] px-4 py-3 pressable transition-all duration-200 border ${
-        active ? "ring-2 ring-primary/60 bg-primary/[0.08] border-primary/30 shadow-md shadow-primary/5" : "bg-card/40 border-border/60 hover:bg-card/60"
+      className={`relative w-full text-left rounded-[16px] px-4 py-3 pressable transition-all duration-200 border origin-center ${
+        active ? "scale-[1.03] ring-2 ring-primary/60 bg-primary/[0.08] border-primary/30 shadow-md shadow-primary/5" : "scale-100 bg-card/40 border-border/60 hover:bg-card/60"
       }`}
     >
       <div className="flex items-center gap-4">
@@ -305,14 +305,22 @@ export const ProPlanRow = memo(function ProPlanRow({
 export function PaywallTerms({
   planId,
   priceInfo,
+  showTrial,
 }: {
   planId: ProPlanId;
   priceInfo?: PlanPrice;
+  // When provided, controls whether the "3 days free" clause is shown. Lets the
+  // caller gate it on real RevenueCat trial eligibility (e.g. a returning user
+  // who already used the trial). Undefined → fall back to the old behaviour
+  // (trial shown for the annual plan), so callers that don't pass it (onboarding
+  // paywall, AskAi paywall) are unaffected.
+  showTrial?: boolean;
 }) {
   const plan = PRO_PLANS.find((p) => p.id === planId) ?? PRO_PLANS[0];
   const priceStr = priceInfo ? cleanPrice(priceInfo.priceString) : plan.price;
   const periodWord = plan.id === "annual" ? "year" : plan.id === "monthly" ? "month" : "week";
-  const lead = plan.id === "annual" ? `3 days free, then ${priceStr}/${periodWord}.` : `${priceStr}/${periodWord}.`;
+  const trial = showTrial ?? plan.id === "annual";
+  const lead = trial ? `3 days free, then ${priceStr}/${periodWord}.` : `${priceStr}/${periodWord}.`;
 
   return (
     <div className="mt-2 px-3 text-center">

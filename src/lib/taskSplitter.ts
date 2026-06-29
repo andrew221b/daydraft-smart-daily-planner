@@ -1,11 +1,24 @@
+// Bare conjunctions ("and", "then", "и", "потом", …) — shared by the
+// connector-before-starter splitter below AND cleanupTitle's edge-strip.
+// Single source so the two never drift out of sync.
+const CONNECTOR_WORDS = "и|and|&|плюс|потом|затем|также|ещ[её]|then|also|plus";
+
 const cleanupTitle = (value: string) =>
   value
     .replace(/^[,.;:!?\-–—•*\d.)\s]+/, "")
     .replace(/[,.;:!?\-–—\s]+$/, "")
+    // A stray leading/trailing conjunction left over from splitting a
+    // multi-task run-on sentence ("clean the kitchen and" from "...kitchen
+    // and also write...", where only "also" matched the connector-before-
+    // starter pattern because two connectors chained together). Strip just
+    // the bare word, not anything it's attached to.
+    .replace(new RegExp(`^(?:${CONNECTOR_WORDS})\\s+`, "iu"), "")
+    .replace(new RegExp(`\\s+(?:${CONNECTOR_WORDS})$`, "iu"), "")
     .replace(/\s+/g, " ")
     .trim();
 
 const taskStarterFragments = [
+  // Russian action verbs — these are unambiguously imperative verbs in Russian
   "сд[еэ]л[а-яё]*", "здел[а-яё]*", "добав[а-яё]*", "убер[а-яё]*", "убрат[а-яё]*", "удал[а-яё]*",
   "исправ[а-яё]*", "поправ[а-яё]*", "почин[а-яё]*", "провер[а-яё]*", "обнов[а-яё]*", "передел[а-яё]*", "настро[а-яё]*",
   "напис[а-яё]*", "ответ(?:ить|ь|им|ите|ил|ила|или|ят)", "отправ[а-яё]*", "позвон[а-яё]*", "созвон[а-яё]*", "встрет[а-яё]*",
@@ -13,14 +26,17 @@ const taskStarterFragments = [
   "подготов[а-яё]*", "законч[а-яё]*", "разобр[а-яё]*", "собра[а-яё]*", "прочит[а-яё]*", "посмотр[а-яё]*",
   "выда[а-яё]*", "покаж[а-яё]*", "сформир[а-яё]*", "раздел[а-яё]*", "сплит[а-яё]*", "отполир[а-яё]*",
   "заполн[а-яё]*", "загруз[а-яё]*", "скача[а-яё]*", "протест[а-яё]*", "депло[а-яё]*", "заплан[а-яё]*",
-  "clean", "fix", "add", "remove", "delete", "write", "reply", "email", "call", "send", "create", "update", "finish",
-  "prepare", "review", "check", "test", "deploy", "publish", "pay", "book", "buy", "pick", "research", "design", "record", "edit",
+  // English action verbs — only unambiguous imperatives; avoid nouns that appear
+  // inside task titles (e.g. "design" in "Finish web design", "call" in "schedule a call").
+  // Removed: design, record, edit, call, email, check, review, research (all commonly nouns)
+  "clean", "fix", "add", "remove", "delete", "write", "reply", "send", "create", "update", "finish",
+  "prepare", "deploy", "publish", "pay", "book", "buy", "pick",
 ];
 
 const starterSource = taskStarterFragments.join("|");
 const starterRe = new RegExp(`(^|\\s)((?:${starterSource})(?=$|[\\s,.;:!?]))`, "giu");
 const connectorBeforeStarterRe = new RegExp(
-  `\\s+(?:и|and|&|плюс|потом|затем|также|ещ[её]|then|also|plus)\\s+(?=(?:${starterSource})(?=$|[\\s,.;:!?]))`,
+  `\\s+(?:${CONNECTOR_WORDS})\\s+(?=(?:${starterSource})(?=$|[\\s,.;:!?]))`,
   "giu",
 );
 
@@ -30,7 +46,16 @@ function splitByRepeatedStarters(part: string): string[] {
   let match: RegExpExecArray | null;
   while ((match = starterRe.exec(part))) {
     const index = match.index + (match[1]?.length || 0);
-    if (index > 0) starts.push(index);
+    if (index > 0) {
+      // Only split if the text BEFORE this starter is at least 2 words —
+      // a single-word prefix like "Finish" doesn't warrant splitting "web design"
+      // off from it. Requiring ≥2 words prevents "Finish web design" from
+      // being cut into "Finish web" + "design".
+      const before = part.slice(0, index).trim();
+      if (before.split(/\s+/).length >= 2) {
+        starts.push(index);
+      }
+    }
   }
   starterRe.lastIndex = 0;
   if (!starts.length) return [part];

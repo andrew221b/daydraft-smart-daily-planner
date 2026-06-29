@@ -127,7 +127,7 @@ function paymentFingerprint(d: ReportPaymentDetails): string {
     d.cryptoWallet ?? "",
     d.paymentLink ?? "",
     d.notes ?? "",
-  ].join("");
+  ].join(" ");
 }
 
 const fmtMoney = (amount: number, currency = "USD") => {
@@ -673,13 +673,18 @@ export default function Reports() {
   // biometric prompt fires directly (no custom UI).
   const onExport = async (kind: "pdf" | "csv", categoryIds?: string[], scopeLabel?: string) => {
     if (!isPro) { setUpgradeOpen(true); return; }
+    
+    // 1. First time → show explanation sheet
     if (getGatePref() === "unset") {
       setPendingGatedExport({ kind, categoryIds, scopeLabel });
       setExportGateOpen(true);
       return;
     }
-    const allowed = await verifyBiometric("Export time tracking report");
-    if (allowed) await doExport(kind, categoryIds, scopeLabel);
+
+    // 2. Already made a choice.
+    if (!(await verifyBiometric("Export report to PDF or CSV"))) return;
+
+    await doExport(kind, categoryIds, scopeLabel);
   };
 
   // ── Mismatch-flow handlers ────────────────────────────────────────────
@@ -771,6 +776,7 @@ export default function Reports() {
   return (
     <>
       <div className="flex w-full md:max-w-[820px] lg:max-w-[880px] md:mx-auto flex-col px-5 md:px-8 pt-[var(--content-inset-top)] pb-8">
+
         <header className="shrink-0 pb-6">
           <p className="eyebrow">
             Reports
