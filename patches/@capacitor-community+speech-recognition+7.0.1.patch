@@ -11,3 +11,50 @@ index d31e442..eb1f3d6 100644
          }
      }
      lintOptions {
+diff --git a/node_modules/@capacitor-community/speech-recognition/android/src/main/java/com/getcapacitor/community/speechrecognition/SpeechRecognition.java b/node_modules/@capacitor-community/speech-recognition/android/src/main/java/com/getcapacitor/community/speechrecognition/SpeechRecognition.java
+index a99ea69..8ff9f26 100644
+--- a/node_modules/@capacitor-community/speech-recognition/android/src/main/java/com/getcapacitor/community/speechrecognition/SpeechRecognition.java
++++ b/node_modules/@capacitor-community/speech-recognition/android/src/main/java/com/getcapacitor/community/speechrecognition/SpeechRecognition.java
+@@ -239,7 +239,19 @@ public class SpeechRecognition extends Plugin implements Constants {
+         }
+ 
+         @Override
+-        public void onReadyForSpeech(Bundle params) {}
++        public void onReadyForSpeech(Bundle params) {
++            // Emit "started" the instant the recorder is ready — NOT only on
++            // onBeginningOfSpeech (which fires when the user starts speaking),
++            // so the JS mic UI shows "listening" immediately on tap, matching iOS.
++            try {
++                SpeechRecognition.this.lock.lock();
++                JSObject ret = new JSObject();
++                ret.put("status", "started");
++                SpeechRecognition.this.notifyListeners(LISTENING_EVENT, ret);
++            } finally {
++                SpeechRecognition.this.lock.unlock();
++            }
++        }
+ 
+         @Override
+         public void onBeginningOfSpeech() {
+@@ -283,6 +295,21 @@ public class SpeechRecognition extends Plugin implements Constants {
+             SpeechRecognition.this.stopListening();
+             String errorMssg = getErrorText(error);
+ 
++            // CRITICAL: the upstream plugin only rejects the (already-resolved
++            // in partialResults mode, so effectively no-op) call here and never
++            // emits a stop — leaving JS consumers stuck in the "listening" state
++            // forever on common errors (no-match, speech timeout, network). Emit
++            // "stopped" so the mic UI reliably returns to idle on every error.
++            try {
++                SpeechRecognition.this.lock.lock();
++                SpeechRecognition.this.listening(false);
++                JSObject ret = new JSObject();
++                ret.put("status", "stopped");
++                SpeechRecognition.this.notifyListeners(LISTENING_EVENT, ret);
++            } finally {
++                SpeechRecognition.this.lock.unlock();
++            }
++
+             if (this.call != null) {
+                 call.reject(errorMssg);
+             }
