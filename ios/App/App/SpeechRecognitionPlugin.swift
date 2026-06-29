@@ -32,6 +32,7 @@
 import Foundation
 import Capacitor
 import Speech
+import AVFAudio
 
 @objc(SpeechRecognitionPlugin)
 public class SpeechRecognitionPlugin: CAPPlugin, CAPBridgedPlugin {
@@ -79,7 +80,7 @@ public class SpeechRecognitionPlugin: CAPPlugin, CAPBridgedPlugin {
             return
         }
 
-        AVAudioSession.sharedInstance().requestRecordPermission { (granted) in
+        AVAudioApplication.requestRecordPermission { (granted) in
             if !granted {
                 call.reject(self.messageAccessDeniedMicrophone)
                 return
@@ -235,7 +236,7 @@ public class SpeechRecognitionPlugin: CAPPlugin, CAPBridgedPlugin {
             DispatchQueue.main.async {
                 switch status {
                 case .authorized:
-                    AVAudioSession.sharedInstance().requestRecordPermission { (granted) in
+                    AVAudioApplication.requestRecordPermission { (granted) in
                         call.resolve(["speechRecognition": granted ? "granted" : "denied"])
                     }
                 case .denied, .restricted, .notDetermined:
