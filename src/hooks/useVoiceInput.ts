@@ -82,14 +82,12 @@ export function setVoiceLanguage(code: string): void {
 
 export type VoiceStatus = "idle" | "listening" | "unsupported" | "denied";
 
-// Hard cap on one dictation session. Native engines stop themselves on a
-// natural pause, but this guards a mic left open (battery + privacy) if that
-// signal never arrives; on web (continuous never auto-stops) it's the backstop
-// behind the shorter silence timer.
-const MAX_SESSION_MS = 60_000;
-// Web only: stop after this much silence (no new transcript). Native has its
-// own end-of-speech detection so it doesn't need this.
-const WEB_SILENCE_MS = 7_000;
+// Auto-stop after this much SILENCE (no new transcript) on any platform. We run
+// the mic continuously (press → talk with pauses → press stop), so a fixed
+// total cap would cut off a long dictation; instead we bound the hot-mic window
+// to ~this long after the user actually stops talking — protecting battery and
+// privacy without interrupting active speech. Reset on every transcript update.
+const INACTIVITY_MS = 15_000;
 
 // Minimal shape of the browser's (non-standard, vendor-prefixed) SpeechRecognition API.
 interface WebSpeechRecognition {
@@ -151,11 +149,20 @@ export function useVoiceInput(
   const [status, setStatus] = useState<VoiceStatus>("idle");
   const [languages, setLanguages] = useState<VoiceLanguage[]>(() => [...VOICE_LANGUAGES]);
   const webRecognitionRef = useRef<WebSpeechRecognition | null>(null);
-  const webSilenceRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const inactivityRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const stopRef = useRef<() => void>(() => {});
   const onTextRef = useRef(onText);
   onTextRef.current = onText;
   const onErrorRef = useRef(onError);
   onErrorRef.current = onError;
+
+  // Reset the silence watchdog — called on every transcript update and when
+  // listening starts. Uses refs only so it's stable and safe to call from a
+  // long-lived native event listener.
+  const bumpActivity = useCallback(() => {
+    if (inactivityRef.current) clearTimeout(inactivityRef.current);
+    inactivityRef.current = setTimeout(() => stopRef.current(), INACTIVITY_MS);
+  }, []);
 
   const isNative = Capacitor.isNativePlatform();
   const webCtorAvailable = useCallback(
@@ -191,7 +198,7 @@ export function useVoiceInput(
     if (!isNative) return;
     const partialSub = SpeechRecognition.addListener("partialResults", (data) => {
       const text = data.matches?.[0];
-      if (text) onTextRef.current(text);
+      if (text) { onTextRef.current(text); bumpActivity(); }
     });
     const stateSub = SpeechRecognition.addListener("listeningState", (data) => {
       setStatus((prev) => (prev === "denied" ? prev : data.status === "started" ? "listening" : "idle"));
@@ -200,10 +207,10 @@ export function useVoiceInput(
       void partialSub.then((h) => h.remove());
       void stateSub.then((h) => h.remove());
     };
-  }, [isNative]);
+  }, [isNative, bumpActivity]);
 
   const stop = useCallback(() => {
-    if (webSilenceRef.current) { clearTimeout(webSilenceRef.current); webSilenceRef.current = null; }
+    if (inactivityRef.current) { clearTimeout(inactivityRef.current); inactivityRef.current = null; }
     if (isNative) {
       void SpeechRecognition.stop().catch(() => { /* already stopped */ });
     } else {
@@ -211,20 +218,23 @@ export function useVoiceInput(
       setStatus("idle");
     }
   }, [isNative]);
+  stopRef.current = stop;
 
-  // Hard session cap — stop a mic that's been listening too long, whatever the
-  // platform. Keyed on `status` so it arms exactly while we're listening.
+  // Arm the silence watchdog while listening; clear it the moment we're idle.
   useEffect(() => {
-    if (status !== "listening") return;
-    const id = setTimeout(() => stop(), MAX_SESSION_MS);
-    return () => clearTimeout(id);
-  }, [status, stop]);
+    if (status === "listening") {
+      bumpActivity();
+    } else if (inactivityRef.current) {
+      clearTimeout(inactivityRef.current);
+      inactivityRef.current = null;
+    }
+  }, [status, bumpActivity]);
 
   // Never leave the mic hot after this component goes away (e.g. the composer
   // sheet is closed mid-dictation). Best-effort stop on unmount.
   useEffect(() => {
     return () => {
-      if (webSilenceRef.current) clearTimeout(webSilenceRef.current);
+      if (inactivityRef.current) clearTimeout(inactivityRef.current);
       webRecognitionRef.current?.stop();
       if (Capacitor.isNativePlatform()) void SpeechRecognition.stop().catch(() => { /* already stopped */ });
     };
@@ -252,11 +262,15 @@ export function useVoiceInput(
         // popup:false is required on Android for partialResults to actually
         // fire (per the plugin's own docs); maxResults:1 — we only show the
         // top hypothesis live, matching the textarea's single-string value.
+        // `continuous` is this app's patch (Android-only): keep the recogniser
+        // alive across pauses instead of stopping on the first one, so one tap
+        // dictates a whole list. iOS is already continuous and ignores it.
         await SpeechRecognition.start({
           language,
           partialResults: true,
           popup: false,
           maxResults: 1,
+          continuous: true,
           ...(contextualStrings?.length ? { contextualStrings } : {}),
         } as Parameters<typeof SpeechRecognition.start>[0]);
       } catch (e) {
@@ -279,10 +293,6 @@ export function useVoiceInput(
       setStatus("unsupported");
       return;
     }
-    const armSilence = () => {
-      if (webSilenceRef.current) clearTimeout(webSilenceRef.current);
-      webSilenceRef.current = setTimeout(() => stop(), WEB_SILENCE_MS);
-    };
     const rec = new Ctor();
     rec.lang = language;
     rec.continuous = true;
@@ -291,7 +301,7 @@ export function useVoiceInput(
       let text = "";
       for (let i = 0; i < e.results.length; i++) text += e.results[i][0].transcript;
       onTextRef.current(text);
-      armSilence();
+      bumpActivity();
     };
     rec.onerror = (e) => {
       const code = e?.error ?? "";
@@ -302,8 +312,8 @@ export function useVoiceInput(
     webRecognitionRef.current = rec;
     setStatus("listening");
     rec.start();
-    armSilence();
-  }, [isNative, stop]);
+    bumpActivity();
+  }, [isNative, bumpActivity]);
 
   return { status, languages, start, stop };
 }

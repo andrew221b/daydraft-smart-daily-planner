@@ -115,6 +115,25 @@ export function VoiceMicButton({
   return (
     <>
       <div className={`flex items-center gap-1 ${className ?? ""}`}>
+        {/* Unmistakable "we're recording you" label — paired with the red,
+            pulsing mic button so it reads at a glance, not just a subtle tint. */}
+        <AnimatePresence>
+          {listening && (
+            <motion.span
+              initial={{ opacity: 0, scale: 0.9 }}
+              animate={{ opacity: 1, scale: 1 }}
+              exit={{ opacity: 0, scale: 0.9 }}
+              className="flex items-center gap-1.5 h-7 px-2 rounded-full bg-destructive/12 text-[11px] font-semibold text-destructive whitespace-nowrap"
+            >
+              <motion.span
+                className="h-1.5 w-1.5 rounded-full bg-destructive shrink-0"
+                animate={{ opacity: [1, 0.25, 1] }}
+                transition={{ duration: 1, repeat: Infinity, ease: "easeInOut" }}
+              />
+              Listening…
+            </motion.span>
+          )}
+        </AnimatePresence>
         <button
           type="button"
           onClick={handleMicTap}
