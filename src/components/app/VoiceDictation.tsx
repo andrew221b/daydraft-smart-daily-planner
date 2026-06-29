@@ -3,24 +3,30 @@
  * BulkInputStep and the checklist's brain-dump sheet. Renders nothing when
  * dictation isn't supported (desktop/iOS Safari web) — the textarea just
  * works as a plain textarea there, no broken affordance shown.
+ *
+ * The language list comes from the hook, already filtered to what the DEVICE
+ * actually supports — so an English-only phone shows only English, never a
+ * language whose model isn't installed (which would fail mute).
  */
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { motion, AnimatePresence } from "framer-motion";
 import { Mic, Check, Languages } from "lucide-react";
 import { Sheet, SheetContent, SheetHeader, SheetTitle } from "@/components/ui/sheet";
 import { haptics } from "@/lib/haptics";
 import { toast } from "sonner";
-import { useVoiceInput, getVoiceLanguage, setVoiceLanguage, VOICE_LANGUAGES } from "@/hooks/useVoiceInput";
+import { useVoiceInput, getVoiceLanguage, setVoiceLanguage, type VoiceLanguage } from "@/hooks/useVoiceInput";
 
 function VoiceLanguageSheet({
   open,
   onOpenChange,
   value,
+  languages,
   onChange,
 }: {
   open: boolean;
   onOpenChange: (v: boolean) => void;
   value: string;
+  languages: VoiceLanguage[];
   onChange: (code: string) => void;
 }) {
   return (
@@ -32,7 +38,7 @@ function VoiceLanguageSheet({
           </SheetTitle>
         </SheetHeader>
         <div className="mt-2 flex-1 overflow-y-auto pb-2 -mx-1 px-1">
-          {VOICE_LANGUAGES.map((l) => {
+          {languages.map((l) => {
             const active = l.code === value;
             return (
               <button
@@ -77,7 +83,16 @@ export function VoiceMicButton({
 }) {
   const [lang, setLang] = useState(() => getVoiceLanguage());
   const [pickerOpen, setPickerOpen] = useState(false);
-  const { status, start, stop } = useVoiceInput(onText);
+  const { status, languages, start, stop } = useVoiceInput(onText, (m) => toast.error(m));
+
+  // The device list loads async (native getSupportedLanguages). If the saved
+  // language isn't actually available on this device, fall back to the first
+  // one that is — otherwise the mic would start with a model that can't run.
+  useEffect(() => {
+    if (languages.length && !languages.some((l) => l.code === lang)) {
+      setLang(languages[0].code);
+    }
+  }, [languages, lang]);
 
   if (status === "unsupported") return null;
 
@@ -128,20 +143,25 @@ export function VoiceMicButton({
             <Mic className="h-4 w-4" />
           </motion.span>
         </button>
-        <button
-          type="button"
-          onClick={() => { haptics.tap(); setPickerOpen(true); }}
-          aria-label="Change dictation language"
-          className="h-8 px-2 rounded-full text-[10.5px] font-bold uppercase tracking-wide text-secondary-fg/55 hover:text-foreground pressable transition-colors"
-        >
-          {lang.split("-")[0]}
-        </button>
+        {/* Only offer the language switch when there's an actual choice — a
+            single-language device gets no pointless one-item picker. */}
+        {languages.length > 1 && (
+          <button
+            type="button"
+            onClick={() => { haptics.tap(); setPickerOpen(true); }}
+            aria-label="Change dictation language"
+            className="h-8 px-2 rounded-full text-[10.5px] font-bold uppercase tracking-wide text-secondary-fg/55 hover:text-foreground pressable transition-colors"
+          >
+            {lang.split("-")[0]}
+          </button>
+        )}
       </div>
 
       <VoiceLanguageSheet
         open={pickerOpen}
         onOpenChange={setPickerOpen}
         value={lang}
+        languages={languages}
         onChange={(code) => {
           setLang(code);
           setVoiceLanguage(code);

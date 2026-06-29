@@ -130,6 +130,13 @@ public class SpeechRecognitionPlugin: CAPPlugin, CAPBridgedPlugin {
             if let hints = call.getArray("contextualStrings", String.self), !hints.isEmpty {
                 self.recognitionRequest?.contextualStrings = hints
             }
+            // Prefer fully on-device recognition when this locale's model supports
+            // it: no audio leaves the phone, it works with no network, and it
+            // starts faster (no server round-trip). When the model isn't
+            // on-device the system falls back to Apple's servers automatically.
+            if let recognizer = self.speechRecognizer, recognizer.supportsOnDeviceRecognition {
+                self.recognitionRequest?.requiresOnDeviceRecognition = true
+            }
 
             guard let engine = self.audioEngine else {
                 call.reject(self.messageUnknown)

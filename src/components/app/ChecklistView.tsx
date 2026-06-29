@@ -22,6 +22,7 @@ import { useChecklist, type ChecklistGroup as Group, type ChecklistItem } from "
 import { useEntitlement } from "@/hooks/useEntitlement";
 import { supabase } from "@/integrations/supabase/client";
 import { parseBulkTasks, extractDurationFromTitle, extractStartTimeFromTitle } from "@/lib/taskSplitter";
+import { toast } from "sonner";
 import { haptics } from "@/lib/haptics";
 import { todayDateStr } from "@/lib/daydraft";
 import {
@@ -134,8 +135,39 @@ export const ChecklistView = forwardRef<ChecklistApi, ChecklistViewProps>(({
   }, [isPro]);
 
   const confirmDump = useCallback((titles: string[], groupId: string | null) => {
-    for (const title of titles) addItem(title, groupId);
-  }, [addItem]);
+    // Skip anything already in the SAME list (case-insensitive) so a re-dump or
+    // overlapping ideas don't create duplicate rows. Dedupe within the batch too.
+    const existing = new Set(
+      items.filter((i) => i.group_id === groupId).map((i) => i.title.trim().toLowerCase()),
+    );
+    let added = 0;
+    let skipped = 0;
+    for (const title of titles) {
+      const key = title.trim().toLowerCase();
+      if (!key) continue;
+      if (existing.has(key)) { skipped++; continue; }
+      existing.add(key);
+      addItem(title, groupId);
+      added++;
+    }
+    const where = groupId ? (groups.find((g) => g.id === groupId)?.title ?? "list") : "";
+    if (added === 0) {
+      toast("Those are already in your list.");
+    } else {
+      toast.success(
+        `Added ${added} item${added === 1 ? "" : "s"}${where ? ` to ${where}` : ""}` +
+        (skipped ? ` · ${skipped} already there` : ""),
+      );
+    }
+  }, [addItem, items, groups]);
+
+  // Create a list from inside the brain-dump picker. addGroup commits
+  // optimistically and returns the row synchronously, so the new pill shows up
+  // on the dump sheet's next render (it reads the same `groups`).
+  const createDumpGroup = useCallback((name: string): string | null => {
+    const g = addGroup(name);
+    return g?.id ?? null;
+  }, [addGroup]);
 
   // ── Multi-select ────────────────────────────────────────────────────────
   const [selectMode, setSelectMode] = useState(false);
@@ -743,6 +775,7 @@ export const ChecklistView = forwardRef<ChecklistApi, ChecklistViewProps>(({
         isPro={isPro}
         parseDump={parseDump}
         onConfirm={confirmDump}
+        onCreateGroup={createDumpGroup}
       />
 
       {/* Empty state */}

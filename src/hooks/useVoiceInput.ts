@@ -82,13 +82,22 @@ export function setVoiceLanguage(code: string): void {
 
 export type VoiceStatus = "idle" | "listening" | "unsupported" | "denied";
 
+// Hard cap on one dictation session. Native engines stop themselves on a
+// natural pause, but this guards a mic left open (battery + privacy) if that
+// signal never arrives; on web (continuous never auto-stops) it's the backstop
+// behind the shorter silence timer.
+const MAX_SESSION_MS = 60_000;
+// Web only: stop after this much silence (no new transcript). Native has its
+// own end-of-speech detection so it doesn't need this.
+const WEB_SILENCE_MS = 7_000;
+
 // Minimal shape of the browser's (non-standard, vendor-prefixed) SpeechRecognition API.
 interface WebSpeechRecognition {
   lang: string;
   continuous: boolean;
   interimResults: boolean;
   onresult: ((e: { results: ArrayLike<ArrayLike<{ transcript: string }>> }) => void) | null;
-  onerror: (() => void) | null;
+  onerror: ((e: { error: string }) => void) | null;
   onend: (() => void) | null;
   start: () => void;
   stop: () => void;
@@ -99,17 +108,54 @@ type WebSpeechWindow = Window & {
 };
 
 /**
- * One dictation session = one mic tap until tap-again or the OS detects
- * silence. `onText` fires with the FULL cumulative transcript for the
- * CURRENT session on every update (native engines report the whole
- * hypothesis-so-far, not a delta) — callers replace their live preview with
- * it rather than appending.
+ * Intersect the curated quick-pick list with what the device can ACTUALLY
+ * recognise, so a user only ever sees languages their phone has installed
+ * (English-only phone → only English in the picker). Matched by base language
+ * so a device locale like "en_GB" still enables our "English" (en-US) entry.
  */
-export function useVoiceInput(onText: (text: string) => void) {
+function filterToSupported(deviceLocales: unknown[]): VoiceLanguage[] {
+  const bases = new Set(
+    deviceLocales
+      .map((l) => String(l).replace(/_/g, "-").toLowerCase().split("-")[0])
+      .filter(Boolean),
+  );
+  const filtered = VOICE_LANGUAGES.filter((l) => bases.has(l.code.split("-")[0]));
+  // Never hand back an empty picker — if the device reported nothing usable,
+  // keep the full curated list rather than hiding dictation entirely.
+  return filtered.length ? filtered : [...VOICE_LANGUAGES];
+}
+
+// Web Speech API error codes → human copy. Anything not listed gets a generic line.
+const WEB_ERROR_COPY: Record<string, string> = {
+  "no-speech": "Didn't catch anything — try again.",
+  "audio-capture": "No microphone found.",
+  "not-allowed": "Microphone access denied — enable it in Settings.",
+  "service-not-allowed": "Microphone access denied — enable it in Settings.",
+  "language-not-supported": "This language isn't available for dictation here.",
+  network: "Voice needs a connection for this language.",
+};
+
+/**
+ * One dictation session = one mic tap until tap-again or the engine detects
+ * silence. `onText` fires with the FULL cumulative transcript for the CURRENT
+ * session on every update (native engines report the whole hypothesis-so-far,
+ * not a delta) — callers replace their live preview with it rather than
+ * appending. `onError` surfaces a human-readable problem (denied permission,
+ * unsupported language, mic busy, …) so the caller can toast it instead of
+ * failing silently.
+ */
+export function useVoiceInput(
+  onText: (text: string) => void,
+  onError?: (message: string) => void,
+) {
   const [status, setStatus] = useState<VoiceStatus>("idle");
+  const [languages, setLanguages] = useState<VoiceLanguage[]>(() => [...VOICE_LANGUAGES]);
   const webRecognitionRef = useRef<WebSpeechRecognition | null>(null);
+  const webSilenceRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const onTextRef = useRef(onText);
   onTextRef.current = onText;
+  const onErrorRef = useRef(onError);
+  onErrorRef.current = onError;
 
   const isNative = Capacitor.isNativePlatform();
   const webCtorAvailable = useCallback(
@@ -118,16 +164,23 @@ export function useVoiceInput(onText: (text: string) => void) {
     [],
   );
 
-  // Resolve initial support.
+  // Resolve initial support + the device's real language list.
   useEffect(() => {
     if (!isNative) {
       setStatus(webCtorAvailable() ? "idle" : "unsupported");
-      return;
+      return; // web can't enumerate languages — keep the full curated list
     }
     let alive = true;
     void SpeechRecognition.available()
       .then(({ available }) => { if (alive) setStatus(available ? "idle" : "unsupported"); })
       .catch(() => { if (alive) setStatus("unsupported"); });
+    // getSupportedLanguages is unavailable on Android 13+ (it rejects there) —
+    // we just keep the full curated list in that case, the safe default.
+    void SpeechRecognition.getSupportedLanguages()
+      .then(({ languages: locales }) => {
+        if (alive && Array.isArray(locales) && locales.length) setLanguages(filterToSupported(locales));
+      })
+      .catch(() => { /* keep full list */ });
     return () => { alive = false; };
   }, [isNative, webCtorAvailable]);
 
@@ -150,6 +203,7 @@ export function useVoiceInput(onText: (text: string) => void) {
   }, [isNative]);
 
   const stop = useCallback(() => {
+    if (webSilenceRef.current) { clearTimeout(webSilenceRef.current); webSilenceRef.current = null; }
     if (isNative) {
       void SpeechRecognition.stop().catch(() => { /* already stopped */ });
     } else {
@@ -157,6 +211,24 @@ export function useVoiceInput(onText: (text: string) => void) {
       setStatus("idle");
     }
   }, [isNative]);
+
+  // Hard session cap — stop a mic that's been listening too long, whatever the
+  // platform. Keyed on `status` so it arms exactly while we're listening.
+  useEffect(() => {
+    if (status !== "listening") return;
+    const id = setTimeout(() => stop(), MAX_SESSION_MS);
+    return () => clearTimeout(id);
+  }, [status, stop]);
+
+  // Never leave the mic hot after this component goes away (e.g. the composer
+  // sheet is closed mid-dictation). Best-effort stop on unmount.
+  useEffect(() => {
+    return () => {
+      if (webSilenceRef.current) clearTimeout(webSilenceRef.current);
+      webRecognitionRef.current?.stop();
+      if (Capacitor.isNativePlatform()) void SpeechRecognition.stop().catch(() => { /* already stopped */ });
+    };
+  }, []);
 
   /**
    * `contextualStrings` only does anything on iOS (our hand-vendored plugin
@@ -173,6 +245,7 @@ export function useVoiceInput(onText: (text: string) => void) {
           const req = await SpeechRecognition.requestPermissions();
           if (req.speechRecognition !== "granted") {
             setStatus("denied");
+            onErrorRef.current?.("Microphone access denied — enable it in Settings.");
             return;
           }
         }
@@ -189,6 +262,14 @@ export function useVoiceInput(onText: (text: string) => void) {
       } catch (e) {
         console.warn("[voice] start failed", e);
         setStatus("idle");
+        const msg = String((e as { message?: string })?.message ?? "").toLowerCase();
+        onErrorRef.current?.(
+          msg.includes("permission") || msg.includes("denied")
+            ? "Microphone access denied — enable it in Settings."
+            : msg.includes("in use")
+              ? "Mic is busy — close other audio apps and try again."
+              : "Couldn't start dictation. Try again.",
+        );
       }
       return;
     }
@@ -198,6 +279,10 @@ export function useVoiceInput(onText: (text: string) => void) {
       setStatus("unsupported");
       return;
     }
+    const armSilence = () => {
+      if (webSilenceRef.current) clearTimeout(webSilenceRef.current);
+      webSilenceRef.current = setTimeout(() => stop(), WEB_SILENCE_MS);
+    };
     const rec = new Ctor();
     rec.lang = language;
     rec.continuous = true;
@@ -206,13 +291,19 @@ export function useVoiceInput(onText: (text: string) => void) {
       let text = "";
       for (let i = 0; i < e.results.length; i++) text += e.results[i][0].transcript;
       onTextRef.current(text);
+      armSilence();
     };
-    rec.onerror = () => setStatus("idle");
+    rec.onerror = (e) => {
+      const code = e?.error ?? "";
+      setStatus(code === "not-allowed" || code === "service-not-allowed" ? "denied" : "idle");
+      if (code && code !== "aborted") onErrorRef.current?.(WEB_ERROR_COPY[code] ?? "Dictation stopped. Try again.");
+    };
     rec.onend = () => setStatus("idle");
     webRecognitionRef.current = rec;
     setStatus("listening");
     rec.start();
-  }, [isNative]);
+    armSilence();
+  }, [isNative, stop]);
 
-  return { status, start, stop };
+  return { status, languages, start, stop };
 }

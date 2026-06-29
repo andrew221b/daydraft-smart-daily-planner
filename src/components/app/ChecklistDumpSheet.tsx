@@ -11,7 +11,8 @@ import { memo, useRef, useState } from "react";
 import { Sheet, SheetContent, SheetHeader, SheetTitle, SheetDescription } from "@/components/ui/sheet";
 import { Textarea } from "@/components/ui/textarea";
 import { Button } from "@/components/ui/button";
-import { Sparkles, Loader2, X, ListChecks, Folder, Check } from "lucide-react";
+import { Sparkles, Loader2, X, ListChecks, Folder, Check, FolderPlus } from "lucide-react";
+import { toast } from "sonner";
 import { haptics } from "@/lib/haptics";
 import { checklistTintVars, checklistCategoryTint, type ChecklistTint } from "@/lib/checklistColors";
 import type { ChecklistGroup } from "@/hooks/useChecklist";
@@ -91,6 +92,7 @@ export const ChecklistDumpSheet = ({
   isPro,
   parseDump,
   onConfirm,
+  onCreateGroup,
 }: {
   open: boolean;
   onOpenChange: (v: boolean) => void;
@@ -102,18 +104,24 @@ export const ChecklistDumpSheet = ({
   parseDump: (raw: string) => Promise<string[]>;
   /** Commits the final (possibly edited) titles into one target list. null = no category. */
   onConfirm: (titles: string[], groupId: string | null) => void;
+  /** Create a new list from the picker and return its id (or null if it failed). */
+  onCreateGroup: (name: string) => string | null;
 }) => {
   const [step, setStep] = useState<Step>("input");
   const [draft, setDraft] = useState("");
   const [parsing, setParsing] = useState(false);
   const [rows, setRows] = useState<ChecklistDumpRow[]>([]);
   const [targetGroupId, setTargetGroupId] = useState<string | null>(null);
+  const [creatingGroup, setCreatingGroup] = useState(false);
+  const [newGroupName, setNewGroupName] = useState("");
 
   const reset = () => {
     setStep("input");
     setDraft("");
     setRows([]);
     setTargetGroupId(null);
+    setCreatingGroup(false);
+    setNewGroupName("");
   };
 
   const handleContinue = async (text: string) => {
@@ -124,6 +132,7 @@ export const ChecklistDumpSheet = ({
       const titles = await parseDump(text);
       if (!titles.length) {
         haptics.notify("error");
+        toast("No to-dos found — try rephrasing or add line breaks.");
         setParsing(false);
         return;
       }
@@ -132,6 +141,15 @@ export const ChecklistDumpSheet = ({
     } finally {
       setParsing(false);
     }
+  };
+
+  const submitNewGroup = () => {
+    const name = newGroupName.trim();
+    if (!name) { setCreatingGroup(false); return; }
+    const id = onCreateGroup(name);
+    if (id) setTargetGroupId(id); // the new pill renders next tick from updated `groups`
+    setNewGroupName("");
+    setCreatingGroup(false);
   };
 
   const removeRow = (id: string) => setRows((prev) => prev.filter((r) => r.id !== id));
@@ -218,7 +236,43 @@ export const ChecklistDumpSheet = ({
                       </button>
                     );
                   })}
+                  {/* Make a new list right here, without leaving the flow. */}
+                  <button
+                    type="button"
+                    onClick={() => { haptics.tap(); setCreatingGroup(true); }}
+                    className="shrink-0 inline-flex items-center gap-1.5 rounded-full px-3 py-1.5 text-[12.5px] font-medium border border-dashed border-accent/45 text-accent pressable transition-colors hover:bg-accent/[0.07]"
+                  >
+                    <FolderPlus className="h-3 w-3" />
+                    New list
+                  </button>
                 </div>
+
+                {creatingGroup && (
+                  <div className="mt-2 flex items-center gap-2 rounded-xl border border-soft bg-card px-3 py-2">
+                    <FolderPlus className="h-4 w-4 text-accent shrink-0" />
+                    <input
+                      autoFocus
+                      value={newGroupName}
+                      onChange={(e) => setNewGroupName(e.target.value)}
+                      onKeyDown={(e) => {
+                        if (e.key === "Enter") submitNewGroup();
+                        if (e.key === "Escape") { setNewGroupName(""); setCreatingGroup(false); }
+                      }}
+                      placeholder="List name (e.g. Groceries)"
+                      className="flex-1 min-w-0 bg-transparent text-[14px] outline-none placeholder:text-secondary-fg/45"
+                      style={{ fontSize: 16 }}
+                    />
+                    <button
+                      type="button"
+                      onClick={submitNewGroup}
+                      disabled={!newGroupName.trim()}
+                      className="shrink-0 h-7 w-7 flex items-center justify-center rounded-full text-accent disabled:opacity-40 pressable"
+                      aria-label="Create list"
+                    >
+                      <Check className="h-4 w-4" />
+                    </button>
+                  </div>
+                )}
               </div>
 
               {/* Extracted rows — editable title, removable. */}
