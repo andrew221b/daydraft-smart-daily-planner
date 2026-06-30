@@ -136,7 +136,11 @@ serve(async (req) => {
     const modeSeed = yesterday.split("-").reduce((acc, p) => acc + parseInt(p, 10) * 13, 3) >>> 0;
     const MODES = ["recap", "riddle", "quiz", "challenge"] as const;
     type Mode = typeof MODES[number];
-    const mode: Mode = MODES[modeSeed % MODES.length];
+    // NB: `let`, not `const` — reassigned just below when recap has no data and
+    // we fall back to an evergreen mode. A `const` here is a hard parse error that
+    // 500s the whole function (Deno can't load the module), which silently blanks
+    // the Insights card on every device.
+    let mode: Mode = MODES[modeSeed % MODES.length];
 
     // Recap is the ONLY mode that needs yesterday's plan + a completed task.
     // riddle / quiz / challenge are evergreen. Pull the recap data; if it isn't
