@@ -45,9 +45,11 @@ export function CheckCircleAccent({ done, failed = false, size = 22 }: { done: b
 }
 
 /** How long to wait for a possible second tap before committing the single tap.
- *  Minimum practical window: human double-taps are typically 80–150ms apart,
- *  so 150ms catches almost all intentional double-taps without extra latency. */
-const DOUBLE_TAP_MS = 150;
+ *  Human double-taps span ~150–300ms between taps. At 150ms the window was too
+ *  tight: taps 160ms apart became two single taps (done→open→done) instead of
+ *  one double-tap (done→failed). 220ms catches the full realistic range while
+ *  still distinguishing a deliberate "tap … wait … tap" sequence. */
+const DOUBLE_TAP_MS = 220;
 
 /** Tap / double-tap / long-press detector for a checklist row.
  *  Single tap → `onTap` (toggle done), double tap → `onDoubleTap` (toggle the
@@ -111,12 +113,15 @@ export function useRowGestures({
     if (moved.current) { moved.current = false; return; }
     clickCount.current += 1;
     if (clickCount.current === 1) {
-      // DEFER the single tap until the double-tap window closes. A double-tap
+      // Fire haptic immediately so the user knows the tap was registered — without
+      // this, the 220ms double-tap window feels like dead air and users re-tap,
+      // accidentally triggering the double-tap → failed transition.
+      haptics.impact("light");
+      // DEFER the state change until the double-tap window closes. A double-tap
       // (→ failed ✗) used to fire onTap first, so you'd see the green check
       // flash then flip to the red cross. Waiting it out means a double-tap goes
       // straight to "failed" with no flicker, and "untap" (double-tap a failed
-      // item) clears it back to open cleanly. The cost is ~220ms of latency on
-      // the single tap — the intended "small delay" the user asked for.
+      // item) clears it back to open cleanly.
       clearClick();
       clickTimer.current = setTimeout(() => {
         clickCount.current = 0;
@@ -128,6 +133,7 @@ export function useRowGestures({
       // single tap entirely and run ONLY the double-tap action.
       clearClick();
       clickCount.current = 0;
+      haptics.impact("medium");
       onDoubleTap();
     }
   };
@@ -256,8 +262,8 @@ export function ChecklistItemRow({
 
   // Whole-row gestures: tap → done, double-tap → failed (red ✗), hold → menu.
   const gestures = useRowGestures({
-    onTap: () => { haptics.impact("light"); onToggle(item.id); },
-    onDoubleTap: () => { haptics.impact("medium"); onFailed(item.id); },
+    onTap: () => { onToggle(item.id); },
+    onDoubleTap: () => { onFailed(item.id); },
     onLongPress: () => onOpenSheet(item),
     disabled: selectMode,
   });

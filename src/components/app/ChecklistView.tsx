@@ -239,7 +239,13 @@ export const ChecklistView = forwardRef<ChecklistApi, ChecklistViewProps>(({
 
   const sensors = useSensors(
     useSensor(MouseSensor, { activationConstraint: { distance: 6 } }),
-    useSensor(TouchSensor, { activationConstraint: { delay: 150, tolerance: 8 } }),
+    // delay: how long a finger must be held before drag activates. tolerance:
+    // how many px of movement are allowed during that delay before the gesture
+    // is cancelled. Both raised from 150/8 → 250/14 because a quick tap that
+    // moves 8px (a totally normal finger-lift) was activating drag, causing
+    // dnd-kit to animate items into "new" positions and snap back on release —
+    // this looked like the list was randomly reordering on a tap.
+    useSensor(TouchSensor, { activationConstraint: { delay: 250, tolerance: 14 } }),
   );
 
   const sortPos = (a: ChecklistItem, b: ChecklistItem) =>
@@ -1031,8 +1037,8 @@ function PinnedRow({
   const showFailed = !!item.failed && !item.done;
   const showPriority = !!item.priority && !item.done && !showFailed;
   const gestures = useRowGestures({
-    onTap: () => { haptics.impact("light"); onToggle(item.id); },
-    onDoubleTap: () => { haptics.impact("medium"); onFailed?.(item.id); },
+    onTap: () => { onToggle(item.id); },
+    onDoubleTap: () => { onFailed?.(item.id); },
     onLongPress: () => onOpen?.(),
   });
   return (

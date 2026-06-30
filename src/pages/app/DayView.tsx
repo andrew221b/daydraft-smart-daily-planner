@@ -4225,7 +4225,7 @@ export default function DayView() {
 // sliding pill is filled with the *active mode's own colour* (Timeline=primary,
 // Checklist=accent) so the colour itself signals which mode you're in.
 const PlanModePill = ({ mode, onChange, openCount }: { mode: "timeline" | "checklist"; onChange: (m: "timeline" | "checklist") => void; openCount: number }) => (
-  <div className="mt-3 relative h-11 rounded-2xl bg-muted/40 border border-soft p-1 select-none">
+  <div className="mt-3 relative h-11 rounded-2xl bg-muted/40 border border-soft p-1 select-none overflow-hidden">
     <motion.div
       className="absolute top-1 bottom-1 left-1 rounded-xl shadow-sm"
       style={{

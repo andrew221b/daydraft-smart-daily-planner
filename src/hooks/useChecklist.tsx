@@ -627,8 +627,19 @@ export function useChecklist(
   const reorder = useCallback(
     (nextItems: ChecklistItem[]) => {
       const prev = new Map(itemsRef.current.map((i) => [i.id, i]));
-      commit(groupsRef.current, nextItems);
-      for (const it of nextItems) {
+      // Bump updated_at for any item whose position or group changed so that
+      // reconcileLww on the next resume/focus reload keeps local order instead
+      // of reverting to the stale server order (server position writes are async).
+      const now = nowIso();
+      const committed = nextItems.map((it) => {
+        const before = prev.get(it.id);
+        if (!before) return it;
+        return before.group_id !== it.group_id || before.position !== it.position
+          ? { ...it, updated_at: now }
+          : it;
+      });
+      commit(groupsRef.current, committed);
+      for (const it of committed) {
         const before = prev.get(it.id);
         if (!before) continue;
         if (before.group_id !== it.group_id || before.position !== it.position) {
