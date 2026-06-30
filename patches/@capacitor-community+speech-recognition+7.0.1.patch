@@ -12,10 +12,10 @@ index d31e442..eb1f3d6 100644
      }
      lintOptions {
 diff --git a/node_modules/@capacitor-community/speech-recognition/android/src/main/java/com/getcapacitor/community/speechrecognition/SpeechRecognition.java b/node_modules/@capacitor-community/speech-recognition/android/src/main/java/com/getcapacitor/community/speechrecognition/SpeechRecognition.java
-index a99ea69..91e60a4 100644
+index a99ea69..70ff1d1 100644
 --- a/node_modules/@capacitor-community/speech-recognition/android/src/main/java/com/getcapacitor/community/speechrecognition/SpeechRecognition.java
 +++ b/node_modules/@capacitor-community/speech-recognition/android/src/main/java/com/getcapacitor/community/speechrecognition/SpeechRecognition.java
-@@ -42,6 +42,18 @@ public class SpeechRecognition extends Plugin implements Constants {
+@@ -42,6 +42,24 @@ public class SpeechRecognition extends Plugin implements Constants {
  
      private JSONArray previousPartialResults = new JSONArray();
  
@@ -30,11 +30,17 @@ index a99ea69..91e60a4 100644
 +    private String sessionText = "";
 +    private Intent continuousIntent = null;
 +    private PluginCall continuousCall = null;
++    // "started"/"stopped" must be emitted EXACTLY ONCE per user session, never per
++    // internal recognizer restart. Each continuous restart spins up a fresh
++    // SpeechRecognizer whose onReadyForSpeech would otherwise re-emit "started" —
++    // and a "started" landing just after the user stopped flips the JS mic UI back
++    // on (the "indicator won't turn off" bug). This flag makes the events monotonic.
++    private boolean startedEmitted = false;
 +
      @Override
      public void load() {
          super.load();
-@@ -81,7 +93,8 @@ public class SpeechRecognition extends Plugin implements Constants {
+@@ -81,7 +99,8 @@ public class SpeechRecognition extends Plugin implements Constants {
          String prompt = call.getString("prompt", null);
          boolean partialResults = call.getBoolean("partialResults", false);
          boolean popup = call.getBoolean("popup", false);
@@ -44,7 +50,7 @@ index a99ea69..91e60a4 100644
      }
  
      @PluginMethod
-@@ -157,6 +170,7 @@ public class SpeechRecognition extends Plugin implements Constants {
+@@ -157,6 +176,7 @@ public class SpeechRecognition extends Plugin implements Constants {
          String prompt,
          final boolean partialResults,
          boolean showPopup,
@@ -52,7 +58,7 @@ index a99ea69..91e60a4 100644
          PluginCall call
      ) {
          Logger.info(getLogTag(), "Beginning to listen for audible speech");
-@@ -176,34 +190,94 @@ public class SpeechRecognition extends Plugin implements Constants {
+@@ -176,34 +196,102 @@ public class SpeechRecognition extends Plugin implements Constants {
          if (showPopup) {
              startActivityForResult(call, intent, "listeningResult");
          } else {
@@ -65,6 +71,7 @@ index a99ea69..91e60a4 100644
 +            this.continuousMode = continuous;
 +            this.stoppedByUser = false;
 +            this.callResolved = false;
++            this.startedEmitted = false;
 +            this.sessionText = "";
 +            this.continuousIntent = intent;
 +            this.continuousCall = call;
@@ -100,13 +107,19 @@ index a99ea69..91e60a4 100644
 +            .post(() -> {
 +                try {
 +                    SpeechRecognition.this.lock.lock();
++                    // A stop() may have landed between scheduling this start and it
++                    // running (continuous restart race) — abort so we don't revive a
++                    // session the user already ended.
++                    if (SpeechRecognition.this.stoppedByUser && intent == SpeechRecognition.this.continuousIntent) {
++                        return;
+                     }
+-                });
 +
 +                    if (speechRecognizer != null) {
 +                        speechRecognizer.cancel();
 +                        speechRecognizer.destroy();
 +                        speechRecognizer = null;
-                     }
--                });
++                    }
 +                    previousPartialResults = new JSONArray();
 +
 +                    speechRecognizer = SpeechRecognizer.createSpeechRecognizer(bridge.getActivity());
@@ -165,6 +178,7 @@ index a99ea69..91e60a4 100644
 +        try {
 +            SpeechRecognition.this.lock.lock();
 +            SpeechRecognition.this.listening(false);
++            SpeechRecognition.this.startedEmitted = false;
 +            JSObject ret = new JSObject();
 +            ret.put("status", "stopped");
 +            SpeechRecognition.this.notifyListeners(LISTENING_EVENT, ret);
@@ -173,18 +187,25 @@ index a99ea69..91e60a4 100644
          }
      }
  
-@@ -213,12 +287,19 @@ public class SpeechRecognition extends Plugin implements Constants {
+@@ -213,12 +301,24 @@ public class SpeechRecognition extends Plugin implements Constants {
              .post(() -> {
                  try {
                      SpeechRecognition.this.lock.lock();
+-                    if (SpeechRecognition.this.listening) {
+-                        speechRecognizer.stopListening();
+-                        SpeechRecognition.this.listening(false);
 +                    // Mark the session ended so any pending restart aborts.
 +                    SpeechRecognition.this.stoppedByUser = true;
 +                    SpeechRecognition.this.continuousMode = false;
-                     if (SpeechRecognition.this.listening) {
--                        speechRecognizer.stopListening();
-+                        if (speechRecognizer != null) speechRecognizer.stopListening();
-                         SpeechRecognition.this.listening(false);
++                    SpeechRecognition.this.startedEmitted = false;
++                    // Fully tear the recognizer down (not just stopListening) so the
++                    // next start gets a clean engine instead of ERROR_RECOGNIZER_BUSY.
++                    if (speechRecognizer != null) {
++                        try { speechRecognizer.cancel(); } catch (Exception ignored) {}
++                        try { speechRecognizer.destroy(); } catch (Exception ignored) {}
++                        speechRecognizer = null;
                      }
++                    SpeechRecognition.this.listening(false);
 +                    // Guarantee JS leaves the listening state on an explicit stop.
 +                    JSObject ret = new JSObject();
 +                    ret.put("status", "stopped");
@@ -195,28 +216,43 @@ index a99ea69..91e60a4 100644
                  } finally {
                      SpeechRecognition.this.lock.unlock();
                  }
-@@ -239,7 +320,19 @@ public class SpeechRecognition extends Plugin implements Constants {
+@@ -239,13 +339,16 @@ public class SpeechRecognition extends Plugin implements Constants {
          }
  
          @Override
 -        public void onReadyForSpeech(Bundle params) {}
+-
+-        @Override
+-        public void onBeginningOfSpeech() {
 +        public void onReadyForSpeech(Bundle params) {
 +            // Emit "started" the instant the recorder is ready — NOT only on
 +            // onBeginningOfSpeech (which fires when the user starts speaking),
 +            // so the JS mic UI shows "listening" immediately on tap, matching iOS.
-+            try {
-+                SpeechRecognition.this.lock.lock();
-+                JSObject ret = new JSObject();
-+                ret.put("status", "started");
-+                SpeechRecognition.this.notifyListeners(LISTENING_EVENT, ret);
-+            } finally {
-+                SpeechRecognition.this.lock.unlock();
-+            }
-+        }
++            // ONCE per session only: a continuous restart re-enters here, but the
++            // session is already "started" — re-emitting would race the user's stop.
+             try {
+                 SpeechRecognition.this.lock.lock();
+-                // Notify listeners that recording has started
++                if (SpeechRecognition.this.stoppedByUser || SpeechRecognition.this.startedEmitted) return;
++                SpeechRecognition.this.startedEmitted = true;
+                 JSObject ret = new JSObject();
+                 ret.put("status", "started");
+                 SpeechRecognition.this.notifyListeners(LISTENING_EVENT, ret);
+@@ -254,6 +357,13 @@ public class SpeechRecognition extends Plugin implements Constants {
+             }
+         }
  
++        @Override
++        public void onBeginningOfSpeech() {
++            // No-op: "started" is emitted once in onReadyForSpeech. Re-emitting here
++            // (on every utterance, including continuous restarts) caused duplicate
++            // events that fought the user's stop.
++        }
++
          @Override
-         public void onBeginningOfSpeech() {
-@@ -262,6 +355,11 @@ public class SpeechRecognition extends Plugin implements Constants {
+         public void onRmsChanged(float rmsdB) {}
+ 
+@@ -262,6 +372,11 @@ public class SpeechRecognition extends Plugin implements Constants {
  
          @Override
          public void onEndOfSpeech() {
@@ -228,7 +264,7 @@ index a99ea69..91e60a4 100644
              bridge
                  .getWebView()
                  .post(() -> {
-@@ -280,48 +378,68 @@ public class SpeechRecognition extends Plugin implements Constants {
+@@ -280,48 +395,68 @@ public class SpeechRecognition extends Plugin implements Constants {
  
          @Override
          public void onError(int error) {

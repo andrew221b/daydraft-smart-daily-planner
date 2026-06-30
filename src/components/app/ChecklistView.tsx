@@ -21,7 +21,7 @@ import { ChecklistDumpSheet } from "@/components/app/ChecklistDumpSheet";
 import { useChecklist, type ChecklistGroup as Group, type ChecklistItem } from "@/hooks/useChecklist";
 import { useEntitlement } from "@/hooks/useEntitlement";
 import { supabase } from "@/integrations/supabase/client";
-import { parseBulkTasks, extractDurationFromTitle, extractStartTimeFromTitle } from "@/lib/taskSplitter";
+import { parseBulkTasks, extractDurationFromTitle, extractStartTimeFromTitle, splitShoppingEnumeration } from "@/lib/taskSplitter";
 import { toast } from "sonner";
 import { haptics } from "@/lib/haptics";
 import { todayDateStr } from "@/lib/daydraft";
@@ -93,6 +93,7 @@ export const ChecklistView = forwardRef<ChecklistApi, ChecklistViewProps>(({
     renameGroup,
     deleteGroup,
     addItem,
+    addItems,
     toggleItem,
     toggleItemFailed,
     renameItem,
@@ -113,10 +114,23 @@ export const ChecklistView = forwardRef<ChecklistApi, ChecklistViewProps>(({
   // ── Brain dump (paste a wall of to-dos → AI/local split → bulk add) ─────
   const [dumpOpen, setDumpOpen] = useState(false);
 
+  // Pending duplicate resolution: set when confirmDump finds existing items.
+  const [dupPending, setDupPending] = useState<{
+    uniqueTitles: string[];
+    dupTitles: string[];
+    targetGroupId: string | null;
+  } | null>(null);
+
   const parseDump = useCallback(async (raw: string): Promise<string[]> => {
     if (isPro) {
       try {
-        const { data, error } = await supabase.functions.invoke("parse-tasks", { body: { raw_input: raw } });
+        // mode:"checklist" → the edge fn uses its dedicated splitter that breaks
+        // a free-form / spoken dump ("купить молоко яйца хлеб корм для кошки")
+        // into individual tickable items, instead of the timeline parser that
+        // would group it into one shopping errand.
+        const { data, error } = await supabase.functions.invoke("parse-tasks", {
+          body: { raw_input: raw, mode: "checklist" },
+        });
         if (error) throw error;
         const tasks = Array.isArray(data?.tasks) ? data.tasks : [];
         if (tasks.length > 0) return tasks.map((t: { title: string }) => t.title).filter(Boolean);
@@ -124,42 +138,48 @@ export const ChecklistView = forwardRef<ChecklistApi, ChecklistViewProps>(({
         console.warn("Checklist dump AI parse failed, falling back to local split", e);
       }
     }
-    // Free tier or AI failure: local split, stripping any duration/time
-    // annotations the splitter recognizes (irrelevant here — checklist items
-    // don't carry a time, only a clean title).
-    return parseBulkTasks(raw).map((rawTitle) => {
-      const { title: t1 } = extractDurationFromTitle(rawTitle);
-      const { title } = extractStartTimeFromTitle(t1 || rawTitle);
-      return title || rawTitle;
-    }).filter(Boolean);
+    // Free tier or AI failure: local split. On top of the normal connector/line
+    // split, fan out spoken shopping lists ("купить молоко хлеб яйца") into one
+    // item each — the AI parser does this by meaning, this is the offline
+    // fallback. Then strip any duration/time annotations the splitter recognizes
+    // (irrelevant here — checklist items carry only a clean title).
+    return parseBulkTasks(raw)
+      .flatMap((rawTitle) => splitShoppingEnumeration(rawTitle))
+      .map((rawTitle) => {
+        const { title: t1 } = extractDurationFromTitle(rawTitle);
+        const { title } = extractStartTimeFromTitle(t1 || rawTitle);
+        return title || rawTitle;
+      }).filter(Boolean);
   }, [isPro]);
 
   const confirmDump = useCallback((titles: string[], groupId: string | null) => {
-    // Skip anything already in the SAME list (case-insensitive) so a re-dump or
-    // overlapping ideas don't create duplicate rows. Dedupe within the batch too.
     const existing = new Set(
       items.filter((i) => i.group_id === groupId).map((i) => i.title.trim().toLowerCase()),
     );
-    let added = 0;
-    let skipped = 0;
+    const uniqueTitles: string[] = [];
+    const dupTitles: string[] = [];
+    const seenInBatch = new Set<string>();
     for (const title of titles) {
       const key = title.trim().toLowerCase();
-      if (!key) continue;
-      if (existing.has(key)) { skipped++; continue; }
-      existing.add(key);
-      addItem(title, groupId);
-      added++;
+      if (!key || seenInBatch.has(key)) continue;
+      seenInBatch.add(key);
+      if (existing.has(key)) dupTitles.push(title);
+      else uniqueTitles.push(title);
     }
-    const where = groupId ? (groups.find((g) => g.id === groupId)?.title ?? "list") : "";
-    if (added === 0) {
-      toast("Those are already in your list.");
-    } else {
-      toast.success(
-        `Added ${added} item${added === 1 ? "" : "s"}${where ? ` to ${where}` : ""}` +
-        (skipped ? ` · ${skipped} already there` : ""),
-      );
+    if (uniqueTitles.length === 0 && dupTitles.length === 0) {
+      toast("No to-dos found.");
+      return;
     }
-  }, [addItem, items, groups]);
+    if (dupTitles.length === 0) {
+      // No duplicates — add everything immediately (single commit, all items visible at once).
+      addItems(uniqueTitles, groupId);
+      const where = groupId ? (groups.find((g) => g.id === groupId)?.title ?? "list") : "";
+      toast.success(`Added ${uniqueTitles.length} item${uniqueTitles.length === 1 ? "" : "s"}${where ? ` to ${where}` : ""}`);
+      return;
+    }
+    // Duplicates found — surface the resolution dialog instead of silently skipping.
+    setDupPending({ uniqueTitles, dupTitles, targetGroupId: groupId });
+  }, [addItems, items, groups]);
 
   // Create a list from inside the brain-dump picker. addGroup commits
   // optimistically and returns the row synchronously, so the new pill shows up
@@ -778,6 +798,50 @@ export const ChecklistView = forwardRef<ChecklistApi, ChecklistViewProps>(({
         onCreateGroup={createDumpGroup}
       />
 
+      {/* Duplicate resolution — shown when confirmDump finds items already in the list */}
+      <DuplicateResolutionSheet
+        pending={dupPending}
+        groups={groups}
+        onClose={() => setDupPending(null)}
+        onSkip={() => {
+          if (!dupPending) return;
+          if (dupPending.uniqueTitles.length) {
+            addItems(dupPending.uniqueTitles, dupPending.targetGroupId);
+            const where = dupPending.targetGroupId ? (groups.find((g) => g.id === dupPending.targetGroupId)?.title ?? "list") : "";
+            toast.success(`Added ${dupPending.uniqueTitles.length} item${dupPending.uniqueTitles.length === 1 ? "" : "s"}${where ? ` to ${where}` : ""}`);
+          } else {
+            toast("All items were already in your list.");
+          }
+          setDupPending(null);
+        }}
+        onAddAll={() => {
+          if (!dupPending) return;
+          const all = [...dupPending.uniqueTitles, ...dupPending.dupTitles];
+          addItems(all, dupPending.targetGroupId);
+          const where = dupPending.targetGroupId ? (groups.find((g) => g.id === dupPending.targetGroupId)?.title ?? "list") : "";
+          toast.success(`Added all ${all.length} item${all.length === 1 ? "" : "s"}${where ? ` to ${where}` : ""}`);
+          setDupPending(null);
+        }}
+        onAddToNewList={(name) => {
+          if (!dupPending) return;
+          const newGroup = addGroup(name);
+          if (newGroup) {
+            addItems(dupPending.dupTitles, newGroup.id);
+            if (dupPending.uniqueTitles.length) {
+              addItems(dupPending.uniqueTitles, dupPending.targetGroupId);
+            }
+            const d = dupPending.dupTitles.length;
+            const u = dupPending.uniqueTitles.length;
+            const where = dupPending.targetGroupId ? (groups.find((g) => g.id === dupPending.targetGroupId)?.title ?? "list") : "";
+            toast.success(
+              `Added ${d} to "${name}"` +
+              (u ? ` · ${u} to ${where || "no category"}` : ""),
+            );
+          }
+          setDupPending(null);
+        }}
+      />
+
       {/* Empty state */}
       {isEmpty && (
         <div className="text-center px-6 pt-8 pb-4 empty-state-fade">
@@ -1316,6 +1380,147 @@ function GroupMenuSheet({
             )}
           </div>
         )}
+      </SheetContent>
+    </Sheet>
+  );
+}
+
+/** Bottom sheet shown when a brain dump contains items already in the target list.
+ *  Gives three choices: skip dups / add all anyway / add dups to a brand-new list. */
+function DuplicateResolutionSheet({
+  pending,
+  groups,
+  onClose,
+  onSkip,
+  onAddAll,
+  onAddToNewList,
+}: {
+  pending: { uniqueTitles: string[]; dupTitles: string[]; targetGroupId: string | null } | null;
+  groups: Group[];
+  onClose: () => void;
+  onSkip: () => void;
+  onAddAll: () => void;
+  onAddToNewList: (name: string) => void;
+}) {
+  const [newListName, setNewListName] = useState("");
+  const [creatingList, setCreatingList] = useState(false);
+
+  const handleClose = () => {
+    setNewListName("");
+    setCreatingList(false);
+    onClose();
+  };
+
+  const submitNewList = () => {
+    const name = newListName.trim();
+    if (!name) { setCreatingList(false); return; }
+    onAddToNewList(name);
+    setNewListName("");
+    setCreatingList(false);
+  };
+
+  if (!pending) return null;
+
+  const { dupTitles, uniqueTitles, targetGroupId } = pending;
+  const targetName = targetGroupId ? (groups.find((g) => g.id === targetGroupId)?.title ?? "list") : "no category";
+  const d = dupTitles.length;
+  const u = uniqueTitles.length;
+
+  return (
+    <Sheet open onOpenChange={(v) => { if (!v) handleClose(); }}>
+      <SheetContent side="bottom" className="rounded-t-[28px] border-border/75 bg-popover max-h-[80vh] flex flex-col">
+        <SheetHeader className="text-left shrink-0">
+          <SheetTitle className="text-[16px]">
+            {d === 1 ? "1 item already exists" : `${d} items already exist`}
+          </SheetTitle>
+        </SheetHeader>
+
+        <div className="mt-3 flex-1 overflow-y-auto space-y-4 pb-2">
+          <p className="text-[13px] text-secondary-fg/80 leading-relaxed">
+            {d === 1
+              ? `This item is already in "${targetName}":`
+              : `These items are already in "${targetName}":`}
+          </p>
+
+          {/* Dup list — scrollable if long */}
+          <div className="rounded-xl border border-soft bg-card divide-y divide-border/30 max-h-[140px] overflow-y-auto">
+            {dupTitles.map((t) => (
+              <div key={t} className="px-3 py-2 text-[13.5px] text-foreground/75 truncate">{t}</div>
+            ))}
+          </div>
+
+          <div className="space-y-2">
+            {/* Option 1 — skip dups, add only new */}
+            <button
+              type="button"
+              onClick={() => { haptics.tap(); onSkip(); }}
+              className="w-full h-12 rounded-2xl border border-soft bg-card text-[14px] font-semibold text-foreground/90 pressable flex items-center justify-between px-4"
+            >
+              <span>Skip {d === 1 ? "it" : `${d} duplicates`}</span>
+              {u > 0 && (
+                <span className="text-[12px] font-normal text-secondary-fg/65">
+                  add {u} new item{u === 1 ? "" : "s"}
+                </span>
+              )}
+            </button>
+
+            {/* Option 2 — add everything, ignore dups */}
+            <button
+              type="button"
+              onClick={() => { haptics.impact(); onAddAll(); }}
+              className="w-full h-12 rounded-2xl border text-[14px] font-semibold pressable flex items-center justify-between px-4"
+              style={{
+                color: "hsl(var(--accent))",
+                borderColor: "hsl(var(--accent) / 0.35)",
+                background: "hsl(var(--accent) / 0.10)",
+              }}
+            >
+              <span>Add all {d + u} anyway</span>
+              <span className="text-[12px] font-normal opacity-70">including duplicates</span>
+            </button>
+
+            {/* Option 3 — move dups to a new list */}
+            {creatingList ? (
+              <div className="flex items-center gap-2 rounded-2xl border border-soft bg-card px-3 py-2">
+                <FolderPlus className="h-4 w-4 text-accent shrink-0" />
+                <input
+                  autoFocus
+                  value={newListName}
+                  onChange={(e) => setNewListName(e.target.value)}
+                  onKeyDown={(e) => {
+                    if (e.key === "Enter") submitNewList();
+                    if (e.key === "Escape") { setNewListName(""); setCreatingList(false); }
+                  }}
+                  placeholder="New list name (e.g. Extras)"
+                  className="flex-1 min-w-0 bg-transparent text-[14px] outline-none placeholder:text-secondary-fg/45"
+                  style={{ fontSize: 16 }}
+                />
+                <button
+                  type="button"
+                  onClick={submitNewList}
+                  disabled={!newListName.trim()}
+                  className="shrink-0 h-7 w-7 flex items-center justify-center rounded-full text-accent disabled:opacity-40 pressable"
+                  aria-label="Create list and add duplicates"
+                >
+                  <Check className="h-4 w-4" />
+                </button>
+              </div>
+            ) : (
+              <button
+                type="button"
+                onClick={() => { haptics.tap(); setCreatingList(true); }}
+                className="w-full h-12 rounded-2xl border border-dashed text-[14px] font-semibold pressable flex items-center gap-2 px-4"
+                style={{
+                  color: "hsl(var(--accent))",
+                  borderColor: "hsl(var(--accent) / 0.40)",
+                }}
+              >
+                <FolderPlus className="h-4 w-4 shrink-0" />
+                Add duplicates to new list…
+              </button>
+            )}
+          </div>
+        </div>
       </SheetContent>
     </Sheet>
   );

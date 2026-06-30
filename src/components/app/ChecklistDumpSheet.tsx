@@ -161,6 +161,7 @@ export const ChecklistDumpSheet = ({
     if (!titles.length) return;
     haptics.impact();
     onConfirm(titles, targetGroupId);
+    reset(); // always reset so the next open starts on a fresh input step
     onOpenChange(false);
   };
 

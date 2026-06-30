@@ -12,14 +12,26 @@ serve(async (req) => {
   if (req.method === "OPTIONS") return new Response(null, { headers: corsHeaders });
   
   try {
-    const { raw_input } = await req.json();
-    
+    const { raw_input, mode, list_name } = await req.json();
+
     if (!raw_input || typeof raw_input !== "string" || !raw_input.trim()) {
       return new Response(JSON.stringify({ tasks: [] }), { headers: { ...corsHeaders, "Content-Type": "application/json" } });
     }
 
     const GEMINI_API_KEY = Deno.env.get("GEMINI_API_KEY");
     if (!GEMINI_API_KEY) throw new Error("GEMINI_API_KEY missing");
+
+    // ── CHECKLIST MODE ────────────────────────────────────────────────────────
+    // The checklist brain-dump needs the OPPOSITE of the timeline planner: where
+    // the timeline groups "buy milk, eggs, bread" into ONE shopping errand (you
+    // don't want six timeline blocks), a checklist wants each thing as its own
+    // tickable row. This is a lean, fast path — semantic SPLITTING only, no
+    // duration/start-time/questions/personalization. Free-form, run-on, or voice
+    // input ("надо купить молоко яйца хлеб воду подгузники корм для кошки") is the
+    // exact case the regex splitter can't crack, so the model does it by meaning.
+    if (mode === "checklist") {
+      return await parseChecklist(raw_input, list_name, GEMINI_API_KEY, corsHeaders);
+    }
 
     const baseSystem = `You are an intelligent task parser and planning assistant for a daily planning app.
 The user will provide a raw, messy input text describing their tasks for the day. It might contain typos, run-on sentences, time estimates, and start-time hints.
@@ -310,3 +322,111 @@ RULES for questions:
     return new Response(JSON.stringify({ error: err.message }), { status: 500, headers: { ...corsHeaders, "Content-Type": "application/json" } });
   }
 });
+
+/**
+ * Checklist brain-dump parser. Turns a messy / spoken / run-on dump into a clean
+ * list of individual, tickable checklist items. Deliberately separate from the
+ * timeline parser above: no times, no durations, no questions — just smart
+ * semantic splitting of enumerations (shopping lists, packing lists, errands)
+ * that the regex splitter on the client can't handle.
+ */
+async function parseChecklist(
+  raw_input: string,
+  list_name: unknown,
+  GEMINI_API_KEY: string,
+  corsHeaders: Record<string, string>,
+): Promise<Response> {
+  const listCtx = typeof list_name === "string" && list_name.trim()
+    ? `\n\nCONTEXT: these items are being added to a list the user named "${list_name.trim()}". Use it only as a hint for how granular to split (e.g. a "Groceries"/"Покупки" list means each product is its own item) — never invent items from the name, and never add the list name as an item.`
+    : "";
+
+  const system = `You convert a raw brain-dump into a clean checklist. The user typed or SPOKE (voice → text, so expect NO punctuation, run-on words, repetition and filler) a pile of things they need to do or buy. Return each distinct thing as its own short, tickable checklist item.
+
+HOW TO THINK:
+- Read for MEANING, not surface words. Input may be one long unpunctuated breath: "надо купить молоко яйца хлеб воду подгузники ещё ещё корм для кошки". Understand it: a shopping list of six things.
+- SPLIT enumerations. When several things are listed under ONE action — a shopping list, a packing list, a run of errands — EACH thing becomes a separate item. "купить молоко яйца хлеб воду подгузники корм для кошки" → six items: молоко · яйца · хлеб · вода · подгузники · корм для кошки. "buy milk eggs bread, call the dentist, return books" → milk · eggs · bread · call the dentist · return books.
+- KEEP MULTI-WORD ITEMS WHOLE. A single item that happens to span words is ONE item, not several: "корм для кошки", "стиральный порошок", "подарок маме на день рождения", "dish soap", "birthday gift for mom" each stay intact. Words joined by "для/of/with/for/к/на/со" belong to the same item.
+- For a clear shopping/grocery/packing enumeration, output just the ITEM (the noun) — the umbrella action ("buy/купить/взять/pack") is implied by the list, so don't repeat "buy" on every row.
+- For DISTINCT separate tasks (not items under one shared action), keep each task's own wording and verb: "позвонить маме", "забрать посылку", "оплатить счёт".
+- STRIP filler and lead-ins: "надо", "нужно", "ещё ещё", "вот", "ну", "так", "need to", "i have to", "also", "and then", repeated words. Fix typos and obvious voice mis-hearings.
+- Keep every title SHORT and scannable — a checklist row, not a sentence. Sentence case. No numbering, no bullets, no trailing punctuation.
+- Deduplicate.
+
+LANGUAGE RULE (mandatory): every item title MUST be in the SAME language the user wrote in. Russian input → Russian items, English → English, Ukrainian → Ukrainian. The examples above are deliberately multilingual and MUST NOT change your output language. Translate nothing.
+
+If the input is genuine gibberish / keyboard-mashing with no real to-do in it, return an empty list.${listCtx}`;
+
+  const schema = {
+    type: "OBJECT",
+    properties: {
+      tasks: {
+        type: "ARRAY",
+        items: {
+          type: "OBJECT",
+          properties: {
+            title: { type: "STRING", description: "One clean, short checklist item in the user's own language" },
+          },
+          required: ["title"],
+        },
+      },
+    },
+    required: ["tasks"],
+  };
+
+  const callModel = async (model: string): Promise<Response> => {
+    const ctrl = new AbortController();
+    const t = setTimeout(() => ctrl.abort(), 15_000);
+    try {
+      return await fetch(`https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent?key=${GEMINI_API_KEY}`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          systemInstruction: { parts: [{ text: system }] },
+          contents: [{ role: "user", parts: [{ text: raw_input }] }],
+          generationConfig: {
+            responseMimeType: "application/json",
+            responseSchema: schema,
+            // Low temp — this is deterministic extraction, not creative writing.
+            temperature: 0.1,
+            thinkingConfig: { thinkingBudget: 0 },
+          },
+        }),
+        signal: ctrl.signal,
+      });
+    } finally {
+      clearTimeout(t);
+    }
+  };
+
+  const { response: resp, lastStatus } = await callGeminiWithRetry((model) => callModel(model));
+  if (!resp) {
+    return new Response(JSON.stringify({ error: "AI failed to parse", tasks: [] }), {
+      status: lastStatus || 500,
+      headers: { ...corsHeaders, "Content-Type": "application/json" },
+    });
+  }
+
+  const data = await resp.json();
+  const textOut = data.candidates?.[0]?.content?.parts?.[0]?.text;
+  if (!textOut) {
+    return new Response(JSON.stringify({ tasks: [] }), { headers: { ...corsHeaders, "Content-Type": "application/json" } });
+  }
+
+  let parsed: any = {};
+  try { parsed = JSON.parse(textOut); } catch { parsed = {}; }
+  const seen = new Set<string>();
+  const tasksOut = (Array.isArray(parsed.tasks) ? parsed.tasks : [])
+    .map((t: any) => ({ title: String(t?.title ?? "").trim() }))
+    .filter((t: { title: string }) => {
+      if (!t.title) return false;
+      const key = t.title.toLowerCase();
+      if (seen.has(key)) return false;
+      seen.add(key);
+      return true;
+    })
+    .slice(0, 60);
+
+  return new Response(JSON.stringify({ tasks: tasksOut }), {
+    headers: { ...corsHeaders, "Content-Type": "application/json" },
+  });
+}

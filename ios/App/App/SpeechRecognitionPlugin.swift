@@ -60,6 +60,21 @@ public class SpeechRecognitionPlugin: CAPPlugin, CAPBridgedPlugin {
     private var recognitionRequest: SFSpeechAudioBufferRecognitionRequest?
     private var recognitionTask: SFSpeechRecognitionTask?
 
+    // ── Continuous dictation (this app's addition) ────────────────────────────
+    // Upstream tore the whole engine down on the FIRST `result.isFinal` (which
+    // fires after a short pause), so the mic died mid-dump and the JS UI flipped
+    // to idle with only the first phrase captured. To match "tap → speak with
+    // pauses → tap stop", we keep the audio engine + tap RUNNING and just spin up
+    // a fresh recognition task each time one finalises, accumulating the text.
+    private var continuousMode = false
+    private var stoppedByUser = false
+    private var startedEmitted = false   // emit "started"/"stopped" once per session
+    private var sessionText = ""          // committed text across restarts
+    private var partialResults = false
+    private var maxResults = 5
+    private var contextualStrings: [String] = []
+    private var consecutiveRestarts = 0   // guard against an instant error-restart loop
+
     @objc func available(_ call: CAPPluginCall) {
         guard let recognizer = SFSpeechRecognizer() else {
             call.resolve(["available": false])
@@ -69,9 +84,11 @@ public class SpeechRecognitionPlugin: CAPPlugin, CAPBridgedPlugin {
     }
 
     @objc func start(_ call: CAPPluginCall) {
-        if let engine = self.audioEngine, engine.isRunning {
-            call.reject(self.messageOngoing)
-            return
+        // Defensive: if a previous session didn't fully tear down, clean it now
+        // instead of rejecting with "ongoing" — that rejection is what surfaced in
+        // JS as the intermittent "Couldn't start dictation".
+        if self.audioEngine != nil {
+            self.teardown(emitStopped: false)
         }
 
         let status: SFSpeechRecognizerAuthorizationStatus = SFSpeechRecognizer.authorizationStatus()
@@ -85,126 +102,180 @@ public class SpeechRecognitionPlugin: CAPPlugin, CAPBridgedPlugin {
                 call.reject(self.messageAccessDeniedMicrophone)
                 return
             }
-
-            let language: String = call.getString("language") ?? "en-US"
-            let maxResults: Int = call.getInt("maxResults") ?? self.defaultMatches
-            let partialResults: Bool = call.getBool("partialResults") ?? false
-
-            if self.recognitionTask != nil {
-                self.recognitionTask?.cancel()
-                self.recognitionTask = nil
-            }
-
-            self.audioEngine = AVAudioEngine()
-            self.speechRecognizer = SFSpeechRecognizer(locale: Locale(identifier: language))
-
-            let audioSession = AVAudioSession.sharedInstance()
-            do {
-                try audioSession.setCategory(.playAndRecord, options: .defaultToSpeaker)
-                try audioSession.setMode(.default)
-                try audioSession.setActive(true, options: .notifyOthersOnDeactivation)
-            } catch {
-                call.reject("Microphone is already in use by another application.")
-                return
-            }
-
-            self.recognitionRequest = SFSpeechAudioBufferRecognitionRequest()
-            self.recognitionRequest?.shouldReportPartialResults = partialResults
-            // .dictation (vs the default .unspecified/.search/.confirmation) tells
-            // Apple's model this is free-form speech, not a short command or
-            // search query — measurably better accuracy for multi-sentence dumps.
-            self.recognitionRequest?.taskHint = .dictation
-            // Auto-inserts commas/periods (iOS 16+; this app's min target is 17.6).
-            // Helps the user read back what they said, and gives the downstream
-            // AI task-splitter cleaner sentence boundaries in a multi-task dump.
-            if #available(iOS 16.0, *) {
-                self.recognitionRequest?.addsPunctuation = true
-            }
-            // Biases recognition toward the user's OWN vocabulary — their saved
-            // task templates / checklist category names. Apple's model uses this
-            // as a soft hint (boosts likelihood, doesn't force a match), so it
-            // helps recognize names/specific words without blocking anything
-            // else the user says. Not in the upstream plugin's options — this
-            // app's own addition, JS passes it only on iOS (Android's intent-
-            // based recognizer has no equivalent hook).
-            if let hints = call.getArray("contextualStrings", String.self), !hints.isEmpty {
-                self.recognitionRequest?.contextualStrings = hints
-            }
-            // Prefer fully on-device recognition when this locale's model supports
-            // it: no audio leaves the phone, it works with no network, and it
-            // starts faster (no server round-trip). When the model isn't
-            // on-device the system falls back to Apple's servers automatically.
-            if let recognizer = self.speechRecognizer, recognizer.supportsOnDeviceRecognition {
-                self.recognitionRequest?.requiresOnDeviceRecognition = true
-            }
-
-            guard let engine = self.audioEngine else {
-                call.reject(self.messageUnknown)
-                return
-            }
-            let inputNode = engine.inputNode
-            let format = inputNode.outputFormat(forBus: 0)
-
-            self.recognitionTask = self.speechRecognizer?.recognitionTask(with: self.recognitionRequest!) { (result, error) in
-                if let result = result {
-                    let resultArray = NSMutableArray()
-                    var counter = 0
-                    for transcription in result.transcriptions {
-                        if maxResults > 0 && counter < maxResults {
-                            resultArray.add(transcription.formattedString)
-                        }
-                        counter += 1
-                    }
-
-                    if partialResults {
-                        self.notifyListeners("partialResults", data: ["matches": resultArray])
-                    } else {
-                        call.resolve(["matches": resultArray])
-                    }
-
-                    if result.isFinal {
-                        self.audioEngine?.stop()
-                        self.audioEngine?.inputNode.removeTap(onBus: 0)
-                        self.notifyListeners("listeningState", data: ["status": "stopped"])
-                        self.recognitionTask = nil
-                        self.recognitionRequest = nil
-                    }
-                }
-
-                if let error = error {
-                    self.audioEngine?.stop()
-                    self.audioEngine?.inputNode.removeTap(onBus: 0)
-                    self.recognitionRequest = nil
-                    self.recognitionTask = nil
-                    self.notifyListeners("listeningState", data: ["status": "stopped"])
-                    call.reject(error.localizedDescription)
-                }
-            }
-
-            inputNode.installTap(onBus: 0, bufferSize: 1024, format: format) { (buffer, _) in
-                self.recognitionRequest?.append(buffer)
-            }
-
-            engine.prepare()
-            do {
-                try engine.start()
-                self.notifyListeners("listeningState", data: ["status": "started"])
-                if partialResults {
-                    call.resolve()
-                }
-            } catch {
-                call.reject(self.messageUnknown)
+            // Audio-engine work must run on the main thread (the permission
+            // callback lands on an arbitrary queue).
+            DispatchQueue.main.async {
+                self.beginSession(call)
             }
         }
     }
 
-    @objc func stop(_ call: CAPPluginCall) {
-        DispatchQueue.global(qos: .default).async {
-            if let engine = self.audioEngine, engine.isRunning {
-                engine.stop()
-                self.recognitionRequest?.endAudio()
-                self.notifyListeners("listeningState", data: ["status": "stopped"])
+    private func beginSession(_ call: CAPPluginCall) {
+        let language: String = call.getString("language") ?? "en-US"
+        self.maxResults = call.getInt("maxResults") ?? self.defaultMatches
+        self.partialResults = call.getBool("partialResults") ?? false
+        self.continuousMode = call.getBool("continuous") ?? false
+        self.contextualStrings = call.getArray("contextualStrings", String.self) ?? []
+        self.stoppedByUser = false
+        self.startedEmitted = false
+        self.sessionText = ""
+        self.consecutiveRestarts = 0
+
+        if self.recognitionTask != nil {
+            self.recognitionTask?.cancel()
+            self.recognitionTask = nil
+        }
+
+        self.audioEngine = AVAudioEngine()
+        self.speechRecognizer = SFSpeechRecognizer(locale: Locale(identifier: language))
+
+        let audioSession = AVAudioSession.sharedInstance()
+        do {
+            try audioSession.setCategory(.playAndRecord, options: .defaultToSpeaker)
+            try audioSession.setMode(.default)
+            try audioSession.setActive(true, options: .notifyOthersOnDeactivation)
+        } catch {
+            self.teardown(emitStopped: false)
+            call.reject("Microphone is already in use by another application.")
+            return
+        }
+
+        guard let engine = self.audioEngine, self.speechRecognizer != nil else {
+            self.teardown(emitStopped: false)
+            call.reject(self.messageUnknown)
+            return
+        }
+        let inputNode = engine.inputNode
+        let format = inputNode.outputFormat(forBus: 0)
+        // One persistent tap for the whole session — it appends to whichever
+        // recognitionRequest is current, so it survives continuous restarts.
+        inputNode.installTap(onBus: 0, bufferSize: 1024, format: format) { (buffer, _) in
+            self.recognitionRequest?.append(buffer)
+        }
+
+        self.installRecognitionTask()
+
+        engine.prepare()
+        do {
+            try engine.start()
+            if !self.startedEmitted {
+                self.startedEmitted = true
+                self.notifyListeners("listeningState", data: ["status": "started"])
             }
+            if self.partialResults {
+                call.resolve()
+            }
+        } catch {
+            self.teardown(emitStopped: false)
+            call.reject(self.messageUnknown)
+        }
+    }
+
+    // Create + start ONE recognition task against the (already running) engine.
+    // Reused on every continuous restart; sessionText / engine / tap persist across
+    // them. Configures the request the same way each time (dictation hint,
+    // punctuation, contextual strings, on-device).
+    private func installRecognitionTask() {
+        guard let recognizer = self.speechRecognizer else { return }
+        let request = SFSpeechAudioBufferRecognitionRequest()
+        request.shouldReportPartialResults = self.partialResults
+        // .dictation tells Apple's model this is free-form speech (not a short
+        // command/search) — measurably better for multi-sentence dumps.
+        request.taskHint = .dictation
+        if #available(iOS 16.0, *) {
+            request.addsPunctuation = true
+        }
+        if !self.contextualStrings.isEmpty {
+            request.contextualStrings = self.contextualStrings
+        }
+        // Prefer fully on-device recognition when the locale supports it (private,
+        // offline, faster start). System falls back to its servers otherwise.
+        if recognizer.supportsOnDeviceRecognition {
+            request.requiresOnDeviceRecognition = true
+        }
+        self.recognitionRequest = request
+
+        self.recognitionTask = recognizer.recognitionTask(with: request) { (result, error) in
+            if let result = result {
+                let current = result.bestTranscription.formattedString
+                if !current.isEmpty { self.consecutiveRestarts = 0 }
+                if self.partialResults {
+                    // Always emit the FULL transcript-so-far (committed + current).
+                    // Committed segments are joined by newlines: each segment is a
+                    // post-pause utterance, so a line break is the natural boundary
+                    // and gives the downstream task-splitter cleaner per-item lines.
+                    let full = self.sessionText.isEmpty
+                        ? current
+                        : (current.isEmpty ? self.sessionText : self.sessionText + "\n" + current)
+                    self.notifyListeners("partialResults", data: ["matches": [full]])
+                }
+                if result.isFinal {
+                    if !current.isEmpty {
+                        self.sessionText = self.sessionText.isEmpty ? current : self.sessionText + "\n" + current
+                    }
+                    self.restartOrFinish()
+                }
+            }
+            if error != nil {
+                // A benign end-of-segment error in continuous mode = the user
+                // paused; keep the session alive by restarting. Otherwise finish.
+                self.restartOrFinish()
+            }
+        }
+    }
+
+    // After a task finalises (or errors): in continuous mode, start a fresh task on
+    // the SAME engine to keep listening; otherwise tear the session down cleanly.
+    private func restartOrFinish() {
+        if self.continuousMode && !self.stoppedByUser {
+            self.consecutiveRestarts += 1
+            // Guard an instant error-restart loop (e.g. a locale model that keeps
+            // erroring with no audio) — bail rather than spin.
+            if self.consecutiveRestarts > 6 {
+                DispatchQueue.main.async { self.teardown(emitStopped: true) }
+                return
+            }
+            self.recognitionTask = nil
+            self.recognitionRequest = nil
+            // Re-arm on the main thread, only if the engine is still up and the
+            // user hasn't stopped in the meantime.
+            DispatchQueue.main.async {
+                if self.stoppedByUser || self.audioEngine == nil { return }
+                self.installRecognitionTask()
+            }
+            return
+        }
+        DispatchQueue.main.async { self.teardown(emitStopped: true) }
+    }
+
+    // Single, idempotent teardown — cancels the task, stops the engine, removes the
+    // tap, deactivates the audio session, and emits "stopped" ONCE (only if the
+    // session had emitted "started"). Safe to call from any state.
+    private func teardown(emitStopped: Bool) {
+        if let task = self.recognitionTask {
+            task.cancel()
+            self.recognitionTask = nil
+        }
+        self.recognitionRequest?.endAudio()
+        self.recognitionRequest = nil
+        if let engine = self.audioEngine {
+            if engine.isRunning { engine.stop() }
+            engine.inputNode.removeTap(onBus: 0)
+            self.audioEngine = nil
+        }
+        try? AVAudioSession.sharedInstance().setActive(false, options: .notifyOthersOnDeactivation)
+        let wasStarted = self.startedEmitted
+        self.startedEmitted = false
+        self.continuousMode = false
+        if emitStopped && wasStarted {
+            self.notifyListeners("listeningState", data: ["status": "stopped"])
+        }
+    }
+
+    @objc func stop(_ call: CAPPluginCall) {
+        DispatchQueue.main.async {
+            self.stoppedByUser = true
+            self.teardown(emitStopped: true)
             call.resolve()
         }
     }

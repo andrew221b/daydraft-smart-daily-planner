@@ -412,6 +412,45 @@ export function useChecklist(
     [userId, planDate, commit],
   );
 
+  // Batch-add multiple items in a SINGLE commit so every item shows immediately.
+  // A loop of addItem() calls fails because React batches setItems — each call
+  // reads the same stale itemsRef.current and the last write wins, hiding all
+  // earlier items until the next reload.
+  const addItems = useCallback(
+    (titles: string[], groupId: string | null = null): ChecklistItem[] => {
+      if (!userId || !titles.length) return [];
+      const now = nowIso();
+      let running = itemsRef.current;
+      const newRows: ChecklistItem[] = [];
+      for (const title of titles) {
+        const trimmed = title.trim();
+        if (!trimmed) continue;
+        const siblings = running.filter((i) => i.group_id === groupId);
+        const row: ChecklistItem = {
+          id: newId(),
+          user_id: userId,
+          plan_date: planDate,
+          group_id: groupId,
+          title: trimmed,
+          done: false,
+          position: maxPos(siblings) + 1,
+          pinned: false,
+          priority: false,
+          failed: false,
+          created_at: now,
+          updated_at: now,
+        };
+        newRows.push(row);
+        running = [...running, row]; // keep maxPos correct for the next iteration
+      }
+      if (!newRows.length) return [];
+      commit(groupsRef.current, [...itemsRef.current, ...newRows]);
+      for (const row of newRows) void insertItem(row);
+      return newRows;
+    },
+    [userId, planDate, commit],
+  );
+
   const toggleItem = useCallback(
     (id: string) => {
       const cur = itemsRef.current.find((i) => i.id === id);
@@ -852,6 +891,7 @@ export function useChecklist(
     renameGroup,
     deleteGroup,
     addItem,
+    addItems,
     toggleItem,
     toggleItemFailed,
     renameItem,

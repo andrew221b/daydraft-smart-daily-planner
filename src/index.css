@@ -239,6 +239,20 @@ body.dd-dnd-scroll-lock {
        it's explicitly widened back out here. */
     touch-action: auto;
   }
+  /* iOS/Android WebView: when the PARENT of an input has user-select:none
+     (inherited from body), the native text-selection drag-handle can only
+     extend the selection UP TO the boundary where user-select:none starts.
+     By also granting user-select:text to the immediate parent, the handle
+     can freely move within the surrounding container.
+     :has() is supported on iOS 15.4+ and Chrome 105+ (our min targets). */
+  label:has(> input),
+  label:has(> textarea),
+  div:has(> input),
+  div:has(> textarea),
+  div:has(> [contenteditable]) {
+    -webkit-user-select: text;
+    user-select: text;
+  }
   input, textarea, select { font-size: 16px; }
   ::selection {
     background-color: hsl(var(--primary) / 0.22);

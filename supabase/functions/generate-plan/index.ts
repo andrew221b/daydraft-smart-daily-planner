@@ -858,6 +858,43 @@ ${ACTIVITY_DURATIONS}${personalDurationsHints}${planningPrefsHints}${clarifiedHi
       return { ...b, start_time: minToTime(fallback) };
     });
 
+    // ── Enforce the duration hints we fed in ──────────────────────────────────
+    // Every raw_input line carries an authoritative [Xmin]: the user's explicit
+    // estimate / clarified answer, their OWN measured history, or the local
+    // real-world dataset (durationLookup). The prompt says to honor it, but
+    // "asking isn't enforcing" — the model can still drift (a 120-min task comes
+    // back as 240, silently pushing the whole afternoon). Snap a task back to its
+    // hint when it deviates beyond a sane band — wide enough to allow a deliberate
+    // "quick"/"deep" nudge, tight enough to catch real drift. Runs BEFORE
+    // splitLongTask so an over-long estimate is corrected before it's chopped into
+    // parts, and BEFORE resolveConflicts so any freed/overlapped time re-packs.
+    const HINT_CLAMP_LOW = 0.6;
+    const HINT_CLAMP_HIGH = 1.75;
+    const durationHintMap = new Map<string, number>();
+    for (const line of splitTaskLines(raw_input)) {
+      const m = String(line).match(/[[(]\s*(\d+(?:\.\d+)?)\s*min\.?\s*[\])]/i);
+      if (!m) continue;
+      const mins = Math.round(parseFloat(m[1]));
+      if (!(mins > 0)) continue;
+      const title = String(line)
+        .replace(/[[(]\s*\d+(?:\.\d+)?\s*min\.?\s*[\])]/i, "")
+        .replace(/\bat\s+\d{1,2}:\d{2}\b/i, "")
+        .trim();
+      const key = normalizePlannerTitleKey(title);
+      if (key) durationHintMap.set(key, mins);
+    }
+    if (durationHintMap.size && Array.isArray(args.blocks)) {
+      args.blocks = args.blocks.map((b: any) => {
+        if (b?.kind !== "task") return b;
+        const hint = durationHintMap.get(normalizePlannerTitleKey(String(b?.title || "")));
+        if (!hint) return b;
+        const dur = Number(b?.duration_min) || 0;
+        if (dur > 0 && dur >= hint * HINT_CLAMP_LOW && dur <= hint * HINT_CLAMP_HIGH) return b;
+        console.warn(`[generate-plan] clamped "${b?.title}" duration ${dur}m -> ${hint}m (hint)`);
+        return { ...b, duration_min: hint };
+      });
+    }
+
     let normalizedBlocks = Array.isArray(args.blocks)
       ? args.blocks
         .flatMap((b: any) => (b?.kind === "task" && Number(b?.duration_min || 0) > 90 ? splitLongTask(b) : [b]))

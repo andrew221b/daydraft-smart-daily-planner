@@ -146,11 +146,19 @@ export function VoiceMicButton({
           <AnimatePresence>
             {listening && (
               <motion.span
-                className="absolute inset-0 rounded-full bg-destructive/25"
-                initial={{ scale: 1, opacity: 0.6 }}
-                animate={{ scale: 1.7, opacity: 0 }}
+                className="absolute inset-0 rounded-full bg-destructive/20"
+                initial={{ scale: 1, opacity: 0 }}
+                animate={{
+                  scale: [1, 1.15, 1.75],
+                  opacity: [0, 0.5, 0],
+                }}
                 exit={{ opacity: 0 }}
-                transition={{ duration: 1.1, repeat: Infinity, ease: "easeOut" }}
+                transition={{
+                  duration: 1.2,
+                  repeat: Infinity,
+                  ease: "easeOut",
+                  times: [0, 0.18, 1],
+                }}
               />
             )}
           </AnimatePresence>

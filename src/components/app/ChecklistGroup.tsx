@@ -45,10 +45,9 @@ export function CheckCircleAccent({ done, failed = false, size = 22 }: { done: b
 }
 
 /** How long to wait for a possible second tap before committing the single tap.
- *  The single tap is DEFERRED by this much so a double-tap (→ failed ✗) never
- *  flashes the green check first; it's the small, deliberate "tap latency" the
- *  user asked for. */
-const DOUBLE_TAP_MS = 220;
+ *  Minimum practical window: human double-taps are typically 80–150ms apart,
+ *  so 150ms catches almost all intentional double-taps without extra latency. */
+const DOUBLE_TAP_MS = 150;
 
 /** Tap / double-tap / long-press detector for a checklist row.
  *  Single tap → `onTap` (toggle done), double tap → `onDoubleTap` (toggle the

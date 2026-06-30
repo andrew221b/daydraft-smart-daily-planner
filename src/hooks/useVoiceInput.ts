@@ -151,6 +151,11 @@ export function useVoiceInput(
   const webRecognitionRef = useRef<WebSpeechRecognition | null>(null);
   const inactivityRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const stopRef = useRef<() => void>(() => {});
+  // After a user-initiated stop, ignore any late "started" event until this
+  // timestamp. A continuous-mode restart can emit a stray "started" right after
+  // the user hit stop (engine still tearing down) — without this guard that
+  // flips the mic UI back on, so the indicator lingers / "won't turn off". See stop().
+  const suppressStartedUntilRef = useRef(0);
   const onTextRef = useRef(onText);
   onTextRef.current = onText;
   const onErrorRef = useRef(onError);
@@ -201,7 +206,15 @@ export function useVoiceInput(
       if (text) { onTextRef.current(text); bumpActivity(); }
     });
     const stateSub = SpeechRecognition.addListener("listeningState", (data) => {
-      setStatus((prev) => (prev === "denied" ? prev : data.status === "started" ? "listening" : "idle"));
+      setStatus((prev) => {
+        if (prev === "denied") return prev;
+        if (data.status === "started") {
+          // Drop a stray "started" that lands just after the user stopped.
+          if (Date.now() < suppressStartedUntilRef.current) return prev;
+          return "listening";
+        }
+        return "idle";
+      });
     });
     return () => {
       void partialSub.then((h) => h.remove());
@@ -212,6 +225,12 @@ export function useVoiceInput(
   const stop = useCallback(() => {
     if (inactivityRef.current) { clearTimeout(inactivityRef.current); inactivityRef.current = null; }
     if (isNative) {
+      // Stop is authoritative. Flip the UI to idle IMMEDIATELY (don't wait for the
+      // native "stopped" event, which can lag or be preceded by a stray restart
+      // "started"), and suppress any "started" for a moment so the indicator
+      // never lingers or re-arms while the engine finishes tearing down.
+      suppressStartedUntilRef.current = Date.now() + 1500;
+      setStatus("idle");
       void SpeechRecognition.stop().catch(() => { /* already stopped */ });
     } else {
       webRecognitionRef.current?.stop();
@@ -262,28 +281,55 @@ export function useVoiceInput(
         // popup:false is required on Android for partialResults to actually
         // fire (per the plugin's own docs); maxResults:1 — we only show the
         // top hypothesis live, matching the textarea's single-string value.
-        // `continuous` is this app's patch (Android-only): keep the recogniser
-        // alive across pauses instead of stopping on the first one, so one tap
-        // dictates a whole list. iOS is already continuous and ignores it.
-        await SpeechRecognition.start({
+        // `continuous` keeps the recogniser alive across pauses (one tap dictates
+        // a whole list) — Android via this app's patch, iOS via the vendored plugin.
+        const opts = {
           language,
           partialResults: true,
           popup: false,
           maxResults: 1,
           continuous: true,
           ...(contextualStrings?.length ? { contextualStrings } : {}),
-        } as Parameters<typeof SpeechRecognition.start>[0]);
+        } as Parameters<typeof SpeechRecognition.start>[0];
+
+        const attempt = async (): Promise<unknown> => {
+          try { await SpeechRecognition.start(opts); return null; }
+          catch (e) { return e || new Error("start failed"); }
+        };
+
+        // Re-allow "started" events (a prior stop may have armed the suppressor)
+        // and show "listening" optimistically so the FIRST tap feels responsive —
+        // the native "started" event normally confirms within a moment, and a real
+        // failure below reverts it.
+        suppressStartedUntilRef.current = 0;
+        setStatus("listening");
+        let err = await attempt();
+        if (err) {
+          // A stale session can leave the engine "busy"/"ongoing" — fully tear it
+          // down and try ONCE more before surfacing an error. This is the single
+          // biggest cause of the intermittent "Couldn't start dictation".
+          try { await SpeechRecognition.stop(); } catch { /* ignore */ }
+          await new Promise((r) => setTimeout(r, 350));
+          suppressStartedUntilRef.current = 0;
+          setStatus("listening");
+          err = await attempt();
+        }
+        if (err) {
+          console.warn("[voice] start failed", err);
+          setStatus("idle");
+          const msg = String((err as { message?: string })?.message ?? "").toLowerCase();
+          onErrorRef.current?.(
+            msg.includes("permission") || msg.includes("denied")
+              ? "Microphone access denied — enable it in Settings."
+              : msg.includes("use") || msg.includes("ongoing") || msg.includes("busy")
+                ? "Mic is busy — close other audio apps and try again."
+                : "Couldn't start dictation. Try again.",
+          );
+        }
       } catch (e) {
-        console.warn("[voice] start failed", e);
+        console.warn("[voice] start failed (outer)", e);
         setStatus("idle");
-        const msg = String((e as { message?: string })?.message ?? "").toLowerCase();
-        onErrorRef.current?.(
-          msg.includes("permission") || msg.includes("denied")
-            ? "Microphone access denied — enable it in Settings."
-            : msg.includes("in use")
-              ? "Mic is busy — close other audio apps and try again."
-              : "Couldn't start dictation. Try again.",
-        );
+        onErrorRef.current?.("Couldn't start dictation. Try again.");
       }
       return;
     }

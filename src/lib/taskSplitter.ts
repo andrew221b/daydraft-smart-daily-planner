@@ -3,6 +3,23 @@
 // Single source so the two never drift out of sync.
 const CONNECTOR_WORDS = "и|and|&|плюс|потом|затем|также|ещ[её]|then|also|plus";
 
+// STRONG SEQUENTIAL connectors that mark a brand-new task ON THEIR OWN — they
+// mean "next, do this", so natural run-on speech ("сходить в зал потом на почту
+// потом за молоком" / "finish the report then email Sarah then call the bank")
+// splits into separate tasks EVEN when the next word isn't a recognized starter
+// verb. This is the difference between dictating naturally and having to insert
+// line breaks yourself. A leading "а/и/and" ("а потом", "and then") is absorbed.
+// Bare "и"/"and" is deliberately NOT here: it links items inside one task
+// ("молоко и хлеб", "salt and pepper") as often as it links two tasks, so
+// splitting on it would shred shopping lists. Longest alternatives first so the
+// engine doesn't match "потом" inside "после ..." prematurely.
+const SEQUENTIAL_CONNECTORS =
+  "после\\s+этого|после\\s+чего|after\\s+that|afterwards?|потом|затем|then";
+const sequentialConnectorRe = new RegExp(
+  `\\s+(?:а\\s+|и\\s+|and\\s+)?(?:${SEQUENTIAL_CONNECTORS})\\s+`,
+  "giu",
+);
+
 const cleanupTitle = (value: string) =>
   value
     .replace(/^[,.;:!?\-–—•*\d.)\s]+/, "")
@@ -245,6 +262,8 @@ export function parseBulkTasks(input: string): string[] {
   const normalized = input
     .replace(/[\u2018\u2019]/g, "'")
     .replace(/[\u201C\u201D]/g, '"')
+    // Natural run-on speech first: "X потом Y потом Z" → one task per line.
+    .replace(sequentialConnectorRe, "\n")
     .replace(connectorBeforeStarterRe, "\n")
     .replace(/\s+(?:[+/|]|->|=>)\s+/g, "\n")
     .replace(/\s+[—–]\s+/g, "\n")
@@ -265,4 +284,55 @@ export function parseBulkTasks(input: string): string[] {
       return true;
     })
     .slice(0, 40);
+}
+
+// A leading buy/acquire verb is the signal that what follows is a shopping
+// enumeration ("купить молоко хлеб яйца") rather than a normal task title.
+// NB: no trailing \b after the verb — \w/\b are ASCII-only in JS, so a boundary
+// check right after a Cyrillic verb ("купить") never fires (same gotcha handled
+// elsewhere in this file). The required \s+ after the verb is boundary enough.
+const BUY_VERB_RE =
+  /^(?:надо\s+|нужно\s+|мне\s+надо\s+|мне\s+нужно\s+|i\s+need\s+to\s+|need\s+to\s+|i\s+have\s+to\s+|i\s+gotta\s+)?(?:купить|купи|куплю|купим|взять|возьми|приобрести|buy|get|grab|pick\s*up)\s+(.+)$/iu;
+// Prepositions/links that bind several words into ONE item ("корм ДЛЯ кошки").
+const ITEM_JOINER = new Set(["для", "на", "к", "со", "из", "по", "от", "до", "of", "with", "for", "to"]);
+// Noise tokens dropped inside a dictated list ("ещё", a list "и", filler).
+const ITEM_FILLER = new Set(["ещё", "еще", "вот", "ну", "так", "там", "это", "и", "да", "плюс"]);
+
+/**
+ * Best-effort split of a SPOKEN shopping list ("купить молоко хлеб яйца корм для
+ * кошки") into individual items. Fires ONLY on a leading buy-verb, so ordinary
+ * task titles are never touched. Words bound by a preposition stay one item
+ * ("корм для кошки"); the umbrella verb ("купить") is dropped since each item
+ * stands alone on a checklist.
+ *
+ * Heuristic by nature — a regex can't always tell a list ("молоко хлеб") from a
+ * phrase with an indirect object ("подарок маме на день рождения"). The AI
+ * checklist parser does this by MEANING and is the reliable path; this is the
+ * local/offline fallback, and the brain-dump review step lets the user fix any
+ * mis-split. Returns the input unchanged when it isn't a buy-enumeration.
+ */
+export function splitShoppingEnumeration(title: string): string[] {
+  const m = title.trim().match(BUY_VERB_RE);
+  if (!m) return [title];
+  const tokens = m[1].split(/\s+/).filter(Boolean);
+  if (tokens.length < 2) return [title]; // "купить молоко" — already a single item
+  const items: string[] = [];
+  let cur: string[] = [];
+  let pendingJoin = false;
+  const flush = () => { if (cur.length) { items.push(cur.join(" ")); cur = []; } };
+  for (const tok of tokens) {
+    const low = tok.toLowerCase().replace(/[.,;:!?]+$/g, "");
+    if (ITEM_FILLER.has(low)) { pendingJoin = false; continue; }
+    if (ITEM_JOINER.has(low)) {
+      if (cur.length === 0) continue;        // leading joiner — ignore
+      cur.push(tok); pendingJoin = true; continue;
+    }
+    if (pendingJoin || cur.length === 0) { cur.push(tok); pendingJoin = false; }
+    else { flush(); cur.push(tok); }
+  }
+  flush();
+  const cleaned = items.map((s) => s.trim()).filter(Boolean);
+  // De-verbed result if it parsed (even a single item → drops "купить"); the
+  // original line only when nothing usable came out.
+  return cleaned.length ? cleaned : [title];
 }
