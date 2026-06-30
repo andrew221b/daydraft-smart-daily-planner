@@ -89,6 +89,13 @@ export type VoiceStatus = "idle" | "listening" | "unsupported" | "denied";
 // privacy without interrupting active speech. Reset on every transcript update.
 const INACTIVITY_MS = 15_000;
 
+// Shorter watchdog for the case where the mic is "listening" but NOTHING has been
+// transcribed yet — a session that started but is silently broken (engine never
+// fed audio, model not ready, Android stuck in a restart spin). Rather than leave
+// the user staring at a pulsing mic that never captures anything, we bail after
+// this long with no first result and tell them to try again.
+const FIRST_RESULT_MS = 10_000;
+
 // Minimal shape of the browser's (non-standard, vendor-prefixed) SpeechRecognition API.
 interface WebSpeechRecognition {
   lang: string;
@@ -156,6 +163,10 @@ export function useVoiceInput(
   // the user hit stop (engine still tearing down) — without this guard that
   // flips the mic UI back on, so the indicator lingers / "won't turn off". See stop().
   const suppressStartedUntilRef = useRef(0);
+  // Did the CURRENT session ever produce a (non-empty) transcript? Drives the
+  // watchdog window (short until the first result, long after) and whether a
+  // timeout is a silent failure worth surfacing vs. a normal end-of-speech stop.
+  const gotTranscriptRef = useRef(false);
   const onTextRef = useRef(onText);
   onTextRef.current = onText;
   const onErrorRef = useRef(onError);
@@ -163,10 +174,19 @@ export function useVoiceInput(
 
   // Reset the silence watchdog — called on every transcript update and when
   // listening starts. Uses refs only so it's stable and safe to call from a
-  // long-lived native event listener.
+  // long-lived native event listener. Before any transcript arrives we use the
+  // shorter FIRST_RESULT_MS so a silently-broken session is caught quickly; once
+  // speech is flowing we allow the longer INACTIVITY_MS between phrases.
   const bumpActivity = useCallback(() => {
     if (inactivityRef.current) clearTimeout(inactivityRef.current);
-    inactivityRef.current = setTimeout(() => stopRef.current(), INACTIVITY_MS);
+    const ms = gotTranscriptRef.current ? INACTIVITY_MS : FIRST_RESULT_MS;
+    inactivityRef.current = setTimeout(() => {
+      const gotAny = gotTranscriptRef.current;
+      stopRef.current();
+      // Only nag when the mic produced nothing at all — a timeout after real
+      // speech is just the natural end of dictation and needs no error toast.
+      if (!gotAny) onErrorRef.current?.("Didn't catch anything — check your mic and try again.");
+    }, ms);
   }, []);
 
   const isNative = Capacitor.isNativePlatform();
@@ -203,7 +223,7 @@ export function useVoiceInput(
     if (!isNative) return;
     const partialSub = SpeechRecognition.addListener("partialResults", (data) => {
       const text = data.matches?.[0];
-      if (text) { onTextRef.current(text); bumpActivity(); }
+      if (text) { gotTranscriptRef.current = true; onTextRef.current(text); bumpActivity(); }
     });
     const stateSub = SpeechRecognition.addListener("listeningState", (data) => {
       setStatus((prev) => {
@@ -267,6 +287,8 @@ export function useVoiceInput(
    * it's this app's own addition, hence the cast.
    */
   const start = useCallback(async (language: string, contextualStrings?: string[]) => {
+    // Fresh session: no transcript yet, so the watchdog runs on the short window.
+    gotTranscriptRef.current = false;
     if (isNative) {
       try {
         const perm = await SpeechRecognition.checkPermissions();
@@ -346,6 +368,7 @@ export function useVoiceInput(
     rec.onresult = (e) => {
       let text = "";
       for (let i = 0; i < e.results.length; i++) text += e.results[i][0].transcript;
+      if (text) gotTranscriptRef.current = true;
       onTextRef.current(text);
       bumpActivity();
     };

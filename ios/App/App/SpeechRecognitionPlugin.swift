@@ -74,6 +74,8 @@ public class SpeechRecognitionPlugin: CAPPlugin, CAPBridgedPlugin {
     private var maxResults = 5
     private var contextualStrings: [String] = []
     private var consecutiveRestarts = 0   // guard against an instant error-restart loop
+    private var lastRestartAt: TimeInterval = 0  // timestamp of the last restart (spin detection)
+    private var taskRetired = false       // the current recognition task has already finished — ignore trailing callbacks
 
     @objc func available(_ call: CAPPluginCall) {
         guard let recognizer = SFSpeechRecognizer() else {
@@ -120,6 +122,7 @@ public class SpeechRecognitionPlugin: CAPPlugin, CAPBridgedPlugin {
         self.startedEmitted = false
         self.sessionText = ""
         self.consecutiveRestarts = 0
+        self.lastRestartAt = 0
 
         if self.recognitionTask != nil {
             self.recognitionTask?.cancel()
@@ -194,8 +197,17 @@ public class SpeechRecognitionPlugin: CAPPlugin, CAPBridgedPlugin {
             request.requiresOnDeviceRecognition = true
         }
         self.recognitionRequest = request
+        self.taskRetired = false
 
         self.recognitionTask = recognizer.recognitionTask(with: request) { (result, error) in
+            // A finished task can deliver a trailing error callback AFTER it has
+            // already delivered isFinal (and a single callback can carry BOTH a
+            // final result and an error). Without this guard restartOrFinish fires
+            // twice for one finalisation, spinning up duplicate recognition tasks
+            // that cascade restarts until the spin-guard tears the whole session
+            // down ~1s in — the "listening flashed then died" bug.
+            if self.taskRetired { return }
+            var finish = false
             if let result = result {
                 let current = result.bestTranscription.formattedString
                 if !current.isEmpty { self.consecutiveRestarts = 0 }
@@ -213,12 +225,14 @@ public class SpeechRecognitionPlugin: CAPPlugin, CAPBridgedPlugin {
                     if !current.isEmpty {
                         self.sessionText = self.sessionText.isEmpty ? current : self.sessionText + "\n" + current
                     }
-                    self.restartOrFinish()
+                    finish = true
                 }
             }
-            if error != nil {
-                // A benign end-of-segment error in continuous mode = the user
-                // paused; keep the session alive by restarting. Otherwise finish.
+            // A benign end-of-segment error in continuous mode = the user paused;
+            // restartOrFinish keeps the session alive. Otherwise it finishes.
+            if error != nil { finish = true }
+            if finish {
+                self.taskRetired = true
                 self.restartOrFinish()
             }
         }
@@ -228,13 +242,26 @@ public class SpeechRecognitionPlugin: CAPPlugin, CAPBridgedPlugin {
     // the SAME engine to keep listening; otherwise tear the session down cleanly.
     private func restartOrFinish() {
         if self.continuousMode && !self.stoppedByUser {
-            self.consecutiveRestarts += 1
-            // Guard an instant error-restart loop (e.g. a locale model that keeps
-            // erroring with no audio) — bail rather than spin.
-            if self.consecutiveRestarts > 6 {
+            // Spin detection is TIME-BASED, not a flat count. Only restarts that
+            // come hard on the heels of the previous one (<0.5s apart) count as an
+            // error spin; a restart after a real speaking pause resets the counter.
+            // The old fixed `> 6` had no time basis, so a handful of natural pauses
+            // (or empty finalisations while the user gathered their thoughts) tore
+            // the mic down mid-dictation.
+            let now = Date().timeIntervalSince1970
+            if now - self.lastRestartAt < 0.5 {
+                self.consecutiveRestarts += 1
+            } else {
+                self.consecutiveRestarts = 0
+            }
+            self.lastRestartAt = now
+            if self.consecutiveRestarts > 8 {
                 DispatchQueue.main.async { self.teardown(emitStopped: true) }
                 return
             }
+            // Cancel (not just drop) the finished task so it can't deliver another
+            // trailing callback into the new task's lifetime.
+            self.recognitionTask?.cancel()
             self.recognitionTask = nil
             self.recognitionRequest = nil
             // Re-arm on the main thread, only if the engine is still up and the

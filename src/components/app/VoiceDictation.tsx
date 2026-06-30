@@ -143,25 +143,26 @@ export function VoiceMicButton({
             listening ? "bg-destructive/15 text-destructive" : "bg-foreground/[0.06] text-secondary-fg/70 hover:text-foreground"
           }`}
         >
-          <AnimatePresence>
-            {listening && (
-              <motion.span
-                className="absolute inset-0 rounded-full bg-destructive/20"
-                initial={{ scale: 1, opacity: 0 }}
-                animate={{
-                  scale: [1, 1.15, 1.75],
-                  opacity: [0, 0.5, 0],
-                }}
-                exit={{ opacity: 0 }}
-                transition={{
-                  duration: 1.2,
-                  repeat: Infinity,
-                  ease: "easeOut",
-                  times: [0, 0.18, 1],
-                }}
-              />
-            )}
-          </AnimatePresence>
+          {/* Always mounted — we toggle the animation via `listening` rather than
+              mount/unmount through AnimatePresence. An infinite-repeat ring that
+              gets unmounted mid-cycle (e.g. a session that dies right after start)
+              orphans a half-finished loop that keeps pulsing forever; gating the
+              `animate` prop instead lets framer-motion settle it cleanly to hidden. */}
+          <motion.span
+            aria-hidden
+            className="absolute inset-0 rounded-full bg-destructive/20 pointer-events-none"
+            initial={false}
+            animate={
+              listening
+                ? { scale: [1, 1.15, 1.75], opacity: [0, 0.5, 0] }
+                : { scale: 1, opacity: 0 }
+            }
+            transition={
+              listening
+                ? { duration: 1.2, repeat: Infinity, ease: "easeOut", times: [0, 0.18, 1] }
+                : { duration: 0.2 }
+            }
+          />
           <motion.span
             animate={listening ? { scale: [1, 1.12, 1] } : { scale: 1 }}
             transition={listening ? { duration: 0.9, repeat: Infinity, ease: "easeInOut" } : undefined}
