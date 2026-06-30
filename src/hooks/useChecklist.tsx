@@ -269,7 +269,7 @@ export function useChecklist(
   // ── reminder: reschedule whenever this day's items change ───────────────
   useEffect(() => {
     if (!userId) return;
-    void scheduleChecklistReminder(items, planDate, eveningNudgeTime);
+    void scheduleChecklistReminder(items, groups, planDate, eveningNudgeTime);
   }, [items, planDate, eveningNudgeTime, userId]);
 
   // ── remote write helpers (optimistic already applied; offline fallback) ─

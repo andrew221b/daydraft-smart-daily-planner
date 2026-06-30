@@ -434,7 +434,8 @@ async function clearBlockNotifications() {
 const CHECKLIST_NOTIF_ID = 920001;
 
 export async function scheduleChecklistReminder(
-  items: { done: boolean; title: string }[],
+  items: { done: boolean; title: string; group_id: string | null }[],
+  groups: { id: string; title: string }[],
   planDate: string,
   eveningNudgeTime?: string,
 ): Promise<void> {
@@ -453,11 +454,41 @@ export async function scheduleChecklistReminder(
   const at = new Date(y, m - 1, d, h, min, 0, 0);
   if (at.getTime() <= Date.now()) return; // time already passed today / past day
 
-  const first = unchecked[0].title;
-  const body =
-    unchecked.length === 1
-      ? `“${first}” is still unchecked`
-      : `${unchecked.length} items still unchecked — starting with “${first}”`;
+  // Build context-aware copy: prefer group/category names over individual item
+  // titles so the notification reads as a meaningful summary rather than a
+  // random item name surfaced out of context (e.g. "starting with 'Cauliflower'").
+  const q = (s: string) => '"' + s + '"';
+  const groupById = new Map(groups.map((g) => [g.id, g.title]));
+  const n = unchecked.length;
+
+  let body: string;
+  if (n === 1) {
+    // Only one item: name the category it belongs to if it has one.
+    const item = unchecked[0];
+    const groupName = item.group_id ? groupById.get(item.group_id) : null;
+    body = groupName
+      ? "1 item left in " + q(groupName)
+      : q(item.title) + " is still open";
+  } else {
+    // Multiple items: find which groups are represented.
+    const groupIds = new Set(unchecked.map((i) => i.group_id).filter(Boolean));
+    const namedGroups = [...groupIds]
+      .map((id) => groupById.get(id!))
+      .filter(Boolean) as string[];
+    const hasUngrouped = unchecked.some((i) => !i.group_id);
+
+    if (namedGroups.length === 1 && !hasUngrouped) {
+      // All in one named list.
+      body = n + " items left in " + q(namedGroups[0]);
+    } else if (namedGroups.length > 0) {
+      // Spread across lists: name up to 2, drop item titles.
+      const listSummary = namedGroups.slice(0, 2).map(q).join(", ");
+      const extra = namedGroups.length > 2 ? " +" + (namedGroups.length - 2) + " more" : "";
+      body = n + " items left across " + listSummary + extra;
+    } else {
+      body = n + " items still open on your checklist";
+    }
+  }
 
   try {
     await LocalNotifications.schedule({
