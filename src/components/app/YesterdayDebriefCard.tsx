@@ -600,7 +600,11 @@ function InsightsCardInner({ timezone }: { timezone?: string | null }) {
           {
             ttlMs: 24 * 60 * 60_000,
             persistMs: 24 * 60 * 60_000,
-            timeoutMs: 20_000,
+            // 30s (was 20): the server now retries a failed Gemini call once
+            // before falling back, and even a client-side timeout self-heals —
+            // the server stores the generated insight (insight_history), so
+            // the next fetch returns it instantly without another AI call.
+            timeoutMs: 30_000,
             signal,
             cacheKey,
           },

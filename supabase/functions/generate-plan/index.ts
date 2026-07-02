@@ -168,6 +168,15 @@ serve(async (req) => {
       console.log(`[generate-plan] resolved ${localResolvedCount} task duration(s) locally (no AI guess needed)`);
     }
 
+    // Language of the CURRENT input decides the language of everything this
+    // function INSERTS itself (lunch, buffers, travel legs, subtext notes) —
+    // matching the prompt's own LANGUAGE rule for the model's output. Letter
+    // counts, not word heuristics: "[20min] at 17:00" noise barely registers
+    // against real task words.
+    const cyrCount = (raw_input.match(/[а-яё]/gi) || []).length;
+    const latCount = (raw_input.match(/[a-z]/gi) || []).length;
+    const isRuInput = cyrCount > latCount;
+
     const anchorSplitLines = splitTaskLines(raw_input);
     for (let i = 0; i < mergedClarified.length; i++) {
       const lineSource = anchorSplitLines[i] || String(mergedClarified[i]?.title || "");
@@ -620,6 +629,8 @@ ${calendarEvents.map((e: any) => `- ${e.start_time} (${e.duration_min}m) ${e.tit
 
 YOUR JOB: turn the user's task list into a realistic schedule for their day. Build a plan they can actually finish — not an idealized one that sets them up to feel behind.
 
+LANGUAGE (mandatory — checked on every string): detect the language of the CURRENT task list under "Raw tasks" and write EVERY output string — block titles, travel/break/lunch titles, reasoning, summary, subtext — in THAT language. English tasks → fully English plan; Russian tasks → fully Russian plan. Two things must NEVER flip your output language: (1) the examples in these instructions, which are deliberately multilingual; (2) the personalization sections below (the user's past task titles, personal context, planning rules), which are often written in a different language than today's input. ONLY today's task list decides. If the list itself mixes languages, keep each task title in its own language and use the majority language for summary/subtext/reasoning.
+
 WHEN (hard constraints — no exceptions):
 - Current local time: ${nowHHMM} (${timezone || "UTC"}).
 - Planning date: ${plan_date || todayLocal}${isPlanningToday ? " (TODAY)" : " (future date)"}.
@@ -632,12 +643,14 @@ WHAT ORDER (follow exactly, highest priority first):
 2. USER CLARIFICATION ANSWERS — if the user answered questions before planning, those answers are HARD scheduling rules (see section below if present).
 3. SEQUENCING CUES — "after / потом / then / once I finish / по возвращении" → that task comes AFTER; "before / перед / до / by" → BEFORE. Honor these even if it conflicts with what seems "optimal".
 4. PART-OF-DAY HINTS — "утром / morning / вечером / evening / first thing / tonight" → schedule in that window.
-5. USER'S WRITTEN ORDER — treat the list roughly as the user's intended day order. Only re-order to honor rules 1–4 above or to fit a clearly mentioned meal/break.
+5. USER'S WRITTEN ORDER IS THE USER'S SEQUENCE — connector words ("потом", "then", "after that") are often stripped before the list reaches you; assume the order still carries them. An unanchored task stays BETWEEN its list neighbours: never scheduled before an earlier-listed task, never pushed past a later-listed one. The ONLY exceptions: a FIXED time makes it physically impossible, or the LEISURE rule below moves entertainment out of the productive day — and when you do either, say so in subtext.
+6. GAP-FILLING BETWEEN ANCHORS — when an unanchored task sits BETWEEN two fixed-time tasks in the list, it goes INTO the window between those anchors (after the first task AND its travel/return legs, before the second). Example: "почта at 17:00 → магазин → работа at 19:00" ⇒ магазин lands ~17:40–19:00, NEVER after работа late at night. If the window is genuinely too small, shorten the middle task to fit or flag it in subtext — silently dumping it at the end of the day is the worst possible answer.
 
 IMPLICIT COMMON SENSE (apply automatically without asking — this is where you act less like a parser and more like someone who actually understands a day):
 - BE A REAL PREDICTOR, NOT A PACKER. Spread tasks out organically. Do not just cram all tasks back-to-back starting at 9 AM without breaks. If shifting a task by 15-30 minutes creates a more realistic flow, do it.
 - MANDATORY LUNCH: If the plan spans past 13:00 and no lunch/meal block exists, YOU MUST insert a 45-60m "Lunch" block (kind="lunch", block_type="rest") between 12:00 and 14:00. No exceptions — real humans eat.
 - LEISURE vs WORK is the big one. Entertainment and downtime (a movie / film, a show, a game, hanging out, relaxing, a hobby) on a day that ALSO has work, calls, or errands belongs in FREE time — normally the evening — and NEVER before the day's work and fixed commitments. Productive daytime goes to work and calls; rest wraps around them. A 2.5-hour movie does not go at 11:00 before a workday; it goes after the work is done.
+- REAL-WORLD OPENING HOURS: errands at physical places (store / магазин, post office / почта, bank, pharmacy, clinic, government office) happen while those places are OPEN — assume roughly 08:00–21:00 unless the user says otherwise. NEVER schedule an errand late at night or before dawn; a store run at 23:00 is nonsense, not a plan. If an errand can't fit before closing, flag it in subtext ("магазин сегодня не влезает — перенести на завтра?") instead of scheduling the impossible.
 - REALISTIC DURATIONS: estimate task lengths when the user doesn't specify a duration. Order of preference: (1) if a "YOUR OWN MEASURED DURATIONS" section is present and the task matches a row, use THAT — it's this user's real measured time and beats every average; (2) otherwise use the ACTIVITY DURATION REFERENCE table below, anchoring each task to the closest matching row. If the user's context indicates a profession listed in the reference, PREFER that profession's per-task durations (a developer's "review" ≈ 45m, a lawyer's ≈ 120m). For example, "gym" = 60 min + travel, "cook dinner" = 60-90 min, "watch a movie" = 120-150 min. NEVER assign a 15-min block to something that takes an hour in real life.
 - Match energy to the clock: deep focus in the productive peak, light/admin in the dips, leisure once the work is behind them.
 - TRAVEL — ROUND TRIP: Any task that involves leaving home (gym, store, pharmacy, doctor, school, office, meeting, appointment) MUST get TWO travel blocks — NEVER just one, and NEVER folded into the activity's own duration or left as a silent unlabeled gap:
@@ -645,6 +658,7 @@ IMPLICIT COMMON SENSE (apply automatically without asking — this is where you 
   2. "Return from [place]" AFTER the activity (kind="break", block_type="rest", 15-25 min default)
   Write "Travel to"/"Return from" and "[place]" in the SAME language as the user's own input for that task — never mix languages within one title.
   If the user mentioned a travel time (clarification answer or in the text), it is ONE-WAY — use that SAME number for BOTH blocks, not just the outbound one. That number is travel time only; it is NEVER the activity's own duration_min. Before finishing, check every out-of-home task has both legs — a "Travel to" with no matching "Return from" is an incomplete plan. If two consecutive out-of-home tasks are at the SAME location, skip the return+departure pair and add a single transition. The activity duration does NOT include travel — it's separate, explicitly titled blocks so the user can see exactly where the time went.
+  "Go to X at TIME" phrasing ("в 5 пойти на почту") means the user LEAVES at that time: the outbound travel starts AT the fixed time and the activity follows it. Worked example with a "20 min one-way" answer: 17:00 Дорога на почту (20m) → 17:20 Почта (20m) → 17:40 next leg (to the next errand or back home, 20m). Two consecutive errands at different places chain: travel → errand A → travel → errand B → travel home.
 - ROUTINES & PREP (THE "NOSTRADAMUS" RULE) — AT-HOME tasks only: When scheduling tasks that require setup, prep, or cleanup WITHOUT leaving the house (cooking, morning start, packing, cleaning), use the ROUTINES & PREP durations from the reference table. Do NOT create explicitly named blocks for these. Instead, either expand the task's duration to absorb it, or leave a natural, empty gap (15-30m) before/after the task so the user has realistic time to transition. This rule does NOT apply to anything that leaves the house — those are owned entirely by the TRAVEL — ROUND TRIP rule above (explicit, titled travel blocks, never absorbed into duration and never a silent gap). Act like you truly know how human days work.
 - Important meeting, call, or presentation → add 10–15 min "Prep for [meeting]" block just before it.
 - Two locations in different parts of the city back-to-back → add a 20–30 min travel buffer between them (kind="break", block_type="rest", titled "Travel to [next place]" — same language-matching rule as above).
@@ -669,6 +683,13 @@ BREAKS & MEALS:
 - Light day (≤60 min total tasks, ≥4h remaining): schedule what's given, start subtext with "✨ Light day — " + one warm suggestion.
 
 GIBBERISH GUARD: if input is completely unintelligible (random keys, "test", no real intent) → return ONE 15-min task: title "Clarify today's goals", type="routine", kind="task", reasoning "Couldn't parse the input.", summary "Awaiting clear tasks", subtext "Try writing out your actual goals."
+
+FINAL SELF-CHECK — before emitting JSON, verify EVERY point against your schedule; if any fails, FIX the schedule and re-verify:
+1. Every explicit/fixed time honored exactly.
+2. Unanchored tasks sit between their list neighbours — nothing silently moved to the end of the day, nothing jumped ahead of an earlier-listed task.
+3. Every out-of-home task has BOTH travel legs, each using the user's stated one-way time when given.
+4. No errand outside realistic opening hours; leisure comes after the day's work, near the end.
+5. No overlapping blocks; every input task appears exactly once (or its drop is explained in subtext).
 
 OUTPUT FORMAT:
 - Summary: short, e.g. "4 tasks · done by 6pm".
@@ -719,6 +740,9 @@ ${ACTIVITY_DURATIONS}${personalDurationsHints}${planningPrefsHints}${clarifiedHi
       // leisure-vs-work ordering, instead of reverting to a flat heuristic.
       (mergedClarified.length > 0 ? 2 : 0) +
       (emotionalContext && isClarificationAnswers ? 2 : 0) +
+      // Travel answers are the hardest scheduling geometry (two legs per task,
+      // chained errands, anchors) — give the model full room to reason.
+      (emotionalContext.includes("TRAVEL TIME") ? 1 : 0) +
       (userPlanningRules ? 1 : 0) +
       (taskLineCount > 6 ? 2 : taskLineCount > 3 ? 1 : 0);
     const thinkingBudget = planComplexity >= 4 ? 4096 : planComplexity >= 2 ? 2048 : 1024;
@@ -971,6 +995,124 @@ ${ACTIVITY_DURATIONS}${personalDurationsHints}${planningPrefsHints}${clarifiedHi
     const conflictResolved = resolveConflicts(normalizedBlocks, calendarEvents);
     normalizedBlocks = conflictResolved.blocks;
 
+    // ── Travel-answer backstop ────────────────────────────────────────────────
+    // A clarify-sheet travel answer ("20 минут в одну сторону") is the most
+    // explicit commute signal the user ever gives, and the prompt's TRAVEL —
+    // ROUND TRIP rule spells out exactly what to do with it — but asking isn't
+    // enforcing (same class as lunch/conflicts above). When the model still
+    // omits a leg, the plan silently eats 2×N minutes and every errand chain
+    // drifts. Parse the tagged answers back out of planning_context, match each
+    // to its task block by word-prefix overlap (Russian case endings make exact
+    // matching useless: "почты"/"почту" share only the 4-char stem), and insert
+    // any MISSING adjacent leg into free space around the task. Never moves or
+    // resizes existing blocks — inserts shrink to the available gap and are
+    // skipped entirely below 5 minutes, so no overlap is ever created.
+    const travelAnswers: { qWords: string[]; minutes: number }[] = [];
+    if (isClarificationAnswers) {
+      const ctxLines = emotionalContext.split("\n");
+      for (let i = 0; i < ctxLines.length; i++) {
+        const aMatch = ctxLines[i].match(/^\s*A:\s*(.+?)\s*\[TRAVEL TIME — ONE-WAY/i);
+        if (!aMatch) continue;
+        const ans = aMatch[1];
+        let v = 0;
+        const num = ans.match(/(\d+(?:[.,]\d+)?)/);
+        if (num) {
+          v = parseFloat(num[1].replace(",", "."));
+          if (/час|hour|hr/i.test(ans) && v <= 5) v *= 60;
+        } else if (/полчаса|half\s+an?\s+hour/i.test(ans)) v = 30;
+        else if (/час|hour/i.test(ans)) v = 60;
+        const minutes = Math.round(v);
+        if (!(minutes >= 3) || minutes > 240) continue;
+        // Words from the QUESTION identify the task ("...дорога до почты?").
+        // Generic question vocabulary is stoplisted so only the place/task
+        // words participate in matching.
+        // All entries are 4-char stems — must match the 4-char slices below.
+        const stop = new Set(["скол", "врем", "займ", "мину", "добр", "доро", "ехат", "идти", "долг", "туда", "нужн", "long", "time", "trav", "much", "take", "will", "does", "need", "ther"]);
+        const qWords = (ctxLines[i - 1] || "")
+          .toLowerCase()
+          .replace(/^\s*-?\s*q:\s*/i, "")
+          .split(/[^a-zа-яё]+/i)
+          .filter((w) => w.length >= 4)
+          .map((w) => w.slice(0, 4))
+          .filter((w) => !stop.has(w));
+        if (qWords.length) travelAnswers.push({ qWords, minutes });
+      }
+    }
+    const ensureTravelLegs = (blocks: any[]) => {
+      if (!travelAnswers.length) return { blocks, inserted: 0 };
+      let inserted = 0;
+      let out = [...blocks];
+      const blockEnd = (b: any) => timeToMin(b.start_time) + Number(b.duration_min || 0);
+      for (const ta of travelAnswers) {
+        // Best task match = most question words sharing a 4-char stem with a
+        // title word. Score 0 → no confident match → do nothing (never guess).
+        let idx = -1;
+        let bestScore = 0;
+        out.forEach((b, i) => {
+          if (b?.kind !== "task") return;
+          const titleWords = String(b.title || "")
+            .toLowerCase()
+            .split(/[^a-zа-яё]+/i)
+            .filter((w) => w.length >= 4)
+            .map((w) => w.slice(0, 4));
+          const score = ta.qWords.filter((qw) => titleWords.includes(qw)).length;
+          if (score > bestScore) { bestScore = score; idx = i; }
+        });
+        if (idx < 0) continue;
+        const task = out[idx];
+        const tStart = timeToMin(task.start_time);
+        const tEnd = blockEnd(task);
+        const cyr = /[а-яё]/i.test(String(task.title || ""));
+        const shortTitle = String(task.title || "").split(/\s+/).slice(0, 4).join(" ").slice(0, 32);
+        const hasOutbound = out.some((b) => b !== task && b.kind === "break" && Math.abs(blockEnd(b) - tStart) <= 5);
+        const hasReturn = out.some((b) => b !== task && b.kind === "break" && Math.abs(timeToMin(b.start_time) - tEnd) <= 5);
+        const prevEnd = Math.max(
+          timeToMin(earliestStart),
+          ...out.filter((b) => b !== task && blockEnd(b) <= tStart).map(blockEnd),
+          0,
+        );
+        const nextStart = Math.min(24 * 60, ...out.filter((b) => b !== task && timeToMin(b.start_time) >= tEnd).map((b) => timeToMin(b.start_time)));
+        if (!hasOutbound) {
+          const dur = Math.min(ta.minutes, tStart - prevEnd);
+          if (dur >= 5) {
+            out.push({
+              start_time: minToTime(tStart - dur),
+              duration_min: dur,
+              slot_end_time: minToTime(tStart),
+              title: cyr ? `Дорога — ${shortTitle}` : `Travel — ${shortTitle}`,
+              kind: "break",
+              type: "routine",
+              block_type: "rest",
+              reasoning: cyr ? "Дорога туда — время из твоего ответа." : "Outbound leg — from your own travel-time answer.",
+            });
+            inserted += 1;
+            console.warn(`[generate-plan] inserted missing outbound travel (${dur}m) before "${task.title}"`);
+          }
+        }
+        if (!hasReturn) {
+          const dur = Math.min(ta.minutes, nextStart - tEnd);
+          if (dur >= 5) {
+            out.push({
+              start_time: minToTime(tEnd),
+              duration_min: dur,
+              slot_end_time: minToTime(tEnd + dur),
+              title: cyr ? `Обратная дорога — ${shortTitle}` : `Return — ${shortTitle}`,
+              kind: "break",
+              type: "routine",
+              block_type: "rest",
+              reasoning: cyr ? "Обратный путь — столько же, сколько туда." : "Return leg — same one-way time you gave.",
+            });
+            inserted += 1;
+            console.warn(`[generate-plan] inserted missing return travel (${dur}m) after "${task.title}"`);
+          }
+        }
+        out = out.sort((a: any, b: any) => timeToMin(a.start_time) - timeToMin(b.start_time));
+      }
+      return { blocks: out, inserted };
+    };
+    const withTravel = ensureTravelLegs(normalizedBlocks);
+    normalizedBlocks = withTravel.blocks;
+
     // The prompt also says "MANDATORY LUNCH: insert a 45-60m Lunch block if the
     // plan spans past 13:00" — same problem, a request rather than an
     // enforcement. Backstop it for when the model simply forgets. Inserted
@@ -1007,11 +1149,11 @@ ${ACTIVITY_DURATIONS}${personalDurationsHints}${planningPrefsHints}${clarifiedHi
         start_time: minToTime(lunchStart),
         duration_min: lunchDur,
         slot_end_time: minToTime(lunchStart + lunchDur),
-        title: "Lunch",
+        title: isRuInput ? "Обед" : "Lunch",
         kind: "lunch",
         type: "routine",
         block_type: "rest",
-        reasoning: "Added so your day doesn't skip lunch.",
+        reasoning: isRuInput ? "Добавил, чтобы день не прошёл без обеда." : "Added so your day doesn't skip lunch.",
       };
       const out = [...blocks, lunchBlock].sort((a: any, b: any) => timeToMin(a.start_time) - timeToMin(b.start_time));
       return { blocks: out, inserted: true };
@@ -1026,11 +1168,11 @@ ${ACTIVITY_DURATIONS}${personalDurationsHints}${planningPrefsHints}${clarifiedHi
         start_time: minToTime(atMin),
         duration_min: minutes,
         slot_end_time: minToTime(atMin + minutes),
-        title: idx % 2 === 0 ? "Buffer" : "Transition",
+        title: isRuInput ? (idx % 2 === 0 ? "Буфер" : "Передышка") : (idx % 2 === 0 ? "Buffer" : "Transition"),
         type: "routine",
         kind: "break",
         block_type: "rest",
-        reasoning: "Transition buffer to keep schedule realistic.",
+        reasoning: isRuInput ? "Переходный буфер, чтобы план оставался реалистичным." : "Transition buffer to keep schedule realistic.",
       });
       for (let i = 0; i < blocks.length; i++) {
         const cur = blocks[i];
@@ -1071,22 +1213,35 @@ ${ACTIVITY_DURATIONS}${personalDurationsHints}${planningPrefsHints}${clarifiedHi
     };
     const withBuffers = addBuffers(normalizedBlocks);
     const bufferNote = withBuffers.inserted > 0
-      ? (patternBufferEnabled ? "Buffers added based on your patterns" : "Buffers added as default")
+      ? (isRuInput
+        ? (patternBufferEnabled ? "Добавил буферы по твоим паттернам" : "Добавил небольшие буферы")
+        : (patternBufferEnabled ? "Buffers added based on your patterns" : "Buffers added as default"))
       : null;
     const conflictNote = conflictResolved.shiftedCount > 0
-      ? `Adjusted ${conflictResolved.shiftedCount} task(s) to avoid a clash`
+      ? (isRuInput
+        ? `Сдвинул задачи (${conflictResolved.shiftedCount}), чтобы убрать пересечение`
+        : `Adjusted ${conflictResolved.shiftedCount} task(s) to avoid a clash`)
       : null;
-    const lunchNote = withLunch.inserted ? "Added a lunch block so your day doesn't skip it" : null;
+    const lunchNote = withLunch.inserted
+      ? (isRuInput ? "Добавил обед, чтобы день не прошёл без него" : "Added a lunch block so your day doesn't skip it")
+      : null;
+    const travelNote = withTravel.inserted > 0
+      ? (isRuInput ? "Учёл время дороги из твоего ответа" : "Added the travel time you told us about")
+      : null;
     const chronicNote = (() => {
       if (!learningActive || !chronicTaskTitles.length) return null;
       const rawLower = String(raw_input || "").toLowerCase();
       const hit = chronicTaskTitles.find((t) => rawLower.includes(t.toLowerCase()));
-      return hit ? "You've pushed this 3 times — want to break it into smaller steps?" : null;
+      return hit
+        ? (isRuInput ? "Эта задача откладывалась уже 3 раза — разбить её на шаги поменьше?" : "You've pushed this 3 times — want to break it into smaller steps?")
+        : null;
     })();
-    const learningNote = learningActive ? "Plan tuned to your patterns" : null;
+    const learningNote = learningActive
+      ? (isRuInput ? "План настроен под твои паттерны" : "Plan tuned to your patterns")
+      : null;
     const finalSubtext = (() => {
       const base = String(args.subtext || "").trim();
-      const notes = [base, conflictNote, lunchNote, bufferNote, learningNote, chronicNote].filter(Boolean) as string[];
+      const notes = [base, conflictNote, lunchNote, travelNote, bufferNote, learningNote, chronicNote].filter(Boolean) as string[];
       return notes.join(" ").trim();
     })();
     return new Response(

@@ -39,6 +39,17 @@ const DumpInputStep = memo(function DumpInputStep({
   // reports the FULL session transcript, so each update replaces everything
   // typed/dictated after that snapshot rather than appending duplicates.
   const dictationBaseRef = useRef("");
+  const taRef = useRef<HTMLTextAreaElement | null>(null);
+  // Keep the newest line visible as text streams in: pin the textarea's
+  // internal scroll to the bottom (pb-11 then holds that line clear of the
+  // floating mic). Sticky for typing — scrolled-up readers stay put; forced
+  // for dictation, whose text always lands at the end.
+  const pinToBottom = (force: boolean) => {
+    const el = taRef.current;
+    if (!el) return;
+    if (!force && el.scrollHeight - el.scrollTop - el.clientHeight > 48) return;
+    requestAnimationFrame(() => { el.scrollTop = el.scrollHeight; });
+  };
   return (
     // The Continue button lives in its own shrink-0 footer, OUTSIDE the
     // overflow-y-auto region below — a button's glow/hover shadow paints
@@ -65,12 +76,21 @@ const DumpInputStep = memo(function DumpInputStep({
         </div>
         <div className="relative">
           <Textarea
+            ref={taRef}
             autoFocus={false}
             value={val}
-            onChange={(e) => setVal(e.target.value)}
+            onChange={(e) => { setVal(e.target.value); pinToBottom(false); }}
             placeholder={"Buy milk, eggs, bread\nCall the dentist\nReturn library books"}
             className="min-h-[150px] rounded-2xl border-soft bg-card text-[14px] pb-11"
             style={{ fontSize: 16 }}
+          />
+          {/* Scrim: lines scrolled into the bottom strip dissolve into the
+              card colour before they can slide under the floating mic —
+              matches BulkInputStep. pointer-events-none keeps scroll/taps
+              passing through to the textarea. */}
+          <div
+            aria-hidden
+            className="pointer-events-none absolute inset-x-px bottom-px h-11 rounded-b-2xl bg-gradient-to-t from-card via-card/70 to-transparent"
           />
           <VoiceMicButton
             className="absolute bottom-2 right-2"
@@ -79,6 +99,7 @@ const DumpInputStep = memo(function DumpInputStep({
             onText={(text) => {
               const base = dictationBaseRef.current;
               setVal(base ? `${base}${base.endsWith("\n") ? "" : "\n"}${text}` : text);
+              pinToBottom(true);
             }}
           />
         </div>

@@ -39,6 +39,22 @@ async function callGeminiTool(
   parameters: Record<string, unknown>,
   temperature: number,
 ): Promise<Record<string, any> | null> {
+  // One silent retry: a transient 429/503/network blip shouldn't demote the
+  // card to the tiny static fallback pool — that's how "frozen" content and
+  // repeats sneak back in.
+  const first = await callGeminiToolOnce(apiKey, system, userMsg, toolName, parameters, temperature);
+  if (first) return first;
+  await new Promise((r) => setTimeout(r, 600));
+  return await callGeminiToolOnce(apiKey, system, userMsg, toolName, parameters, temperature);
+}
+async function callGeminiToolOnce(
+  apiKey: string,
+  system: string,
+  userMsg: string,
+  toolName: string,
+  parameters: Record<string, unknown>,
+  temperature: number,
+): Promise<Record<string, any> | null> {
   try {
     const resp = await fetch("https://generativelanguage.googleapis.com/v1beta/openai/chat/completions", {
       method: "POST",
@@ -89,7 +105,7 @@ function fmtHrMin(sec: number): string {
 serve(async (req) => {
   if (req.method === "OPTIONS") return new Response(null, { headers: corsHeaders });
   try {
-    const { timezone, now_iso } = await req.json().catch(() => ({}));
+    const { timezone, now_iso, regenerate } = await req.json().catch(() => ({}));
     const auth = req.headers.get("Authorization");
     if (!auth) {
       return new Response(JSON.stringify({ error: "Unauthorized" }), {
@@ -125,6 +141,62 @@ serve(async (req) => {
     y.setUTCDate(y.getUTCDate() - 1);
     const yesterday = y.toISOString().slice(0, 10);
 
+    // ── Serve today's stored insight (insight_history) ─────────────────────
+    // One canonical insight per user per day: the first device to fetch
+    // generates and stores it; every later fetch — any device — gets the SAME
+    // content back with zero AI calls. `regenerate: true` (dev tooling) skips
+    // the read and overwrites the stored row below.
+    if (regenerate !== true) {
+      const { data: stored } = await supabase
+        .from("insight_history")
+        .select("payload")
+        .eq("user_id", user.id)
+        .eq("date", todayLocal)
+        .maybeSingle();
+      const payload = stored?.payload as Record<string, unknown> | undefined;
+      if (payload && payload.show === true) {
+        return new Response(JSON.stringify(payload), { headers: { ...corsHeaders, "Content-Type": "application/json" } });
+      }
+    }
+
+    // Recent insight fingerprints → a per-user ban-list fed into every
+    // generation prompt. THE fix for "bananas share DNA / birthday paradox
+    // keeps coming back": the model has no memory across days, so we carry
+    // one for it.
+    let avoidBlock = "";
+    try {
+      const { data: hist } = await supabase
+        .from("insight_history")
+        .select("summary")
+        .eq("user_id", user.id)
+        .neq("date", todayLocal)
+        .order("date", { ascending: false })
+        .limit(25);
+      const lines = (hist || [])
+        .map((r: any) => String(r?.summary || "").trim())
+        .filter(Boolean)
+        .map((l: string) => `- ${l}`);
+      if (lines.length) {
+        avoidBlock = `\n\nALREADY SHOWN TO THIS USER (recent days) — everything below is BANNED today, including close variations, rephrasings, and the same underlying fact/answer in different words. Find genuinely different material:\n${lines.join("\n").slice(0, 1800)}`;
+      }
+    } catch { /* non-fatal — generation proceeds without the ban-list */ }
+
+    // Burned-out AI-favourite facts. Static ban on top of the personal history:
+    // these resurface constantly with fresh accounts / empty history too.
+    const CLICHE_BAN = `
+
+BANNED CLICHÉS — these exact facts (and close variants) are overused AI favourites; NEVER use any of them:
+- bananas sharing DNA with humans, or any "X shares N% DNA with Y" fact
+- the birthday paradox / 23 people and shared birthdays
+- honey never spoiling
+- octopuses having three hearts or blue blood
+- the Eiffel Tower growing taller in summer
+- goldfish memory span
+- paper folding limits (7 folds)
+- the Great Wall of China visible from space
+- humans using only 10% of their brain
+- lightning never striking the same place twice`;
+
     // Resolve the profile + the day's mode UP FRONT — before deciding whether
     // recap has the data it needs.
     const { data: debProf } = await supabase
@@ -133,14 +205,24 @@ serve(async (req) => {
       .eq("id", user.id)
       .maybeSingle();
 
-    const modeSeed = yesterday.split("-").reduce((acc, p) => acc + parseInt(p, 10) * 13, 3) >>> 0;
-    const MODES = ["recap", "riddle", "quiz", "challenge"] as const;
-    type Mode = typeof MODES[number];
-    // NB: `let`, not `const` — reassigned just below when recap has no data and
-    // we fall back to an evergreen mode. A `const` here is a hard parse error that
-    // 500s the whole function (Deno can't load the module), which silently blanks
-    // the Insights card on every device.
-    let mode: Mode = MODES[modeSeed % MODES.length];
+    // Mode schedule is a pure rotation on the day number (days since epoch).
+    // The old date-part hash (Σ parts × 13) collapsed at month rollovers:
+    // June 30 → July 1 shifts the sum by 13×(+1 month −29 days) ≡ 0 (mod 4),
+    // so the mode FROZE across the boundary — every device showed riddles
+    // three days straight (06-29 recap→riddle fallback, 06-30 riddle,
+    // 07-01 riddle). A rotation makes a same-mode repeat on consecutive days
+    // impossible by construction:
+    //   evergreen 3-cycle: riddle → quiz → challenge → riddle → …
+    //   every 4th day upgrades to recap IF yesterday has data; without data
+    //   the 3-cycle continues unbroken (the fallback can't introduce repeats).
+    // NB: `mode` is `let`, not `const` — reassigned below when recap has no
+    // data. A `const` here is a hard parse error that 500s the whole function
+    // (Deno can't load the module), silently blanking Insights on every device.
+    const dayNum = Math.floor(y.getTime() / 86_400_000);
+    const EVERGREEN = ["riddle", "quiz", "challenge"] as const;
+    type Mode = "recap" | (typeof EVERGREEN)[number];
+    const evergreenPick: Mode = EVERGREEN[dayNum % 3];
+    let mode: Mode = dayNum % 4 === 0 ? "recap" : evergreenPick;
 
     // Recap is the ONLY mode that needs yesterday's plan + a completed task.
     // riddle / quiz / challenge are evergreen. Pull the recap data; if it isn't
@@ -166,10 +248,41 @@ serve(async (req) => {
     const done = tasks.filter((b: any) => b.completed);
     const hasRecapData = !!plan?.id && tasks.length > 0 && done.length > 0;
     if (mode === "recap" && !hasRecapData) {
-      const EVERGREEN = ["riddle", "quiz", "challenge"] as const;
-      // Shift seed by /4 so the evergreen pick doesn't sync with the main mode cycle
-      mode = EVERGREEN[Math.floor(modeSeed / 4) % EVERGREEN.length];
+      // Continue the evergreen 3-cycle for this day — guaranteed different
+      // from yesterday's and tomorrow's pick, whatever they resolved to.
+      mode = evergreenPick;
     }
+
+    // Store the final payload as today's canonical insight, then respond.
+    // `summary` is the compact fingerprint future days use as a ban-list.
+    // First-writer-wins on normal fetches (two devices racing generate once);
+    // regenerate (dev) overwrites. Persistence failure must never break the
+    // response — the card still renders, we just lose one day of memory.
+    const persistAndRespond = async (body: Record<string, unknown>, summary: string) => {
+      try {
+        await supabase.from("insight_history").upsert(
+          {
+            user_id: user.id,
+            date: todayLocal,
+            mode: String(body.mode ?? mode),
+            payload: body,
+            summary: summary.replace(/\s+/g, " ").trim().slice(0, 400),
+          },
+          { onConflict: "user_id,date", ignoreDuplicates: regenerate !== true },
+        );
+        // Opportunistic tidy-up — the ban-list only reads ~25 rows anyway.
+        const cutoff = new Date(now);
+        cutoff.setDate(cutoff.getDate() - 60);
+        await supabase
+          .from("insight_history")
+          .delete()
+          .eq("user_id", user.id)
+          .lt("date", cutoff.toISOString().slice(0, 10));
+      } catch (e) {
+        console.error("[yesterday-debrief] persist failed", e instanceof Error ? e.message : e);
+      }
+      return new Response(JSON.stringify(body), { headers: { ...corsHeaders, "Content-Type": "application/json" } });
+    };
 
     const doneCount = done.length;
     const totalCount = tasks.length;
@@ -301,9 +414,11 @@ serve(async (req) => {
       if (pat) debPattern = pat as any;
     }
 
-    // Date-based seeds (modeSeed + mode are already resolved above the gates).
+    // Date-based seeds (dayNum + mode are already resolved above the gates).
+    // dayNum steps by exactly 1 per day, so every modulus below cycles through
+    // its full range with no month-boundary freezes (the old hash's flaw).
     const phraseSeed = (yesterday.split("-").reduce((acc, p) => acc * 7 + parseInt(p, 10), 11) >>> 0);
-    const themeSeed = ((modeSeed >>> 2)) % 6;
+    const themeSeed = dayNum % 6;
 
     // phrase_of_day is now AI-generated as part of each mode's tool call.
     // This fallback is used when the AI doesn't return the field.
@@ -445,7 +560,9 @@ Write three things:
 - today_tip: ONE concrete action for today. Name a real task title when possible. Tie it to a pattern if one fits (e.g. schedule deep work in a strong hour). ≤16 words.
 - spark: ONE short line — quote, metaphor, or sharp observation about focus/craft/time. ≤14 words.
 
-Banned: productive, great, well done, good job, awesome, amazing, fantastic, wonderful, congrats.
+Also include a phrase_of_day: a surprising intellectual fact on ANY topic (science, history, language, psychology) — unrelated to the recap, nothing about productivity. One vivid sentence, ≤22 words.
+
+Banned: productive, great, well done, good job, awesome, amazing, fantastic, wonderful, congrats.${CLICHE_BAN}${avoidBlock}
 Output ONLY the structured tool call.`;
 
       const aiArgs = await callGeminiTool(
@@ -459,12 +576,14 @@ Output ONLY the structured tool call.`;
             yesterday: { type: "array", minItems: 1, maxItems: 2, items: { type: "string" } },
             today_tip: { type: "string" },
             spark: { type: "string" },
+            phrase_of_day: { type: "string", description: "A surprising intellectual fact on ANY topic, unrelated to the recap. One vivid sentence, ≤22 words." },
           },
-          required: ["yesterday", "today_tip", "spark"],
+          required: ["yesterday", "today_tip", "spark", "phrase_of_day"],
           additionalProperties: false,
         },
         0.7,
       ) ?? {};
+      const recapPhrase = cleanLine(String(aiArgs.phrase_of_day || "")) || phraseFallback;
 
       let modelYesterday: string[] = Array.isArray(aiArgs.yesterday) ? aiArgs.yesterday : [];
       let modelTip = typeof aiArgs.today_tip === "string" ? aiArgs.today_tip : "";
@@ -512,12 +631,12 @@ Output ONLY the structured tool call.`;
         sparkClean = SPARKS[seed % SPARKS.length];
       }
 
-      return new Response(JSON.stringify({
+      return await persistAndRespond({
         show: true, date: yesterday, mode: "recap", title: "Insights",
         yesterday: yesterdayClean, today_tip: tipClean, spark: sparkClean, bullets: yesterdayClean,
         week_stat: weekStat,
-        phrase_of_day: phraseFallback,
-      }), { headers: { ...corsHeaders, "Content-Type": "application/json" } });
+        phrase_of_day: trim(recapPhrase, 200),
+      }, `[fact] ${recapPhrase}`);
     }
 
     // ── Riddle ─────────────────────────────────────────────────────────────
@@ -536,6 +655,7 @@ Rules:
 - NO productivity, planning, or motivational fluff. Just a fun brain-tickle.
 
 Vibe to match (don't copy): "What gets wetter the more it dries?" → A towel.
+Also banned: the classic riddle canon everyone has heard (piano/keys, footsteps, towel, echo, candle, "what has a face and two hands", a cold). Write something that FEELS new.${CLICHE_BAN}${avoidBlock}
 
 Output ONLY the structured tool call.`;
 
@@ -572,11 +692,11 @@ Output ONLY the structured tool call.`;
           { riddle: "What can you catch but never throw?", answer: "A cold", fact: "Your immune system would love it if you could throw this one back." },
           { riddle: "The more you take, the more you leave behind. What am I?", answer: "Footsteps", fact: "Every step you 'take' is one you leave right where you stood." },
         ];
-        const fb = FALLBACKS[(modeSeed) % FALLBACKS.length];
+        const fb = FALLBACKS[dayNum % FALLBACKS.length];
         riddleText = fb.riddle; riddleAnswer = fb.answer; funFact = fb.fact;
       }
 
-      return new Response(JSON.stringify({
+      return await persistAndRespond({
         show: true, date: yesterday, mode: "riddle",
         riddle: trim(riddleText, 220),
         riddle_answer: trim(riddleAnswer, 50),
@@ -584,7 +704,7 @@ Output ONLY the structured tool call.`;
         phrase_of_day: trim(riddlePhrase, 200),
         week_stat: weekStat,
         yesterday: [], today_tip: "", spark: "", bullets: [],
-      }), { headers: { ...corsHeaders, "Content-Type": "application/json" } });
+      }, `[riddle] ${riddleText} → ${riddleAnswer} · [fact] ${riddlePhrase}`);
     }
 
     // ── Quiz ───────────────────────────────────────────────────────────────
@@ -599,7 +719,7 @@ Write 3 multiple-choice questions (3 options each). Make every question differen
 - The correct answer should make people say "really?!"
 - The explanation is the payoff — make it genuinely interesting, not just "correct because..."
 - NO productivity tips, NO planning, NO motivational content
-- Also include a phrase_of_day: a COMPLETELY DIFFERENT surprising intellectual fact unrelated to the quiz. Any topic: history, biology, physics, language, psychology. One vivid sentence, ≤22 words, nothing about productivity.
+- Also include a phrase_of_day: a COMPLETELY DIFFERENT surprising intellectual fact unrelated to the quiz. Any topic: history, biology, physics, language, psychology. One vivid sentence, ≤22 words, nothing about productivity.${CLICHE_BAN}${avoidBlock}
 
 Output ONLY the structured tool call.`;
 
@@ -655,16 +775,16 @@ Output ONLY the structured tool call.`;
             { q: "What colour is a perfect mirror?", options: ["Silver", "White", "Very pale green"], correct: 2, explanation: "Real mirrors reflect green wavelengths slightly more than others, giving them a faint green tint — visible when two mirrors face each other." },
             { q: "How long can a cockroach survive without its head?", options: ["A few seconds", "About a day", "Several weeks"], correct: 2, explanation: "Cockroaches breathe through spiracles in their body segments, not their head — they only die because they can no longer drink water." },
           ],
-        ][(Math.floor(modeSeed / 4)) % 2],
+        ][dayNum % 2],
       ];
 
-      return new Response(JSON.stringify({
+      return await persistAndRespond({
         show: true, date: yesterday, mode: "quiz",
         quiz: finalQuiz,
         phrase_of_day: trim(quizPhrase, 200),
         week_stat: weekStat,
         yesterday: [], today_tip: "", spark: "", bullets: [],
-      }), { headers: { ...corsHeaders, "Content-Type": "application/json" } });
+      }, `[quiz] ${finalQuiz.map((q: any) => `${q.q} = ${q.options?.[q.correct] ?? ""}`).join(" | ")} · [fact] ${quizPhrase}`);
     }
 
     // ── Challenge ──────────────────────────────────────────────────────────
@@ -681,7 +801,7 @@ Write ONE challenge that:
 - Has a satisfying "aha" payoff when completed
 
 challenge_context: the surprising payoff reveal. For math or logic puzzles, ALWAYS lead with the correct answer (e.g. "The answer is $0.05 — the ball costs just 5 cents, not 10"), then the insight. For perceptual/memory challenges, state the surprising result. ≤25 words.
-phrase_of_day: a COMPLETELY DIFFERENT surprising intellectual fact unrelated to the challenge. Any topic: science, history, language, biology, physics. One vivid sentence, ≤22 words, nothing about productivity.
+phrase_of_day: a COMPLETELY DIFFERENT surprising intellectual fact unrelated to the challenge. Any topic: science, history, language, biology, physics. One vivid sentence, ≤22 words, nothing about productivity.${CLICHE_BAN}${avoidBlock}
 
 Output ONLY the structured tool call.`;
 
@@ -716,19 +836,19 @@ Output ONLY the structured tool call.`;
           { challenge: "Rub your hands together fast for 10 seconds, then hold them 2 cm apart and slowly pull them away.", context: "You'll feel a subtle resistance — heat and static electricity create a detectable field between your palms." },
           { challenge: "Stare at the centre of a bright red object for 30 seconds, then look at a white wall.", context: "You'll see a cyan afterimage — your red-sensitive cones tire out, so the opponent colour takes over temporarily." },
         ];
-        const fb = FALLBACKS[(modeSeed) % FALLBACKS.length];
+        const fb = FALLBACKS[dayNum % FALLBACKS.length];
         challengeText = fb.challenge;
         challengeContext = fb.context;
       }
 
-      return new Response(JSON.stringify({
+      return await persistAndRespond({
         show: true, date: yesterday, mode: "challenge",
         challenge: trim(challengeText, 250),
         challenge_context: challengeContext ? trim(challengeContext, 200) : "",
         phrase_of_day: trim(challengePhrase, 200),
         week_stat: weekStat,
         yesterday: [], today_tip: "", spark: "", bullets: [],
-      }), { headers: { ...corsHeaders, "Content-Type": "application/json" } });
+      }, `[challenge] ${challengeText} · [fact] ${challengePhrase}`);
     }
 
     return new Response(JSON.stringify({ show: false }), {

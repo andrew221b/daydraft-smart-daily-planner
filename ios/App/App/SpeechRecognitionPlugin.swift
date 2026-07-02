@@ -70,6 +70,11 @@ public class SpeechRecognitionPlugin: CAPPlugin, CAPBridgedPlugin {
     private var stoppedByUser = false
     private var startedEmitted = false   // emit "started"/"stopped" once per session
     private var sessionText = ""          // committed text across restarts
+    // Best hypothesis of the task currently in flight. A task can end with an
+    // error and NO isFinal (routine after a speaking pause) — without salvaging
+    // this into sessionText on that path, the words spoken before the pause are
+    // erased the moment the next task's partials start emitting.
+    private var lastPartialText = ""
     private var partialResults = false
     private var maxResults = 5
     private var contextualStrings: [String] = []
@@ -129,6 +134,7 @@ public class SpeechRecognitionPlugin: CAPPlugin, CAPBridgedPlugin {
         self.stoppedByUser = false
         self.startedEmitted = false
         self.sessionText = ""
+        self.lastPartialText = ""
         self.consecutiveRestarts = 0
         self.lastRestartAt = 0
         self.onDeviceUnavailable = false
@@ -223,7 +229,12 @@ public class SpeechRecognitionPlugin: CAPPlugin, CAPBridgedPlugin {
             var finish = false
             if let result = result {
                 let current = result.bestTranscription.formattedString
-                if !current.isEmpty { self.consecutiveRestarts = 0 }
+                if !current.isEmpty {
+                    self.consecutiveRestarts = 0
+                    // Remember the in-flight hypothesis so an errorful task end
+                    // (no isFinal) can still commit it below.
+                    self.lastPartialText = current
+                }
                 if self.partialResults {
                     // Always emit the FULL transcript-so-far (committed + current).
                     // Committed segments are joined by newlines: each segment is a
@@ -238,12 +249,23 @@ public class SpeechRecognitionPlugin: CAPPlugin, CAPBridgedPlugin {
                     if !current.isEmpty {
                         self.sessionText = self.sessionText.isEmpty ? current : self.sessionText + "\n" + current
                     }
+                    self.lastPartialText = ""
                     finish = true
                 }
             }
             // A benign end-of-segment error in continuous mode = the user paused;
             // restartOrFinish keeps the session alive. Otherwise it finishes.
             if let error = error {
+                // The task ended without finalising — salvage its last hypothesis
+                // into the session so the phrase spoken before this pause isn't
+                // erased by the next task's partials. Cleared on commit, so a
+                // trailing duplicate error can't double-append.
+                if !self.lastPartialText.isEmpty {
+                    self.sessionText = self.sessionText.isEmpty
+                        ? self.lastPartialText
+                        : self.sessionText + "\n" + self.lastPartialText
+                    self.lastPartialText = ""
+                }
                 // Nothing transcribed yet (this task AND every prior one this
                 // session) + we were forcing on-device = the on-device model for
                 // this locale almost certainly isn't actually available, and every

@@ -87,7 +87,16 @@ export type VoiceStatus = "idle" | "listening" | "unsupported" | "denied";
 // total cap would cut off a long dictation; instead we bound the hot-mic window
 // to ~this long after the user actually stops talking — protecting battery and
 // privacy without interrupting active speech. Reset on every transcript update.
-const INACTIVITY_MS = 15_000;
+// 30s (was 15): users think mid-dump — a long "what else…" pause ending the
+// session read as "recording just cuts off".
+const INACTIVITY_MS = 30_000;
+
+// How many times a native session that died on its own (engine teardown,
+// spin-guard bail, unpatched plugin ending after one utterance) is silently
+// revived WITHOUT new speech in between before we give up and go idle. Any
+// new transcript resets the streak, so an hour-long dictation can survive any
+// number of engine deaths as long as the user is actually talking.
+const MAX_RESUMES_WITHOUT_TEXT = 2;
 
 // Shorter watchdog for the case where the mic is "listening" but NOTHING has been
 // transcribed yet — a session that started but is silently broken (engine never
@@ -129,6 +138,11 @@ function filterToSupported(deviceLocales: unknown[]): VoiceLanguage[] {
   // keep the full curated list rather than hiding dictation entirely.
   return filtered.length ? filtered : [...VOICE_LANGUAGES];
 }
+
+// Segments are newline-joined everywhere (native accumulators do the same) —
+// each is a post-pause utterance, and a line break is the natural boundary for
+// the downstream task-splitter.
+const joinSegs = (a: string, b: string) => (a && b ? `${a}\n${b}` : a || b);
 
 // Web Speech API error codes → human copy. Anything not listed gets a generic line.
 const WEB_ERROR_COPY: Record<string, string> = {
@@ -172,6 +186,34 @@ export function useVoiceInput(
   const onErrorRef = useRef(onError);
   onErrorRef.current = onError;
 
+  /* ── Session-transcript integrity (JS-side accumulation) ─────────────────
+   * The native layers accumulate the session transcript themselves, but every
+   * "my earlier words got erased" bug so far traced to that accumulation being
+   * lost at an utterance / sub-session boundary (errorful utterance end, engine
+   * teardown, spin-guard bail, a binary built before the continuous patch). So
+   * the hook keeps its OWN committed buffer and never trusts the native layer
+   * with text the user has already seen: a native emission that no longer
+   * extends what the engine had previously committed is treated as a native
+   * reset — the previous emission is folded into `committedRef` and the new
+   * one appended after it. Erasure becomes structurally impossible; the worst
+   * a native bug can now cause is a duplicated line, which the downstream AI
+   * parse dedupes anyway.
+   * ──────────────────────────────────────────────────────────────────────── */
+  const committedRef = useRef("");   // session text under JS control — survives native resets
+  const nativeLastRef = useRef(""); // previous RAW native emission (current native sub-session)
+  const lastEmitAtRef = useRef(0);  // timestamp of the last emission (revision-vs-reset heuristic)
+  const userStoppedRef = useRef(false); // explicit stop (tap / watchdog / unmount) — blocks auto-resume
+  const resumesWithoutTextRef = useRef(0);
+  const resumeTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const lastNativeOptsRef = useRef<Parameters<typeof SpeechRecognition.start>[0] | null>(null);
+  // Fold whatever the current native sub-session produced into the JS-owned
+  // buffer. Called whenever that sub-session is over (auto-resume boundary) or
+  // discovered to have lost its own accumulation mid-flight.
+  const foldNative = useCallback(() => {
+    committedRef.current = joinSegs(committedRef.current, nativeLastRef.current);
+    nativeLastRef.current = "";
+  }, []);
+
   // Reset the silence watchdog — called on every transcript update and when
   // listening starts. Uses refs only so it's stable and safe to call from a
   // long-lived native event listener. Before any transcript arrives we use the
@@ -188,6 +230,72 @@ export function useVoiceInput(
       if (!gotAny) onErrorRef.current?.("Didn't catch anything — check your mic and try again.");
     }, ms);
   }, []);
+
+  // Every transcript update (native partialResults / web onresult) funnels
+  // through here. `raw` is the engine's own cumulative text for its CURRENT
+  // sub-session; what the caller sees is committed + raw.
+  const emitTranscript = useCallback((raw: string) => {
+    if (!raw) return;
+    const prev = nativeLastRef.current;
+    if (prev) {
+      // The engine's already-committed part is everything before its last
+      // newline (segments are newline-joined on both native sides). A new
+      // emission that doesn't start with that prefix means the native
+      // accumulator lost state — rescue the previous emission first.
+      const nl = prev.lastIndexOf("\n");
+      const stable = nl >= 0 ? prev.slice(0, nl + 1) : "";
+      if (stable) {
+        if (!raw.startsWith(stable)) foldNative();
+      } else {
+        // Single-segment case has no committed prefix to test, so split
+        // "live revision of the same utterance" from "fresh text after the
+        // old was lost" heuristically: revisions stream in sub-second cadence
+        // and share a leading run of characters; post-pause fresh text does
+        // neither. Err on the side of folding — a rare duplicate beats lost
+        // speech (the AI parse dedupes anyway). Mirrors the Android plugin's
+        // segment-reset guard so unpatched binaries and web get it too.
+        const gap = Date.now() - lastEmitAtRef.current;
+        const a = raw.toLowerCase(), b = prev.toLowerCase();
+        let shared = 0;
+        while (shared < Math.min(a.length, b.length) && a[shared] === b[shared]) shared++;
+        if (prev.length >= 6 && shared < 3 && gap > 1200) foldNative();
+      }
+    }
+    nativeLastRef.current = raw;
+    lastEmitAtRef.current = Date.now();
+    gotTranscriptRef.current = true;
+    resumesWithoutTextRef.current = 0;
+    onTextRef.current(joinSegs(committedRef.current, raw));
+    bumpActivity();
+  }, [bumpActivity, foldNative]);
+
+  // A native session ended on its own (NOT via stop()). Decide whether to
+  // silently revive it — preserving the transcript across the gap — or let the
+  // session end for real. Returns true when a resume was scheduled.
+  const tryAutoResume = useCallback((restart: () => Promise<void> | void): boolean => {
+    if (userStoppedRef.current) return false;
+    if (!gotTranscriptRef.current) return false; // nothing heard yet — let the watchdog decide
+    if (resumesWithoutTextRef.current >= MAX_RESUMES_WITHOUT_TEXT) return false;
+    resumesWithoutTextRef.current += 1;
+    foldNative();
+    if (resumeTimerRef.current) clearTimeout(resumeTimerRef.current);
+    resumeTimerRef.current = setTimeout(() => {
+      resumeTimerRef.current = null;
+      if (userStoppedRef.current) return;
+      void (async () => {
+        try {
+          await restart();
+        } catch {
+          // One re-attempt after a full teardown (mirrors start()'s busy retry).
+          try { await SpeechRecognition.stop(); } catch { /* ignore */ }
+          await new Promise((r) => setTimeout(r, 350));
+          if (userStoppedRef.current) return;
+          try { await restart(); } catch { setStatus("idle"); }
+        }
+      })();
+    }, 300);
+    return true;
+  }, [foldNative]);
 
   const isNative = Capacitor.isNativePlatform();
   const webCtorAvailable = useCallback(
@@ -223,26 +331,41 @@ export function useVoiceInput(
     if (!isNative) return;
     const partialSub = SpeechRecognition.addListener("partialResults", (data) => {
       const text = data.matches?.[0];
-      if (text) { gotTranscriptRef.current = true; onTextRef.current(text); bumpActivity(); }
+      if (text) emitTranscript(text);
     });
     const stateSub = SpeechRecognition.addListener("listeningState", (data) => {
-      setStatus((prev) => {
-        if (prev === "denied") return prev;
-        if (data.status === "started") {
+      if (data.status === "started") {
+        setStatus((prev) => {
+          if (prev === "denied") return prev;
           // Drop a stray "started" that lands just after the user stopped.
           if (Date.now() < suppressStartedUntilRef.current) return prev;
           return "listening";
-        }
-        return "idle";
-      });
+        });
+        return;
+      }
+      // Native session ended. If the USER didn't end it (engine died mid-dump,
+      // spin-guard bailed, single-utterance plugin finished), revive it
+      // seamlessly: transcript is folded so nothing is lost, the UI never
+      // leaves "listening", and dictation just keeps going.
+      if (
+        tryAutoResume(async () => {
+          if (lastNativeOptsRef.current) await SpeechRecognition.start(lastNativeOptsRef.current);
+        })
+      ) {
+        return;
+      }
+      setStatus((prev) => (prev === "denied" ? prev : "idle"));
     });
     return () => {
       void partialSub.then((h) => h.remove());
       void stateSub.then((h) => h.remove());
     };
-  }, [isNative, bumpActivity]);
+  }, [isNative, emitTranscript, tryAutoResume]);
 
   const stop = useCallback(() => {
+    // Explicit end of session — an auto-resume must never revive it.
+    userStoppedRef.current = true;
+    if (resumeTimerRef.current) { clearTimeout(resumeTimerRef.current); resumeTimerRef.current = null; }
     if (inactivityRef.current) { clearTimeout(inactivityRef.current); inactivityRef.current = null; }
     if (isNative) {
       // Stop is authoritative. Flip the UI to idle IMMEDIATELY (don't wait for the
@@ -273,6 +396,8 @@ export function useVoiceInput(
   // sheet is closed mid-dictation). Best-effort stop on unmount.
   useEffect(() => {
     return () => {
+      userStoppedRef.current = true; // block any in-flight auto-resume
+      if (resumeTimerRef.current) clearTimeout(resumeTimerRef.current);
       if (inactivityRef.current) clearTimeout(inactivityRef.current);
       webRecognitionRef.current?.stop();
       if (Capacitor.isNativePlatform()) void SpeechRecognition.stop().catch(() => { /* already stopped */ });
@@ -289,6 +414,12 @@ export function useVoiceInput(
   const start = useCallback(async (language: string, contextualStrings?: string[]) => {
     // Fresh session: no transcript yet, so the watchdog runs on the short window.
     gotTranscriptRef.current = false;
+    userStoppedRef.current = false;
+    committedRef.current = "";
+    nativeLastRef.current = "";
+    lastEmitAtRef.current = 0;
+    resumesWithoutTextRef.current = 0;
+    if (resumeTimerRef.current) { clearTimeout(resumeTimerRef.current); resumeTimerRef.current = null; }
     if (isNative) {
       try {
         const perm = await SpeechRecognition.checkPermissions();
@@ -313,6 +444,7 @@ export function useVoiceInput(
           continuous: true,
           ...(contextualStrings?.length ? { contextualStrings } : {}),
         } as Parameters<typeof SpeechRecognition.start>[0];
+        lastNativeOptsRef.current = opts; // auto-resume restarts with the same options
 
         const attempt = async (): Promise<unknown> => {
           try { await SpeechRecognition.start(opts); return null; }
@@ -368,21 +500,34 @@ export function useVoiceInput(
     rec.onresult = (e) => {
       let text = "";
       for (let i = 0; i < e.results.length; i++) text += e.results[i][0].transcript;
-      if (text) gotTranscriptRef.current = true;
-      onTextRef.current(text);
-      bumpActivity();
+      emitTranscript(text);
     };
     rec.onerror = (e) => {
       const code = e?.error ?? "";
-      setStatus(code === "not-allowed" || code === "service-not-allowed" ? "denied" : "idle");
-      if (code && code !== "aborted") onErrorRef.current?.(WEB_ERROR_COPY[code] ?? "Dictation stopped. Try again.");
+      if (code === "not-allowed" || code === "service-not-allowed") {
+        setStatus("denied");
+        onErrorRef.current?.(WEB_ERROR_COPY[code]);
+        return;
+      }
+      // Benign mid-dictation errors (silence, blip): onend fires right after
+      // and auto-resumes there — don't flash idle or toast in between.
+      if (userStoppedRef.current || !gotTranscriptRef.current) {
+        setStatus("idle");
+        if (code && code !== "aborted") onErrorRef.current?.(WEB_ERROR_COPY[code] ?? "Dictation stopped. Try again.");
+      }
     };
-    rec.onend = () => setStatus("idle");
+    rec.onend = () => {
+      // Chrome ends a recognition run after any longer silence even with
+      // continuous:true — same seamless-revive as native, same fold-first
+      // guarantee that no already-spoken text is lost.
+      if (tryAutoResume(() => { webRecognitionRef.current?.start(); })) return;
+      setStatus("idle");
+    };
     webRecognitionRef.current = rec;
     setStatus("listening");
     rec.start();
     bumpActivity();
-  }, [isNative, bumpActivity]);
+  }, [isNative, bumpActivity, emitTranscript, tryAutoResume]);
 
   return { status, languages, start, stop };
 }

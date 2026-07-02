@@ -220,11 +220,15 @@ const BulkInputStep = memo(function BulkInputStep({
   initialValue,
   templates,
   onDeleteTemplate,
+  voiceVocab,
   valRef,
 }: {
   initialValue: string;
   templates: BulkTemplate[];
   onDeleteTemplate: (id: string) => void;
+  /** The user's own task vocabulary (today's block titles) — biases speech
+   *  recognition toward names/words they actually use. */
+  voiceVocab?: string[];
   // Continue lives in a footer OWNED BY THE PARENT (outside this component,
   // outside the overflow-y-auto scroll region — see the sibling
   // `{bulkStep === "input" && (...)}` block below, matching how "clarify"
@@ -250,6 +254,18 @@ const BulkInputStep = memo(function BulkInputStep({
   // reports the FULL session transcript, so each update replaces everything
   // typed/dictated after that snapshot rather than appending duplicates.
   const dictationBaseRef = useRef("");
+  const taRef = useRef<HTMLTextAreaElement | null>(null);
+  // Keep the newest line visible as text streams in: pin the textarea's
+  // internal scroll to the bottom (the pb-11 padding then holds that line
+  // clear of the floating mic button). Sticky for typing — a user who
+  // scrolled up to read earlier lines stays put; forced for dictation,
+  // whose text always lands at the end.
+  const pinToBottom = (force: boolean) => {
+    const el = taRef.current;
+    if (!el) return;
+    if (!force && el.scrollHeight - el.scrollTop - el.clientHeight > 48) return;
+    requestAnimationFrame(() => { el.scrollTop = el.scrollHeight; });
+  };
   return (
     <div className="space-y-3 pb-4">
       <div className="flex items-start justify-between gap-2">
@@ -295,20 +311,31 @@ const BulkInputStep = memo(function BulkInputStep({
       {/* fontSize:16 prevents iOS from auto-zooming the viewport when focusing */}
       <div className="relative">
         <Textarea
+          ref={taRef}
           autoFocus={false}
           value={val}
-          onChange={(e) => update(e.target.value)}
+          onChange={(e) => { update(e.target.value); pinToBottom(false); }}
           placeholder={"Fix mobile layout, download PDF, send to client\nCall Alex, invoice client"}
           className="min-h-[150px] rounded-2xl border-soft bg-card text-[14px] pb-11"
           style={{ fontSize: 16 }}
         />
+        {/* Scrim: lines scrolled into the bottom strip dissolve into the card
+            colour before they can slide under the floating mic/language
+            controls. Height matches the textarea's pb-11, so a bottom-pinned
+            last line always sits just above the fade. pointer-events-none —
+            scroll and taps pass straight through to the textarea. */}
+        <div
+          aria-hidden
+          className="pointer-events-none absolute inset-x-px bottom-px h-11 rounded-b-2xl bg-gradient-to-t from-card via-card/70 to-transparent"
+        />
         <VoiceMicButton
           className="absolute bottom-2 right-2"
-          contextualStrings={templates.map((t) => t.name)}
+          contextualStrings={[...templates.map((t) => t.name), ...(voiceVocab ?? [])]}
           onSessionStart={() => { dictationBaseRef.current = val; }}
           onText={(text) => {
             const base = dictationBaseRef.current;
             update(base ? `${base}${base.endsWith("\n") ? "" : "\n"}${text}` : text);
+            pinToBottom(true);
           }}
         />
       </div>
@@ -336,6 +363,14 @@ export default function DayView() {
   // Reading them then makes yesterday flash "Today" + the red unfinished banner.
   // Gate day-derived UI on `loadedBlocksDate === viewDate` so stale rows never show.
   const [loadedBlocksDate, setLoadedBlocksDate] = useState<string | null>(null);
+  // The day's own task titles → dictation biasing vocabulary. Real task words
+  // (client names, "созвон", gym class names…) are exactly what generic speech
+  // models mis-hear; feeding them back in measurably sharpens recognition.
+  // Capped so a mega-plan doesn't blow the recognizer's phrase-list limits.
+  const voiceVocab = useMemo(
+    () => [...new Set(blocks.map((b) => b.title).filter((t): t is string => !!t && t.length > 2))].slice(0, 30),
+    [blocks],
+  );
   const checklistRef = useRef<ChecklistApi>(null);
   const [now, setNow] = useState(new Date());
   const [tourFired, setTourFired] = useState(false);
@@ -3251,6 +3286,7 @@ export default function DayView() {
                 initialValue={bulkInput}
                 templates={templates}
                 onDeleteTemplate={handleComposerDeleteTemplate}
+                voiceVocab={voiceVocab}
                 valRef={composerValRef}
               />
             ) : bulkStep === "clarify" ? (

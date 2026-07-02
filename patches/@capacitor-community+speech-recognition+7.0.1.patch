@@ -12,10 +12,10 @@ index d31e442..eb1f3d6 100644
      }
      lintOptions {
 diff --git a/node_modules/@capacitor-community/speech-recognition/android/src/main/java/com/getcapacitor/community/speechrecognition/SpeechRecognition.java b/node_modules/@capacitor-community/speech-recognition/android/src/main/java/com/getcapacitor/community/speechrecognition/SpeechRecognition.java
-index a99ea69..bfc3c72 100644
+index a99ea69..edb20df 100644
 --- a/node_modules/@capacitor-community/speech-recognition/android/src/main/java/com/getcapacitor/community/speechrecognition/SpeechRecognition.java
 +++ b/node_modules/@capacitor-community/speech-recognition/android/src/main/java/com/getcapacitor/community/speechrecognition/SpeechRecognition.java
-@@ -42,6 +42,33 @@ public class SpeechRecognition extends Plugin implements Constants {
+@@ -42,6 +42,40 @@ public class SpeechRecognition extends Plugin implements Constants {
  
      private JSONArray previousPartialResults = new JSONArray();
  
@@ -28,6 +28,13 @@ index a99ea69..bfc3c72 100644
 +    private boolean stoppedByUser = false;
 +    private boolean callResolved = false;
 +    private String sessionText = "";
++    // Best partial seen for the utterance currently in flight. An utterance can
++    // end WITHOUT onResults (pause → ERROR_NO_MATCH / SPEECH_TIMEOUT is routine,
++    // especially offline) — committing this fallback on such restarts is what
++    // keeps the earlier phrase from vanishing when the next utterance's partials
++    // start emitting sessionText + current.
++    private String lastPartialText = "";
++    private long lastPartialAtMs = 0;
 +    private Intent continuousIntent = null;
 +    private PluginCall continuousCall = null;
 +    // "started"/"stopped" must be emitted EXACTLY ONCE per user session, never per
@@ -49,7 +56,7 @@ index a99ea69..bfc3c72 100644
      @Override
      public void load() {
          super.load();
-@@ -81,7 +108,20 @@ public class SpeechRecognition extends Plugin implements Constants {
+@@ -81,7 +115,20 @@ public class SpeechRecognition extends Plugin implements Constants {
          String prompt = call.getString("prompt", null);
          boolean partialResults = call.getBoolean("partialResults", false);
          boolean popup = call.getBoolean("popup", false);
@@ -71,7 +78,7 @@ index a99ea69..bfc3c72 100644
      }
  
      @PluginMethod
-@@ -157,6 +197,8 @@ public class SpeechRecognition extends Plugin implements Constants {
+@@ -157,6 +204,8 @@ public class SpeechRecognition extends Plugin implements Constants {
          String prompt,
          final boolean partialResults,
          boolean showPopup,
@@ -80,7 +87,7 @@ index a99ea69..bfc3c72 100644
          PluginCall call
      ) {
          Logger.info(getLogTag(), "Beginning to listen for audible speech");
-@@ -164,10 +206,35 @@ public class SpeechRecognition extends Plugin implements Constants {
+@@ -164,10 +213,35 @@ public class SpeechRecognition extends Plugin implements Constants {
          final Intent intent = new Intent(RecognizerIntent.ACTION_RECOGNIZE_SPEECH);
          intent.putExtra(RecognizerIntent.EXTRA_LANGUAGE_MODEL, RecognizerIntent.LANGUAGE_MODEL_FREE_FORM);
          intent.putExtra(RecognizerIntent.EXTRA_LANGUAGE, language);
@@ -116,7 +123,7 @@ index a99ea69..bfc3c72 100644
  
          if (prompt != null) {
              intent.putExtra(RecognizerIntent.EXTRA_PROMPT, prompt);
-@@ -176,34 +243,124 @@ public class SpeechRecognition extends Plugin implements Constants {
+@@ -176,34 +250,149 @@ public class SpeechRecognition extends Plugin implements Constants {
          if (showPopup) {
              startActivityForResult(call, intent, "listeningResult");
          } else {
@@ -131,6 +138,8 @@ index a99ea69..bfc3c72 100644
 +            this.callResolved = false;
 +            this.startedEmitted = false;
 +            this.sessionText = "";
++            this.lastPartialText = "";
++            this.lastPartialAtMs = 0;
 +            this.continuousIntent = intent;
 +            this.continuousCall = call;
 +            startRecognizer(intent, partialResults, call);
@@ -236,6 +245,29 @@ index a99ea69..bfc3c72 100644
 +            );
 +    }
 +
++    // Case-insensitive length of the shared leading run of two hypotheses —
++    // near-zero means "unrelated text", not a live revision of the same words.
++    private static int commonPrefixLen(String a, String b) {
++        int n = Math.min(a.length(), b.length());
++        int i = 0;
++        while (i < n && Character.toLowerCase(a.charAt(i)) == Character.toLowerCase(b.charAt(i))) i++;
++        return i;
++    }
++
++    // Fold the just-ended utterance into the running session text. Prefer the
++    // engine's final result; fall back to the last partial when the utterance
++    // ended errorfully (no final ever arrives on NO_MATCH/SPEECH_TIMEOUT even
++    // though partials were flowing). Clearing lastPartialText here makes the
++    // commit idempotent — a stale listener's late onError can't double-append.
++    private void commitUtterance(String finalText) {
++        String text = (finalText != null && !finalText.isEmpty()) ? finalText : lastPartialText;
++        if (text != null && !text.isEmpty()) {
++            sessionText = sessionText.isEmpty() ? text : sessionText + "\n" + text;
++            consecutiveRestarts = 0; // a committed utterance = healthy engine
++        }
++        lastPartialText = "";
++    }
++
 +    // Emit the FULL transcript-so-far (accumulated session text + the current
 +    // utterance's partial) so JS always mirrors iOS's cumulative behaviour.
 +    private void emitTranscript(String current) {
@@ -267,7 +299,7 @@ index a99ea69..bfc3c72 100644
          }
      }
  
-@@ -213,12 +370,24 @@ public class SpeechRecognition extends Plugin implements Constants {
+@@ -213,12 +402,24 @@ public class SpeechRecognition extends Plugin implements Constants {
              .post(() -> {
                  try {
                      SpeechRecognition.this.lock.lock();
@@ -296,7 +328,7 @@ index a99ea69..bfc3c72 100644
                  } finally {
                      SpeechRecognition.this.lock.unlock();
                  }
-@@ -239,13 +408,16 @@ public class SpeechRecognition extends Plugin implements Constants {
+@@ -239,13 +440,16 @@ public class SpeechRecognition extends Plugin implements Constants {
          }
  
          @Override
@@ -318,7 +350,7 @@ index a99ea69..bfc3c72 100644
                  JSObject ret = new JSObject();
                  ret.put("status", "started");
                  SpeechRecognition.this.notifyListeners(LISTENING_EVENT, ret);
-@@ -254,6 +426,13 @@ public class SpeechRecognition extends Plugin implements Constants {
+@@ -254,6 +458,13 @@ public class SpeechRecognition extends Plugin implements Constants {
              }
          }
  
@@ -332,7 +364,7 @@ index a99ea69..bfc3c72 100644
          @Override
          public void onRmsChanged(float rmsdB) {}
  
-@@ -262,6 +441,11 @@ public class SpeechRecognition extends Plugin implements Constants {
+@@ -262,6 +473,11 @@ public class SpeechRecognition extends Plugin implements Constants {
  
          @Override
          public void onEndOfSpeech() {
@@ -344,7 +376,7 @@ index a99ea69..bfc3c72 100644
              bridge
                  .getWebView()
                  .post(() -> {
-@@ -280,48 +464,89 @@ public class SpeechRecognition extends Plugin implements Constants {
+@@ -280,48 +496,112 @@ public class SpeechRecognition extends Plugin implements Constants {
  
          @Override
          public void onError(int error) {
@@ -371,6 +403,10 @@ index a99ea69..bfc3c72 100644
 +                error == SpeechRecognizer.ERROR_LANGUAGE_UNAVAILABLE
 +            );
 +            if (continuousMode && !stoppedByUser && !fatalErr) {
++                // The utterance died without a final result — salvage its last
++                // partial into the session BEFORE restarting, or the words spoken
++                // before this pause are erased by the next utterance's partials.
++                SpeechRecognition.this.commitUtterance(null);
 +                SpeechRecognition.this.restartListening();
 +                return;
 +            }
@@ -405,13 +441,11 @@ index a99ea69..bfc3c72 100644
 +                    return;
 +                }
 +                if (continuousMode) {
-+                    // Commit this utterance to the running session, emit the full
-+                    // accumulated text, then either restart (more to come) or, if
-+                    // the user has stopped, finish.
-+                    if (!finalText.isEmpty()) {
-+                        sessionText = sessionText.isEmpty() ? finalText : sessionText + "\n" + finalText;
-+                        consecutiveRestarts = 0; // a committed utterance = healthy engine
-+                    }
++                    // Commit this utterance to the running session (final result,
++                    // or its last partial when the final came back empty), emit the
++                    // full accumulated text, then either restart (more to come) or,
++                    // if the user has stopped, finish.
++                    commitUtterance(finalText);
 +                    emitTranscript("");
 +                    if (!stoppedByUser) {
 +                        restartListening();
@@ -450,9 +484,30 @@ index a99ea69..bfc3c72 100644
 +            // an unbroken run of instant error-restarts, with no transcript in
 +            // between, ever reaches the limit.
 +            consecutiveRestarts = 0;
++            String current = matches.get(0);
++            if (current.isEmpty()) return;
++            // Segment-reset detection: modern recognizers (SODA on Android 13+)
++            // can finalise a segment INSIDE one utterance and restart the partial
++            // stream from scratch — no onResults, no onError in between. Blindly
++            // overwriting lastPartialText then loses the pre-pause words forever.
++            // A fresh segment shares no lead with the tracked hypothesis AND
++            // arrives after a beat of silence; a live revision of the same words
++            // does neither (sub-second cadence, shared lead). Fold, don't drop.
++            long now = System.currentTimeMillis();
++            String prev = SpeechRecognition.this.lastPartialText;
++            if (
++                !prev.isEmpty() &&
++                prev.length() >= 6 &&
++                commonPrefixLen(current, prev) < 3 &&
++                now - SpeechRecognition.this.lastPartialAtMs > 1200
++            ) {
++                SpeechRecognition.this.commitUtterance(null); // folds prev, clears lastPartialText
++            }
++            SpeechRecognition.this.lastPartialText = current;
++            SpeechRecognition.this.lastPartialAtMs = now;
 +            // Emit accumulated session text + this utterance's partial, so JS
 +            // always sees the full transcript-so-far (matching iOS).
-+            emitTranscript(matches.get(0));
++            emitTranscript(current);
          }
  
          @Override

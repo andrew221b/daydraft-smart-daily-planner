@@ -210,12 +210,14 @@ export const SortableBlock = memo(({
     const m = block.duration_min % 60;
     const durStr = h > 0 ? (m > 0 ? `${h}h ${m}m` : `${h}h`) : `${m}m`;
 
-    // addBuffers() only ever emits these two generic titles for anonymous
-    // decompression padding with no real destination/purpose. Anything else
-    // reaching kind="break" (AI-written travel/prep/meeting-buffer blocks)
-    // always carries a real, specific title — show it instead of treating
-    // accounted-for time as an empty "gap".
-    const isGenericBuffer = !block.title || block.title === "Buffer" || block.title === "Transition";
+    // addBuffers() only ever emits these generic titles for anonymous
+    // decompression padding with no real destination/purpose — since
+    // 2026-07-02 localized (Буфер/Передышка) when the plan's input was
+    // Russian. Anything else reaching kind="break" (AI-written travel/prep/
+    // meeting-buffer blocks) always carries a real, specific title — show it
+    // instead of treating accounted-for time as an empty "gap".
+    const GENERIC_BUFFER_TITLES = new Set(["Buffer", "Transition", "Буфер", "Передышка"]);
+    const isGenericBuffer = !block.title || GENERIC_BUFFER_TITLES.has(block.title);
 
     if (!isGenericBuffer) {
       return (
