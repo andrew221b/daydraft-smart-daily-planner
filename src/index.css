@@ -252,6 +252,29 @@ body.dd-dnd-scroll-lock {
   div:has(> [contenteditable]) {
     -webkit-user-select: text;
     user-select: text;
+    touch-action: auto;
+  }
+  /* The rules above were still not enough for DRAGGING the selection handles:
+     a handle drag isn't confined to the input — the finger travels across the
+     screen, and WebKit hit-tests that touch against whatever it passes over
+     (the sheet body, neighbouring rows). Those ancestors/siblings inherit
+     user-select:none + used touch-action:manipulation from body, so the drag
+     is clamped at the first non-selectable boundary — handles render but
+     won't move ("палочки не тянутся"). Selection inside an input can only
+     exist while that input is FOCUSED, so lift the global lockdowns for
+     exactly that window: data-text-focused (main.tsx focusin/focusout) is the
+     primary gate; data-keyboard-open (visualViewport.ts) is kept as a
+     belt-and-braces alias — focus is the strictly wider, more correct
+     condition (Android's back button hides the keyboard WITHOUT blurring the
+     field; hardware keyboards never open the soft one at all). Buttons keep
+     their own select-none rule, app chrome stays non-selectable via the
+     selectstart guard in main.tsx, and the lockdowns return on blur. */
+  html[data-keyboard-open] body,
+  html[data-text-focused] body {
+    -webkit-user-select: text;
+    user-select: text;
+    touch-action: auto;
+    -webkit-touch-callout: default;
   }
   input, textarea, select { font-size: 16px; }
   ::selection {

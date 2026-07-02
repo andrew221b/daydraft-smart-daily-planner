@@ -76,6 +76,14 @@ public class SpeechRecognitionPlugin: CAPPlugin, CAPBridgedPlugin {
     private var consecutiveRestarts = 0   // guard against an instant error-restart loop
     private var lastRestartAt: TimeInterval = 0  // timestamp of the last restart (spin detection)
     private var taskRetired = false       // the current recognition task has already finished — ignore trailing callbacks
+    // `supportsOnDeviceRecognition` reports whether the OS COULD do on-device for a
+    // locale — not whether that locale's model is actually downloaded on THIS
+    // device. When it isn't, every task errors out instantly with no transcript,
+    // which used to read as "tap mic -> flash -> dead" with no way to recover for
+    // the rest of the session. Sticky per-session: the first time an on-device task
+    // errors before producing any text, every later restart in this session falls
+    // back to server-based recognition instead of retrying the same broken path.
+    private var onDeviceUnavailable = false
 
     @objc func available(_ call: CAPPluginCall) {
         guard let recognizer = SFSpeechRecognizer() else {
@@ -123,6 +131,7 @@ public class SpeechRecognitionPlugin: CAPPlugin, CAPBridgedPlugin {
         self.sessionText = ""
         self.consecutiveRestarts = 0
         self.lastRestartAt = 0
+        self.onDeviceUnavailable = false
 
         if self.recognitionTask != nil {
             self.recognitionTask?.cancel()
@@ -192,8 +201,12 @@ public class SpeechRecognitionPlugin: CAPPlugin, CAPBridgedPlugin {
             request.contextualStrings = self.contextualStrings
         }
         // Prefer fully on-device recognition when the locale supports it (private,
-        // offline, faster start). System falls back to its servers otherwise.
-        if recognizer.supportsOnDeviceRecognition {
+        // offline, faster start) — UNLESS this session already proved on-device
+        // doesn't actually work here (model not downloaded for this locale despite
+        // `supportsOnDeviceRecognition` saying yes), in which case we've fallen
+        // back to the server for the rest of this session.
+        let usingOnDevice = recognizer.supportsOnDeviceRecognition && !self.onDeviceUnavailable
+        if usingOnDevice {
             request.requiresOnDeviceRecognition = true
         }
         self.recognitionRequest = request
@@ -230,7 +243,18 @@ public class SpeechRecognitionPlugin: CAPPlugin, CAPBridgedPlugin {
             }
             // A benign end-of-segment error in continuous mode = the user paused;
             // restartOrFinish keeps the session alive. Otherwise it finishes.
-            if error != nil { finish = true }
+            if let error = error {
+                // Nothing transcribed yet (this task AND every prior one this
+                // session) + we were forcing on-device = the on-device model for
+                // this locale almost certainly isn't actually available, and every
+                // future restart would just fail the same way instantly. Fall back
+                // to server-based recognition starting with the very next restart.
+                if usingOnDevice && self.sessionText.isEmpty {
+                    NSLog("[SpeechRecognition] on-device task errored with no transcript yet (%@) — falling back to server-based recognition for the rest of this session", error.localizedDescription)
+                    self.onDeviceUnavailable = true
+                }
+                finish = true
+            }
             if finish {
                 self.taskRetired = true
                 self.restartOrFinish()

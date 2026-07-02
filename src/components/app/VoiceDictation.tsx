@@ -10,7 +10,7 @@
  */
 import { useEffect, useState } from "react";
 import { motion, AnimatePresence } from "framer-motion";
-import { Mic, Check, Languages } from "lucide-react";
+import { Mic, Square, Check, Languages } from "lucide-react";
 import { Sheet, SheetContent, SheetHeader, SheetTitle } from "@/components/ui/sheet";
 import { haptics } from "@/lib/haptics";
 import { toast } from "sonner";
@@ -154,21 +154,27 @@ export function VoiceMicButton({
             initial={false}
             animate={
               listening
-                ? { scale: [1, 1.15, 1.75], opacity: [0, 0.5, 0] }
+                ? { scale: [0.9, 1, 1.5], opacity: [0, 0.5, 0] }
                 : { scale: 1, opacity: 0 }
             }
             transition={
+              // The flicker was a two-keyframe [0.55, 0] pulse: at every loop it
+              // snapped straight back to opacity 0.55 at small scale — a solid
+              // ring popping into existence each cycle. A three-keyframe pulse
+              // that BOTH starts and ends on opacity 0 makes the loop-back
+              // (0 → 0) seamless; `times` fades it in fast (first 16%) then lets
+              // it expand and fade out over the rest — a clean sonar ripple.
               listening
-                ? { duration: 1.2, repeat: Infinity, ease: "easeOut", times: [0, 0.18, 1] }
+                ? { duration: 1.8, repeat: Infinity, ease: "easeOut", times: [0, 0.16, 1] }
                 : { duration: 0.2 }
             }
           />
           <motion.span
             animate={listening ? { scale: [1, 1.12, 1] } : { scale: 1 }}
-            transition={listening ? { duration: 0.9, repeat: Infinity, ease: "easeInOut" } : undefined}
+            transition={listening ? { duration: 1.4, repeat: Infinity, ease: "easeInOut" } : undefined}
             className="relative z-10 flex items-center justify-center"
           >
-            <Mic className="h-4 w-4" />
+            {listening ? <Square className="h-3.5 w-3.5" fill="currentColor" /> : <Mic className="h-4 w-4" />}
           </motion.span>
         </button>
         {/* Only offer the language switch when there's an actual choice — a

@@ -268,25 +268,32 @@ export const fmtTime = (hhmm: string) => {
   const [h, m] = hhmm.split(":").map(Number);
   if (!Number.isFinite(h) || !Number.isFinite(m)) return hhmm;
   // Locale-aware: respects 12h vs 24h preference of the user's region
-  // (e.g. en-US -> "9am", en-GB -> "09:00", de-DE -> "09:00").
+  // (e.g. en-US -> "9 am", en-GB -> "09:00", de-DE -> "09:00").
   try {
     const d = new Date();
     d.setHours(h, m, 0, 0);
-    const locales = typeof navigator !== "undefined" && navigator.languages?.length 
-      ? (navigator.languages as string[]) 
+    const locales = typeof navigator !== "undefined" && navigator.languages?.length
+      ? (navigator.languages as string[])
       : undefined;
-      
-    const withMinutes = d.toLocaleTimeString(locales, { hour: "numeric", minute: "2-digit" });
-    const is12h = /[ap]m/i.test(withMinutes) || /[a-z]/i.test(withMinutes.replace(/[^a-z]/gi, ""));
-    
-    if (is12h && m === 0) {
-      return d.toLocaleTimeString(locales, { hour: "numeric" }).replace(/\s/g, "").toLowerCase();
-    }
-    return withMinutes.replace(/\s/g, "").toLowerCase();
+
+    const raw = d.toLocaleTimeString(locales, { hour: "numeric", minute: "2-digit" });
+    // Find a Latin am/pm marker — covers "AM", "pm", and the dotted/spaced
+    // variants some locales emit ("a.m.", "p. m.", "am."). No match ⇒ a 24h
+    // locale (or a non-Latin marker like CJK 上午/下午): return it as-is.
+    const marker = raw.match(/[ap]\.?\s?m\.?/i);
+    if (!marker) return raw.trim();
+    // Normalise the marker to a clean lowercase "am"/"pm" (strip dots + inner
+    // spaces) and re-attach it with exactly ONE space, so every 12h time reads
+    // uniformly — "9 am", "9:30 pm" — instead of the locale-dependent glued
+    // "9:00p.m." mess. On a whole hour, drop the ":00".
+    const suffix = marker[0].replace(/[.\s]/g, "").toLowerCase();
+    let time = raw.slice(0, marker.index).trim();
+    if (m === 0) time = time.replace(/[:.]0{2}$/, "");
+    return `${time} ${suffix}`;
   } catch {
-    const period = h >= 12 ? "pm" : "am";
+    const suffix = h >= 12 ? "pm" : "am";
     const hr = ((h + 11) % 12) + 1;
-    return m === 0 ? `${hr}${period}` : `${hr}:${String(m).padStart(2, "0")}${period}`;
+    return m === 0 ? `${hr} ${suffix}` : `${hr}:${String(m).padStart(2, "0")} ${suffix}`;
   }
 };
 

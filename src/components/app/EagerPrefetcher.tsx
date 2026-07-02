@@ -49,6 +49,13 @@ export function EagerPrefetcher() {
   // carries a short timeout so the warm-up still runs promptly on a busy thread.
   useEffect(() => {
     const chunks = [
+      // Leads the list: for a brand-new signup this is the very next screen
+      // (before any tab matters), and this component mounts unconditionally —
+      // even on /auth, while they're still filling in the sign-up form — so by
+      // the time RequireAuth redirects to /onboarding the chunk is already
+      // warm instead of visibly fetching (this was the "tutorial loads kind
+      // of slow" report: the Onboarding bundle just wasn't in this list).
+      () => import("@/pages/app/Onboarding"),
       () => import("@/pages/app/DayView"),
       () => import("@/pages/app/Reports"),
       () => import("@/pages/app/Settings"),

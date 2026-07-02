@@ -111,7 +111,7 @@ export const ChecklistView = forwardRef<ChecklistApi, ChecklistViewProps>(({
 
   const { isPro } = useEntitlement();
 
-  // ── Brain dump (paste a wall of to-dos → AI/local split → bulk add) ─────
+  // ── Add tasks (paste a wall of to-dos → AI/local split → bulk add) ─────
   const [dumpOpen, setDumpOpen] = useState(false);
 
   // Pending duplicate resolution: set when confirmDump finds existing items.
@@ -773,7 +773,7 @@ export const ChecklistView = forwardRef<ChecklistApi, ChecklistViewProps>(({
           >
             <FolderPlus className="h-4 w-4" strokeWidth={2.25} /> Add list
           </button>
-          {/* Brain dump — paste a wall of to-dos, AI/local-split adds them all at
+          {/* Add tasks — paste a wall of to-dos, AI/local-split adds them all at
               once. Filled (not dashed) so it reads as the "richer" of the two
               add actions, same accent theme as the rest of the page. */}
           <button
@@ -788,7 +788,7 @@ export const ChecklistView = forwardRef<ChecklistApi, ChecklistViewProps>(({
               background: "hsl(var(--accent) / 0.12)",
             }}
           >
-            <Sparkles className="h-4 w-4" strokeWidth={2.25} /> Brain dump
+            <Sparkles className="h-4 w-4" strokeWidth={2.25} /> Add tasks
           </button>
         </div>
       )}

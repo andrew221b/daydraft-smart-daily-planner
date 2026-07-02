@@ -1,5 +1,5 @@
 /**
- * Checklist "brain dump" — the same AI dump-and-split flow the timeline
+ * Checklist "Add tasks" — the same AI dump-and-split flow the timeline
  * composer offers, scoped to checklist items. Type or paste a wall of ideas,
  * pick which list they land in, and confirm a clean batch of items in one go.
  *
@@ -40,41 +40,63 @@ const DumpInputStep = memo(function DumpInputStep({
   // typed/dictated after that snapshot rather than appending duplicates.
   const dictationBaseRef = useRef("");
   return (
-    <div className="space-y-3 pb-4">
-      <p className="text-[12px] leading-relaxed text-secondary-fg">
-        Type or paste your to-dos — one per line, bullets, commas, anything. We'll split them into checklist items.
-      </p>
-      <div className="relative">
-        <Textarea
-          autoFocus={false}
-          value={val}
-          onChange={(e) => setVal(e.target.value)}
-          placeholder={"Buy milk, eggs, bread\nCall the dentist\nReturn library books"}
-          className="min-h-[150px] rounded-2xl border-soft bg-card text-[14px] pb-11"
-          style={{ fontSize: 16 }}
-        />
-        <VoiceMicButton
-          className="absolute bottom-2 right-2"
-          contextualStrings={groupNames}
-          onSessionStart={() => { dictationBaseRef.current = val; }}
-          onText={(text) => {
-            const base = dictationBaseRef.current;
-            setVal(base ? `${base}${base.endsWith("\n") ? "" : "\n"}${text}` : text);
-          }}
-        />
+    // The Continue button lives in its own shrink-0 footer, OUTSIDE the
+    // overflow-y-auto region below — a button's glow/hover shadow paints
+    // past its own box, and a scroll container with no room to spare clips
+    // that glow into a hard, ugly edge right at the button's border. Only
+    // the help text + textarea (the part that can actually get tall) scrolls;
+    // min-h-0 on both flex levels is required or the inner scroll area won't
+    // actually bound its height and just grows instead of scrolling.
+    <div className="flex-1 flex flex-col min-h-0">
+      <div className="flex-1 overflow-y-auto min-h-0 space-y-3 pb-2">
+        <div className="flex items-start justify-between gap-2">
+          <p className="text-[12px] leading-relaxed text-secondary-fg flex-1">
+            Type or paste your to-dos — one per line, bullets, commas, anything. We'll split them into checklist items.
+          </p>
+          {val.length > 0 && (
+            <button
+              type="button"
+              onClick={() => { haptics.tap(); setVal(""); }}
+              className="shrink-0 text-[12px] font-medium text-secondary-fg/65 hover:text-destructive pressable"
+            >
+              Clear
+            </button>
+          )}
+        </div>
+        <div className="relative">
+          <Textarea
+            autoFocus={false}
+            value={val}
+            onChange={(e) => setVal(e.target.value)}
+            placeholder={"Buy milk, eggs, bread\nCall the dentist\nReturn library books"}
+            className="min-h-[150px] rounded-2xl border-soft bg-card text-[14px] pb-11"
+            style={{ fontSize: 16 }}
+          />
+          <VoiceMicButton
+            className="absolute bottom-2 right-2"
+            contextualStrings={groupNames}
+            onSessionStart={() => { dictationBaseRef.current = val; }}
+            onText={(text) => {
+              const base = dictationBaseRef.current;
+              setVal(base ? `${base}${base.endsWith("\n") ? "" : "\n"}${text}` : text);
+            }}
+          />
+        </div>
       </div>
-      <Button
-        onClick={() => onContinue(val)}
-        disabled={loading || !val.trim()}
-        className="w-full h-12 rounded-2xl bg-primary hover:bg-primary/92 text-white font-semibold pressable"
-      >
-        {loading ? (
-          <span className="flex items-center gap-2">
-            <Loader2 className="h-4 w-4 animate-spin" />
-            Reading your to-dos…
-          </span>
-        ) : "Continue"}
-      </Button>
+      <div className="shrink-0 pt-3 pb-4">
+        <Button
+          onClick={() => onContinue(val)}
+          disabled={loading || !val.trim()}
+          className="w-full h-12 rounded-2xl bg-primary hover:bg-primary/92 text-white font-semibold pressable"
+        >
+          {loading ? (
+            <span className="flex items-center gap-2">
+              <Loader2 className="h-4 w-4 animate-spin" />
+              Reading your to-dos…
+            </span>
+          ) : "Continue"}
+        </Button>
+      </div>
     </div>
   );
 });
@@ -181,14 +203,14 @@ export const ChecklistDumpSheet = ({
         <SheetHeader className="text-left shrink-0">
           <SheetTitle className="flex items-center gap-2 text-[16px]">
             <Sparkles className="h-4 w-4 text-primary" />
-            {step === "review" ? "Review to-dos" : "Brain dump"}
+            {step === "review" ? "Review to-dos" : "Add tasks"}
           </SheetTitle>
           <SheetDescription className="sr-only">
             Dump a list of to-dos and split them into checklist items.
           </SheetDescription>
         </SheetHeader>
 
-        <div className="mt-4 flex-1 overflow-y-auto">
+        <div className="mt-4 flex-1 flex flex-col min-h-0">
           {step === "input" ? (
             <DumpInputStep
               initialValue={draft}
@@ -197,7 +219,8 @@ export const ChecklistDumpSheet = ({
               loading={parsing}
             />
           ) : (
-            <div className="space-y-4 pb-4">
+            <div className="flex-1 flex flex-col min-h-0">
+            <div className="flex-1 overflow-y-auto min-h-0 space-y-4 pb-2">
               {/* Target list picker — pills, mirrors the category chips used
                   elsewhere in the checklist (tintOf keeps colours consistent). */}
               <div>
@@ -297,23 +320,27 @@ export const ChecklistDumpSheet = ({
                   </div>
                 ))}
               </div>
+            </div>
 
-              <div className="flex gap-2">
-                <Button
-                  variant="outline"
-                  onClick={() => setStep("input")}
-                  className="h-12 rounded-2xl border-soft"
-                >
-                  Back
-                </Button>
-                <Button
-                  onClick={confirm}
-                  disabled={rows.length === 0}
-                  className="flex-1 h-12 rounded-2xl bg-primary hover:bg-primary/92 text-white font-semibold pressable"
-                >
-                  Add {rows.length} item{rows.length === 1 ? "" : "s"}
-                </Button>
-              </div>
+            {/* Back/Add footer — shrink-0, OUTSIDE the scroll area above, so the
+                "Add N items" glow shadow never gets clipped (same reasoning as
+                DumpInputStep's Continue footer). */}
+            <div className="shrink-0 flex gap-2 pt-3 pb-4">
+              <Button
+                variant="outline"
+                onClick={() => setStep("input")}
+                className="h-12 rounded-2xl border-soft"
+              >
+                Back
+              </Button>
+              <Button
+                onClick={confirm}
+                disabled={rows.length === 0}
+                className="flex-1 h-12 rounded-2xl bg-primary hover:bg-primary/92 text-white font-semibold pressable"
+              >
+                Add {rows.length} item{rows.length === 1 ? "" : "s"}
+              </Button>
+            </div>
             </div>
           )}
         </div>

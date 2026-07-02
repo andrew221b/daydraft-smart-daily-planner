@@ -38,12 +38,19 @@ The user will provide a raw, messy input text describing their tasks for the day
 
 HOW YOU THINK (read the whole input semantically before you parse or ask):
 - Read for MEANING, not just words. Understand the day they're sketching and what each line actually IS — "a few emails" can be an hour of quiet dread, "sort out taxes" is heavier and longer than it sounds, "gym" means leaving the house. Size and treat each task by what it really involves, not its surface wording.
+- EXPECT VOICE. Most input is DICTATED — spoken into a phone and turned to text by an imperfect speech engine (especially rough on Android). So it arrives with no punctuation, run-on words, filler, repetition, AND — the important part — MIS-HEARD words: a word that sounds close but is wrong, or a stray word that simply doesn't belong. Read it the way you'd read a good friend's sloppy voice-to-text: work out what they clearly MEANT from the surrounding context and silently repair the obvious slips. A word that makes no sense next to its neighbours is almost always a mis-recognition of a nearby plausible word (or filler) — fix it or drop it; do NOT build a task around it. Getting the intent right on the FIRST pass is the whole job — the user shouldn't have to re-record to be understood.
+- REPAIR, DON'T TRANSCRIBE. Beyond single mis-heard words, dictation breaks in four specific ways — recognise and silently fix each:
+  (1) DROPPED words: the engine swallows a verb or preposition ("вечером зал потом продукты" clearly means going to the gym then buying groceries) — restore the obvious intent from context.
+  (2) DUPLICATED fragments: the mic pipeline records in segments and can capture the same phrase twice at a segment boundary — when two lines/phrases say the same thing (even with slightly different wording or errors), they are ONE task, keep the cleaner version.
+  (3) SELF-CORRECTIONS: people revise mid-speech ("call mom… actually no, text her", "в 6… нет, лучше в 7") — the LAST version is what they want; the abandoned one is not a task.
+  (4) THINKING-OUT-LOUD chatter: "hmm what else", "ну что ещё", "so yeah", trailing half-thoughts — not tasks, drop them entirely.
+- NEVER INVENT. Extract only what the user actually said. If you can't tell whether some garbled fragment is a real task or just recognition noise, fold it into the nearest real task or leave it out — never spin it into a new task, and never add details, items, or errands they didn't mention. Adding something the user never said is the single worst failure here; when unsure, keep their own words rather than guessing a "cleaner" task into existence.
 - Be logically consistent. Hold the entire list in view at once and check it adds up: times that overlap, durations that can't fit the hours implied, a "relaxing evening" stacked with hard work, a fixed deadline that fights another commitment. A genuine clash is worth a question (rule C); a list that already fits is not.
 - Earn every question. Never ask what the text already answers (a stated time, a stated duration), never pad to a count, and don't ask two questions that resolve the same thing. One question that truly changes the plan beats three safe ones.
 
 PART 1 — Parse tasks:
 1. Extract each distinct task from the text.
-2. Fix any typos or spelling mistakes. Each \`title\` MUST be written in the SAME language the user wrote that task in — English input → English title, Russian input → Russian title. Translate nothing. The many example phrases in these instructions are illustrative only and MUST NOT influence your output language.
+2. Fix typos, spelling mistakes AND voice mis-hearings — repair the word the user obviously meant (e.g. a homophone or a phonetically-close wrong word the speech engine produced), using the surrounding tasks as context. Each \`title\` MUST be written in the SAME language the user wrote that task in — English input → English title, Russian input → Russian title. Translate nothing. The many example phrases in these instructions are illustrative only and MUST NOT influence your output language.
 3. If the user specifies a duration (e.g., "for 8 hours", "30 mins", "около 8 часов", "буду работать 3 часа"), extract it into \`duration_min\`. An explicit duration ALWAYS wins — never override it.
 3b. If NO duration is given, estimate a realistic \`duration_min\`. Order of preference: (1) if a "YOUR OWN MEASURED DURATIONS" section is present and the task matches one of its rows, use THAT — it's this user's real time and beats any average; (2) otherwise use the ACTIVITY DURATION REFERENCE — read what kind of task it is, anchor to the closest matching row. Either way, scale for any "quick"/"brief" (shorter) or "deep"/"full session" (longer) signal. Never a token 30-min block for something that obviously takes longer (a gym session, a movie, cooking dinner). Use null ONLY when the length is genuinely unknowable and nothing matches (e.g. "work on the report").
 3c. If (and only if) you anchored a task to a row in the PROFESSIONAL & WORK TASKS block specifically (rule 3b's option 2, the "[Role] Label:N,..." lines), set \`ref\` to that exact "Role.Label" pair, copied character-for-character (e.g. "Software Dev.Code", "UI/UX.Wireframe") — regardless of what language the task title is in. This lets the app verify your number against the table. If the task doesn't clearly match a row in THAT block (errands, personal life, generic/unlisted work, or anything from the other reference sections), leave \`ref\` null — never invent one that isn't written verbatim there.
@@ -237,9 +244,17 @@ RULES for questions:
               responseMimeType: "application/json",
               responseSchema: schema,
               // A touch of warmth makes the questions livelier without risking the
-              // structured extraction; thinking off keeps 2.5-flash at flash cost.
+              // structured extraction.
               temperature: 0.4,
-              thinkingConfig: { thinkingBudget: 0 },
+              // A small thinking budget (was 0) — the "repair, don't transcribe"
+              // work above (mis-hearings, dropped words, duplicated segments,
+              // self-corrections) is genuine multi-step inference, and without
+              // any thinking the model pattern-matches the surface text instead
+              // of reasoning about what was MEANT — which is exactly the
+              // "AI wrote something I never said" failure. 512 tokens adds
+              // ~1-2s latency; capped so it can't blow up cost or the 15s
+              // timeout.
+              thinkingConfig: { thinkingBudget: 512 },
             },
           }),
           signal: ctrl.signal,
@@ -348,9 +363,10 @@ HOW TO THINK:
 - KEEP MULTI-WORD ITEMS WHOLE. A single item that happens to span words is ONE item, not several: "корм для кошки", "стиральный порошок", "подарок маме на день рождения", "dish soap", "birthday gift for mom" each stay intact. Words joined by "для/of/with/for/к/на/со" belong to the same item.
 - For a clear shopping/grocery/packing enumeration, output just the ITEM (the noun) — the umbrella action ("buy/купить/взять/pack") is implied by the list, so don't repeat "buy" on every row.
 - For DISTINCT separate tasks (not items under one shared action), keep each task's own wording and verb: "позвонить маме", "забрать посылку", "оплатить счёт".
-- STRIP filler and lead-ins: "надо", "нужно", "ещё ещё", "вот", "ну", "так", "need to", "i have to", "also", "and then", repeated words. Fix typos and obvious voice mis-hearings.
+- STRIP filler and lead-ins: "надо", "нужно", "ещё ещё", "вот", "ну", "так", "need to", "i have to", "also", "and then", repeated words. Fix typos and obvious voice mis-hearings — a word that makes no sense next to its neighbours is almost always a mis-recognition of a close-sounding real word; repair it from context, never build an item around it.
 - Keep every title SHORT and scannable — a checklist row, not a sentence. Sentence case. No numbering, no bullets, no trailing punctuation.
-- Deduplicate.
+- Deduplicate AGGRESSIVELY. The mic records in segments and can capture the same phrase twice at a segment boundary — two lines meaning the same thing (even worded slightly differently or with different errors) are ONE item; keep the cleaner one. A self-correction ("молоко… нет, лучше кефир") is one item — the LAST version.
+- NEVER INVENT an item the user didn't say. Ambiguous noise gets dropped, not turned into a guess.
 
 LANGUAGE RULE (mandatory): every item title MUST be in the SAME language the user wrote in. Russian input → Russian items, English → English, Ukrainian → Ukrainian. The examples above are deliberately multilingual and MUST NOT change your output language. Translate nothing.
 

@@ -1147,7 +1147,7 @@ function PaywallStep({
         </div>
 
         {/* Feature cards */}
-        <div className="flex flex-col gap-1 w-full">
+        <div className="flex flex-col gap-1.5 w-full">
           {PRO_FEATURES.map((feat) => (
             <ProFeatureCard key={feat.id} feat={feat} animate={false} />
           ))}

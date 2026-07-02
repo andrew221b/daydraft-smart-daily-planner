@@ -3,6 +3,7 @@ import { Sheet, SheetContent, SheetTitle } from "@/components/ui/sheet";
 import { Sparkles, RefreshCw, AlertTriangle } from "lucide-react";
 import { toast } from "sonner";
 import { supabase } from "@/integrations/supabase/client";
+import { fetchWithRetry, isNetworkError } from "@/lib/aiCache";
 import { useEntitlement } from "@/hooks/useEntitlement";
 import { useProfileData } from "@/hooks/useProfile";
 import { useAbortOnUnmount } from "@/hooks/useAbortOnUnmount";
@@ -104,7 +105,7 @@ export function TaskCoachSheet({
       const seed = rawSeed === "__empty_day__" ? "" : rawSeed;
       const lens = COACH_LENSES[Math.floor(Math.random() * COACH_LENSES.length)];
 
-      const res = await fetch(`${import.meta.env.VITE_SUPABASE_URL}/functions/v1/ai-assist`, {
+      const res = await fetchWithRetry(`${import.meta.env.VITE_SUPABASE_URL}/functions/v1/ai-assist`, {
         method: "POST",
         headers: { "Content-Type": "application/json", "Authorization": `Bearer ${token}` },
         body: JSON.stringify({
@@ -164,7 +165,7 @@ export function TaskCoachSheet({
       if (signal.aborted) return;
       const raw = (e as Error)?.message || "";
       const friendly =
-        /Load failed|Failed to fetch|NetworkError|TypeError|net::|ENOTFOUND|ECONNREFUSED/i.test(raw)
+        isNetworkError(raw)
           ? "Couldn't reach the coach — check your connection and try again."
           : raw && !/AI gateway error/i.test(raw)
             ? raw
@@ -195,7 +196,7 @@ export function TaskCoachSheet({
     <Sheet open={open} onOpenChange={onOpenChange}>
       <SheetContent
         side="bottom"
-        className="rounded-t-[28px] border-border/60 bg-popover max-h-[82vh] flex flex-col p-0 will-change-transform"
+        className="rounded-t-[28px] border-border/60 bg-popover max-h-[82vh] flex flex-col p-0"
         style={{
           transition: swipe.sheetStyle ? swipe.sheetStyle.transition : undefined,
           ...(swipe.sheetStyle?.transform ? { transform: swipe.sheetStyle.transform } : null),

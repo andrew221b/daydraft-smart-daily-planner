@@ -29,6 +29,45 @@ try {
   applyNativeDocumentHints();
   attachVisualViewportInset();
   installPressFeedback();
+  // While the keyboard is open, index.css lifts the global user-select /
+  // touch-action lockdown from body — that unlock exists ONLY so that
+  // dragging an input's native selection handles can traverse neighbouring
+  // elements without WebKit clamping the drag at the first non-selectable
+  // boundary. Side effect: a long-press on static text could now START a
+  // selection there too. This guard restores the intended boundary at the
+  // event level: `selectstart` fires only when a NEW selection begins (not
+  // while handles of an existing input selection are dragged), so cancelling
+  // it everywhere outside editable fields keeps app chrome unselectable
+  // while leaving handle-dragging untouched.
+  document.addEventListener("selectstart", (e) => {
+    const node = e.target as Node | null;
+    const el = node instanceof Element ? node : node?.parentElement ?? null;
+    if (el?.closest("input, textarea, [contenteditable='true'], [contenteditable='']")) return;
+    e.preventDefault();
+  });
+  // data-text-focused — the companion gate for the same index.css unlock.
+  // Keyboard state alone misses two real cases where a selection exists in a
+  // focused field with the soft keyboard CLOSED: Android's back button hides
+  // the keyboard without blurring the input, and hardware keyboards never
+  // show the soft one at all. Focus is the true precondition for in-field
+  // selection (a long-press focuses the field first), so track it directly.
+  {
+    const isEditable = (el: unknown): boolean =>
+      el instanceof Element &&
+      !!el.closest("input, textarea, [contenteditable='true'], [contenteditable='']");
+    document.addEventListener("focusin", (e) => {
+      if (isEditable(e.target)) document.documentElement.setAttribute("data-text-focused", "true");
+    });
+    document.addEventListener("focusout", () => {
+      // Defer one microtask: focus may be moving BETWEEN two inputs, in which
+      // case activeElement is already the next field and the unlock must stay.
+      queueMicrotask(() => {
+        if (!isEditable(document.activeElement)) {
+          document.documentElement.removeAttribute("data-text-focused");
+        }
+      });
+    });
+  }
 } catch (e) {
   console.error("[bootstrap]", e);
 }

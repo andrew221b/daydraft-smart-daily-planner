@@ -141,10 +141,10 @@ export const UpgradeSheet = ({
           initial={{ opacity: 0, y: 14 }}
           animate={{ opacity: 1, y: 0 }}
           transition={{ duration: 0.28, ease: [0.22, 1, 0.36, 1] }}
-          className="flex-1 overflow-y-auto overscroll-contain"
+          className="flex-1 min-h-0 overflow-y-auto overscroll-contain"
         >
           {/* ─── Hero ─────────────────────────────────────────────── */}
-          <div className="relative px-6 pt-2 pb-2.5 text-center flex flex-col items-center">
+          <div className="relative px-6 pt-1.5 pb-2 text-center flex flex-col items-center">
             {/* Reduced gradient height so it doesn't visually bleed toward
                 the top of the sheet (was h-40, looked like it overlapped the
                 status bar on small phones). */}
@@ -156,7 +156,7 @@ export const UpgradeSheet = ({
               }}
             />
 
-            <div className="inline-flex items-center gap-1.5 rounded-full border border-primary/25 bg-primary/[0.07] px-3 py-1 mb-2 relative z-10">
+            <div className="inline-flex items-center gap-1.5 rounded-full border border-primary/25 bg-primary/[0.07] px-3 py-1 mb-1.5 relative z-10">
               <Lock className="h-2.5 w-2.5 text-primary" strokeWidth={2.5} />
               <span className="text-[11px] font-semibold tracking-[0.08em] uppercase text-primary">DayDraft Pro</span>
             </div>
@@ -167,14 +167,14 @@ export const UpgradeSheet = ({
           </div>
 
           {/* ─── Feature cards ────────────────────────────────────── */}
-          <div className="px-4 flex flex-col gap-1">
+          <div className="px-4 flex flex-col gap-1.5">
             {PRO_FEATURES.map((feat, i) => (
               <ProFeatureCard key={feat.id} feat={feat} index={i} />
             ))}
           </div>
 
           {/* ─── Plan selector ────────────────────────────────────── */}
-          <div className="px-4 mt-3 flex flex-col gap-2">
+          <div className="px-4 mt-2.5 flex flex-col gap-1.5 pb-3">
             {PRO_PLANS.map((p) => (
               <ProPlanRow
                 key={p.id}
@@ -185,45 +185,61 @@ export const UpgradeSheet = ({
               />
             ))}
           </div>
-
-          {/* ─── CTA ──────────────────────────────────────────────── */}
-          <div className="px-4 mt-2.5">
-            <button
-              type="button"
-              onClick={checkout}
-              disabled={busy}
-              className="pressable w-full h-[50px] rounded-[16px] bg-primary text-primary-foreground text-[16px] font-semibold tracking-wide disabled:opacity-60 shadow-[0_8px_20px_-6px_hsl(var(--primary)/0.4)]"
-            >
-              {ctaLabel}
-            </button>
-
-            {/* Trust badges + restore — flex-wrap so the row wraps on
-                iPhone SE (375px) instead of overflowing. gap-3 is tighter
-                than gap-5 to give each label more room. */}
-            <div className="flex items-center justify-center gap-x-3 gap-y-1.5 flex-wrap mt-2">
-              {[
-                { Icon: Shield, text: "Cancel anytime" },
-                { Icon: Check, text: "Secure payment" },
-                { Icon: RotateCcw, text: "Restore", action: restore, loading: restoring },
-              ].map(({ Icon, text, action, loading }) => (
-                <button
-                  key={text}
-                  type="button"
-                  onClick={action}
-                  disabled={loading}
-                  className="flex items-center gap-1 text-[11px] text-secondary-fg/55 pressable disabled:opacity-50 transition-colors hover:text-secondary-fg whitespace-nowrap"
-                >
-                  <Icon className="h-3 w-3 shrink-0" strokeWidth={2} />
-                  {loading ? "Restoring…" : text}
-                </button>
-              ))}
-            </div>
-
-            <PaywallTerms planId={plan} priceInfo={prices[plan]} showTrial={showTrial} />
-
-            <div style={{ height: "max(10px, env(safe-area-inset-bottom, 0px))" }} />
-          </div>
         </motion.div>
+
+        {/* ─── CTA footer — pinned outside the scroll area ───────────
+            With 5 feature cards the list itself can outgrow the sheet on
+            shorter phones, but the buy button must never be something you
+            have to go hunting for — that's what read as "broken" rather
+            than "long list." Sticky footer + a hairline border to separate
+            it from whatever's scrolled up underneath. */}
+        <div className="shrink-0 px-4 pt-1 border-t border-border/50 bg-background">
+          <button
+            type="button"
+            onClick={checkout}
+            disabled={busy}
+            className="pressable w-full h-[44px] rounded-[16px] bg-primary text-primary-foreground text-[16px] font-semibold tracking-wide disabled:opacity-60 shadow-[0_8px_20px_-6px_hsl(var(--primary)/0.4)]"
+          >
+            {ctaLabel}
+          </button>
+
+          {/* Trust badges + restore — flex-wrap so the row wraps on
+              iPhone SE (375px) instead of overflowing. gap-3 is tighter
+              than gap-5 to give each label more room. */}
+          <div className="flex items-center justify-center gap-x-3 gap-y-1 flex-wrap mt-1">
+            {[
+              { Icon: Shield, text: "Cancel anytime" },
+              { Icon: Check, text: "Secure payment" },
+              { Icon: RotateCcw, text: "Restore", action: restore, loading: restoring },
+            ].map(({ Icon, text, action, loading }) => (
+              <button
+                key={text}
+                type="button"
+                onClick={action}
+                disabled={loading}
+                className="flex items-center gap-1 text-[11px] text-secondary-fg/55 pressable disabled:opacity-50 transition-colors hover:text-secondary-fg whitespace-nowrap"
+              >
+                <Icon className="h-3 w-3 shrink-0" strokeWidth={2} />
+                {loading ? "Restoring…" : text}
+              </button>
+            ))}
+          </div>
+
+          <PaywallTerms planId={plan} priceInfo={prices[plan]} showTrial={showTrial} />
+
+          {/* Bottom clearance. var(--safe-area-inset-bottom) FIRST, env() as
+              fallback — same chain TabBar/SideNav use; Android's MainActivity
+              injects the real WindowInsetsCompat height into that CSS var (see
+              src/lib/capacitor.ts). We reserve the inset MINUS 10px (floored at
+              6px): reserving the FULL inset left a fat empty band under the fine
+              print on both platforms — the iOS home indicator and a thin Android
+              gesture bar are translucent/slim, so the fine print can sit a touch
+              into that zone. Trimming 10px drops the whole pinned block lower
+              (killing the dead band the user flagged) and hands those 10px of
+              scroll room to the plan rows, without the interactive CTA above ever
+              reaching the bar. */}
+          <div style={{ height: "max(6px, calc(var(--safe-area-inset-bottom, env(safe-area-inset-bottom, 0px)) - 10px))" }} />
+        </div>
       </SheetContent>
     </Sheet>
   );

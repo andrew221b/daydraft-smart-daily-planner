@@ -33,7 +33,10 @@ SheetOverlay.displayName = SheetPrimitive.Overlay.displayName;
 const sheetVariants = cva(
   // Spring-physics motion — mirrors UIKit's high-stiffness spring:
   // Both open and close use the iOS standard curve for smooth, native-like floating windows.
-  "fixed z-50 gap-4 bg-background p-6 shadow-lg data-[state=open]:animate-in data-[state=closed]:animate-out data-[state=open]:duration-[500ms] data-[state=closed]:duration-[400ms] data-[state=open]:[animation-timing-function:cubic-bezier(0.32,0.72,0,1)] data-[state=closed]:[animation-timing-function:cubic-bezier(0.32,0.72,0,1)] will-change-transform",
+  // will-change is intentionally NOT a static class here — see the
+  // onAnimationStart/End handlers below, which apply it only for the
+  // duration of the slide animation.
+  "fixed z-50 gap-4 bg-background p-6 shadow-lg data-[state=open]:animate-in data-[state=closed]:animate-out data-[state=open]:duration-[500ms] data-[state=closed]:duration-[400ms] data-[state=open]:[animation-timing-function:cubic-bezier(0.32,0.72,0,1)] data-[state=closed]:[animation-timing-function:cubic-bezier(0.32,0.72,0,1)]",
   {
     variants: {
       side: {
@@ -172,16 +175,48 @@ const SheetContent = React.forwardRef<React.ElementRef<typeof SheetPrimitive.Con
       [onInteractOutside],
     );
 
+    // A permanent `will-change: transform` on the sheet (the old static
+    // Tailwind class) promotes it to its own GPU compositing layer for the
+    // sheet's ENTIRE open lifetime, not just the slide-in/out. On iOS
+    // WKWebView that layer boundary confuses the native text-selection
+    // handle overlay for any textarea/input inside — the handles render but
+    // are frozen and don't track drags ("Ползунок застрял и не двигается").
+    // Fix: only promote the layer while the enter/exit animation is
+    // actually running, via the animation's own start/end events.
+    const contentRef = React.useRef<HTMLDivElement>(null);
+    const setRefs = React.useCallback(
+      (node: HTMLDivElement | null) => {
+        contentRef.current = node;
+        if (typeof ref === "function") ref(node);
+        else if (ref) (ref as React.MutableRefObject<HTMLDivElement | null>).current = node;
+      },
+      [ref],
+    );
+    // Descendant animations (spinners, thinking dots) bubble their events up
+    // here — and infinite ones never fire animationend on unmount (browser
+    // sends animationcancel, which React can't handle), so without the
+    // target gate willChange would stick to "transform" forever.
+    const handleAnimationStart = React.useCallback((e: React.AnimationEvent<HTMLDivElement>) => {
+      if (e.target !== e.currentTarget) return;
+      if (contentRef.current) contentRef.current.style.willChange = "transform";
+    }, []);
+    const handleAnimationEnd = React.useCallback((e: React.AnimationEvent<HTMLDivElement>) => {
+      if (e.target !== e.currentTarget) return;
+      if (contentRef.current) contentRef.current.style.willChange = "auto";
+    }, []);
+
     return (
       <SheetPortal>
         <SheetOverlay />
         <SheetPrimitive.Content
-          ref={ref}
+          ref={setRefs}
           data-sheet-side={side}
           className={cn(sheetVariants({ side }), className)}
           style={{ ...kbStyle, ...style }}
           onPointerDownOutside={handlePointerDownOutside as React.ComponentPropsWithoutRef<typeof SheetPrimitive.Content>["onPointerDownOutside"]}
           onInteractOutside={handleInteractOutside as React.ComponentPropsWithoutRef<typeof SheetPrimitive.Content>["onInteractOutside"]}
+          onAnimationStart={handleAnimationStart}
+          onAnimationEnd={handleAnimationEnd}
           {...props}
         >
           {side === "bottom" && <SheetStackEffect />}

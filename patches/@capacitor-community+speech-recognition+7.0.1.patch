@@ -12,10 +12,10 @@ index d31e442..eb1f3d6 100644
      }
      lintOptions {
 diff --git a/node_modules/@capacitor-community/speech-recognition/android/src/main/java/com/getcapacitor/community/speechrecognition/SpeechRecognition.java b/node_modules/@capacitor-community/speech-recognition/android/src/main/java/com/getcapacitor/community/speechrecognition/SpeechRecognition.java
-index a99ea69..70ff1d1 100644
+index a99ea69..bfc3c72 100644
 --- a/node_modules/@capacitor-community/speech-recognition/android/src/main/java/com/getcapacitor/community/speechrecognition/SpeechRecognition.java
 +++ b/node_modules/@capacitor-community/speech-recognition/android/src/main/java/com/getcapacitor/community/speechrecognition/SpeechRecognition.java
-@@ -42,6 +42,24 @@ public class SpeechRecognition extends Plugin implements Constants {
+@@ -42,6 +42,33 @@ public class SpeechRecognition extends Plugin implements Constants {
  
      private JSONArray previousPartialResults = new JSONArray();
  
@@ -36,29 +36,87 @@ index a99ea69..70ff1d1 100644
 +    // and a "started" landing just after the user stopped flips the JS mic UI back
 +    // on (the "indicator won't turn off" bug). This flag makes the events monotonic.
 +    private boolean startedEmitted = false;
++    // Spin guard for the auto-restart loop (mirrors the iOS plugin). Android's
++    // SpeechRecognizer throws a wide range of transient errors mid-dictation and
++    // we restart on almost all of them (see onError) to keep the session alive.
++    // Without a limiter, an engine that keeps erroring instantly (mic grabbed by
++    // another app, recognizer wedged) would restart forever and drain the battery.
++    // Only restarts that fire in rapid succession (<0.5s apart, i.e. no speech got
++    // through in between) count; a real spoken utterance resets the streak.
++    private int consecutiveRestarts = 0;
++    private long lastRestartAtMs = 0;
 +
      @Override
      public void load() {
          super.load();
-@@ -81,7 +99,8 @@ public class SpeechRecognition extends Plugin implements Constants {
+@@ -81,7 +108,20 @@ public class SpeechRecognition extends Plugin implements Constants {
          String prompt = call.getString("prompt", null);
          boolean partialResults = call.getBoolean("partialResults", false);
          boolean popup = call.getBoolean("popup", false);
 -        beginListening(language, maxResults, prompt, partialResults, popup, call);
 +        boolean continuous = call.getBoolean("continuous", false);
-+        beginListening(language, maxResults, prompt, partialResults, popup, continuous, call);
++        // The user's own vocabulary (template/list names) — JS already sends it
++        // for iOS's SFSpeechRecognitionRequest.contextualStrings; Android 13+
++        // has the direct equivalent (EXTRA_BIASING_STRINGS), read it here too.
++        ArrayList<String> biasingStrings = new ArrayList<>();
++        JSArray ctx = call.getArray("contextualStrings");
++        if (ctx != null) {
++            try {
++                for (Object o : ctx.toList()) {
++                    if (o instanceof String && !((String) o).isEmpty()) biasingStrings.add((String) o);
++                }
++            } catch (Exception ignored) {}
++        }
++        beginListening(language, maxResults, prompt, partialResults, popup, continuous, biasingStrings, call);
      }
  
      @PluginMethod
-@@ -157,6 +176,7 @@ public class SpeechRecognition extends Plugin implements Constants {
+@@ -157,6 +197,8 @@ public class SpeechRecognition extends Plugin implements Constants {
          String prompt,
          final boolean partialResults,
          boolean showPopup,
 +        boolean continuous,
++        ArrayList<String> biasingStrings,
          PluginCall call
      ) {
          Logger.info(getLogTag(), "Beginning to listen for audible speech");
-@@ -176,34 +196,102 @@ public class SpeechRecognition extends Plugin implements Constants {
+@@ -164,10 +206,35 @@ public class SpeechRecognition extends Plugin implements Constants {
+         final Intent intent = new Intent(RecognizerIntent.ACTION_RECOGNIZE_SPEECH);
+         intent.putExtra(RecognizerIntent.EXTRA_LANGUAGE_MODEL, RecognizerIntent.LANGUAGE_MODEL_FREE_FORM);
+         intent.putExtra(RecognizerIntent.EXTRA_LANGUAGE, language);
++        // Reinforce the CHOSEN locale as the preferred one too — without this, some
++        // Android builds fall back to the system-default locale's model (e.g. hearing
++        // Russian through an English model), a big source of "recognises crookedly".
++        intent.putExtra(RecognizerIntent.EXTRA_LANGUAGE_PREFERENCE, language);
+         intent.putExtra(RecognizerIntent.EXTRA_MAX_RESULTS, maxResults);
+         intent.putExtra(RecognizerIntent.EXTRA_CALLING_PACKAGE, bridge.getActivity().getPackageName());
+         intent.putExtra(RecognizerIntent.EXTRA_PARTIAL_RESULTS, partialResults);
+         intent.putExtra("android.speech.extra.DICTATION_MODE", partialResults);
++        // Ask the engine to optimise for transcription QUALITY over latency and to
++        // punctuate/format the result (Android 13+). Real, Google-supported accuracy
++        // lever — no-op on older devices, so guarded by the API level.
++        if (Build.VERSION.SDK_INT >= 33) {
++            intent.putExtra(RecognizerIntent.EXTRA_ENABLE_FORMATTING, RecognizerIntent.FORMATTING_OPTIMIZE_QUALITY);
++            intent.putExtra(RecognizerIntent.EXTRA_MASK_OFFENSIVE_WORDS, false);
++            // Bias recognition toward the user's own vocabulary (their template
++            // and list names) — Android 13+'s equivalent of iOS's
++            // contextualStrings, and a real accuracy lever for exactly the words
++            // the engine is most likely to garble (proper nouns, app-specific
++            // terms the language model has never seen).
++            if (!biasingStrings.isEmpty()) {
++                intent.putStringArrayListExtra(RecognizerIntent.EXTRA_BIASING_STRINGS, biasingStrings);
++            }
++        }
++        // Give the speaker more room before the engine decides a phrase is done, so
++        // a natural mid-sentence pause doesn't chop the utterance in half (a chopped
++        // utterance loses cross-word context and mis-transcribes the boundary). These
++        // are best-effort int-millis hints — some engines ignore them — but never hurt.
++        intent.putExtra(RecognizerIntent.EXTRA_SPEECH_INPUT_COMPLETE_SILENCE_LENGTH_MILLIS, 1500);
++        intent.putExtra(RecognizerIntent.EXTRA_SPEECH_INPUT_POSSIBLY_COMPLETE_SILENCE_LENGTH_MILLIS, 1500);
+ 
+         if (prompt != null) {
+             intent.putExtra(RecognizerIntent.EXTRA_PROMPT, prompt);
+@@ -176,34 +243,124 @@ public class SpeechRecognition extends Plugin implements Constants {
          if (showPopup) {
              startActivityForResult(call, intent, "listeningResult");
          } else {
@@ -145,6 +203,25 @@ index a99ea69..70ff1d1 100644
 +    // Continue a live session after a pause / benign timeout. The short delay
 +    // avoids ERROR_RECOGNIZER_BUSY from restarting the engine too quickly.
 +    private void restartListening() {
++        // Time-based spin guard: only restarts that come hard on the heels of the
++        // previous one (<0.5s apart — the engine erroring out instantly with no
++        // speech in between) count toward the limit. A restart after a genuine
++        // spoken utterance is seconds later and resets the streak. If the engine
++        // is wedged (e.g. the mic is held by another app), give up cleanly after a
++        // short burst instead of looping forever.
++        long now = System.currentTimeMillis();
++        if (now - lastRestartAtMs < 500) {
++            consecutiveRestarts++;
++        } else {
++            consecutiveRestarts = 0;
++        }
++        lastRestartAtMs = now;
++        if (consecutiveRestarts > 8) {
++            consecutiveRestarts = 0;
++            continuousMode = false;
++            emitStopped();
++            return;
++        }
 +        bridge
 +            .getWebView()
 +            .postDelayed(
@@ -152,7 +229,10 @@ index a99ea69..70ff1d1 100644
 +                    if (stoppedByUser || !continuousMode || continuousIntent == null) return;
 +                    startRecognizer(continuousIntent, true, continuousCall);
 +                },
-+                150
++                // 250ms (was 150): the engine needs a beat to release after a
++                // cancel()/destroy() or it re-throws ERROR_RECOGNIZER_BUSY, which
++                // would itself trigger another restart — a needless busy-loop.
++                250
 +            );
 +    }
 +
@@ -187,7 +267,7 @@ index a99ea69..70ff1d1 100644
          }
      }
  
-@@ -213,12 +301,24 @@ public class SpeechRecognition extends Plugin implements Constants {
+@@ -213,12 +370,24 @@ public class SpeechRecognition extends Plugin implements Constants {
              .post(() -> {
                  try {
                      SpeechRecognition.this.lock.lock();
@@ -216,7 +296,7 @@ index a99ea69..70ff1d1 100644
                  } finally {
                      SpeechRecognition.this.lock.unlock();
                  }
-@@ -239,13 +339,16 @@ public class SpeechRecognition extends Plugin implements Constants {
+@@ -239,13 +408,16 @@ public class SpeechRecognition extends Plugin implements Constants {
          }
  
          @Override
@@ -238,7 +318,7 @@ index a99ea69..70ff1d1 100644
                  JSObject ret = new JSObject();
                  ret.put("status", "started");
                  SpeechRecognition.this.notifyListeners(LISTENING_EVENT, ret);
-@@ -254,6 +357,13 @@ public class SpeechRecognition extends Plugin implements Constants {
+@@ -254,6 +426,13 @@ public class SpeechRecognition extends Plugin implements Constants {
              }
          }
  
@@ -252,7 +332,7 @@ index a99ea69..70ff1d1 100644
          @Override
          public void onRmsChanged(float rmsdB) {}
  
-@@ -262,6 +372,11 @@ public class SpeechRecognition extends Plugin implements Constants {
+@@ -262,6 +441,11 @@ public class SpeechRecognition extends Plugin implements Constants {
  
          @Override
          public void onEndOfSpeech() {
@@ -264,19 +344,33 @@ index a99ea69..70ff1d1 100644
              bridge
                  .getWebView()
                  .post(() -> {
-@@ -280,48 +395,68 @@ public class SpeechRecognition extends Plugin implements Constants {
+@@ -280,48 +464,89 @@ public class SpeechRecognition extends Plugin implements Constants {
  
          @Override
          public void onError(int error) {
-+            // Benign "end of input" errors during a continuous session just mean
-+            // the user paused — keep the session alive by restarting instead of
-+            // ending it.
-+            boolean transientErr = (
-+                error == SpeechRecognizer.ERROR_NO_MATCH ||
-+                error == SpeechRecognizer.ERROR_SPEECH_TIMEOUT ||
-+                error == SpeechRecognizer.ERROR_RECOGNIZER_BUSY
++            // ROOT CAUSE of "Android recording just stops by itself": the old
++            // whitelist only kept the session alive on THREE error codes
++            // (NO_MATCH / SPEECH_TIMEOUT / RECOGNIZER_BUSY). But Android's
++            // SpeechRecognizer fires a much wider spread of *recoverable* errors
++            // mid-dictation — most commonly ERROR_CLIENT (5) on a fast restart,
++            // and ERROR_NETWORK / ERROR_NETWORK_TIMEOUT / ERROR_SERVER when the
++            // device is using online recognition and the link blips. Every one of
++            // those fell through to stopListening() and killed the mic — exactly
++            // the "слетает сама" symptom.
++            //
++            // Inverted logic: in a continuous session, restart on ANYTHING except
++            // the few errors that genuinely can't recover by restarting (missing
++            // permission, or the locale's model isn't available — a restart would
++            // just re-throw the same error). The restart path is spin-guarded (see
++            // restartListening), so even an unforeseen, persistently-firing error
++            // can't loop forever — it burns through the streak limit and stops
++            // cleanly. This is strictly more robust than an ever-growing allowlist.
++            boolean fatalErr = (
++                error == SpeechRecognizer.ERROR_INSUFFICIENT_PERMISSIONS ||
++                error == SpeechRecognizer.ERROR_LANGUAGE_NOT_SUPPORTED ||
++                error == SpeechRecognizer.ERROR_LANGUAGE_UNAVAILABLE
 +            );
-+            if (continuousMode && !stoppedByUser && transientErr) {
++            if (continuousMode && !stoppedByUser && !fatalErr) {
 +                SpeechRecognition.this.restartListening();
 +                return;
 +            }
@@ -316,6 +410,7 @@ index a99ea69..70ff1d1 100644
 +                    // the user has stopped, finish.
 +                    if (!finalText.isEmpty()) {
 +                        sessionText = sessionText.isEmpty() ? finalText : sessionText + "\n" + finalText;
++                        consecutiveRestarts = 0; // a committed utterance = healthy engine
 +                    }
 +                    emitTranscript("");
 +                    if (!stoppedByUser) {
@@ -349,6 +444,12 @@ index a99ea69..70ff1d1 100644
 -                }
 -            } catch (Exception ex) {}
 +            if (matches == null || matches.isEmpty()) return;
++            // Real speech is coming through → the engine is healthy, so clear the
++            // restart-spin streak. This is why a long dictation with many natural
++            // pauses (each a legitimate restart) never trips the spin guard: only
++            // an unbroken run of instant error-restarts, with no transcript in
++            // between, ever reaches the limit.
++            consecutiveRestarts = 0;
 +            // Emit accumulated session text + this utterance's partial, so JS
 +            // always sees the full transcript-so-far (matching iOS).
 +            emitTranscript(matches.get(0));

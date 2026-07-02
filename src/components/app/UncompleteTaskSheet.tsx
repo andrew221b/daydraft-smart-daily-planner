@@ -1,6 +1,6 @@
 import { useEffect, useState, type CSSProperties } from "react";
 import { Sheet, SheetContent, SheetTitle } from "@/components/ui/sheet";
-import type { Block } from "@/lib/daydraft";
+import { type Block, fmtTime } from "@/lib/daydraft";
 import { haptics } from "@/lib/haptics";
 import { CopyPlus, RotateCcw, Clock, Timer } from "lucide-react";
 import { motion } from "framer-motion";
@@ -25,13 +25,9 @@ function roundedNowHHMM(): string {
   return `${String(now.getHours()).padStart(2, "0")}:${String(now.getMinutes()).padStart(2, "0")}`;
 }
 
-function fmtTime(hhmm: string) {
-  const [h, m] = hhmm.split(":");
-  const hNum = parseInt(h, 10);
-  const ampm = hNum >= 12 ? "PM" : "AM";
-  const h12 = hNum % 12 || 12;
-  return `${h12}:${m} ${ampm}`;
-}
+// Use the shared, locale-aware formatter (imported above) so this reschedule
+// picker shows times in exactly the same "9:30 pm" / "21:30" style as the rest
+// of the app — the old local version forced uppercase 12h regardless of locale.
 
 function fmtDuration(mins: number | null) {
   if (mins == null) return "Set";

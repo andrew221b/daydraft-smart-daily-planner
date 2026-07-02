@@ -66,6 +66,48 @@ type Options = {
 const ABORT_ERROR = { message: "aborted", aborted: true } as const;
 
 /**
+ * Is this the class of error that means "we never actually reached the
+ * server" (offline blip, DNS hiccup, cold edge function refusing the
+ * connection) rather than a real response the backend sent us? This is the
+ * one category safe to silently retry — a fast failure, not a slow timeout,
+ * and not a deliberate error from the AI itself (rate limit, safety refusal,
+ * validation). Shared so the retry decision here and the "friendly message"
+ * classification at each call site can never drift apart.
+ */
+export function isNetworkError(message: string | null | undefined): boolean {
+  return /Load failed|Failed to fetch|NetworkError|TypeError|net::|ENOTFOUND|ECONNREFUSED|Failed to send a request/i.test(
+    message || "",
+  );
+}
+
+/**
+ * fetch() with one silent retry when the connection itself fails (the class
+ * `isNetworkError` matches) — covers the common "cold edge function" or
+ * "flaky cell handoff" blip that would otherwise surface as a scary
+ * "couldn't reach AI" toast on the very first try. Never retries a call the
+ * caller has already cancelled (component unmounted / user navigated away),
+ * and never retries a real HTTP response (non-2xx) — only a fetch() that
+ * threw with a network-class error. Caveat: fetch can throw AFTER the server
+ * already accepted the request (body sent, response headers never arrived —
+ * TLS reset, iOS cell handoff), so the retry may re-run a POST whose side
+ * effects (ai-assist rate-limit tick, Gemini tokens) already happened. Rare
+ * and cheap for our endpoints; a proper fix is an idempotency key + edge
+ * dedupe if this ever matters.
+ */
+export async function fetchWithRetry(input: string, init: RequestInit): Promise<Response> {
+  try {
+    return await fetch(input, init);
+  } catch (e) {
+    const signal = init.signal as AbortSignal | undefined;
+    const msg = e instanceof Error ? e.message : String(e);
+    if (signal?.aborted || !isNetworkError(msg)) throw e;
+    await new Promise((r) => setTimeout(r, 600));
+    if (signal?.aborted) throw e;
+    return fetch(input, init);
+  }
+}
+
+/**
  * Resolve with whichever happens first: the underlying promise, or the
  * caller's signal firing. Used so an unmounted React component can stop
  * caring about an AI response without cancelling the shared request for
@@ -177,7 +219,13 @@ export async function invokeAiCached<T = unknown>(
   recordAiCacheMiss();
   const started = typeof performance !== "undefined" ? performance.now() : Date.now();
 
-  const runner = (async (): Promise<InvokeResult<T>> => {
+  // One attempt: fresh AbortController per try, timed independently so a
+  // retry gets the same budget as the first attempt rather than whatever's
+  // left over. Reports whether ITS OWN timeout fired (as opposed to the
+  // caller's signal, or a genuine connect failure) — a timeout means the
+  // server was slow, not unreachable, and isn't worth silently retrying at
+  // the same timeoutMs (that would just double the worst-case wait).
+  const attempt = async (): Promise<{ result: InvokeResult<T>; timedOut: boolean }> => {
     let controller: AbortController | null = null;
     let timeoutId: ReturnType<typeof setTimeout> | null = null;
     if (options.timeoutMs && options.timeoutMs > 0) {
@@ -188,16 +236,38 @@ export async function invokeAiCached<T = unknown>(
       const invokeOpts: Record<string, unknown> = { body };
       if (controller) invokeOpts.signal = controller.signal;
       const { data, error } = await supabase.functions.invoke(name, invokeOpts as { body: unknown });
-      if (error) return { data: null, error };
-      if (data != null) {
-        if (ttlMs > 0) memCache.set(key, { data, expiresAt: Date.now() + ttlMs });
-        if (persistMs > 0) writePersistent(key, data, persistMs);
-      }
-      return { data: data as T, error: null };
+      return { result: { data: (data as T) ?? null, error: error ?? null }, timedOut: controller?.signal.aborted ?? false };
     } catch (e) {
-      return { data: null, error: { message: e instanceof Error ? e.message : String(e) } };
+      return {
+        result: { data: null, error: { message: e instanceof Error ? e.message : String(e) } },
+        timedOut: controller?.signal.aborted ?? false,
+      };
     } finally {
       if (timeoutId) clearTimeout(timeoutId);
+    }
+  };
+
+  const runner = (async (): Promise<InvokeResult<T>> => {
+    try {
+      let outcome = await attempt();
+      // A fast connect-level failure (offline blip, cold edge function) gets
+      // one silent retry before we give up — this is the fix for "couldn't
+      // reach AI" firing on the very first hiccup. Not for our own timeout
+      // (server was slow, not unreachable) and not once the caller has
+      // already stopped caring (component unmounted / user moved on).
+      if (outcome.result.error && !outcome.timedOut && !options.signal?.aborted && isNetworkError(outcome.result.error.message)) {
+        await new Promise((r) => setTimeout(r, 600));
+        if (!options.signal?.aborted) {
+          outcome = await attempt();
+        }
+      }
+      const result = outcome.result;
+      if (result.data != null) {
+        if (ttlMs > 0) memCache.set(key, { data: result.data, expiresAt: Date.now() + ttlMs });
+        if (persistMs > 0) writePersistent(key, result.data, persistMs);
+      }
+      return result;
+    } finally {
       const ended = typeof performance !== "undefined" ? performance.now() : Date.now();
       recordAiCall(name, ended - started);
       inflight.delete(key);

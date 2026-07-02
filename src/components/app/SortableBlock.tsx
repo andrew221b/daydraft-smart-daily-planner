@@ -156,8 +156,14 @@ export const SortableBlock = memo(({
   // suffix so the enlarged time reads cleanly and still fits the tight left
   // rail on both 12h ("9:30am") and 24h ("09:30") locales.
   const rawStartTime = fmtTime(block.start_time);
-  const startAmPm = rawStartTime.match(/(am|pm)$/i)?.[1] ?? "";
-  const startTimeMain = startAmPm ? rawStartTime.slice(0, -startAmPm.length) : rawStartTime;
+  // fmtTime now separates the marker with a space ("9:30 pm"); swallow that
+  // space too so the enlarged number and the tiny suffix keep their own
+  // gap-px spacing below instead of inheriting a literal space.
+  const startAmPmMatch = rawStartTime.match(/\s*(am|pm)$/i);
+  const startAmPm = startAmPmMatch?.[1] ?? "";
+  const startTimeMain = startAmPmMatch
+    ? rawStartTime.slice(0, startAmPmMatch.index).trimEnd()
+    : rawStartTime;
 
   const fmtMin = (mins: number) =>
     mins < 60 ? `${mins}m` : `${Math.floor(mins / 60)}h${mins % 60 ? ` ${mins % 60}m` : ""}`;

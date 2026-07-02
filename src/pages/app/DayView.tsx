@@ -7,7 +7,7 @@ import { supabase } from "@/integrations/supabase/client";
 import { Capacitor } from "@capacitor/core";
 import { syncBlockNotifications, getNotificationsEnabled, setNotificationsEnabled } from "@/lib/localNotifications";
 import { enqueueWrite } from "@/lib/idbCache";
-import { invokeAiCached } from "@/lib/aiCache";
+import { invokeAiCached, isNetworkError } from "@/lib/aiCache";
 import { useAbortOnUnmount } from "@/hooks/useAbortOnUnmount";
 import {
   Block, type BlockType, type BlockKind, fmtTime, todayDateStr, parseDateStr, friendlyDateFor, isFutureDateStr, isUserTask, isOpenUserTask, isUserTaskDone, inferScheduleBlockType, packLinearSchedule,
@@ -220,27 +220,52 @@ const BulkInputStep = memo(function BulkInputStep({
   initialValue,
   templates,
   onDeleteTemplate,
-  onContinue,
-  disabled,
-  loading,
+  valRef,
 }: {
   initialValue: string;
   templates: BulkTemplate[];
   onDeleteTemplate: (id: string) => void;
-  onContinue: (text: string) => void;
-  disabled: boolean;
-  loading?: boolean;
+  // Continue lives in a footer OWNED BY THE PARENT (outside this component,
+  // outside the overflow-y-auto scroll region — see the sibling
+  // `{bulkStep === "input" && (...)}` block below, matching how "clarify"
+  // and "review" already do it) so its glow/hover shadow never gets clipped
+  // by a scroll container with no room to spare. That means the parent's
+  // button needs the CURRENT text at click time without this component
+  // lifting `val` into parent state — re-rendering all of DayView on every
+  // keystroke is exactly what this component was isolated to avoid. A ref
+  // is the answer: written on every change, read once on click, triggers
+  // no re-render either way.
+  valRef: React.MutableRefObject<string>;
 }) {
   const [val, setVal] = useState(initialValue);
+  const update = (next: string) => { setVal(next); valRef.current = next; };
+  // Mirror the mount-time value into the ref once — useState(initialValue)
+  // only applies it on the very first render, so the ref needs the same
+  // one-time seed (the parent's ref otherwise wouldn't know about text that
+  // arrived via `initialValue`, e.g. a template applied before this step
+  // last unmounted, without waiting for the user's next keystroke).
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  useEffect(() => { valRef.current = initialValue; }, []);
   // Snapshot of `val` the instant a dictation session starts — onText always
   // reports the FULL session transcript, so each update replaces everything
   // typed/dictated after that snapshot rather than appending duplicates.
   const dictationBaseRef = useRef("");
   return (
     <div className="space-y-3 pb-4">
-      <p className="text-[12px] leading-relaxed text-secondary-fg">
-        Type or paste your tasks — one per line, bullets, commas, anything. We'll split them into blocks.
-      </p>
+      <div className="flex items-start justify-between gap-2">
+        <p className="text-[12px] leading-relaxed text-secondary-fg flex-1">
+          Type or paste your tasks — one per line, bullets, commas, anything. We'll split them into blocks.
+        </p>
+        {val.length > 0 && (
+          <button
+            type="button"
+            onClick={() => { haptics.tap(); update(""); }}
+            className="shrink-0 text-[12px] font-medium text-secondary-fg/65 hover:text-destructive pressable"
+          >
+            Clear
+          </button>
+        )}
+      </div>
       {templates.length > 0 && (
         <div>
           <p className="text-[10px] font-semibold uppercase tracking-[0.12em] text-secondary-fg/55 mb-2">Templates</p>
@@ -249,7 +274,7 @@ const BulkInputStep = memo(function BulkInputStep({
               <div key={t.id} className="shrink-0 flex items-center gap-0.5 rounded-full border border-border/70 bg-card/50 pl-3 pr-1 py-1">
                 <button
                   type="button"
-                  onClick={() => setVal((v) => v ? `${v}\n${t.raw_input}` : t.raw_input)}
+                  onClick={() => update(val ? `${val}\n${t.raw_input}` : t.raw_input)}
                   className="text-[12px] font-medium text-foreground/85 max-w-[11rem] truncate pressable"
                 >
                   {t.name}
@@ -272,7 +297,7 @@ const BulkInputStep = memo(function BulkInputStep({
         <Textarea
           autoFocus={false}
           value={val}
-          onChange={(e) => setVal(e.target.value)}
+          onChange={(e) => update(e.target.value)}
           placeholder={"Fix mobile layout, download PDF, send to client\nCall Alex, invoice client"}
           className="min-h-[150px] rounded-2xl border-soft bg-card text-[14px] pb-11"
           style={{ fontSize: 16 }}
@@ -283,22 +308,10 @@ const BulkInputStep = memo(function BulkInputStep({
           onSessionStart={() => { dictationBaseRef.current = val; }}
           onText={(text) => {
             const base = dictationBaseRef.current;
-            setVal(base ? `${base}${base.endsWith("\n") ? "" : "\n"}${text}` : text);
+            update(base ? `${base}${base.endsWith("\n") ? "" : "\n"}${text}` : text);
           }}
         />
       </div>
-      <Button
-        onClick={() => onContinue(val)}
-        disabled={disabled || loading}
-        className="w-full h-12 rounded-2xl bg-primary hover:bg-primary/92 text-white font-semibold pressable"
-      >
-        {loading ? (
-          <span className="flex items-center gap-2">
-            <Loader2 className="h-4 w-4 animate-spin" />
-            Reading your tasks…
-          </span>
-        ) : "Continue"}
-      </Button>
     </div>
   );
 });
@@ -1357,6 +1370,11 @@ export default function DayView() {
   deleteTemplateRef.current = deleteTemplate;
   const handleComposerContinue = useCallback((text: string) => { void prepareBulkRowsRef.current(text); }, []);
   const handleComposerDeleteTemplate = useCallback((id: string) => { void deleteTemplateRef.current(id); }, []);
+  // Written by BulkInputStep on every keystroke, read once when the OUTSIDE
+  // "Continue" footer button is tapped (see the shrink-0 footer near the
+  // composer sheet) — a ref update triggers no re-render, so DayView doesn't
+  // re-render on every character the way lifting `val` into state would.
+  const composerValRef = useRef("");
 
   const addBulkRows = async (rows: BulkRow[]) => {
     if (planMutating || !user) return;
@@ -2096,7 +2114,12 @@ export default function DayView() {
       toast.success("Re-planned");
     } catch (e) {
       if (signal.aborted) return;
-      toast.error(e.message || "Unable to re-plan remaining tasks");
+      const raw = (e?.message || "").toString();
+      toast.error(
+        isNetworkError(raw)
+          ? "Couldn't reach the AI — check your connection and try again."
+          : raw || "Unable to re-plan remaining tasks",
+      );
     } finally {
       if (!signal.aborted) {
         setReplanning(false);
@@ -2317,7 +2340,7 @@ export default function DayView() {
       if (signal.aborted) return;
       const raw = (e?.message || "").toString();
       const friendly =
-        /Failed to send a request|Load failed|Failed to fetch|NetworkError|net::|ENOTFOUND|ECONNREFUSED|aborted/i.test(raw)
+        isNetworkError(raw)
           ? "Couldn't reach the AI — check your connection and try again."
           : raw && !/AI gateway error/i.test(raw)
             ? raw
@@ -3228,9 +3251,7 @@ export default function DayView() {
                 initialValue={bulkInput}
                 templates={templates}
                 onDeleteTemplate={handleComposerDeleteTemplate}
-                onContinue={handleComposerContinue}
-                disabled={planMutating || bulkParsing}
-                loading={bulkParsing}
+                valRef={composerValRef}
               />
             ) : bulkStep === "clarify" ? (
               <div className="flex flex-col gap-4 pb-4">
@@ -3494,6 +3515,22 @@ export default function DayView() {
 
           {/* Footers live OUTSIDE the scrollable area (shrink-0) so the primary
               button's glow shadow never gets clipped by overflow-y-auto. */}
+          {bulkStep === "input" && (
+            <div className="shrink-0 pt-3 px-1">
+              <Button
+                onClick={() => handleComposerContinue(composerValRef.current)}
+                disabled={planMutating || bulkParsing}
+                className="w-full h-12 rounded-2xl bg-primary hover:bg-primary/92 text-white font-semibold pressable"
+              >
+                {bulkParsing ? (
+                  <span className="flex items-center gap-2">
+                    <Loader2 className="h-4 w-4 animate-spin" />
+                    Reading your tasks…
+                  </span>
+                ) : "Continue"}
+              </Button>
+            </div>
+          )}
           {bulkStep === "clarify" && (
             <div className="shrink-0 flex flex-col items-center gap-2 pt-3 px-1">
               <Button

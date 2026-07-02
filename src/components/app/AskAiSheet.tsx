@@ -4,6 +4,7 @@ import { Sparkles, ArrowUp, ChevronRight, Lock, Zap, Compass, Brain } from "luci
 import { useAbortOnUnmount } from "@/hooks/useAbortOnUnmount";
 import { toast } from "sonner";
 import { supabase } from "@/integrations/supabase/client";
+import { fetchWithRetry, isNetworkError } from "@/lib/aiCache";
 import { useEntitlement } from "@/hooks/useEntitlement";
 import { useProfileData, type Profile } from "@/hooks/useProfile";
 import { UpgradeSheet } from "@/components/app/UpgradeSheet";
@@ -300,7 +301,7 @@ export function AskAiSheet({
       const rawSeed = seedContextRef.current || "";
       const seedContext = rawSeed === "__empty_day__" ? "" : rawSeed;
 
-      const res = await fetch(`${import.meta.env.VITE_SUPABASE_URL}/functions/v1/ai-assist`, {
+      const res = await fetchWithRetry(`${import.meta.env.VITE_SUPABASE_URL}/functions/v1/ai-assist`, {
         method: "POST",
         headers: { "Content-Type": "application/json", "Authorization": `Bearer ${token}` },
         body: JSON.stringify({ messages: next, userFacts, seedContext }),
@@ -370,7 +371,7 @@ export function AskAiSheet({
       // real cause (offline / flaky link).
       const raw = (e as Error)?.message || "";
       const friendly =
-        /Load failed|Failed to fetch|NetworkError|TypeError|net::|ENOTFOUND|ECONNREFUSED/i.test(raw)
+        isNetworkError(raw)
           ? "Couldn't reach the assistant — check your connection and try again."
           // Server-side message already user-friendly (rate limit, safety, etc.) —
           // pass it through verbatim. Fall back only if message is empty/raw.
@@ -434,7 +435,7 @@ export function AskAiSheet({
     <Sheet open={open} onOpenChange={onOpenChange}>
       <SheetContent
         side="bottom"
-        className="rounded-t-[28px] border-border/60 bg-popover h-[82vh] flex flex-col p-0 will-change-transform"
+        className="rounded-t-[28px] border-border/60 bg-popover h-[82vh] flex flex-col p-0"
         style={{
           // Slide content up by keyboard height so the input stays above the
           // keyboard. padding-bottom steals from the inner flex layout
